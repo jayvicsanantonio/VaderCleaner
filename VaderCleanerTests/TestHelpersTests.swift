@@ -59,7 +59,8 @@ final class TestHelpersTests: XCTestCase {
     }
 
     func test_tearDownTempDirectory_doesNotThrowForNonexistentPath() {
-        let nonexistent = URL(fileURLWithPath: "/tmp/this_does_not_exist_\(UUID().uuidString)")
+        let nonexistent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("this_does_not_exist_\(UUID().uuidString)")
         // Should not crash or throw
         TestHelpers.tearDownTempDirectory(nonexistent)
     }

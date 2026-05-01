@@ -2,7 +2,6 @@
 // Shared test utilities for creating and tearing down temporary directories and dummy files.
 
 import Foundation
-import XCTest
 
 /// Utilities used across all VaderCleaner test targets to set up and tear down
 /// isolated temporary file system environments.
@@ -44,8 +43,8 @@ enum TestHelpers {
     @discardableResult
     static func createDummyFiles(count: Int, size: Int, in directory: URL) throws -> [URL] {
         var urls: [URL] = []
-        let data = Data(repeating: 0xAB, count: size)
-        for index in 0..<count {
+        let data = Data(repeating: 0xAB, count: max(0, size))
+        for index in 0..<max(0, count) {
             let fileURL = directory.appendingPathComponent("dummy_\(index).bin")
             try data.write(to: fileURL)
             urls.append(fileURL)
@@ -63,7 +62,7 @@ enum TestHelpers {
     @discardableResult
     static func createDummyFile(named name: String, size: Int, in directory: URL) throws -> URL {
         let fileURL = directory.appendingPathComponent(name)
-        let data = Data(repeating: 0xCD, count: size)
+        let data = Data(repeating: 0xCD, count: max(0, size))
         try data.write(to: fileURL)
         return fileURL
     }
@@ -77,7 +76,7 @@ enum TestHelpers {
     @discardableResult
     static func createNestedDirectories(depth: Int, in root: URL) throws -> URL {
         var current = root
-        for level in 0..<depth {
+        for level in 0..<max(0, depth) {
             current = current.appendingPathComponent("level_\(level)", isDirectory: true)
             try FileManager.default.createDirectory(
                 at: current,

@@ -14,6 +14,7 @@ final class VaderCleanerUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        app.terminate()
         app = nil
     }
 
