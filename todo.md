@@ -9,7 +9,7 @@
 
 ## Phase 0 — Foundation
 
-- [ ] **Prompt 1** — Xcode project + XCTest + XCUITest targets + TestHelpers
+- [x] **Prompt 1** — Xcode project + XCTest + XCUITest targets + TestHelpers
 - [ ] **Prompt 2** — App shell + NavigationSection enum + sidebar navigation (11 sections)
 - [ ] **Prompt 3** — Privileged XPC helper tool (VaderCleanerHelper target + HelperConnectionManager)
 - [ ] **Prompt 4** — Full Disk Access detection + onboarding sheet
