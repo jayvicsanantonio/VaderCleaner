@@ -14,11 +14,7 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
-            if let section = selectedSection {
-                PlaceholderDetailView(section: section)
-            } else {
-                PlaceholderDetailView(section: .smartScan)
-            }
+            PlaceholderDetailView(section: selectedSection ?? .smartScan)
         }
         .frame(minWidth: 900, minHeight: 600)
     }

@@ -3,7 +3,7 @@
 
 import Foundation
 
-enum NavigationSection: String, CaseIterable, Hashable, Identifiable {
+enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case smartScan
     case systemJunk
     case largeOldFiles
@@ -20,17 +20,17 @@ enum NavigationSection: String, CaseIterable, Hashable, Identifiable {
 
     var title: String {
         switch self {
-        case .smartScan:       return "Smart Scan"
-        case .systemJunk:      return "System Junk"
-        case .largeOldFiles:   return "Large & Old Files"
-        case .spaceLens:       return "Space Lens"
-        case .malwareRemoval:  return "Malware Removal"
-        case .privacy:         return "Privacy"
-        case .extensions:      return "Extensions"
-        case .appUninstaller:  return "App Uninstaller"
-        case .appUpdater:      return "App Updater"
-        case .optimization:    return "Optimization"
-        case .healthMonitor:   return "Health Monitor"
+        case .smartScan:       return String(localized: "Smart Scan")
+        case .systemJunk:      return String(localized: "System Junk")
+        case .largeOldFiles:   return String(localized: "Large & Old Files")
+        case .spaceLens:       return String(localized: "Space Lens")
+        case .malwareRemoval:  return String(localized: "Malware Removal")
+        case .privacy:         return String(localized: "Privacy")
+        case .extensions:      return String(localized: "Extensions")
+        case .appUninstaller:  return String(localized: "App Uninstaller")
+        case .appUpdater:      return String(localized: "App Updater")
+        case .optimization:    return String(localized: "Optimization")
+        case .healthMonitor:   return String(localized: "Health Monitor")
         }
     }
 
