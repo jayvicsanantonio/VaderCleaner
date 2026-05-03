@@ -5,6 +5,8 @@ import SwiftUI
 
 @main
 struct VaderCleanerApp: App {
+    @StateObject private var appState = AppState()
+
     init() {
         HelperRegistration.registerIfNeeded()
     }
@@ -12,6 +14,7 @@ struct VaderCleanerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(appState)
         }
     }
 }

@@ -4,6 +4,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject private var appState: AppState
+    @StateObject private var onboarding = PermissionOnboardingViewModel()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedSection: NavigationSection? = .smartScan
 
     var body: some View {
@@ -17,6 +20,27 @@ struct ContentView: View {
             PlaceholderDetailView(section: selectedSection ?? .smartScan)
         }
         .frame(minWidth: 900, minHeight: 600)
+        .sheet(isPresented: shouldShowOnboarding) {
+            PermissionOnboardingView(viewModel: onboarding)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                appState.refresh()
+            }
+        }
+    }
+
+    /// Shown until either FDA is granted (which the foreground refresh will detect)
+    /// or the user dismisses for the session — either via the explicit "Continue
+    /// Without Access" button or via Esc / programmatic sheet dismissal, both of
+    /// which route through `viewModel.dismiss()` so the sheet stays suppressed.
+    private var shouldShowOnboarding: Binding<Bool> {
+        Binding(
+            get: { !appState.hasFullDiskAccess && !onboarding.isDismissed },
+            set: { newValue in
+                if newValue == false { onboarding.dismiss() }
+            }
+        )
     }
 }
 
@@ -42,4 +66,5 @@ private struct PlaceholderDetailView: View {
 
 #Preview {
     ContentView()
+        .environmentObject(AppState(checker: { true }))
 }
