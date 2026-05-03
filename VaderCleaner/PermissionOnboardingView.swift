@@ -5,7 +5,7 @@ import SwiftUI
 
 struct PermissionOnboardingView: View {
     @EnvironmentObject private var appState: AppState
-    @ObservedObject var viewModel: PermissionOnboardingViewModel
+    @EnvironmentObject private var viewModel: PermissionOnboardingViewModel
 
     var body: some View {
         VStack(spacing: 20) {
@@ -62,6 +62,7 @@ struct PermissionOnboardingView: View {
 }
 
 #Preview {
-    PermissionOnboardingView(viewModel: PermissionOnboardingViewModel())
+    PermissionOnboardingView()
         .environmentObject(AppState(checker: { false }))
+        .environmentObject(PermissionOnboardingViewModel())
 }

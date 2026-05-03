@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class PermissionOnboardingViewModelTests: XCTestCase {
 
     func test_isDismissed_defaultsToFalse() {
@@ -22,7 +23,7 @@ final class PermissionOnboardingViewModelTests: XCTestCase {
         // actually launch System Settings, so the test exercises the URL only.
         XCTAssertEqual(
             PermissionOnboardingViewModel.systemSettingsURL.absoluteString,
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+            "x-apple.systempreferences:com.apple.Settings.PrivacyAndSecurity.extension?Privacy_AllFiles"
         )
     }
 }

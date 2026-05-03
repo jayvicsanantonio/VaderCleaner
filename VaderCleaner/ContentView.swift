@@ -5,7 +5,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
-    @StateObject private var onboarding = PermissionOnboardingViewModel()
+    @EnvironmentObject private var onboarding: PermissionOnboardingViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedSection: NavigationSection? = .smartScan
 
@@ -21,7 +21,9 @@ struct ContentView: View {
         }
         .frame(minWidth: 900, minHeight: 600)
         .sheet(isPresented: shouldShowOnboarding) {
-            PermissionOnboardingView(viewModel: onboarding)
+            PermissionOnboardingView()
+                .environmentObject(appState)
+                .environmentObject(onboarding)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -67,4 +69,5 @@ private struct PlaceholderDetailView: View {
 #Preview {
     ContentView()
         .environmentObject(AppState(checker: { true }))
+        .environmentObject(PermissionOnboardingViewModel())
 }

@@ -10,6 +10,7 @@ import Combine
 ///
 /// The FDA checker is injected as a closure so tests can stub the result without
 /// depending on the host machine's TCC state.
+@MainActor
 final class AppState: ObservableObject {
 
     @Published private(set) var hasFullDiskAccess: Bool

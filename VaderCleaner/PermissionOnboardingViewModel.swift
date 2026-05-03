@@ -10,11 +10,16 @@ import Combine
 ///
 /// `systemSettingsURL` is exposed as a static constant so tests can assert the URL
 /// string without having `openSystemSettings()` actually launch System Settings.
+@MainActor
 final class PermissionOnboardingViewModel: ObservableObject {
 
     /// Deep-link to System Settings → Privacy & Security → Full Disk Access.
+    /// Uses the macOS 13+ identifier `com.apple.Settings.PrivacyAndSecurity.extension`,
+    /// which lands directly on the Full Disk Access pane. The legacy
+    /// `com.apple.preference.security` identifier still redirects but typically
+    /// drops the user on the root Privacy pane and requires another click.
     static let systemSettingsURL = URL(
-        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+        string: "x-apple.systempreferences:com.apple.Settings.PrivacyAndSecurity.extension?Privacy_AllFiles"
     )!
 
     /// Set to `true` when the user chooses "Continue Without Access". Suppresses the

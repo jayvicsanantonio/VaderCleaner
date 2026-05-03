@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class AppStateTests: XCTestCase {
 
     func test_init_setsHasFullDiskAccess_fromInjectedChecker_whenTrue() {
