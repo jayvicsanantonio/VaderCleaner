@@ -13,6 +13,15 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         _ listener: NSXPCListener,
         shouldAcceptNewConnection newConnection: NSXPCConnection
     ) -> Bool {
+        // Reject any caller whose code-signing identity does not match the main app.
+        // Without this check, any local process able to reach the mach service name could
+        // invoke privileged operations (file deletion, /usr/sbin/purge, periodic scripts).
+        // setCodeSigningRequirement is macOS 13+ — well within the macOS 14.0 deployment target.
+        do {
+            try newConnection.setCodeSigningRequirement(kHelperClientCodeSigningRequirement)
+        } catch {
+            return false
+        }
         newConnection.exportedInterface = NSXPCInterface(with: VaderCleanerHelperProtocol.self)
         newConnection.exportedObject = self
         newConnection.resume()
@@ -23,20 +32,20 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
 
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
         let fileManager = FileManager.default
+        var firstError: Error?
         for path in paths {
             do {
                 try fileManager.removeItem(atPath: path)
             } catch {
-                reply(error)
-                return
+                if firstError == nil { firstError = error }
             }
         }
-        reply(nil)
+        reply(firstError)
     }
 
     func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {
         runProcess(
-            launchPath: "/usr/sbin/periodic",
+            executable: "/usr/sbin/periodic",
             arguments: ["daily", "weekly", "monthly"],
             reply: reply
         )
@@ -51,18 +60,18 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     }
 
     func flushInactiveMemory(reply: @escaping (Error?) -> Void) {
-        runProcess(launchPath: "/usr/sbin/purge", arguments: [], reply: reply)
+        runProcess(executable: "/usr/sbin/purge", arguments: [], reply: reply)
     }
 
     // MARK: - Private
 
     private func runProcess(
-        launchPath: String,
+        executable: String,
         arguments: [String],
         reply: @escaping (Error?) -> Void
     ) {
         let process = Process()
-        process.launchPath = launchPath
+        process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         do {
             try process.run()
@@ -71,7 +80,7 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
                 reply(NSError(
                     domain: "com.personal.VaderCleaner.helper",
                     code: Int(process.terminationStatus),
-                    userInfo: [NSLocalizedDescriptionKey: "\(launchPath) exited with status \(process.terminationStatus)"]
+                    userInfo: [NSLocalizedDescriptionKey: "\(executable) exited with status \(process.terminationStatus)"]
                 ))
                 return
             }
@@ -86,4 +95,4 @@ let delegate = HelperService()
 let listener = NSXPCListener(machServiceName: kHelperMachServiceName)
 listener.delegate = delegate
 listener.resume()
-RunLoop.current.run()
+dispatchMain()

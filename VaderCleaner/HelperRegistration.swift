@@ -18,6 +18,13 @@ enum HelperRegistration {
 
     static func registerIfNeeded() {
         let service = SMAppService.daemon(plistName: plistName)
+        // Skip if already registered — register() throws when the service is already
+        // enabled, which would generate noise in Console on every launch.
+        guard service.status != .enabled else {
+            os_log("Helper daemon already registered (status=%{public}@)",
+                   log: log, type: .debug, String(describing: service.status))
+            return
+        }
         do {
             try service.register()
             os_log("Registered helper daemon (status=%{public}@)",

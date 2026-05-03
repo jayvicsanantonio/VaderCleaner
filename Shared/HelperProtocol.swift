@@ -8,6 +8,19 @@ import Foundation
 /// and the app's NSXPCConnection. Defined here as the single source of truth.
 let kHelperMachServiceName = "com.personal.VaderCleaner.helper"
 
+/// Code-signing requirement applied by the helper to incoming XPC connections.
+/// Restricts the privileged interface to processes whose code-signing identifier
+/// matches the main app's bundle identifier. Without this guard, any local process
+/// that can reach the mach service name would be able to invoke privileged ops.
+///
+/// Production hardening: append `and certificate leaf[subject.OU] = "TEAMID"`
+/// once a Developer ID team is wired up so that ad-hoc-signed impostors are rejected.
+let kHelperClientCodeSigningRequirement = "identifier \"com.personal.VaderCleaner\""
+
+/// Code-signing requirement applied by the app to the helper connection — the
+/// symmetric check that protects the app from a substituted helper binary.
+let kHelperServerCodeSigningRequirement = "identifier \"com.personal.VaderCleaner.helper\""
+
 /// XPC protocol implemented by VaderCleanerHelper and consumed by the main app.
 ///
 /// All methods are reply-block based — NSXPCConnection requires @objc protocols

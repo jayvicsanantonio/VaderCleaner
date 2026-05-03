@@ -36,11 +36,28 @@ final class HelperConnectionManager {
             }
             let new = NSXPCConnection(machServiceName: kHelperMachServiceName, options: .privileged)
             new.remoteObjectInterface = NSXPCInterface(with: VaderCleanerHelperProtocol.self)
-            new.invalidationHandler = { [weak self] in
-                self?.handleInvalidation()
+            // Reject any helper whose code-signing identity does not match — protects
+            // the app from a substituted/swapped binary at the same mach service name.
+            try? new.setCodeSigningRequirement(kHelperServerCodeSigningRequirement)
+            // Capture the connection's identity in the handler. If invalidate() runs
+            // and a new connect() races ahead before the stale handler fires, the
+            // identity check below prevents the stale handler from clearing the new
+            // connection. queue.async (not sync) avoids re-entrancy if the XPC runtime
+            // dispatches the handler synchronously while invalidate() is mid-flight.
+            new.invalidationHandler = { [weak self, weak new] in
+                guard let self, let conn = new else { return }
+                os_log("Helper XPC connection invalidated", log: self.log, type: .info)
+                self.queue.async {
+                    if self.connection === conn { self.connection = nil }
+                }
             }
-            new.interruptionHandler = { [weak self] in
-                self?.handleInterruption()
+            new.interruptionHandler = { [weak self, weak new] in
+                guard let self, let conn = new else { return }
+                os_log("Helper XPC connection interrupted; will reconnect on next use",
+                       log: self.log, type: .info)
+                self.queue.async {
+                    if self.connection === conn { self.connection = nil }
+                }
             }
             new.resume()
             connection = new
@@ -65,13 +82,4 @@ final class HelperConnectionManager {
         }
     }
 
-    private func handleInvalidation() {
-        os_log("Helper XPC connection invalidated", log: log, type: .info)
-        queue.sync { connection = nil }
-    }
-
-    private func handleInterruption() {
-        os_log("Helper XPC connection interrupted; will reconnect on next use", log: log, type: .info)
-        queue.sync { connection = nil }
-    }
 }
