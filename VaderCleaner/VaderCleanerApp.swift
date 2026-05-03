@@ -5,6 +5,10 @@ import SwiftUI
 
 @main
 struct VaderCleanerApp: App {
+    init() {
+        HelperRegistration.registerIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
