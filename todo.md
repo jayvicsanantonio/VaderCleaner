@@ -13,7 +13,7 @@
 - [x] **Prompt 2** — App shell + NavigationSection enum + sidebar navigation (11 sections)
 - [x] **Prompt 3** — Privileged XPC helper tool (VaderCleanerHelper target + HelperConnectionManager)
 - [x] **Prompt 4** — Full Disk Access detection + onboarding sheet
-- [ ] **Prompt 5** — Menu bar extra (basic, placeholder stats)
+- [x] **Prompt 5** — Menu bar extra (basic, placeholder stats)
 - [ ] **Prompt 6** — PreferencesStore + ExclusionsStore + Preferences window (4 tabs)
 - [ ] **Prompt 7** — Launch at login (SMAppService, wired to Preferences toggle)
 
