@@ -27,6 +27,16 @@ targets:
       - path: VaderCleaner
         excludes:
           - "**/*.md"
+      - path: Shared
+      - path: VaderCleanerHelper/com.personal.VaderCleaner.helper.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
+    dependencies:
+      - target: VaderCleanerHelper
+        copy:
+          destination: executables
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleaner
@@ -47,6 +57,20 @@ targets:
         NSPrincipalClass: NSApplication
         NSSupportsAutomaticTermination: false
         NSSupportsSuddenTermination: false
+
+  VaderCleanerHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: VaderCleanerHelper
+        excludes:
+          - "**/*.plist"
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: VaderCleanerHelper
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleaner.helper
+        SKIP_INSTALL: YES
 
   VaderCleanerTests:
     type: bundle.unit-test

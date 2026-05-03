@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.personal.VaderCleaner.helper.plist
+  launchd configuration for the VaderCleaner privileged XPC daemon. Embedded into the app
+  bundle at Contents/Library/LaunchDaemons/ and registered via SMAppService.daemon().
+
+  IMPORTANT — manual codesigning step (development):
+    The daemon will not register or launch unless both the helper executable and the host
+    app are code-signed (an ad-hoc signature is sufficient locally). With CODE_SIGNING_REQUIRED
+    set to NO in project.yml, builds produce unsigned binaries — sign them after each build:
+
+      codesign --force --sign - --identifier com.personal.VaderCleaner.helper \
+        "$BUILT_PRODUCTS_DIR/VaderCleaner.app/Contents/MacOS/VaderCleanerHelper"
+      codesign --force --sign - "$BUILT_PRODUCTS_DIR/VaderCleaner.app"
+
+    Without this, SMAppService.daemon().register() throws errSecCSUnsigned. The failure
+    is logged but does not crash the app.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.personal.VaderCleaner.helper</string>
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/VaderCleanerHelper</string>
+    <key>MachServices</key>
+    <dict>
+        <key>com.personal.VaderCleaner.helper</key>
+        <true/>
+    </dict>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.personal.VaderCleaner</string>
+    </array>
+</dict>
+</plist>
