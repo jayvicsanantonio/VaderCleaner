@@ -24,6 +24,8 @@ struct VaderCleanerApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var onboardingViewModel = PermissionOnboardingViewModel()
     @StateObject private var menuBarViewModel = MenuBarViewModel()
+    @StateObject private var preferences = PreferencesStore()
+    @StateObject private var exclusions = ExclusionsStore()
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -35,11 +37,24 @@ struct VaderCleanerApp: App {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(onboardingViewModel)
+                .environmentObject(preferences)
+                .environmentObject(exclusions)
+        }
+
+        // Each SwiftUI scene gets its own environment, so PreferencesView gets
+        // its own `.environmentObject` chain — environment objects on the
+        // `Window` scene above don't bleed across to `Settings`.
+        Settings {
+            PreferencesView()
+                .environmentObject(preferences)
+                .environmentObject(exclusions)
         }
 
         MenuBarExtra {
             MenuBarContent()
                 .environmentObject(menuBarViewModel)
+                .environmentObject(preferences)
+                .environmentObject(exclusions)
         } label: {
             // Compact label combining both placeholder readings — Prompt 10
             // replaces the values, not the format. The "RAM:" / "Disk:"
