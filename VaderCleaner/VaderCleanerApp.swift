@@ -50,7 +50,27 @@ struct VaderCleanerApp: App {
                 .environmentObject(exclusions)
         }
 
-        MenuBarExtra {
+        // `isInserted:` makes the menu bar extra disappear when the user
+        // disables "Show VaderCleaner in the menu bar" in Preferences. The
+        // binding routes through `PreferencesStore.showMenuBar` so toggling
+        // the preference takes effect immediately and survives relaunch.
+        //
+        // The `set` closure short-circuits identical writes. SwiftUI calls
+        // `MenuBarExtra(isInserted:)`'s setter back during scene layout — and
+        // because `@Published` always fires `objectWillChange.send()` even
+        // when the value is unchanged, an unguarded `$preferences.showMenuBar`
+        // produces a flood of "Publishing changes from within view updates"
+        // warnings and hangs the UI test runner.
+        MenuBarExtra(
+            isInserted: Binding(
+                get: { preferences.showMenuBar },
+                set: { newValue in
+                    if newValue != preferences.showMenuBar {
+                        preferences.showMenuBar = newValue
+                    }
+                }
+            )
+        ) {
             MenuBarContent()
                 .environmentObject(menuBarViewModel)
                 .environmentObject(preferences)

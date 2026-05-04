@@ -28,20 +28,39 @@ final class ExclusionsStore: ObservableObject {
         self.exclusions = (defaults.array(forKey: Key.exclusions) as? [String]) ?? []
     }
 
-    /// Adds `path` to the exclusion list. Silently ignored if `path` is already
-    /// present — duplicates would only confuse the UI and waste scanner cycles.
+    /// Adds `path` to the exclusion list. The path is resolved to its canonical
+    /// form first (symlinks expanded, `..`/`.` collapsed) and compared
+    /// case-insensitively, since macOS's default file system is case-insensitive
+    /// and `/tmp` is a symlink to `/private/tmp`. Without this step a user
+    /// could appear to add the "same" path twice, and scanners that walk
+    /// resolved paths would never match the stored entry.
     func add(path: String) {
-        guard !exclusions.contains(path) else { return }
-        exclusions.append(path)
+        let canonical = Self.canonicalize(path)
+        guard !exclusions.contains(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) else {
+            return
+        }
+        exclusions.append(canonical)
         persist()
     }
 
-    /// Removes the first occurrence of `path`. No-op if the path is not in the
-    /// list, so callers don't need to guard.
+    /// Removes the first occurrence of `path` (resolved + case-insensitive
+    /// match, mirroring `add(path:)`). No-op if no entry matches, so callers
+    /// don't need to guard.
     func remove(path: String) {
-        guard exclusions.contains(path) else { return }
-        exclusions.removeAll { $0 == path }
-        persist()
+        let canonical = Self.canonicalize(path)
+        let countBefore = exclusions.count
+        exclusions.removeAll { $0.caseInsensitiveCompare(canonical) == .orderedSame }
+        if exclusions.count != countBefore {
+            persist()
+        }
+    }
+
+    /// Resolves symlinks and standardizes the supplied path. For paths that do
+    /// not exist on disk this falls back to the input string with `..`/`.`
+    /// resolved — sufficient for tests and for users excluding paths under
+    /// directories that may be created later.
+    private static func canonicalize(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     private func persist() {

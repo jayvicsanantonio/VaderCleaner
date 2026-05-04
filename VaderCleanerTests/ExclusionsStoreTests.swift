@@ -65,15 +65,54 @@ final class ExclusionsStoreTests: XCTestCase {
         XCTAssertEqual(sut.exclusions, ["/a"])
     }
 
+    // MARK: - Path canonicalisation
+
+    func test_addPath_resolvesUserSymlinks() throws {
+        // Use a real, user-created symlink in a temp directory rather than
+        // `/tmp` — the latter is an APFS firmlink, which Foundation's
+        // symlink-resolving APIs intentionally don't follow.
+        let realDir = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(realDir) }
+        let symlink = realDir.deletingLastPathComponent()
+            .appendingPathComponent("link_\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: realDir)
+        defer { TestHelpers.tearDownTempDirectory(symlink) }
+
+        let sut = ExclusionsStore(defaults: defaults)
+        sut.add(path: symlink.path)
+
+        let expected = URL(fileURLWithPath: symlink.path).resolvingSymlinksInPath().path
+        XCTAssertEqual(sut.exclusions, [expected])
+        XCTAssertNotEqual(sut.exclusions, [symlink.path], "Expected the canonical destination, not the link path")
+    }
+
+    func test_addPath_caseInsensitiveDeduplication() {
+        // macOS's default APFS volume is case-insensitive, so `/Foo` and
+        // `/foo` refer to the same location. Treat them as duplicates.
+        let sut = ExclusionsStore(defaults: defaults)
+        sut.add(path: "/Users/test/Photos")
+        sut.add(path: "/users/test/photos")
+
+        XCTAssertEqual(sut.exclusions, ["/Users/test/Photos"])
+    }
+
+    func test_removePath_caseInsensitive() {
+        let sut = ExclusionsStore(defaults: defaults)
+        sut.add(path: "/Users/test/Photos")
+        sut.remove(path: "/users/TEST/photos")
+
+        XCTAssertEqual(sut.exclusions, [])
+    }
+
     // MARK: - Persistence
 
     func test_persistsExclusionsAcrossInstances() {
         let writer = ExclusionsStore(defaults: defaults)
         writer.add(path: "/Users/test/Downloads")
-        writer.add(path: "/tmp")
+        writer.add(path: "/Users/test/Caches")
 
         let reader = ExclusionsStore(defaults: defaults)
-        XCTAssertEqual(reader.exclusions, ["/Users/test/Downloads", "/tmp"])
+        XCTAssertEqual(reader.exclusions, ["/Users/test/Downloads", "/Users/test/Caches"])
     }
 
     func test_persistsRemovalAcrossInstances() {

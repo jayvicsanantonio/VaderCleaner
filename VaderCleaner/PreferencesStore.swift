@@ -83,24 +83,51 @@ final class PreferencesStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        // `UserDefaults.bool(forKey:)` returns `false` for missing keys, but the
-        // spec defaults are mostly `true`. Reading via `object(forKey:) as? T`
-        // and falling back to the spec default keeps fresh installs aligned
-        // with what the user expects without having to register defaults
-        // globally.
-        self.notifyLowDisk = (defaults.object(forKey: Key.notifyLowDisk) as? Bool)
-            ?? Self.defaultNotifyLowDisk
-        self.notifyHighRAM = (defaults.object(forKey: Key.notifyHighRAM) as? Bool)
-            ?? Self.defaultNotifyHighRAM
-        self.notifyMalwareFound = (defaults.object(forKey: Key.notifyMalwareFound) as? Bool)
-            ?? Self.defaultNotifyMalwareFound
-        self.notifyLargeFilesFound = (defaults.object(forKey: Key.notifyLargeFilesFound) as? Bool)
-            ?? Self.defaultNotifyLargeFilesFound
-        self.diskSpaceThresholdPercent = (defaults.object(forKey: Key.diskSpaceThresholdPercent) as? Double)
-            ?? Self.defaultDiskSpaceThresholdPercent
-        self.launchAtLogin = (defaults.object(forKey: Key.launchAtLogin) as? Bool)
-            ?? Self.defaultLaunchAtLogin
-        self.showMenuBar = (defaults.object(forKey: Key.showMenuBar) as? Bool)
-            ?? Self.defaultShowMenuBar
+        // Initialise the @Published wrappers directly with `_property =
+        // Published(initialValue:)` instead of `self.property = …`. Going
+        // through the synthesized setter would fire `objectWillChange.send()`
+        // for every property — and because `MenuBarExtra(isInserted:
+        // $preferences.showMenuBar)` subscribes the App body to this store,
+        // SwiftUI evaluates `body` while the StateObject is still being
+        // initialised on first launch. Publisher notifications inside that
+        // window trigger "Publishing changes from within view updates is not
+        // allowed" and ultimately hang the UI test runner.
+        //
+        // Bonus: the `didSet` observers below would otherwise rewrite every
+        // default back to UserDefaults on every launch. Direct wrapper
+        // initialisation skips them.
+        //
+        // `UserDefaults.bool(forKey:)` returns `false` for missing keys, but
+        // the spec defaults are mostly `true`. Reading via `object(forKey:)
+        // as? T` and falling back to the spec default keeps fresh installs
+        // aligned with what the user expects.
+        self._notifyLowDisk = Published(
+            initialValue: (defaults.object(forKey: Key.notifyLowDisk) as? Bool)
+                ?? Self.defaultNotifyLowDisk
+        )
+        self._notifyHighRAM = Published(
+            initialValue: (defaults.object(forKey: Key.notifyHighRAM) as? Bool)
+                ?? Self.defaultNotifyHighRAM
+        )
+        self._notifyMalwareFound = Published(
+            initialValue: (defaults.object(forKey: Key.notifyMalwareFound) as? Bool)
+                ?? Self.defaultNotifyMalwareFound
+        )
+        self._notifyLargeFilesFound = Published(
+            initialValue: (defaults.object(forKey: Key.notifyLargeFilesFound) as? Bool)
+                ?? Self.defaultNotifyLargeFilesFound
+        )
+        self._diskSpaceThresholdPercent = Published(
+            initialValue: (defaults.object(forKey: Key.diskSpaceThresholdPercent) as? Double)
+                ?? Self.defaultDiskSpaceThresholdPercent
+        )
+        self._launchAtLogin = Published(
+            initialValue: (defaults.object(forKey: Key.launchAtLogin) as? Bool)
+                ?? Self.defaultLaunchAtLogin
+        )
+        self._showMenuBar = Published(
+            initialValue: (defaults.object(forKey: Key.showMenuBar) as? Bool)
+                ?? Self.defaultShowMenuBar
+        )
     }
 }
