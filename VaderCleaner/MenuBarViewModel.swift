@@ -16,8 +16,12 @@ final class MenuBarViewModel: ObservableObject {
     /// Default placeholder shown until `SystemStatsService` (Prompt 10) starts
     /// publishing live values. Format mirrors what the live wiring will emit so
     /// the menu bar label width does not jump on first update.
-    static let placeholderRAM = "RAM: 0.0 GB"
-    static let placeholderDisk = "Disk: 0 GB free"
+    ///
+    /// These are value-only ("0.0 GB", "0 GB free") — the "RAM:" / "Disk:"
+    /// prefixes are owned by `MenuBarExtra`'s label and the popover row labels,
+    /// so the popover does not render the prefix twice.
+    static let placeholderRAM = "0.0 GB"
+    static let placeholderDisk = "0 GB free"
 
     @Published var formattedRAMUsage: String
     @Published var formattedDiskSpace: String
