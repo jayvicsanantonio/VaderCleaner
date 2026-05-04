@@ -46,6 +46,20 @@ final class PreferencesStore: ObservableObject {
     static let defaultLaunchAtLogin = true
     static let defaultShowMenuBar = true
 
+    /// Reads the current `showMenuBar` value out of an arbitrary `UserDefaults`
+    /// suite without instantiating the full store. Used by `VaderCleanerAppDelegate`
+    /// to decide the activation policy outside of any SwiftUI scene, where
+    /// constructing an `ObservableObject` would be overkill.
+    ///
+    /// Marked `nonisolated` because the read touches only the supplied
+    /// `UserDefaults` (which is itself thread-safe) and no instance state on
+    /// `PreferencesStore` — callers such as `NSWindow.willCloseNotification`
+    /// observers run from non-isolated contexts even when their queue is
+    /// `.main`.
+    nonisolated static func isMenuBarShown(in defaults: UserDefaults = .standard) -> Bool {
+        (defaults.object(forKey: Key.showMenuBar) as? Bool) ?? defaultShowMenuBar
+    }
+
     // MARK: - Published state
 
     @Published var notifyLowDisk: Bool {

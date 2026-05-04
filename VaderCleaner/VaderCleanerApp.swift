@@ -88,27 +88,35 @@ struct VaderCleanerApp: App {
 
 /// Drives the Dock icon's lifecycle. With `LSUIElement = YES` the app launches
 /// with no Dock icon; we promote to `.regular` once a titled window is up so
-/// the user has a Dock entry, then demote back to `.accessory` when the last
-/// titled window closes so the menu bar extra can keep running headlessly.
+/// the user has a Dock entry, and may demote to `.accessory` when the last
+/// titled window closes so the menu bar extra can keep running headlessly —
+/// but only if the menu bar extra is actually showing. Otherwise the user
+/// would have no entry point left to reopen the app, so we stay `.regular`.
 ///
-/// Two observers cooperate to keep the policy in sync with window lifecycle:
+/// Three observers cooperate to keep the policy in sync:
 ///   - `NSWindow.didBecomeKeyNotification` re-promotes when a titled window
 ///     re-appears (e.g. user picks "Open VaderCleaner" from the menu bar after
-///     the previous window had been closed and the policy was demoted).
-///   - `NSWindow.willCloseNotification` demotes once the closing window leaves
-///     no other titled window in `NSApp.windows`.
+///     the previous window had been closed).
+///   - `NSWindow.willCloseNotification` re-evaluates once the closing window
+///     leaves no other titled window in `NSApp.windows`.
+///   - `UserDefaults.didChangeNotification` re-evaluates when any preference
+///     toggles, so flipping `showMenuBar` from on to off while no window is
+///     open promptly reveals the Dock icon.
 final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
 
     private var windowCloseObserver: NSObjectProtocol?
     private var windowKeyObserver: NSObjectProtocol?
+    private var preferencesObserver: NSObjectProtocol?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // Show the Dock icon as soon as launch begins; the SwiftUI WindowGroup
-        // opens the main window immediately afterwards. Setting policy this
-        // early avoids the brief flicker of an icon-less Dock that would
-        // happen if we deferred to the window's `onAppear`.
+        // Show the Dock icon as soon as launch begins; the SwiftUI Window
+        // scene opens the main window immediately afterwards. Setting policy
+        // this early avoids the brief flicker of an icon-less Dock that would
+        // happen if we deferred to the window's `onAppear`. The reconcile
+        // logic only runs on later events, so this unconditional `.regular`
+        // here is intentional and correct at launch.
         NSApp.setActivationPolicy(.regular)
-        installWindowObservers()
+        installObservers()
     }
 
     func applicationShouldHandleReopen(
@@ -117,11 +125,11 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
     ) -> Bool {
         // Clicking the Dock icon while the main window is closed should
         // restore it. Returning `true` lets AppKit forward the reopen event
-        // to SwiftUI, which re-creates the WindowGroup window.
+        // to SwiftUI, which re-creates the window.
         return true
     }
 
-    private func installWindowObservers() {
+    private func installObservers() {
         let center = NotificationCenter.default
 
         windowCloseObserver = center.addObserver(
@@ -138,6 +146,19 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] notification in
             self?.handleWindowDidBecomeKey(notification)
+        }
+
+        // `UserDefaults.didChangeNotification` fires for every key in the
+        // suite, not only `showMenuBar`. The reconcile is cheap (one read +
+        // one comparison + at most one `setActivationPolicy`), so we don't
+        // bother filtering — every preference toggle is a fine moment to
+        // re-check whether the user still has an entry point.
+        preferencesObserver = center.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reconcileActivationPolicy()
         }
     }
 
@@ -168,8 +189,26 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
             return window.styleMask.contains(.titled)
         }
 
-        if !hasOtherTitledWindow {
-            NSApp.setActivationPolicy(.accessory)
+        applyPolicy(hasTitledWindow: hasOtherTitledWindow)
+    }
+
+    /// Recomputes the policy from scratch using the current window state and
+    /// menu-bar preference. Safe to call from any event source — only writes
+    /// `setActivationPolicy` when the value actually changes.
+    private func reconcileActivationPolicy() {
+        let hasTitledWindow = NSApp.windows.contains {
+            $0.styleMask.contains(.titled)
+        }
+        applyPolicy(hasTitledWindow: hasTitledWindow)
+    }
+
+    private func applyPolicy(hasTitledWindow: Bool) {
+        let policy = ActivationPolicyDecision.policy(
+            hasTitledWindow: hasTitledWindow,
+            menuBarShown: PreferencesStore.isMenuBarShown()
+        )
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
         }
     }
 
@@ -179,6 +218,9 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
             center.removeObserver(token)
         }
         if let token = windowKeyObserver {
+            center.removeObserver(token)
+        }
+        if let token = preferencesObserver {
             center.removeObserver(token)
         }
     }
