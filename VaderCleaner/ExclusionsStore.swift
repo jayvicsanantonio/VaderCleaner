@@ -43,8 +43,11 @@ final class ExclusionsStore: ObservableObject {
         persist()
     }
 
-    /// Removes the first occurrence of `path` (resolved + case-insensitive
-    /// match, mirroring `add(path:)`). No-op if no entry matches, so callers
+    /// Removes every entry matching `path` (resolved + case-insensitive,
+    /// mirroring `add(path:)`'s canonicalisation via `Self.canonicalize(_:)`).
+    /// In practice `add(path:)`'s dedup guarantees at most one match, but the
+    /// `removeAll`-based implementation also recovers gracefully if an older
+    /// build ever persisted duplicates. No-op if no entry matches, so callers
     /// don't need to guard.
     func remove(path: String) {
         let canonical = Self.canonicalize(path)

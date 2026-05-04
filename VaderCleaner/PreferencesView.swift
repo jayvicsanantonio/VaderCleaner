@@ -151,7 +151,7 @@ private struct StartupTab: View {
             Section {
                 Toggle("Launch VaderCleaner at login", isOn: $preferences.launchAtLogin)
             } footer: {
-                Text("VaderCleaner will start automatically when you log in. Prompt 7 wires this into the system login items service.")
+                Text("VaderCleaner will start automatically when you log in.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -171,7 +171,7 @@ private struct MenuBarTab: View {
             Section {
                 Toggle("Show VaderCleaner in the menu bar", isOn: $preferences.showMenuBar)
             } footer: {
-                Text("When disabled the menu bar icon is hidden. Live system stats wire up in Prompt 10.")
+                Text("When disabled, the VaderCleaner icon and live stats are hidden from the menu bar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
