@@ -7,9 +7,14 @@ import AppKit
 @main
 struct VaderCleanerApp: App {
 
-    /// Identifier shared between the main `WindowGroup` and the menu bar's
+    /// Identifier shared between the main `Window` scene and the menu bar's
     /// "Open VaderCleaner" action so `openWindow(id:)` can re-focus or
     /// re-create the window after the user has closed it.
+    ///
+    /// VaderCleaner intentionally uses a single-instance `Window` (not
+    /// `WindowGroup`): `openWindow(id:)` against a `WindowGroup` would spawn
+    /// a fresh window on every invocation, leaving the user with stacks of
+    /// duplicates each time they tapped the menu bar action.
     static let mainWindowID = "main"
 
     // App-scope state owned outside the WindowGroup so dismissing the FDA
@@ -26,7 +31,7 @@ struct VaderCleanerApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(id: Self.mainWindowID) {
+        Window("VaderCleaner", id: Self.mainWindowID) {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(onboardingViewModel)
