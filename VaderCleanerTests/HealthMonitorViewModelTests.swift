@@ -2,6 +2,7 @@
 // Tests that HealthMonitorViewModel formats SystemStatsService values into display strings and status colors the Health Monitor cards bind to.
 
 import XCTest
+import Combine
 @testable import VaderCleaner
 
 @MainActor
@@ -113,6 +114,43 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(HealthMonitorViewModel.diskColor(for: dire), .red)
     }
 
+    /// Pin the inclusive/exclusive semantics at the bucket edges. A
+    /// future refactor flipping `<` to `<=` (or vice versa) would silently
+    /// shift the boundary cases — the interior cases above would still pass
+    /// while the boundary readings flipped colors. These two assertions
+    /// catch that.
+    func test_diskColor_atExactThresholds() {
+        // 0.80 exactly: still flips to yellow because comparison is `<`.
+        let atWarning = DiskStats(usedBytes: 800, totalBytes: 1000)
+        XCTAssertEqual(HealthMonitorViewModel.diskColor(for: atWarning), .yellow)
+
+        // 0.95 exactly: still flips to red because comparison is `<`.
+        let atCritical = DiskStats(usedBytes: 950, totalBytes: 1000)
+        XCTAssertEqual(HealthMonitorViewModel.diskColor(for: atCritical), .red)
+    }
+
+    // MARK: - CPU color
+
+    /// CPU color uses the same shape as disk color but with independently
+    /// tunable thresholds. Pin both the bucket interiors and the exact
+    /// boundaries.
+    func test_cpuColor_escalatesWithUsage() {
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: 0.20), .green)
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: 0.85), .yellow)
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: 0.97), .red)
+        // Boundaries: same `<` semantics as disk.
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: HealthMonitorViewModel.cpuWarningThreshold), .yellow)
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: HealthMonitorViewModel.cpuCriticalThreshold), .red)
+    }
+
+    /// Out-of-range inputs clamp before the threshold check — a `1.5`
+    /// reading from a buggy upstream must render red, not crash and not
+    /// fall through to the default green branch.
+    func test_cpuColor_clampsOutOfRangeInputs() {
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: -0.3), .green)
+        XCTAssertEqual(HealthMonitorViewModel.cpuColor(for: 1.5), .red)
+    }
+
     // MARK: - Battery color + formatting
 
     /// `"Good"` and `"Normal"` are the two condition strings IOKit returns for
@@ -203,5 +241,29 @@ final class HealthMonitorViewModelTests: XCTestCase {
         let service = SystemStatsService(interval: 2.0, autostart: false)
         let sut = HealthMonitorViewModel(service: service)
         XCTAssertTrue(sut.service === service)
+    }
+
+    /// Critical end-to-end invariant: when the underlying service publishes
+    /// a tick, the view-model must re-publish so views bound via
+    /// `@StateObject` re-evaluate their computed properties. SwiftUI does
+    /// not propagate a nested `ObservableObject`'s changes through an outer
+    /// `ObservableObject` automatically — without an explicit Combine
+    /// bridge in `init`, the Health Monitor would freeze on its first
+    /// frame. This test pins the bridge.
+    func test_serviceObjectWillChange_propagatesToViewModel() {
+        let service = SystemStatsService(interval: 2.0, autostart: false)
+        let sut = HealthMonitorViewModel(service: service)
+
+        let expectation = XCTestExpectation(description: "VM re-publishes service tick")
+        var cancellables = Set<AnyCancellable>()
+        sut.objectWillChange
+            .sink { _ in expectation.fulfill() }
+            .store(in: &cancellables)
+
+        // Drive a refresh — the service's @Published setters fire
+        // objectWillChange, which our bridge must forward to the VM.
+        service.refresh()
+
+        wait(for: [expectation], timeout: 1.0)
     }
 }

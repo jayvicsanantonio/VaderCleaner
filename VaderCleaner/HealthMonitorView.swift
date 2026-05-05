@@ -106,14 +106,14 @@ struct HealthMonitorView: View {
         HealthCard(
             icon: "cpu",
             title: "CPU Load",
-            statusColor: cpuStatusColor
+            statusColor: viewModel.cpuColor
         ) {
             Text(viewModel.cpuPercent)
                 .font(.title2.weight(.semibold))
                 .accessibilityIdentifier("health.cpu.percent")
             ProgressView(value: viewModel.cpuRatio)
                 .progressViewStyle(.linear)
-                .tint(cpuStatusColor.color)
+                .tint(viewModel.cpuColor.color)
         }
         .accessibilityIdentifier("health.card.cpu")
     }
@@ -150,16 +150,6 @@ struct HealthMonitorView: View {
         .accessibilityIdentifier("health.filevault")
     }
 
-    // MARK: - Helpers
-
-    /// CPU card uses the same disk ramp (80/95) for its dot since the service
-    /// publishes a unit-interval ratio with no "pressure level" abstraction.
-    private var cpuStatusColor: StatusColor {
-        let r = viewModel.cpuRatio
-        if r < HealthMonitorViewModel.diskWarningThreshold { return .green }
-        if r < HealthMonitorViewModel.diskCriticalThreshold { return .yellow }
-        return .red
-    }
 }
 
 // MARK: - Subviews

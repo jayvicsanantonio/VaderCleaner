@@ -31,20 +31,37 @@ enum StatusColor: Equatable {
 @MainActor
 final class HealthMonitorViewModel: ObservableObject {
 
-    /// Live data source. Marked `unowned` (via the strong reference held in
-    /// the consuming view's `@EnvironmentObject` chain) — the service is
-    /// app-scope (`VaderCleanerApp.systemStats`) and outlives every view-model
-    /// derived from it.
+    /// Live data source. Held strongly. The service itself is app-scope
+    /// (`VaderCleanerApp.systemStats`) and outlives every view-model derived
+    /// from it, so the strong reference does not extend its lifetime.
     let service: SystemStatsService
 
+    /// Holds the Combine subscription that re-publishes service ticks as
+    /// view-model changes. Stored so the sink lives as long as the VM does;
+    /// without retaining the cancellable the subscription would be torn down
+    /// at the end of `init` and the view would freeze on its first frame.
+    private var serviceCancellable: AnyCancellable?
+
+    /// `HealthMonitorViewModel` exposes only computed properties — none of
+    /// them are `@Published` themselves. SwiftUI does **not** automatically
+    /// propagate a nested `ObservableObject`'s `objectWillChange` through an
+    /// outer `ObservableObject`, so a `@StateObject` on the view bound to
+    /// this VM would never observe the service's 2-second polling ticks.
+    /// We bridge the two manually here so every service refresh fans out to
+    /// the view as a single VM change.
     init(service: SystemStatsService) {
         self.service = service
+        self.serviceCancellable = service.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
     }
 
     // MARK: - Live-bound display values
 
     var cpuPercent: String { Self.cpuPercentString(service.cpuUsage) }
     var cpuRatio: Double { Self.cpuRatio(service.cpuUsage) }
+    var cpuColor: StatusColor { Self.cpuColor(for: service.cpuUsage) }
 
     var ramUsage: String { Self.ramUsageString(service.ramUsage) }
     var ramPressureLevel: MemoryPressureLevel { service.ramUsage.pressureLevel }
@@ -121,10 +138,32 @@ final class HealthMonitorViewModel: ObservableObject {
     }
 
     /// Threshold at which the disk card flips from green to yellow.
+    /// Disk fullness is a near-permanent state — anything ≥ 80% warrants
+    /// surfacing in the UI because reclaiming space is slow user work.
     static let diskWarningThreshold = 0.80
 
     /// Threshold at which the disk card flips from yellow to red.
     static let diskCriticalThreshold = 0.95
+
+    /// Threshold at which the CPU card flips from green to yellow. Kept
+    /// separate from `diskWarningThreshold` (even though the initial values
+    /// match) because CPU and disk thresholds tune independently — a
+    /// compile-host machine pegging CPU at 95% is normal, while a disk at
+    /// 95% full is not.
+    static let cpuWarningThreshold = 0.80
+
+    /// Threshold at which the CPU card flips from yellow to red.
+    static let cpuCriticalThreshold = 0.95
+
+    /// CPU load color from a unit-interval ratio. Same shape as
+    /// `diskColor(for:)`; thresholds are independent so the two metrics can
+    /// evolve apart.
+    static func cpuColor(for usage: Double) -> StatusColor {
+        let ratio = cpuRatio(usage)
+        if ratio < cpuWarningThreshold { return .green }
+        if ratio < cpuCriticalThreshold { return .yellow }
+        return .red
+    }
 
     /// Color for a memory-pressure bucket. Mirrors the disk ramp but reads
     /// off `MemoryPressureLevel` (whose thresholds are pinned in
