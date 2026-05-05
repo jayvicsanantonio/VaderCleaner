@@ -24,12 +24,50 @@ struct VaderCleanerApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var onboardingViewModel = PermissionOnboardingViewModel()
     @StateObject private var menuBarViewModel = MenuBarViewModel()
-    @StateObject private var preferences = PreferencesStore()
+    @StateObject private var preferences: PreferencesStore
     @StateObject private var exclusions = ExclusionsStore()
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
         HelperRegistration.registerIfNeeded()
+        // Construct the store with production side-effect handlers. The init
+        // also reconciles the persisted preference with `SMAppService` so a
+        // user who toggled "Login Items" in System Settings while VaderCleaner
+        // was quit gets pushed back into a consistent state on the next
+        // launch.
+        _preferences = StateObject(
+            wrappedValue: PreferencesStore(
+                launchAtLoginHandler: { try LoginItemManager.setEnabled($0) },
+                launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:)
+            )
+        )
+    }
+
+    /// Surfaces a launchd registration failure to the user. Kept on the App
+    /// type (rather than inside the store) so the model layer remains free of
+    /// AppKit references and continues to be unit-testable without `NSAlert`.
+    ///
+    /// The alert is dispatched asynchronously because the very first call site
+    /// is `PreferencesStore.init` running inside `VaderCleanerApp.init()` —
+    /// before `NSApp` has finished launching. Presenting a modal there would
+    /// race the run loop and could deadlock startup. The async hop guarantees
+    /// the alert lands after the app is up.
+    @MainActor
+    private static func presentLaunchAtLoginAlert(_ error: Error) {
+        let description = error.localizedDescription
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't update Launch at Login"
+            alert.informativeText = """
+            VaderCleaner couldn't update its Launch at Login setting. \
+            You can manage this manually from System Settings → General → Login Items.
+
+            Details: \(description)
+            """
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     var body: some Scene {

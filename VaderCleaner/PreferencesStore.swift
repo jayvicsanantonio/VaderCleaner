@@ -12,12 +12,23 @@ import Combine
 /// instead of touching `.standard`. Production code uses the default `.standard`
 /// argument and never sees the seam.
 ///
-/// Side effects that depend on these values (the actual SMAppService registration
-/// in Prompt 7, the menu bar hide/show in Prompt 10, notification dispatch in
-/// Prompt 11) are added by later prompts. This store stays a pure model so tests
-/// can run without scheduling any system-level work.
+/// Side effects that depend on these values are wired in via small handler
+/// closures injected at construction. Production wiring happens in
+/// `VaderCleanerApp` (e.g. `launchAtLoginHandler` calls `LoginItemManager`);
+/// unit tests omit the handlers so mutating a published property never
+/// triggers a system call. Menu-bar hide/show (Prompt 10) and notification
+/// dispatch (Prompt 11) follow the same pattern when added.
 @MainActor
 final class PreferencesStore: ObservableObject {
+
+    /// Side-effect contract for the `launchAtLogin` toggle. Production passes
+    /// `LoginItemManager.setEnabled`; tests pass `nil` so writing to
+    /// `launchAtLogin` is a pure model mutation.
+    typealias LaunchAtLoginHandler = @MainActor (Bool) throws -> Void
+
+    /// Reported when applying the launch-at-login change to launchd fails. The
+    /// app layer surfaces this via `NSAlert`; the model stays UI-free.
+    typealias LaunchAtLoginErrorReporter = @MainActor (Error) -> Void
 
     // MARK: - Storage keys
 
@@ -83,7 +94,10 @@ final class PreferencesStore: ObservableObject {
     }
 
     @Published var launchAtLogin: Bool {
-        didSet { defaults.set(launchAtLogin, forKey: Key.launchAtLogin) }
+        didSet {
+            defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
+            applyLaunchAtLogin()
+        }
     }
 
     @Published var showMenuBar: Bool {
@@ -93,9 +107,17 @@ final class PreferencesStore: ObservableObject {
     // MARK: - Init
 
     private let defaults: UserDefaults
+    private let launchAtLoginHandler: LaunchAtLoginHandler?
+    private let launchAtLoginErrorReporter: LaunchAtLoginErrorReporter?
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        launchAtLoginHandler: LaunchAtLoginHandler? = nil,
+        launchAtLoginErrorReporter: LaunchAtLoginErrorReporter? = nil
+    ) {
         self.defaults = defaults
+        self.launchAtLoginHandler = launchAtLoginHandler
+        self.launchAtLoginErrorReporter = launchAtLoginErrorReporter
 
         // Initialise the @Published wrappers directly with `_property =
         // Published(initialValue:)` instead of `self.property = …`. Going
@@ -143,5 +165,28 @@ final class PreferencesStore: ObservableObject {
             initialValue: (defaults.object(forKey: Key.showMenuBar) as? Bool)
                 ?? Self.defaultShowMenuBar
         )
+
+        // Reconcile the persisted preference with launchd's actual state once
+        // the @Published wrappers are populated. The handler's presence is the
+        // signal that we're in production wiring (tests pass nil); skipping in
+        // tests keeps unit tests from mutating the host's login items.
+        if launchAtLoginHandler != nil {
+            applyLaunchAtLogin()
+        }
+    }
+
+    // MARK: - Side effects
+
+    /// Pushes the current `launchAtLogin` value through the injected handler
+    /// (in production, `LoginItemManager.setEnabled`). Errors are forwarded to
+    /// the optional reporter so the App layer can surface an alert without
+    /// coupling the model to AppKit.
+    private func applyLaunchAtLogin() {
+        guard let handler = launchAtLoginHandler else { return }
+        do {
+            try handler(launchAtLogin)
+        } catch {
+            launchAtLoginErrorReporter?(error)
+        }
     }
 }
