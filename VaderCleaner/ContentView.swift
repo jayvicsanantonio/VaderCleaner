@@ -6,6 +6,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var onboarding: PermissionOnboardingViewModel
+    @EnvironmentObject private var systemStats: SystemStatsService
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedSection: NavigationSection? = .smartScan
 
@@ -17,7 +18,7 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
-            PlaceholderDetailView(section: selectedSection ?? .smartScan)
+            detailView(for: selectedSection ?? .smartScan)
         }
         .frame(minWidth: 900, minHeight: 600)
         .sheet(isPresented: shouldShowOnboarding) {
@@ -29,6 +30,19 @@ struct ContentView: View {
             if newPhase == .active {
                 appState.refresh()
             }
+        }
+    }
+
+    /// Routes the selected sidebar section to its detail view. Sections without
+    /// a real implementation yet fall back to `PlaceholderDetailView`; Health
+    /// Monitor (Prompt 9) is the first real wiring.
+    @ViewBuilder
+    private func detailView(for section: NavigationSection) -> some View {
+        switch section {
+        case .healthMonitor:
+            HealthMonitorView(service: systemStats)
+        default:
+            PlaceholderDetailView(section: section)
         }
     }
 
@@ -70,4 +84,5 @@ private struct PlaceholderDetailView: View {
     ContentView()
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
+        .environmentObject(SystemStatsService(autostart: false))
 }
