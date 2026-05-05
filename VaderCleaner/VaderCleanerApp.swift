@@ -135,8 +135,11 @@ struct VaderCleanerApp: App {
             // (prefixes, separator, truncation rules) lives on
             // `MenuBarViewModel.menuBarLabel(ram:disk:)` so a buggy upstream
             // reading can't blow up label width — the view-model clamps each
-            // segment before formatting.
+            // segment before formatting. `.monospacedDigit()` keeps numeric
+            // glyphs fixed-width so neighbouring menu bar items don't jitter
+            // as readings change every two seconds.
             Text(menuBarViewModel.menuBarLabelText)
+                .monospacedDigit()
         }
         .menuBarExtraStyle(.window)
     }

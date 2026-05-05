@@ -38,8 +38,10 @@ final class MenuBarViewModelTests: XCTestCase {
         let formatted = MenuBarViewModel.formattedDiskSpace(stats)
         XCTAssertTrue(formatted.contains("250"), "Expected used GB in output, got \(formatted)")
         XCTAssertTrue(formatted.contains("500"), "Expected total GB in output, got \(formatted)")
-        XCTAssertTrue(formatted.contains("50"), "Expected free percent in output, got \(formatted)")
-        XCTAssertTrue(formatted.contains("free"), "Expected 'free' qualifier, got \(formatted)")
+        // Match the full token rather than `contains("50")` — the latter
+        // would already pass on the `"500"` total and silently let a wrong
+        // free-percent slip through.
+        XCTAssertTrue(formatted.contains("50% free"), "Expected '50% free' in output, got \(formatted)")
     }
 
     /// Zero-total state must not divide by zero and must still render.
@@ -117,15 +119,33 @@ final class MenuBarViewModelTests: XCTestCase {
     /// builder must clamp each segment so the rendered text stays bounded.
     /// 50 chars is generous for the system menu bar — real readings cap at
     /// roughly `"RAM: 256 GB · Disk: 16384 GB free"` (~36 chars).
+    ///
+    /// Disk uses `usedBytes: 0, totalBytes: UInt64.max` so the *free* space
+    /// (the segment the label renders) is also extreme — `usedBytes ==
+    /// totalBytes` would have rendered `0 GB free` and silently bypassed
+    /// the disk-side clamp.
     func test_menuBarLabel_truncatesGracefullyForLargeValues() {
         let extreme = MemoryStats(usedBytes: UInt64.max, totalBytes: UInt64.max)
-        let extremeDisk = DiskStats(usedBytes: UInt64.max, totalBytes: UInt64.max)
+        let extremeDisk = DiskStats(usedBytes: 0, totalBytes: UInt64.max)
         let label = MenuBarViewModel.menuBarLabel(ram: extreme, disk: extremeDisk)
+        XCTAssertTrue(
+            label.contains("RAM: 9999+ GB"),
+            "Expected RAM segment to be capped, got \(label)"
+        )
+        XCTAssertTrue(
+            label.contains("Disk: 9999+ GB free"),
+            "Expected disk segment to be capped, got \(label)"
+        )
         XCTAssertLessThanOrEqual(
             label.count, 50,
             "Menu bar label must stay bounded for absurd inputs, got \(label.count) chars: \(label)"
         )
-        XCTAssertFalse(label.isEmpty)
+        // Pin that the raw integer never leaked into the label — proves the
+        // bound was hit by clamping rather than incidentally short.
+        XCTAssertFalse(
+            label.contains(String(UInt64.max)),
+            "Raw UInt64.max must not appear in label, got \(label)"
+        )
     }
 
     /// Zero-total state at startup must still produce a renderable label —

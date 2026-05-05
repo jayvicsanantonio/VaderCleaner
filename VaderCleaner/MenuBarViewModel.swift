@@ -168,11 +168,18 @@ final class MenuBarViewModel: ObservableObject {
     /// component at `compactGBCap` so absurd inputs render as "9999+ GB"
     /// rather than blowing up the menu bar label. Realistic Mac hardware
     /// (256 GB RAM, 16 TB disk = 16384 GB) sits well under the cap.
+    ///
+    /// Rounds to the nearest GB rather than truncating so the label tracks
+    /// `ByteCountFormatter`'s rounding in the popover row — without this a
+    /// reading of 7.9 GB would render as "7 GB" in the menu bar but "8 GB"
+    /// in the popover, looking like a bug.
     private static func clampedGB(_ bytes: UInt64) -> String {
         // Saturate at Int64.max before the divide — `UInt64.max / 1e9` would
-        // overflow Int otherwise.
-        let safeBytes = min(bytes, UInt64(Int64.max))
-        let gb = Int(safeBytes / bytesPerGB)
+        // overflow Int otherwise. Saturate again before adding the half-GB
+        // round-up bias so the addition itself can't overflow on inputs near
+        // `UInt64.max`.
+        let saturated = min(bytes, UInt64(Int64.max) - bytesPerGB)
+        let gb = Int((saturated + bytesPerGB / 2) / bytesPerGB)
         if gb > compactGBCap {
             return "\(compactGBCap)+ GB"
         }
