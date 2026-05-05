@@ -38,10 +38,14 @@ enum LoginItemManager {
         let service = SMAppService.mainApp
 
         if enabled {
-            // `.enabled` means launchd already has us registered. Calling
-            // register() again would throw `kSMErrorAlreadyRegistered`.
-            guard service.status != .enabled else {
-                os_log("Already enabled; skipping register()", log: log, type: .debug)
+            // Both `.enabled` and `.requiresApproval` mean launchd already has
+            // us registered (`.requiresApproval` is "registered, awaiting user
+            // approval in System Settings"). Calling `register()` in either
+            // state throws `kSMErrorAlreadyRegistered`, so we treat them
+            // symmetrically — mirroring the disable path's guard below.
+            guard service.status != .enabled,
+                  service.status != .requiresApproval else {
+                os_log("Already registered; skipping register()", log: log, type: .debug)
                 return
             }
             try service.register()

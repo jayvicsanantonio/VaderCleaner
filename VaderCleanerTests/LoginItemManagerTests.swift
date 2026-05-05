@@ -47,11 +47,14 @@ final class LoginItemManagerTests: XCTestCase {
     }
 
     func test_isEnabled_returnsBool() {
-        // The signature already constrains this at compile time; the assertion
-        // exists to catch a future change to e.g. an optional or throwing
-        // accessor that would silently weaken callers.
+        // The annotated assignment is the actual compile-time guard — if a
+        // future refactor weakens the accessor (e.g. to `Bool?` or a throwing
+        // form), this line stops compiling. The runtime assertion confirms
+        // the accessor is referentially stable across two consecutive reads,
+        // which would catch a regression that turned `isEnabled` into a
+        // call with side effects.
         let value: Bool = LoginItemManager.isEnabled
-        XCTAssertTrue(value || !value)
+        XCTAssertEqual(value, LoginItemManager.isEnabled)
     }
 
     /// Pins the round-trip: enabling then disabling must leave the host in a
