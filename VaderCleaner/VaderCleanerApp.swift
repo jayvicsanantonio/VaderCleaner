@@ -23,7 +23,7 @@ struct VaderCleanerApp: App {
     // would be re-created per WindowGroup instance.
     @StateObject private var appState = AppState()
     @StateObject private var onboardingViewModel = PermissionOnboardingViewModel()
-    @StateObject private var menuBarViewModel = MenuBarViewModel()
+    @StateObject private var menuBarViewModel: MenuBarViewModel
     @StateObject private var preferences: PreferencesStore
     @StateObject private var exclusions = ExclusionsStore()
     // App-scope so the cheap-stats timer outlives any single window. The
@@ -31,7 +31,7 @@ struct VaderCleanerApp: App {
     // notification dispatcher (Prompt 11) all subscribe via
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
-    @StateObject private var systemStats = SystemStatsService()
+    @StateObject private var systemStats: SystemStatsService
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -47,6 +47,15 @@ struct VaderCleanerApp: App {
                 launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:)
             )
         )
+        // Construct the polling service and the menu bar view-model in the
+        // same init so both `@StateObject` wrappers reference the *same*
+        // service instance. Initializing `menuBarViewModel` at its property
+        // declaration would force a separate `SystemStatsService()` —
+        // doubling the polling timer and decoupling the menu bar from the
+        // service the Health Monitor consumes.
+        let stats = SystemStatsService()
+        _systemStats = StateObject(wrappedValue: stats)
+        _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(service: stats))
     }
 
     /// Surfaces a launchd registration failure to the user. Kept on the App
@@ -122,11 +131,12 @@ struct VaderCleanerApp: App {
                 .environmentObject(exclusions)
                 .environmentObject(systemStats)
         } label: {
-            // Compact label combining both placeholder readings — Prompt 10
-            // replaces the values, not the format. The "RAM:" / "Disk:"
-            // prefixes live here (and on the popover rows) so the view-model
-            // can stay value-only and avoid duplicated labels.
-            Text("RAM: \(menuBarViewModel.formattedRAMUsage) | Disk: \(menuBarViewModel.formattedDiskSpace)")
+            // Compact label rendered into the system menu bar. The format
+            // (prefixes, separator, truncation rules) lives on
+            // `MenuBarViewModel.menuBarLabel(ram:disk:)` so a buggy upstream
+            // reading can't blow up label width — the view-model clamps each
+            // segment before formatting.
+            Text(menuBarViewModel.menuBarLabelText)
         }
         .menuBarExtraStyle(.window)
     }
