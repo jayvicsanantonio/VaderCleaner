@@ -121,16 +121,21 @@ final class SystemStatsServiceTests: XCTestCase {
 
     /// "Updates stats on a timer" — the spec test from plan.md. We don't mock
     /// `Timer` itself; instead we configure a tiny interval, subscribe to the
-    /// `objectWillChange` publisher, and verify it fires within a deadline.
-    /// That proves the timer fans publishes out without coupling the test to
-    /// any internal scheduling abstraction.
+    /// `objectWillChange` publisher *before* starting, and verify it fires
+    /// within a deadline. That proves the timer fans publishes out without
+    /// coupling the test to any internal scheduling abstraction.
+    ///
+    /// The service is built with `autostart: false` and started manually
+    /// after the sink is attached. Otherwise the auto-fired
+    /// `refreshDeviceHealth()` from the init can satisfy this expectation
+    /// via its background subprocess path even when the cheap-stats timer is
+    /// broken — making the test pass spuriously.
     func test_timer_publishesUpdates_whenStarted() {
-        let service = SystemStatsService(interval: 0.05, autostart: true)
+        let service = SystemStatsService(interval: 0.05, autostart: false)
         let didPublish = expectation(description: "service publishes on timer tick")
 
-        var cancellable: AnyCancellable?
         var fired = false
-        cancellable = service.objectWillChange.sink {
+        let cancellable: AnyCancellable = service.objectWillChange.sink {
             // First publish wins; subsequent ticks would over-fulfil the
             // expectation otherwise (which XCTest treats as a failure).
             guard !fired else { return }
@@ -138,14 +143,18 @@ final class SystemStatsServiceTests: XCTestCase {
             didPublish.fulfill()
         }
 
+        service.start()
         wait(for: [didPublish], timeout: 2.0)
-        cancellable?.cancel()
+        cancellable.cancel()
         service.stop()
     }
 
     func test_stop_haltsFurtherUpdates() {
-        let service = SystemStatsService(interval: 0.05, autostart: true)
-        // Let one tick land so the baseline is established.
+        let service = SystemStatsService(interval: 0.05, autostart: false)
+        // Let one tick land so the baseline is established. Sink-then-start
+        // ordering guarantees the first publish we observe is timer-driven,
+        // not the slow-path device-health refresh that the autostart init
+        // would otherwise kick off.
         let firstTick = expectation(description: "first tick")
         var firstFired = false
         var cancellable: AnyCancellable? = service.objectWillChange.sink {
@@ -153,6 +162,7 @@ final class SystemStatsServiceTests: XCTestCase {
             firstFired = true
             firstTick.fulfill()
         }
+        service.start()
         wait(for: [firstTick], timeout: 2.0)
         cancellable?.cancel()
 

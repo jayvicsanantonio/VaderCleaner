@@ -210,24 +210,33 @@ final class SystemStatsService: ObservableObject {
     func start() {
         stop()
         isStopped = false
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            // Timer callbacks fire on whichever queue scheduled them; for
-            // `Timer.scheduledTimer` that's the current run loop, which is
-            // typically `.main`. We re-enter the main actor explicitly so a
-            // future caller starting the service from a background context
-            // can't violate the actor isolation.
-            Task { @MainActor in
-                self?.refresh()
+        // Add to `.common` mode so the timer keeps firing while AppKit is in a
+        // tracking mode (menu bar popover open, scrollbar drag, etc.). With
+        // the default mode the cheap-stats publisher would freeze the moment
+        // the user clicked the menu bar icon — the very window in which the
+        // popover is showing live RAM/disk numbers.
+        let cheapTimer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // The timer callback may already be queued by the time
+                // `stop()` invalidates the source. Without this guard the
+                // queued task can still publish one last update — which
+                // breaks the `stop()` contract and surfaces in tests as a
+                // spurious post-stop tick.
+                guard let self = self, !self.isStopped else { return }
+                self.refresh()
             }
         }
-        deviceHealthTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.deviceHealthInterval,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshDeviceHealth()
+        RunLoop.main.add(cheapTimer, forMode: .common)
+        timer = cheapTimer
+
+        let healthTimer = Timer(timeInterval: Self.deviceHealthInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self, !self.isStopped else { return }
+                self.refreshDeviceHealth()
             }
         }
+        RunLoop.main.add(healthTimer, forMode: .common)
+        deviceHealthTimer = healthTimer
     }
 
     /// Stops all polling. Safe to call repeatedly. Used by tests to verify the
@@ -298,10 +307,16 @@ final class SystemStatsService: ObservableObject {
         var sumNice: UInt64 = 0
         for cpu in 0..<Int(numCPUs) {
             let base = Int(CPU_STATE_MAX) * cpu
-            sumUser &+= UInt64(cpuInfo[base + Int(CPU_STATE_USER)])
-            sumSystem &+= UInt64(cpuInfo[base + Int(CPU_STATE_SYSTEM)])
-            sumIdle &+= UInt64(cpuInfo[base + Int(CPU_STATE_IDLE)])
-            sumNice &+= UInt64(cpuInfo[base + Int(CPU_STATE_NICE)])
+            // The kernel returns these as `natural_t` (UInt32) but the
+            // buffer is typed as `integer_t` (Int32). A direct `UInt64(_:)`
+            // conversion of an `Int32` whose high bit is set traps at
+            // runtime — and these are monotonic counters, so the high bit
+            // *will* eventually flip on a long-uptime machine. Reinterpret
+            // the bits as unsigned first.
+            sumUser &+= UInt64(UInt32(bitPattern: cpuInfo[base + Int(CPU_STATE_USER)]))
+            sumSystem &+= UInt64(UInt32(bitPattern: cpuInfo[base + Int(CPU_STATE_SYSTEM)]))
+            sumIdle &+= UInt64(UInt32(bitPattern: cpuInfo[base + Int(CPU_STATE_IDLE)]))
+            sumNice &+= UInt64(UInt32(bitPattern: cpuInfo[base + Int(CPU_STATE_NICE)]))
         }
         totals = CPUTotals(user: sumUser, system: sumSystem, idle: sumIdle, nice: sumNice)
 
@@ -467,12 +482,24 @@ final class SystemStatsService: ObservableObject {
             // a weak reference inside the MainActor hop so a service that has
             // been deallocated or stopped before the subprocesses returned
             // doesn't try to publish stale results.
+            //
+            // Both helpers return `nil` on subprocess failure; we preserve
+            // the previously published value in that case rather than
+            // overwriting. This matters most for FileVault: a transient
+            // `fdesetup` failure must not flip the published security state
+            // from "on" to "off" and trip a downstream "FileVault disabled"
+            // notification (Prompt 11). SMART gets the same treatment for
+            // UI-flicker reasons.
             let smart = Self.readSMARTStatus()
             let fv = Self.readFileVaultEnabled()
             Task { @MainActor [weak self] in
                 guard let self = self, !self.isStopped else { return }
-                self.diskSMARTStatus = smart
-                self.fileVaultEnabled = fv
+                if let smart = smart {
+                    self.diskSMARTStatus = smart
+                }
+                if let fv = fv {
+                    self.fileVaultEnabled = fv
+                }
             }
         }
     }
@@ -480,10 +507,12 @@ final class SystemStatsService: ObservableObject {
     /// Runs `/usr/sbin/diskutil info -plist /` and parses `SMARTStatus` from
     /// the resulting property list. `"Verified"` is the value Apple Silicon
     /// internal NVMe disks report; older Intel SATA disks report `"Verified"`
-    /// or `"Failing"`. Anything else, or any subprocess failure, reduces to
-    /// `.unknown` — the UI layer treats `.unknown` as "no opinion" rather
-    /// than alarming the user.
-    nonisolated private static func readSMARTStatus() -> SMARTStatus {
+    /// or `"Failing"`. A successful read with any other value (or a missing
+    /// key) returns `.unknown` — that's diskutil genuinely saying "no
+    /// opinion." A subprocess failure returns `nil` so the caller can
+    /// preserve the previously published status rather than flicker the
+    /// Health Monitor between a known state and `.unknown`.
+    nonisolated private static func readSMARTStatus() -> SMARTStatus? {
         let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
@@ -495,11 +524,11 @@ final class SystemStatsService: ObservableObject {
 
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let data = (try pipe.fileHandleForReading.readToEnd()) ?? Data()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
                 os_log("diskutil exited %d", log: log, type: .error, process.terminationStatus)
-                return .unknown
+                return nil
             }
             guard let plist = try PropertyListSerialization.propertyList(
                 from: data,
@@ -520,16 +549,22 @@ final class SystemStatsService: ObservableObject {
         } catch {
             os_log("diskutil invocation failed: %{public}@",
                    log: log, type: .error, error.localizedDescription)
-            return .unknown
+            return nil
         }
     }
 
-    /// Runs `/usr/bin/fdesetup status` and parses the first line of stdout.
-    /// `fdesetup` prints `"FileVault is On."` or `"FileVault is Off."` on the
-    /// first line; we look for the literal `" On."` substring so future
-    /// trailing notes (the encryption-progress percentage during the initial
-    /// encryption phase, for example) don't trip us up.
-    nonisolated private static func readFileVaultEnabled() -> Bool {
+    /// Runs `/usr/bin/fdesetup status` and parses stdout for the literal
+    /// `"FileVault is On."` substring (the fragment is robust to the
+    /// trailing encryption-progress percentage that fdesetup appends during
+    /// the initial encryption phase).
+    ///
+    /// Returns `nil` on subprocess failure (non-zero exit, undecodable
+    /// output, run failure). The caller treats `nil` as "no new information"
+    /// and preserves the previously published value — overwriting a real
+    /// "on" with `false` on a transient failure would falsely indicate
+    /// FileVault is disabled and could trip the security-state notification
+    /// in Prompt 11.
+    nonisolated private static func readFileVaultEnabled() -> Bool? {
         let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/fdesetup")
@@ -540,17 +575,17 @@ final class SystemStatsService: ObservableObject {
 
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let data = (try pipe.fileHandleForReading.readToEnd()) ?? Data()
             process.waitUntilExit()
             guard process.terminationStatus == 0,
                   let output = String(data: data, encoding: .utf8) else {
-                return false
+                return nil
             }
             return output.contains("FileVault is On.")
         } catch {
             os_log("fdesetup invocation failed: %{public}@",
                    log: log, type: .error, error.localizedDescription)
-            return false
+            return nil
         }
     }
 }
