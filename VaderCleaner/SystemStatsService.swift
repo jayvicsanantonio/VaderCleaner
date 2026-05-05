@@ -553,17 +553,22 @@ final class SystemStatsService: ObservableObject {
         }
     }
 
-    /// Runs `/usr/bin/fdesetup status` and parses stdout for the literal
-    /// `"FileVault is On."` substring (the fragment is robust to the
-    /// trailing encryption-progress percentage that fdesetup appends during
-    /// the initial encryption phase).
+    /// Runs `/usr/bin/fdesetup status` and parses stdout for an
+    /// `"FileVault is On"` / `"FileVault is Off"` substring.
     ///
-    /// Returns `nil` on subprocess failure (non-zero exit, undecodable
-    /// output, run failure). The caller treats `nil` as "no new information"
-    /// and preserves the previously published value — overwriting a real
-    /// "on" with `false` on a transient failure would falsely indicate
-    /// FileVault is disabled and could trip the security-state notification
+    /// Termination status is intentionally **not** gated on. `fdesetup`
+    /// exits with status `2` for "FileVault is On but Busy" — i.e.
+    /// encryption or decryption is in progress — while still printing the
+    /// expected "On" line on stdout. Treating that as a hard failure would
+    /// preserve the previously published value (which defaults to `false`),
+    /// so during a multi-hour encryption phase the app would report
+    /// FileVault as disabled and could trip the security-state notification
     /// in Prompt 11.
+    ///
+    /// Returns `nil` only on a genuine read failure: the process couldn't
+    /// be launched, stdout couldn't be decoded as UTF-8, or stdout
+    /// contained neither expected phrase. Callers treat `nil` as "no new
+    /// information" and preserve the previously published value.
     nonisolated private static func readFileVaultEnabled() -> Bool? {
         let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
         let process = Process()
@@ -577,11 +582,18 @@ final class SystemStatsService: ObservableObject {
             try process.run()
             let data = (try pipe.fileHandleForReading.readToEnd()) ?? Data()
             process.waitUntilExit()
-            guard process.terminationStatus == 0,
-                  let output = String(data: data, encoding: .utf8) else {
+            guard let output = String(data: data, encoding: .utf8) else {
                 return nil
             }
-            return output.contains("FileVault is On.")
+            if output.contains("FileVault is On") {
+                return true
+            }
+            if output.contains("FileVault is Off") {
+                return false
+            }
+            os_log("fdesetup output not recognized (exit=%d): %{public}@",
+                   log: log, type: .error, process.terminationStatus, output)
+            return nil
         } catch {
             os_log("fdesetup invocation failed: %{public}@",
                    log: log, type: .error, error.localizedDescription)
