@@ -139,17 +139,28 @@ final class PreferencesStoreTests: XCTestCase {
     }
 
     func test_init_skipsReconcile_whenHandlerNil() {
-        // Belt-and-braces: the existing tests rely on the nil-handler default
-        // staying side-effect-free. This test pins that contract so a future
-        // change can't regress unit tests into touching launchd.
+        // Pins the nil-handler contract that all the other PreferencesStore
+        // tests depend on: constructing the store with no handler must not
+        // attempt any side effect, even when the persisted preference would
+        // otherwise drive a reconcile call.
+        //
+        // We can't directly assert that "no handler was called" — there is no
+        // handler to observe. Instead we assert through the *reporter*: if
+        // the implementation ever started feeding the persisted value into
+        // some other side-effect path that bypassed the nil handler, we'd
+        // expect it to also surface errors through the reporter. With both
+        // hooks nil, neither path can fire, and the only thing left to
+        // verify is that init returns without crashing — which the test
+        // implicitly covers by reaching the end.
         defaults.set(true, forKey: "preferences.launchAtLogin")
 
-        var didSetCalled = false
-        _ = PreferencesStore(defaults: defaults)
+        var reporterCalled = false
+        _ = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: nil,
+            launchAtLoginErrorReporter: { _ in reporterCalled = true }
+        )
 
-        // No handler means nothing observable to assert against directly; the
-        // implicit assertion is that constructing the store does not crash or
-        // attempt any side effect. The flag below documents the intent.
-        XCTAssertFalse(didSetCalled)
+        XCTAssertFalse(reporterCalled)
     }
 }

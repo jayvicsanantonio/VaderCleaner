@@ -53,4 +53,19 @@ final class LoginItemManagerTests: XCTestCase {
         let value: Bool = LoginItemManager.isEnabled
         XCTAssertTrue(value || !value)
     }
+
+    /// Pins the round-trip: enabling then disabling must leave the host in a
+    /// not-enabled state. This is the regression guard for the
+    /// `.requiresApproval` bug — the previous `setEnabled(false)` skipped
+    /// `unregister()` whenever `service.status` was anything other than
+    /// `.enabled`, which left a `.requiresApproval` entry behind. We can't
+    /// deterministically synthesize `.requiresApproval` from a unit test, but
+    /// asserting `!isEnabled` after the cycle catches any future regression
+    /// where the off-toggle silently no-ops on the dev machine's landing
+    /// state.
+    func test_setEnabled_roundTrip_endsDisabled() throws {
+        try LoginItemManager.setEnabled(true)
+        try LoginItemManager.setEnabled(false)
+        XCTAssertFalse(LoginItemManager.isEnabled)
+    }
 }

@@ -48,10 +48,13 @@ enum LoginItemManager {
             os_log("Registered as login item (status=%{public}@)",
                    log: log, type: .info, String(describing: service.status))
         } else {
-            // Anything other than `.enabled` means there is nothing to undo.
-            // Includes `.notRegistered`, `.notFound`, `.requiresApproval`.
-            guard service.status == .enabled else {
-                os_log("Not enabled; skipping unregister()", log: log, type: .debug)
+            // `.requiresApproval` means launchd has the entry but the user
+            // hasn't yet approved it in System Settings — it is still
+            // registered, so calling unregister() must succeed for the
+            // off-toggle to actually take effect. Only `.notRegistered` /
+            // `.notFound` represent "nothing to undo".
+            guard service.status == .enabled || service.status == .requiresApproval else {
+                os_log("Not registered; skipping unregister()", log: log, type: .debug)
                 return
             }
             try service.unregister()
