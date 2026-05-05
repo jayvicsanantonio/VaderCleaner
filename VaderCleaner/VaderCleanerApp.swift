@@ -26,6 +26,12 @@ struct VaderCleanerApp: App {
     @StateObject private var menuBarViewModel = MenuBarViewModel()
     @StateObject private var preferences: PreferencesStore
     @StateObject private var exclusions = ExclusionsStore()
+    // App-scope so the cheap-stats timer outlives any single window. The
+    // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
+    // notification dispatcher (Prompt 11) all subscribe via
+    // `@EnvironmentObject` — making it a per-view StateObject would
+    // double-instantiate the timer.
+    @StateObject private var systemStats = SystemStatsService()
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -77,6 +83,7 @@ struct VaderCleanerApp: App {
                 .environmentObject(onboardingViewModel)
                 .environmentObject(preferences)
                 .environmentObject(exclusions)
+                .environmentObject(systemStats)
         }
 
         // Each SwiftUI scene gets its own environment, so PreferencesView gets
@@ -113,6 +120,7 @@ struct VaderCleanerApp: App {
                 .environmentObject(menuBarViewModel)
                 .environmentObject(preferences)
                 .environmentObject(exclusions)
+                .environmentObject(systemStats)
         } label: {
             // Compact label combining both placeholder readings — Prompt 10
             // replaces the values, not the format. The "RAM:" / "Disk:"

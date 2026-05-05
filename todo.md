@@ -19,7 +19,7 @@
 
 ## Phase 1 — System Stats & Health Monitor
 
-- [ ] **Prompt 8** — SystemStatsService (CPU, RAM, disk, battery, SMART, FileVault)
+- [x] **Prompt 8** — SystemStatsService (CPU, RAM, disk, battery, SMART, FileVault)
 - [ ] **Prompt 9** — Health Monitor UI (5 stat cards + FileVault row)
 - [ ] **Prompt 10** — Menu bar live stats (wired to SystemStatsService)
 - [ ] **Prompt 11** — Notification system (4 notification types, threshold monitoring, cooldown)
