@@ -129,11 +129,11 @@ final class MenuBarViewModelTests: XCTestCase {
         let extremeDisk = DiskStats(usedBytes: 0, totalBytes: UInt64.max)
         let label = MenuBarViewModel.menuBarLabel(ram: extreme, disk: extremeDisk)
         XCTAssertTrue(
-            label.contains("RAM: 9999+ GB"),
+            label.contains("RAM: 99999+ GB"),
             "Expected RAM segment to be capped, got \(label)"
         )
         XCTAssertTrue(
-            label.contains("Disk: 9999+ GB free"),
+            label.contains("Disk: 99999+ GB free"),
             "Expected disk segment to be capped, got \(label)"
         )
         XCTAssertLessThanOrEqual(

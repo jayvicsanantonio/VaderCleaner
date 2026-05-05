@@ -189,10 +189,13 @@ final class MenuBarViewModel: ObservableObject {
     /// File-style GB (decimal, matching `ByteCountFormatter.countStyle = .file`).
     private static let bytesPerGB: UInt64 = 1_000_000_000
 
-    /// Soft cap on integer GB rendered in the compact menu bar label. 9,999
-    /// is well above realistic hardware (256 GB RAM, ~16 TB disk) but keeps
-    /// each segment to at most "9999+ GB" = 8 chars.
-    private static let compactGBCap = 9999
+    /// Soft cap on integer GB rendered in the compact menu bar label. 99,999
+    /// (~100 TB) sits comfortably above realistic Mac hardware — a 16 TB
+    /// boot volume reads as 16,384 GB and renders as the live value, not the
+    /// cap — so this only catches truly absurd readings (e.g. `UInt64.max`
+    /// bytes from a buggy upstream). Keeps each segment to at most
+    /// "99999+ GB" = 9 chars; combined label stays well under 50 chars.
+    private static let compactGBCap = 99_999
 
     /// `(total - used) / total * 100` rounded to int. Returns `0` for
     /// zero-total state so the pre-first-refresh popover renders
