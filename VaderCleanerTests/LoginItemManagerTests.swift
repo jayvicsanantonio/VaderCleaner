@@ -17,24 +17,37 @@ import ServiceManagement
 /// can't poison each other.
 final class LoginItemManagerTests: XCTestCase {
 
-    private var initialEnabled: Bool!
+    /// Captures the full `SMAppService.Status`, not just `isEnabled`, because
+    /// `isEnabled` collapses `.requiresApproval` to `false`. If the host
+    /// machine started in `.requiresApproval` (a pending-approval entry the
+    /// user has already opted into via System Settings), restoring from a
+    /// `Bool` would call `setEnabled(false)` and silently unregister it.
+    private var initialStatus: SMAppService.Status!
 
     override func setUp() {
         super.setUp()
-        initialEnabled = LoginItemManager.isEnabled
+        initialStatus = SMAppService.mainApp.status
     }
 
     override func tearDown() {
-        // Best-effort restore; if the restore itself throws (e.g. the bundle
-        // signature changed mid-run) we log via XCTFail rather than masking the
-        // failure, but still continue teardown so subsequent tests aren't
-        // blocked.
+        // Best-effort restore. Both `.enabled` and `.requiresApproval` are
+        // "registered" states from launchd's perspective; the user's approval
+        // toggle in System Settings is independent of our register() call, so
+        // re-registering is the closest we can get to the original — the
+        // post-restore status will be whichever of the two the system
+        // reports. `.notRegistered` / `.notFound` / any future case fall
+        // through to unregister, which is also idempotent for those states.
         do {
-            try LoginItemManager.setEnabled(initialEnabled)
+            switch initialStatus {
+            case .enabled, .requiresApproval:
+                try LoginItemManager.setEnabled(true)
+            default:
+                try LoginItemManager.setEnabled(false)
+            }
         } catch {
             XCTFail("Failed to restore initial login-item state: \(error)")
         }
-        initialEnabled = nil
+        initialStatus = nil
         super.tearDown()
     }
 
