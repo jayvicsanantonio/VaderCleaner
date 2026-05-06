@@ -65,9 +65,19 @@ struct LanguageFileLocator {
         return roots
     }
 
+    /// Cap on how deep we'll walk under any scan root looking for `.lproj`
+    /// directories. The natural locations are `Foo.app/Contents/Resources/`
+    /// (depth 3) and `Foo.framework/Resources/` (depth 2). A bound of 6
+    /// covers nested frameworks like `Foo.app/Contents/Frameworks/Bar.framework/Resources/`
+    /// (depth 5) without letting a single scan walk every binary, asset,
+    /// and `.bundle` payload under `/Applications`.
+    private static let maxLprojWalkDepth = 6
+
     /// Builds the `[ScanRoot]` for a single top-level directory. Pulled out
     /// so each root is independently failure-tolerant: an unreadable
     /// `/Library/Frameworks` doesn't prevent us from walking `/Applications`.
+    /// The walk is depth-bounded — see `maxLprojWalkDepth` — to keep `.app`
+    /// bundles from making this O(every-file-under-/Applications).
     private func lprojRoots(under url: URL) -> [ScanRoot] {
         let enumerator = FileManager.default.enumerator(
             at: url,
@@ -84,6 +94,14 @@ struct LanguageFileLocator {
 
         var roots: [ScanRoot] = []
         for case let entry as URL in enumerator {
+            // Depth bound: stop descending once we're past where `.lproj`
+            // realistically lives. `.skipDescendants()` returns the walker
+            // to the next sibling rather than aborting the whole scan.
+            if enumerator.level > Self.maxLprojWalkDepth {
+                enumerator.skipDescendants()
+                continue
+            }
+
             guard entry.pathExtension.caseInsensitiveCompare("lproj") == .orderedSame else {
                 continue
             }
@@ -107,10 +125,19 @@ struct LanguageFileLocator {
 
     /// Extracts the lower-cased language code from a locale name. Handles
     /// BCP-47 (`en-US`), underscore-separated (`zh_CN`), and the legacy
-    /// English-name forms (`English`, `Spanish`). Returns `nil` for names
-    /// that don't look like a locale at all (e.g. someone created a
-    /// `Base.lproj` — keep those out of the active-match comparison so they
-    /// fall through unchanged into the result).
+    /// English-name forms (`English`, `Spanish`) listed in
+    /// `legacyLanguageNames`. Returns `nil` when the name should be skipped
+    /// entirely — callers (`lprojRoots(under:)`) drop nil-coded entries
+    /// from the result, so neither `Base.lproj` nor unmapped legacy names
+    /// like `Portuguese` are ever reported as junk.
+    ///
+    /// Conservative skip rule for unmapped legacy names: a single-token
+    /// name (no `-` or `_`) longer than 3 characters that isn't in the
+    /// allowlist is skipped. ISO 639-1/-2 codes are 2–3 chars, so this
+    /// preserves `nl`/`eng` while rejecting `Portuguese`/`Norwegian`.
+    /// Without this, `Portuguese.lproj` returned `"portuguese"` — never a
+    /// match for active BCP-47 `pt`, so the user's *active* locale
+    /// resources got reported as junk. Reported by Codex review on PR #28.
     static func languageCode(fromLocaleName name: String) -> String? {
         let lowered = name.lowercased()
         if let mapped = legacyLanguageNames[lowered] {
@@ -118,12 +145,20 @@ struct LanguageFileLocator {
         }
         // Split on either `-` or `_` and take the first component. Both
         // separators show up in `.lproj` names (`en-US`, `zh_CN`).
-        let scalars = lowered.split(whereSeparator: { $0 == "-" || $0 == "_" })
-        guard let first = scalars.first else { return nil }
-        // Common pseudo-locales to ignore — `Base.lproj` is bundle metadata,
-        // not a language. Returning nil keeps it from matching active codes
-        // and from being reported as junk.
+        let parts = lowered.split(whereSeparator: { $0 == "-" || $0 == "_" })
+        guard let first = parts.first.map(String.init) else { return nil }
+        // Pseudo-locale ignored explicitly — `Base.lproj` is bundle
+        // metadata, not a language.
         if first == "base" { return nil }
-        return String(first)
+        // Single-token name longer than an ISO code is almost certainly a
+        // legacy English-style name we don't have an allowlist entry for
+        // (e.g. `Portuguese`, `Norwegian`). Returning nil here means the
+        // caller drops the entry — safer than emitting a code that will
+        // never match an active locale and risking deletion of the user's
+        // active resources.
+        if parts.count == 1 && first.count > 3 {
+            return nil
+        }
+        return first
     }
 }

@@ -56,6 +56,22 @@ final class SystemJunkScannerTests: XCTestCase {
         XCTAssertEqual(result.itemsByCategory[.systemCache]?.count, 2)
     }
 
+    func test_scan_findsUserLogFiles() async throws {
+        let userLogs = try makeRoot("user-logs")
+        try TestHelpers.createDummyFile(named: "app.log", size: 256, in: userLogs)
+        try TestHelpers.createDummyFile(named: "app.1.log", size: 256, in: userLogs)
+        let scanner = SystemJunkScanner(
+            pathProvider: StubSystemPathProvider(roots: [
+                ScanRoot(url: userLogs, category: .userLogs)
+            ])
+        )
+
+        let result = try await scanner.scan(excluding: [])
+
+        XCTAssertEqual(result.itemsByCategory[.userLogs]?.count, 2)
+        XCTAssertEqual(result.sizeByCategory[.userLogs], 512)
+    }
+
     func test_scan_findsSystemLogFiles() async throws {
         let systemLogs = try makeRoot("system-logs")
         try TestHelpers.createDummyFile(named: "kernel.log", size: 1_024, in: systemLogs)

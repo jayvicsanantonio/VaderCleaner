@@ -128,6 +128,56 @@ final class LanguageFileLocatorTests: XCTestCase {
         XCTAssertTrue(lprojPaths.contains(ptBR.path))
     }
 
+    /// `Base.lproj` is bundle metadata, not a language. The locator must
+    /// drop it from the result regardless of which active codes are passed,
+    /// or every bundle's main NIBs would surface as junk on every scan.
+    func test_locate_skipsBaseLproj() throws {
+        let resources = try makeAppResources(named: "BaseHolder.app")
+        let base = try makeLproj("Base", in: resources)
+        try TestHelpers.createDummyFile(named: "MainMenu.nib", size: 100, in: base)
+
+        let locator = LanguageFileLocator(
+            scanRoots: [tempRoot],
+            activeLanguageCodes: ["en"]
+        )
+
+        let lprojRoots = locator.locate()
+        let lprojPaths = Set(lprojRoots.map(\.url.path))
+
+        XCTAssertFalse(lprojPaths.contains(base.path), "Base.lproj is bundle metadata and must never be reported as junk")
+    }
+
+    /// Legacy English-style names not in the allowlist (e.g. `Portuguese`,
+    /// `Norwegian`) used to slip through and return their lower-cased name
+    /// as the "language code" — which never matches an active BCP-47 code
+    /// like `pt`, so the user's *active* locale resources got reported as
+    /// junk. Conservative rule: an unmapped single-token name longer than
+    /// 3 chars is skipped entirely. Reported by Codex review on PR #28.
+    func test_locate_unmappedLegacyNamesAreSkipped() throws {
+        let resources = try makeAppResources(named: "Legacy.app")
+        let portuguese = try makeLproj("Portuguese", in: resources)
+        let norwegian = try makeLproj("Norwegian", in: resources)
+        try TestHelpers.createDummyFile(named: "x", size: 1, in: portuguese)
+        try TestHelpers.createDummyFile(named: "x", size: 1, in: norwegian)
+
+        let locator = LanguageFileLocator(
+            scanRoots: [tempRoot],
+            activeLanguageCodes: ["pt"]
+        )
+
+        let lprojRoots = locator.locate()
+        let lprojPaths = Set(lprojRoots.map(\.url.path))
+
+        XCTAssertFalse(
+            lprojPaths.contains(portuguese.path),
+            "Unmapped legacy 'Portuguese' must not be reported as junk while 'pt' is active"
+        )
+        XCTAssertFalse(
+            lprojPaths.contains(norwegian.path),
+            "Unmapped legacy names should be skipped rather than misclassified"
+        )
+    }
+
     /// `.lproj` directories nested inside `.app` packages must still be found
     /// even though `FileScanner` skips package descendants — the locator does
     /// its own walk specifically because `.lproj` lives under `.app/Contents`.

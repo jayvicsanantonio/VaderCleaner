@@ -84,32 +84,52 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         return roots
     }
 
-    /// Per-user Trash directories for every mounted, removable volume.
-    /// macOS stores them at `/Volumes/<name>/.Trashes/<uid>`. We skip the
-    /// boot volume (its trash is `~/.Trash`, already added above) and any
-    /// volume that doesn't expose a per-user trash subdirectory yet —
-    /// FileScanner would still tolerate the missing path, but emitting a
-    /// non-existent root produces noise in logs.
+    /// Per-user Trash directories for every mounted, *local* volume except
+    /// the boot volume. macOS stores them at `/Volumes/<name>/.Trashes/<uid>`.
+    ///
+    /// Three filters apply, each pinned by review feedback on PR #28:
+    /// - **Boot volume skip** — its trash is `~/.Trash`, already added above.
+    ///   Reported by CodeRabbit; the previous comment promised this skip but
+    ///   never implemented it, so a `/Volumes/Macintosh HD/.Trashes/<uid>`
+    ///   firmlink could double-count via path aliasing.
+    /// - **Local-only** — network shares (SMB/AFP) can be wildly slow to
+    ///   enumerate and shouldn't contribute to a *system* junk scan.
+    ///   Reported by Gemini.
+    /// - **Trash exists** — we drop volumes with no per-user trash yet so
+    ///   we don't emit empty roots that just create log noise downstream.
     private func volumeTrashRoots() -> [ScanRoot] {
         let uid = String(getuid())
+        let bootVolumeURL = (try? URL(fileURLWithPath: "/")
+            .resourceValues(forKeys: [.volumeURLKey])
+            .volume)?.standardizedFileURL
+        let resourceKeys: [URLResourceKey] = [.volumeIsLocalKey, .volumeURLKey]
         let volumes: [URL]
         do {
             volumes = try fileManager.contentsOfDirectory(
                 at: URL(fileURLWithPath: "/Volumes", isDirectory: true),
-                includingPropertiesForKeys: [.isDirectoryKey],
+                includingPropertiesForKeys: resourceKeys,
                 options: [.skipsHiddenFiles]
             )
         } catch {
             return []
         }
-        return volumes.compactMap { volume in
+        var roots: [ScanRoot] = []
+        for volume in volumes {
+            let values = try? volume.resourceValues(forKeys: Set(resourceKeys))
+            guard values?.volumeIsLocal == true else { continue }
+            if let bootVolumeURL,
+               let volumeURL = values?.volume?.standardizedFileURL,
+               volumeURL == bootVolumeURL {
+                continue
+            }
             let trash = volume
                 .appendingPathComponent(".Trashes", isDirectory: true)
                 .appendingPathComponent(uid, isDirectory: true)
-            return fileManager.fileExists(atPath: trash.path)
-                ? ScanRoot(url: trash, category: .trash)
-                : nil
+            if fileManager.fileExists(atPath: trash.path) {
+                roots.append(ScanRoot(url: trash, category: .trash))
+            }
         }
+        return roots
     }
 
     /// Lower-cased BCP-47 language codes the user has configured as
