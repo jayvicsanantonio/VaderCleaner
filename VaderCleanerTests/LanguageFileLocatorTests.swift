@@ -178,6 +178,36 @@ final class LanguageFileLocatorTests: XCTestCase {
         )
     }
 
+    /// App extensions live at `Foo.app/Contents/PlugIns/Bar.appex/Contents/Resources/<lang>.lproj`,
+    /// which is depth 7 from a top-level scan root. An overly-tight depth
+    /// cap on the walker would prune the whole subtree before reaching the
+    /// `.lproj`, so localized extension resources never made it into the
+    /// junk list. Reported by Codex review on PR #28.
+    func test_locate_findsLprojInsideNestedAppExtensions() throws {
+        let resources = tempRoot
+            .appendingPathComponent("Host.app", isDirectory: true)
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("PlugIns", isDirectory: true)
+            .appendingPathComponent("Widget.appex", isDirectory: true)
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let nl = try makeLproj("nl", in: resources)
+        try TestHelpers.createDummyFile(named: "Localizable.strings", size: 8, in: nl)
+
+        let locator = LanguageFileLocator(
+            scanRoots: [tempRoot],
+            activeLanguageCodes: ["en"]
+        )
+
+        let lprojPaths = Set(locator.locate().map(\.url.path))
+
+        XCTAssertTrue(
+            lprojPaths.contains(nl.path),
+            "App-extension .lproj at depth 7 must still surface"
+        )
+    }
+
     /// `.lproj` directories nested inside `.app` packages must still be found
     /// even though `FileScanner` skips package descendants — the locator does
     /// its own walk specifically because `.lproj` lives under `.app/Contents`.

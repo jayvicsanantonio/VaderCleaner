@@ -65,13 +65,23 @@ struct LanguageFileLocator {
         return roots
     }
 
-    /// Cap on how deep we'll walk under any scan root looking for `.lproj`
-    /// directories. The natural locations are `Foo.app/Contents/Resources/`
-    /// (depth 3) and `Foo.framework/Resources/` (depth 2). A bound of 6
-    /// covers nested frameworks like `Foo.app/Contents/Frameworks/Bar.framework/Resources/`
-    /// (depth 5) without letting a single scan walk every binary, asset,
-    /// and `.bundle` payload under `/Applications`.
-    private static let maxLprojWalkDepth = 6
+    /// Cap on how deep we'll *descend* (into non-`.lproj` directories) when
+    /// walking a scan root. The cap is a perf bound to keep us out of
+    /// binary asset trees inside packages, not a filter on matches —
+    /// `.lproj` directories are always processed when we encounter them,
+    /// regardless of depth (see `lprojRoots(under:)`).
+    ///
+    /// Depths to plan for, measured from a top-level scan root like
+    /// `/Applications`:
+    ///   - `Foo.app/Contents/Resources/<lang>.lproj` → depth 4
+    ///   - `Foo.app/Contents/Frameworks/Bar.framework/Resources/...` → depth 6
+    ///   - `Foo.app/Contents/PlugIns/Bar.appex/Contents/Resources/...` → depth 7
+    ///   - Versioned frameworks inside extensions → depth 9–10
+    /// A cap of 10 lets the walker descend through the deepest realistic
+    /// nesting (extension-inside-app or versioned framework) without
+    /// expanding into every nested `.bundle` of subassets. Reported by
+    /// Codex on PR #28: prior cap of 6 missed `.appex` extension lprojs.
+    private static let maxLprojWalkDepth = 10
 
     /// Builds the `[ScanRoot]` for a single top-level directory. Pulled out
     /// so each root is independently failure-tolerant: an unreadable
@@ -94,31 +104,31 @@ struct LanguageFileLocator {
 
         var roots: [ScanRoot] = []
         for case let entry as URL in enumerator {
-            // Depth bound: stop descending once we're past where `.lproj`
-            // realistically lives. `.skipDescendants()` returns the walker
-            // to the next sibling rather than aborting the whole scan.
-            if enumerator.level > Self.maxLprojWalkDepth {
+            // Match on `.lproj` first — *before* the depth cap. The cap is
+            // a perf bound on descent into non-matching subtrees; it must
+            // not also prune valid matches at the same depth (e.g. an
+            // `.appex` extension's `.lproj` at depth 7).
+            if entry.pathExtension.caseInsensitiveCompare("lproj") == .orderedSame {
+                let localeName = entry.deletingPathExtension().lastPathComponent
+                if let code = Self.languageCode(fromLocaleName: localeName),
+                   !activeLanguageCodes.contains(code) {
+                    roots.append(ScanRoot(url: entry, category: .languageFiles))
+                }
+                // Always skip the contents of an `.lproj`. For a non-active
+                // match we tagged the whole directory as the junk root, so
+                // descending would double-count when FileScanner walks it
+                // later. For an active or skipped (`Base`/unmapped legacy)
+                // match we don't expect nested `.lproj`s and don't want to
+                // pay the descent cost either.
                 enumerator.skipDescendants()
                 continue
             }
 
-            guard entry.pathExtension.caseInsensitiveCompare("lproj") == .orderedSame else {
-                continue
+            // Non-`.lproj` directory at or past the cap: stop descending
+            // further down this branch but keep walking siblings.
+            if enumerator.level > Self.maxLprojWalkDepth {
+                enumerator.skipDescendants()
             }
-            let localeName = entry.deletingPathExtension().lastPathComponent
-            guard let code = Self.languageCode(fromLocaleName: localeName) else {
-                continue
-            }
-            if activeLanguageCodes.contains(code) {
-                // Active locale — keep its `.lproj` directory.
-                continue
-            }
-            roots.append(ScanRoot(url: entry, category: .languageFiles))
-            // We tagged the whole `.lproj` as a junk root; no need to
-            // descend into its contents looking for nested `.lproj`s, and
-            // doing so would double-count files when FileScanner walks
-            // this root afterwards.
-            enumerator.skipDescendants()
         }
         return roots
     }
