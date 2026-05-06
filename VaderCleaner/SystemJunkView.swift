@@ -35,8 +35,8 @@ struct SystemJunkView: View {
                 progressState(label: "Cleaning…", identifier: "system-junk.cleaning")
             case .complete(let bytes):
                 completeState(bytesFreed: bytes)
-            case .failed(let message):
-                failedState(message: message)
+            case .failed(let stage, let message):
+                failedState(stage: stage, message: message)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -150,12 +150,12 @@ struct SystemJunkView: View {
         .padding()
     }
 
-    private func failedState(message: String) -> some View {
+    private func failedState(stage: SystemJunkViewModel.FailureStage, message: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(.orange)
-            Text("Couldn't complete the scan")
+            Text(stage == .scanning ? "Couldn't complete the scan" : "Couldn't finish cleaning")
                 .font(.title2.weight(.semibold))
             Text(message)
                 .font(.callout)
@@ -176,9 +176,11 @@ struct SystemJunkView: View {
     // MARK: - Formatter
 
     /// Shared `ByteCountFormatter` for the "freed" summary on the complete
-    /// state. Kept on the view so the formatter allocation does not happen
-    /// inside the view body's expression evaluator on every redraw.
-    private static let byteFormatter: ByteCountFormatter = {
+    /// state and every per-category row. `fileprivate` (not `private`) so
+    /// the `CategoryRow` subview below can reuse the same instance instead
+    /// of allocating its own. Kept as a static so the allocation does not
+    /// happen inside the view body's expression evaluator on every redraw.
+    fileprivate static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.allowedUnits = .useAll
         f.countStyle = .file
@@ -196,13 +198,6 @@ private struct CategoryRow: View {
     let sizeBytes: Int64
     @Binding var isChecked: Bool
 
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = .useAll
-        f.countStyle = .file
-        return f
-    }()
-
     var body: some View {
         HStack(spacing: 12) {
             Toggle("", isOn: $isChecked)
@@ -216,7 +211,7 @@ private struct CategoryRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(Self.byteFormatter.string(fromByteCount: sizeBytes))
+            Text(SystemJunkView.byteFormatter.string(fromByteCount: sizeBytes))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
         }

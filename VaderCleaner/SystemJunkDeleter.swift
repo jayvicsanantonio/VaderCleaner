@@ -7,10 +7,20 @@ import os.log
 /// Deletes the files emitted by a System Junk scan, returning the total bytes
 /// successfully freed. The split between `FileManager.removeItem` and the
 /// privileged helper's `deleteFiles(_:reply:)` is decided per-file from the
-/// path prefix — anything under `/Library`, `/private/var`, or `/Volumes/*/.Trashes`
-/// goes to the helper because those locations are not writable in-process even
-/// with Full Disk Access. Everything else (the user's `~/Library`, `~/.Trash`,
-/// `~/Library/Mail Downloads`, `~/Library/Application Support/MobileSync/Backup`)
+/// path. Routed through the helper:
+///
+///   - `/Library/...` and `/private/var/...` (system caches, logs, /var/folders)
+///   - `/System/...` (kept routed even though SSV blocks it, so accidental
+///     selections fail loudly via the helper rather than silently in-process)
+///   - `/Applications/...` (system-installed `.app` bundles are usually owned
+///     by `root:wheel` and not user-writable, so language-file deletion under
+///     them would silently fail in-process)
+///   - `/Volumes/<name>/.Trashes/<uid>/...` — per-user trash on mounted local
+///     volumes; everything else under `/Volumes/...` is left in-process
+///     because mounted external drives are typically user-writable.
+///
+/// Everything else (the user's `~/Library`, `~/.Trash`, `~/Library/Mail Downloads`,
+/// `~/Library/Application Support/MobileSync/Backup`, and `~/Applications`)
 /// is removed in-process.
 ///
 /// Errors on individual files are logged and skipped — a single locked log
@@ -19,25 +29,39 @@ import os.log
 /// total it did not deliver.
 struct SystemJunkDeleter {
 
-    /// Path prefixes that must be deleted via the privileged helper. Stored
-    /// without trailing slashes so a `hasPrefix` check matches both the
-    /// directory itself and any descendant.
+    /// Closure that yields a fresh helper proxy bound to the supplied
+    /// per-call XPC error handler, or `nil` if the helper is unreachable.
+    /// We accept the error handler at provider time (rather than letting
+    /// `HelperConnectionManager` keep a single global one) so each
+    /// `deleteViaHelper(...)` await can be resumed by whichever of the
+    /// reply block or the connection-level error handler fires first.
+    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
+
+    /// Plain prefix matches that mean "must go through the helper". Stored
+    /// with trailing slashes so the check matches descendants but not paths
+    /// that merely start with the same characters (`/Libraryfoo` ≠ `/Library/`).
     private static let helperOnlyPrefixes: [String] = [
         "/Library/",
         "/private/var/",
         "/System/",
-        "/Volumes/"
+        "/Applications/"
     ]
+
+    /// Substring that, when paired with `/Volumes/` rooting, marks per-volume
+    /// `.Trashes/<uid>/...` paths as helper-only. Plain `/Volumes/X/foo` is
+    /// left in-process because mounted external drives are typically writable
+    /// by the user and don't need privilege escalation.
+    private static let volumesTrashesNeedle = "/.Trashes/"
 
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "SystemJunkDeleter")
 
     private let fileManager: FileManager
-    private let helperProvider: () -> VaderCleanerHelperProtocol?
+    private let helperProvider: HelperProvider
 
     init(
         fileManager: FileManager = .default,
-        helperProvider: @escaping () -> VaderCleanerHelperProtocol? = SystemJunkDeleter.defaultHelperProvider
+        helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider
     ) {
         self.fileManager = fileManager
         self.helperProvider = helperProvider
@@ -66,52 +90,66 @@ struct SystemJunkDeleter {
         return bytesFreed
     }
 
-    /// Splits `files` into `(needsHelper, userDomain)` based on path prefix.
+    /// Splits `files` into `(needsHelper, userDomain)` based on the routing
+    /// rule in `requiresHelper(path:)`.
     private func partition(_ files: [ScannedFile]) -> ([ScannedFile], [ScannedFile]) {
-        var helper: [ScannedFile] = []
-        var user: [ScannedFile] = []
-        for file in files {
+        files.reduce(into: ([ScannedFile](), [ScannedFile]())) { acc, file in
             if Self.requiresHelper(path: file.url.path) {
-                helper.append(file)
+                acc.0.append(file)
             } else {
-                user.append(file)
+                acc.1.append(file)
             }
         }
-        return (helper, user)
     }
 
-    /// True when the path must go through the privileged helper. Public so
-    /// `SystemJunkDeleterTests` can pin the routing without instantiating
-    /// the deleter.
+    /// True when `path` must go through the privileged helper. Public so
+    /// `SystemJunkDeleterTests` can pin the routing rule without needing
+    /// to instantiate the deleter or fake the helper.
     static func requiresHelper(path: String) -> Bool {
-        for prefix in helperOnlyPrefixes {
-            if path.hasPrefix(prefix) { return true }
+        if helperOnlyPrefixes.contains(where: { path.hasPrefix($0) }) {
+            return true
+        }
+        if path.hasPrefix("/Volumes/") && path.contains(volumesTrashesNeedle) {
+            return true
         }
         return false
     }
 
     /// Attempts a single batched helper call. The XPC interface uses the
-    /// classic reply-block style so we bridge through
-    /// `withCheckedContinuation`. On any error from the proxy we treat the
-    /// whole batch as failed and return `0` — the helper has a best-effort
-    /// contract (it deletes what it can and returns the first error), but
-    /// because the protocol does not surface a per-path success vector, we
-    /// do not credit byte counts in the failure case.
+    /// classic reply-block style so we bridge through `withCheckedContinuation`.
+    ///
+    /// `NSXPCConnection` may, in failure cases, fire the connection-level
+    /// error handler **instead of** the per-call reply block — leaving an
+    /// unresolved continuation forever and freezing the cleaning UI on the
+    /// spinner. To prevent that, we install both: the helper proxy is built
+    /// with a per-call error handler and the reply block is registered as
+    /// usual. Whichever path resumes first wins, the other becomes a no-op
+    /// thanks to `Resumer.resume(with:)`'s once-only guarantee.
+    ///
+    /// On any error from either path we treat the whole batch as failed and
+    /// return `0` — the helper has a best-effort contract (it deletes what
+    /// it can and returns the first error), but because the protocol does
+    /// not surface a per-path success vector, we do not credit byte counts
+    /// in the failure case.
     private func deleteViaHelper(files: [ScannedFile]) async -> Int64 {
         let paths = files.map { $0.url.path }
         let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
 
         let error: Error? = await withCheckedContinuation { continuation in
-            guard let helper = helperProvider() else {
-                continuation.resume(returning: NSError(
+            let resumer = Resumer(continuation: continuation)
+            let helper = helperProvider { connectionError in
+                resumer.resume(with: connectionError)
+            }
+            guard let helper else {
+                resumer.resume(with: NSError(
                     domain: "com.personal.VaderCleaner.SystemJunkDeleter",
                     code: -1,
                     userInfo: [NSLocalizedDescriptionKey: "Helper unavailable"]
                 ))
                 return
             }
-            helper.deleteFiles(paths) { error in
-                continuation.resume(returning: error)
+            helper.deleteFiles(paths) { replyError in
+                resumer.resume(with: replyError)
             }
         }
 
@@ -123,14 +161,45 @@ struct SystemJunkDeleter {
     }
 
     /// Default helper provider — returns the proxy from
-    /// `HelperConnectionManager.shared`. Logs and returns nil on connection
-    /// errors (e.g. helper not registered in dev), letting the caller treat
-    /// system-domain deletes as failed without crashing.
-    static let defaultHelperProvider: () -> VaderCleanerHelperProtocol? = {
+    /// `HelperConnectionManager.shared` bound to the per-call error handler.
+    /// Logs the connection error in addition to forwarding it (so the failure
+    /// is visible in Console even when the awaiting call has already
+    /// resumed).
+    static let defaultHelperProvider: HelperProvider = { errorHandler in
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "SystemJunkDeleter.HelperProvider")
         return HelperConnectionManager.shared.helper { error in
             log.error("Helper connection error: \(error.localizedDescription, privacy: .public)")
+            errorHandler(error)
         }
+    }
+}
+
+// MARK: - Once-only continuation resume
+
+/// Wraps a `CheckedContinuation` so that exactly one of the multiple paths
+/// that may complete it (XPC reply block, XPC error handler, "helper
+/// unavailable" early return) actually resumes — subsequent attempts are
+/// silently dropped. `CheckedContinuation` traps on a second resume, which
+/// would otherwise crash the app the first time the helper connection
+/// dropped mid-call.
+///
+/// A class because it must be referenced by multiple closures and mutated
+/// from whichever fires first. The `NSLock` covers the "two callbacks land
+/// on different threads at the same time" race.
+private final class Resumer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Error?, Never>?
+
+    init(continuation: CheckedContinuation<Error?, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(with error: Error?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: error)
     }
 }

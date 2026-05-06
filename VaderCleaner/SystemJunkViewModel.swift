@@ -23,6 +23,14 @@ import os.log
 @MainActor
 final class SystemJunkViewModel: ObservableObject {
 
+    /// Which step of the flow generated a `.failed` phase, so the view can
+    /// pick the right heading. `clean()` failure must not surface as
+    /// "Couldn't complete the scan" — the scan succeeded; deletion blew up.
+    enum FailureStage: Equatable {
+        case scanning
+        case cleaning
+    }
+
     /// Discrete phases the System Junk view binds to. Equatable so tests can
     /// pin exact transitions and SwiftUI's `Equatable`-aware diffing avoids
     /// redundant re-renders when an incoming value is unchanged.
@@ -32,7 +40,7 @@ final class SystemJunkViewModel: ObservableObject {
         case preview(ScanResult)
         case cleaning
         case complete(bytesFreed: Int64)
-        case failed(message: String)
+        case failed(stage: FailureStage, message: String)
     }
 
     /// Closure type for the scan source. Async + throwing so production can
@@ -106,7 +114,7 @@ final class SystemJunkViewModel: ObservableObject {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
             self.latestResult = nil
             self.checkedCategories = []
-            self.phase = .failed(message: error.localizedDescription)
+            self.phase = .failed(stage: .scanning, message: error.localizedDescription)
         }
     }
 
@@ -123,7 +131,7 @@ final class SystemJunkViewModel: ObservableObject {
             self.phase = .complete(bytesFreed: bytes)
         } catch {
             log.error("System Junk clean failed: \(String(describing: error), privacy: .public)")
-            self.phase = .failed(message: error.localizedDescription)
+            self.phase = .failed(stage: .cleaning, message: error.localizedDescription)
         }
     }
 
@@ -173,12 +181,13 @@ extension SystemJunkViewModel {
     static func live(exclusions: ExclusionsStore) -> SystemJunkViewModel {
         SystemJunkViewModel(
             scanner: { [weak exclusions] in
-                // Snapshot exclusions on the main actor at scan time so a
-                // freshly-added Preferences entry takes effect on the very
-                // next run, then walk the file tree off the main actor.
-                let excluded: [URL] = await MainActor.run {
-                    (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                }
+                // Both `scan()` (the caller) and this closure inherit the
+                // enclosing `@MainActor` isolation, so the `exclusions`
+                // snapshot can be read directly without an explicit
+                // `MainActor.run` hop. The actual file walk happens inside
+                // `SystemJunkScanner.scan(excluding:)`, which is async and
+                // yields the main actor at its first internal `await`.
+                let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
                 return try await SystemJunkScanner().scan(excluding: excluded)
             },
             deleter: { files in

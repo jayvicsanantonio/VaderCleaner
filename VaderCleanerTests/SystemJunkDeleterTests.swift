@@ -24,10 +24,11 @@ final class SystemJunkDeleterTests: XCTestCase {
 
     // MARK: - Path routing
 
-    /// Anything under `/Library`, `/private/var`, `/System`, or `/Volumes`
-    /// must be flagged as helper-only; anything else stays in-process. The
-    /// rule lives on a static for testability — callers should not have to
-    /// instantiate the deleter just to ask the question.
+    /// Anything under `/Library`, `/private/var`, `/System`, or `/Applications`,
+    /// plus per-volume `.Trashes/<uid>/...` under `/Volumes/...`, must be
+    /// flagged as helper-only. The rule lives on a static for testability —
+    /// callers should not have to instantiate the deleter just to ask the
+    /// question.
     func test_requiresHelper_recognisesSystemPrefixes() {
         XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/Library/Caches/foo"))
         XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/Library/Logs/bar.log"))
@@ -36,13 +37,28 @@ final class SystemJunkDeleterTests: XCTestCase {
         XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/Volumes/External/.Trashes/501/file"))
     }
 
+    /// `/Applications` is owned by `root:wheel` on a default macOS install
+    /// and most system-installed `.app` bundles inside it are not writable
+    /// by the user process, so language-file pruning under them must go
+    /// through the helper. Reported by Codex review on PR #30.
+    func test_requiresHelper_routesSystemInstalledAppsThroughHelper() {
+        XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/Applications/Safari.app/Contents/Resources/nl.lproj/Localizable.strings"))
+        XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/Applications/Some.app/Contents/Resources/de.lproj/InfoPlist.strings"))
+    }
+
     /// User-domain paths must never be routed through the helper — that would
     /// make the privileged tool do work the app could safely do itself, and
     /// would reject in dev environments where the helper isn't registered.
+    /// Includes a regression case for the previous "every `/Volumes/...` is
+    /// helper-only" behaviour: a plain file on a mounted external drive is
+    /// user-writable and stays in-process. Reported by CodeRabbit review on
+    /// PR #30.
     func test_requiresHelper_rejectsUserDomainPaths() {
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Users/alice/Library/Caches/x"))
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Users/alice/.Trash/file"))
+        XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Users/alice/Applications/MyApp.app/Contents/Resources/de.lproj/x"))
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/tmp/whatever"))
+        XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Volumes/External/Movies/clip.mov"))
     }
 
     // MARK: - User-domain deletion
@@ -58,7 +74,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: $0, size: 100, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
         }
 
-        let deleter = SystemJunkDeleter(helperProvider: { nil })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil })
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 300)
@@ -84,7 +100,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: absentURL,  size: 9_999, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
         ]
 
-        let deleter = SystemJunkDeleter(helperProvider: { nil })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil })
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 50, "Only the file that actually existed should contribute to bytesFreed")
@@ -110,7 +126,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         ]
 
         let fakeHelper = FakeHelper(replyError: nil)
-        let deleter = SystemJunkDeleter(helperProvider: { fakeHelper })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper })
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 350, "Both user (100) and helper-credited system (250) bytes count")
@@ -132,10 +148,41 @@ final class SystemJunkDeleterTests: XCTestCase {
         ]
 
         let fakeHelper = FakeHelper(replyError: NSError(domain: "test", code: 1))
-        let deleter = SystemJunkDeleter(helperProvider: { fakeHelper })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper })
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 50, "Only user-domain bytes should be credited when the helper batch failed")
+    }
+
+    /// Regression test for the XPC continuation hang reported on PR #30:
+    /// when the privileged helper fires its connection-level error handler
+    /// **instead of** invoking the per-call reply block (the way
+    /// `NSXPCConnection` reports interrupted/invalidated connections),
+    /// `delete()` must still resolve — not leave `clean()` stuck on the
+    /// `.cleaning` spinner forever. We simulate that by dropping the reply
+    /// block on the floor and using the per-call error handler that the
+    /// new `helperProvider` signature exposes.
+    func test_delete_resumesWhenHelperConnectionErrorFiresInsteadOfReply() async throws {
+        let systemURL = URL(fileURLWithPath: "/Library/Caches/com.bogus.test/file.bin")
+        let files = [
+            ScannedFile(url: systemURL, size: 999, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
+        ]
+
+        // Deleter that never replies — only the error handler fires. Without
+        // the per-call error sink, `withCheckedContinuation` would never
+        // resume and this test would time out under XCTest's default cap.
+        let droppingHelper = DroppingReplyHelper()
+        let deleter = SystemJunkDeleter(helperProvider: { errorHandler in
+            // Simulate XPC delivering a connection-level error.
+            errorHandler(NSError(domain: "test.xpc", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Connection invalidated"
+            ]))
+            return droppingHelper
+        })
+
+        let bytesFreed = try await deleter.delete(files)
+
+        XCTAssertEqual(bytesFreed, 0, "Connection error must resolve as failure, not hang")
     }
 
     /// When the helper is unavailable (typical dev environment without ad-hoc
@@ -152,7 +199,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: systemURL, size: 999, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 
-        let deleter = SystemJunkDeleter(helperProvider: { nil })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil })
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 75)
@@ -182,4 +229,18 @@ private final class FakeHelper: NSObject, VaderCleanerHelperProtocol {
     func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
     func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
     func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
+}
+
+/// Helper stand-in that intentionally drops the reply block on the floor —
+/// models the real `NSXPCConnection` failure mode where the connection-level
+/// error handler fires instead of the per-call reply. The test confirms the
+/// awaiting `delete()` resolves anyway, via the per-call error sink.
+private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol {
+    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
+        // Intentionally no `reply(...)`.
+    }
+    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
+    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
+    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
+    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
 }
