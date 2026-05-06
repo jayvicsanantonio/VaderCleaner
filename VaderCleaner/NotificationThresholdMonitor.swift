@@ -167,14 +167,25 @@ final class NotificationThresholdMonitor: ObservableObject {
         lastFired[.largeFiles] = now()
     }
 
+    // MARK: - Permission passthrough
+
+    /// Forwards to the dispatcher's `requestPermission()`. Exposed on the
+    /// monitor so callers (the App / ContentView) can drive permission requests
+    /// through the same instance they receive via `@EnvironmentObject` without
+    /// also injecting the underlying `NotificationManager`.
+    func requestPermission() async {
+        await dispatcher.requestPermission()
+    }
+
     // MARK: - Cooldown helper
 
     /// Returns true if `kind` has either never fired or fired at least
-    /// `cooldown` seconds ago. The boundary is exclusive — a sample exactly
-    /// `cooldown` seconds after the previous firing is treated as elapsed,
-    /// matching test expectations (301 s after, not 300 s).
+    /// `cooldown` seconds ago. The boundary is inclusive: a sample exactly
+    /// `cooldown` seconds after the previous firing is treated as elapsed, so
+    /// a 5-minute cooldown means "next allowed firing is at last + 5 minutes,"
+    /// matching what most users would intuit from the spec wording.
     private func isCooldownElapsed(_ kind: Kind) -> Bool {
         guard let last = lastFired[kind] else { return true }
-        return now().timeIntervalSince(last) > cooldown
+        return now().timeIntervalSince(last) >= cooldown
     }
 }

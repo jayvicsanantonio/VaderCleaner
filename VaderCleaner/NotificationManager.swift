@@ -1,5 +1,5 @@
 // NotificationManager.swift
-// User-facing notification dispatcher — wraps UNUserNotificationCenter and exposes pure content builders for tests.
+// User-facing notification dispatcher — wraps UNUserNotificationCenter, presents banners while foregrounded, and exposes pure content builders for tests.
 
 import Foundation
 import UserNotifications
@@ -26,19 +26,65 @@ protocol NotificationDispatching: AnyObject {
 /// scheduling a real notification request — `UNUserNotificationCenter.add`
 /// requires an authorized notification entitlement and a running app, neither
 /// of which a unit test bundle reliably has.
+///
+/// ## Foreground presentation
+///
+/// `UNUserNotificationCenter` suppresses banners while the owning app is
+/// frontmost unless a delegate opts in via
+/// `userNotificationCenter(_:willPresent:withCompletionHandler:)`. Setting
+/// `self` as the delegate and returning `[.banner, .sound]` keeps low-disk /
+/// high-RAM alerts visible even while the user has the Health Monitor open —
+/// which is precisely when those alerts are most actionable.
 @MainActor
-final class NotificationManager: NotificationDispatching {
+final class NotificationManager: NSObject, NotificationDispatching, UNUserNotificationCenterDelegate {
+
+    /// Closure that performs the underlying `requestAuthorization` call.
+    /// Production wires this through `UNUserNotificationCenter`. Tests inject
+    /// a no-op so the test bundle never hits the real permission system —
+    /// which would block in CI on a clean machine.
+    typealias AuthorizationRequester = @MainActor () async throws -> Bool
 
     private let center: UNUserNotificationCenter
+    private let authorizationRequester: AuthorizationRequester
     private let log = OSLog(subsystem: "com.personal.VaderCleaner",
                             category: "NotificationManager")
 
-    /// `UNUserNotificationCenter.current()` is a singleton tied to the host
-    /// app's bundle identifier; it is always the right instance in production.
-    /// Exposed for parity with other ObservableObjects' init signatures, but
-    /// production callers use the default.
-    init(center: UNUserNotificationCenter = .current()) {
+    /// Single shared formatter for byte → string conversion in the
+    /// large-files notification body. `ByteCountFormatter` allocates internal
+    /// state on each construction; reusing one instance avoids unnecessary
+    /// churn even though the per-kind cooldown already throttles fire rate.
+    private static let byteCountFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+
+    /// - Parameters:
+    ///   - center: `UNUserNotificationCenter.current()` is the right
+    ///     production instance; tests can pass a different instance only
+    ///     incidentally — the meaningful seam is `authorizationRequester`.
+    ///   - authorizationRequester: Override for the underlying authorization
+    ///     call. Defaults to invoking
+    ///     `center.requestAuthorization(options: [.alert, .sound])`. Tests
+    ///     pass a closure that returns immediately so `requestPermission`
+    ///     never blocks waiting for user input.
+    init(
+        center: UNUserNotificationCenter = .current(),
+        authorizationRequester: AuthorizationRequester? = nil
+    ) {
         self.center = center
+        // Capture `center` in the default requester closure so the seam still
+        // routes through the supplied center instance when no override is
+        // provided.
+        self.authorizationRequester = authorizationRequester ?? { [center] in
+            try await center.requestAuthorization(options: [.alert, .sound])
+        }
+        super.init()
+        // The delegate property is `weak`, so the manager has to live for the
+        // notifications to keep presenting. In production the App holds it as
+        // a stored property; in tests the manager is held by the test method
+        // and the post-test deallocation cleans up the weak ref harmlessly.
+        center.delegate = self
     }
 
     // MARK: - Permission
@@ -50,11 +96,29 @@ final class NotificationManager: NotificationDispatching {
     /// silently no-ops when authorization is missing, which is fine.
     func requestPermission() async {
         do {
-            _ = try await center.requestAuthorization(options: [.alert, .sound])
+            _ = try await authorizationRequester()
         } catch {
             os_log("requestAuthorization failed: %{public}@",
                    log: log, type: .error, error.localizedDescription)
         }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    /// Tells the system to present the banner + sound even while VaderCleaner
+    /// is the active app. Without this hook the user never sees an in-app
+    /// banner for low-disk / high-RAM alerts — the most common moment to act
+    /// on those alerts is precisely when the app is frontmost.
+    ///
+    /// Marked `nonisolated` because UNUserNotificationCenter delegate methods
+    /// may be invoked from any thread. The body touches no instance state and
+    /// just calls the completion handler synchronously, which is safe.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 
     // MARK: - Dispatch entry points
@@ -128,10 +192,7 @@ final class NotificationManager: NotificationDispatching {
     static func makeLargeFilesFoundContent(count: Int, totalSize: Int64) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = "Large Files Found"
-        let formattedSize = ByteCountFormatter.string(
-            fromByteCount: totalSize,
-            countStyle: .file
-        )
+        let formattedSize = byteCountFormatter.string(fromByteCount: totalSize)
         content.body = "Found \(count) large or old files totaling \(formattedSize)."
         content.sound = .default
         return content
