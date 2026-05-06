@@ -26,7 +26,7 @@
 
 ## Phase 2 — File Cleaning
 
-- [ ] **Prompt 12** — File scanner infrastructure (FileScanner, ScanCategory, ScanResult)
+- [x] **Prompt 12** — File scanner infrastructure (FileScanner, ScanCategory, ScanResult)
 - [ ] **Prompt 13** — System Junk scanner (all 8 categories)
 - [ ] **Prompt 14** — System Junk UI + deletion (scan → preview → clean flow)
 - [ ] **Prompt 15** — Large & Old Files scanner + UI
