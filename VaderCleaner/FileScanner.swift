@@ -50,14 +50,22 @@ struct FileScanner: FileScanning {
         .contentModificationDateKey
     ]
 
+    /// Pre-built `Set` form of `resourceKeys` for the per-file
+    /// `resourceValues(forKeys:)` call. Allocating it once instead of on
+    /// every iteration matters when scanning hundreds of thousands of files.
+    private static let resourceKeySet = Set(resourceKeys)
+
     func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile] {
         let canonicalExclusions = excluding.map(Self.canonicalize)
+        let hasExclusions = !canonicalExclusions.isEmpty
         var results: [ScannedFile] = []
 
         for root in roots {
-            let rootCanonical = Self.canonicalize(root.url)
-            if Self.isExcluded(path: rootCanonical, by: canonicalExclusions) {
-                continue
+            if hasExclusions {
+                let canonicalRootPath = Self.canonicalize(root.url)
+                if Self.isExcluded(path: canonicalRootPath, by: canonicalExclusions) {
+                    continue
+                }
             }
 
             // `.skipsPackageDescendants` keeps us out of .app bundles and
@@ -70,7 +78,7 @@ struct FileScanner: FileScanning {
                 options: [.skipsPackageDescendants],
                 errorHandler: { url, error in
                     Self.log.debug(
-                        "Skipping unreadable path \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                        "Skipping unreadable path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
                     )
                     return true
                 }
@@ -79,7 +87,7 @@ struct FileScanner: FileScanning {
             guard let enumerator else { continue }
 
             for case let url as URL in enumerator {
-                let resourceValues = try? url.resourceValues(forKeys: Set(Self.resourceKeys))
+                let resourceValues = try? url.resourceValues(forKeys: Self.resourceKeySet)
 
                 if resourceValues?.isSymbolicLink == true {
                     // Skip symlinks unconditionally — this avoids both
@@ -89,26 +97,33 @@ struct FileScanner: FileScanning {
                     continue
                 }
 
-                let canonicalPath = Self.canonicalize(url)
-                if Self.isExcluded(path: canonicalPath, by: canonicalExclusions) {
-                    if resourceValues?.isDirectory == true {
-                        enumerator.skipDescendants()
+                // Canonicalize per-file *only* when there are exclusions to
+                // compare against — the common case (no exclusions) avoids
+                // the extra symlink-resolution work entirely. We can't lift
+                // this above the loop because `FileManager.enumerator`
+                // doesn't guarantee canonical-prefixed URLs even when given
+                // a canonical root, so the comparison has to happen on a
+                // resolved path.
+                if hasExclusions {
+                    let canonicalPath = Self.canonicalize(url)
+                    if Self.isExcluded(path: canonicalPath, by: canonicalExclusions) {
+                        if resourceValues?.isDirectory == true {
+                            enumerator.skipDescendants()
+                        }
+                        continue
                     }
-                    continue
                 }
 
                 guard resourceValues?.isRegularFile == true else { continue }
 
                 let size = Int64(resourceValues?.fileSize ?? 0)
-                let accessed = resourceValues?.contentAccessDate ?? .distantPast
-                let modified = resourceValues?.contentModificationDate ?? .distantPast
 
                 results.append(
                     ScannedFile(
                         url: url,
                         size: size,
-                        lastAccessDate: accessed,
-                        lastModifiedDate: modified,
+                        lastAccessDate: resourceValues?.contentAccessDate,
+                        lastModifiedDate: resourceValues?.contentModificationDate,
                         category: root.category
                     )
                 )
@@ -127,21 +142,19 @@ struct FileScanner: FileScanning {
         url.resolvingSymlinksInPath().path
     }
 
-    private static func canonicalize(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-    }
-
     /// True when `path` is exactly an excluded path or sits beneath one.
     /// Comparison is at path-component boundaries (not raw prefix) so
     /// excluding `/tmp/foo` does not also exclude `/tmp/foobar`. macOS's
     /// default APFS is case-insensitive, hence the case-insensitive compare.
+    /// Uses `range(of:options:)` rather than `lowercased()` so we don't
+    /// allocate a fresh lowercased copy of every enumerated path.
     private static func isExcluded(path: String, by exclusions: [String]) -> Bool {
         for excluded in exclusions {
             if path.caseInsensitiveCompare(excluded) == .orderedSame {
                 return true
             }
             let prefix = excluded.hasSuffix("/") ? excluded : excluded + "/"
-            if path.lowercased().hasPrefix(prefix.lowercased()) {
+            if path.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil {
                 return true
             }
         }
