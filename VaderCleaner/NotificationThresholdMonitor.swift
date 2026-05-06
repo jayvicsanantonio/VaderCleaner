@@ -54,6 +54,16 @@ final class NotificationThresholdMonitor: ObservableObject {
     /// reading after launch always dispatches.
     private var lastFired: [Kind: Date] = [:]
 
+    /// Flips to `true` once `requestPermission()` has resolved (the user
+    /// either accepted or denied the system prompt). Until then, threshold
+    /// readings are observed but do **not** dispatch and do **not** stamp
+    /// the cooldown table — `UNUserNotificationCenter` silently drops
+    /// `add(_:)` calls placed before authorization has been requested, so
+    /// stamping a 5-minute cooldown against a notification that never
+    /// surfaced would suppress the next genuine alert immediately after
+    /// the user grants permission.
+    private var hasResolvedPermission: Bool
+
     /// Combine subscriptions from `SystemStatsService.$diskSpace` /
     /// `$ramUsage`. Held in `cancellables` so they tear down with `self`.
     private var cancellables: Set<AnyCancellable> = []
@@ -74,18 +84,27 @@ final class NotificationThresholdMonitor: ObservableObject {
     ///   - now: Clock provider. Defaults to `Date.init` in production; tests
     ///     pass a closure that reads from a mutable virtual time so cooldown
     ///     tests don't sleep.
+    ///   - assumesPermissionResolved: When `true`, the monitor begins in the
+    ///     post-permission state and dispatches immediately on the first
+    ///     eligible reading. Production defaults to `false` so a threshold
+    ///     reading that arrives during the FDA onboarding window (before
+    ///     ContentView has called `requestPermission()`) is silently
+    ///     observed without burning its cooldown. Tests that want to exercise
+    ///     dispatch synchronously pass `true`.
     init(
         stats: SystemStatsService,
         preferences: PreferencesStore,
         dispatcher: NotificationDispatching,
         cooldown: TimeInterval = 5 * 60,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        assumesPermissionResolved: Bool = false
     ) {
         self.stats = stats
         self.preferences = preferences
         self.dispatcher = dispatcher
         self.cooldown = cooldown
         self.now = now
+        self.hasResolvedPermission = assumesPermissionResolved
 
         // Drop the first emission from each publisher because `@Published`
         // sends the initial value immediately on subscription. That initial
@@ -107,13 +126,15 @@ final class NotificationThresholdMonitor: ObservableObject {
     // MARK: - Threshold evaluation (public for testability)
 
     /// Evaluates a disk-space reading and dispatches a low-disk notification
-    /// if all three conditions hold:
-    ///   1. The user has `notifyLowDisk` enabled.
-    ///   2. Free percentage is strictly below `diskSpaceThresholdPercent`.
-    ///   3. The low-disk cooldown has elapsed since the last firing.
+    /// if all four conditions hold:
+    ///   1. Permission has been resolved (see `hasResolvedPermission`).
+    ///   2. The user has `notifyLowDisk` enabled.
+    ///   3. Free percentage is strictly below `diskSpaceThresholdPercent`.
+    ///   4. The low-disk cooldown has elapsed since the last firing.
     /// `totalBytes == 0` short-circuits to no-op — that is the pre-first-
     /// refresh placeholder and would otherwise compute a 0% free reading.
     func evaluate(disk: DiskStats) {
+        guard hasResolvedPermission else { return }
         guard preferences.notifyLowDisk else { return }
         guard disk.totalBytes > 0 else { return }
 
@@ -135,6 +156,7 @@ final class NotificationThresholdMonitor: ObservableObject {
     /// "do something now" alert. Cooldown gates re-firing the same way as
     /// disk.
     func evaluate(ram: MemoryStats) {
+        guard hasResolvedPermission else { return }
         guard preferences.notifyHighRAM else { return }
         guard ram.pressureLevel == .critical else { return }
         guard isCooldownElapsed(.highRAM) else { return }
@@ -149,6 +171,7 @@ final class NotificationThresholdMonitor: ObservableObject {
     /// Stub-wired here so the cooldown + toggle gate is in place before the
     /// scanner module exists.
     func triggerMalwareDetected(threatName: String) {
+        guard hasResolvedPermission else { return }
         guard preferences.notifyMalwareFound else { return }
         guard isCooldownElapsed(.malware) else { return }
 
@@ -160,6 +183,7 @@ final class NotificationThresholdMonitor: ObservableObject {
     /// completes. Stub-wired here so the cooldown + toggle gate is consistent
     /// with the other notification paths.
     func triggerLargeFilesFound(count: Int, totalSize: Int64) {
+        guard hasResolvedPermission else { return }
         guard preferences.notifyLargeFilesFound else { return }
         guard isCooldownElapsed(.largeFiles) else { return }
 
@@ -169,12 +193,15 @@ final class NotificationThresholdMonitor: ObservableObject {
 
     // MARK: - Permission passthrough
 
-    /// Forwards to the dispatcher's `requestPermission()`. Exposed on the
-    /// monitor so callers (the App / ContentView) can drive permission requests
-    /// through the same instance they receive via `@EnvironmentObject` without
-    /// also injecting the underlying `NotificationManager`.
+    /// Forwards to the dispatcher's `requestPermission()` and flips the
+    /// internal gate so subsequent threshold readings can dispatch. The flag
+    /// flips regardless of whether the user accepted or denied — once the
+    /// system prompt has been answered, `UNUserNotificationCenter.add` will
+    /// either deliver or silently drop, but in neither case is there value in
+    /// continuing to suppress at the monitor layer.
     func requestPermission() async {
         await dispatcher.requestPermission()
+        hasResolvedPermission = true
     }
 
     // MARK: - Cooldown helper

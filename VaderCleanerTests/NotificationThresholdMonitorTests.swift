@@ -67,13 +67,19 @@ final class NotificationThresholdMonitorTests: XCTestCase {
 
     /// Fresh monitor pinned to the test's virtual clock. Tests that need to
     /// advance time mutate `virtualNow` between calls.
+    ///
+    /// `assumesPermissionResolved: true` keeps the existing dispatch tests
+    /// synchronous — they don't care about the permission gate, only the
+    /// toggle / threshold / cooldown logic. Tests that *do* care about the
+    /// gate construct their own monitor with the default (`false`).
     private func makeMonitor() -> NotificationThresholdMonitor {
         NotificationThresholdMonitor(
             stats: stats,
             preferences: preferences,
             dispatcher: dispatcher,
             cooldown: 5 * 60,
-            now: { [unowned self] in self.virtualNow }
+            now: { [unowned self] in self.virtualNow },
+            assumesPermissionResolved: true
         )
     }
 
@@ -250,6 +256,76 @@ final class NotificationThresholdMonitorTests: XCTestCase {
         monitor.triggerMalwareDetected(threatName: "X")
 
         XCTAssertTrue(dispatcher.calls.isEmpty)
+    }
+
+    // MARK: - Permission gate
+
+    /// A threshold reading observed before `requestPermission()` has resolved
+    /// must not dispatch and must not stamp the cooldown. Stamping a 5-minute
+    /// cooldown against a notification the system would silently drop would
+    /// suppress the next eligible alert immediately after the user grants
+    /// permission.
+    func test_doesNotDispatchBeforePermissionResolved() {
+        preferences.notifyLowDisk = true
+        preferences.diskSpaceThresholdPercent = 10.0
+        let monitor = NotificationThresholdMonitor(
+            stats: stats,
+            preferences: preferences,
+            dispatcher: dispatcher,
+            cooldown: 5 * 60,
+            now: { [unowned self] in self.virtualNow }
+            // assumesPermissionResolved defaults to false
+        )
+
+        monitor.evaluate(disk: disk(freePercent: 5.0))
+        monitor.evaluate(ram: memory(forLevel: .critical))
+        monitor.triggerMalwareDetected(threatName: "X")
+        monitor.triggerLargeFilesFound(count: 1, totalSize: 1)
+
+        XCTAssertTrue(dispatcher.calls.isEmpty,
+                      "No notifications should fire before requestPermission resolves")
+    }
+
+    /// After `requestPermission()` resolves, the same reading that was
+    /// suppressed earlier must dispatch — and the cooldown table must still
+    /// be empty so the post-grant alert fires immediately rather than waiting
+    /// out a stale stamp.
+    func test_dispatchesImmediatelyAfterPermissionResolves() async {
+        preferences.notifyLowDisk = true
+        preferences.notifyHighRAM = true
+        preferences.diskSpaceThresholdPercent = 10.0
+        let monitor = NotificationThresholdMonitor(
+            stats: stats,
+            preferences: preferences,
+            dispatcher: dispatcher,
+            cooldown: 5 * 60,
+            now: { [unowned self] in self.virtualNow }
+        )
+
+        // Pre-resolution: gate suppresses everything.
+        monitor.evaluate(disk: disk(freePercent: 5.0))
+        XCTAssertTrue(dispatcher.calls.filter { !isPermissionRequest($0) }.isEmpty)
+
+        // Resolve.
+        await monitor.requestPermission()
+
+        // Post-resolution: dispatch fires.
+        monitor.evaluate(disk: disk(freePercent: 5.0))
+
+        let dispatches = dispatcher.calls.filter { !isPermissionRequest($0) }
+        XCTAssertEqual(dispatches.count, 1, "Post-grant low-disk alert should fire on the next reading")
+        if case .lowDisk(let pct) = dispatches.first {
+            XCTAssertEqual(pct, 5.0, accuracy: 0.01)
+        } else {
+            XCTFail("Expected a .lowDisk dispatch, got \(dispatches)")
+        }
+    }
+
+    /// Filters out the bookkeeping `.requestPermission` entries so the
+    /// gate tests can assert only on actual notification dispatches.
+    private func isPermissionRequest(_ call: StubNotificationDispatcher.Call) -> Bool {
+        if case .requestPermission = call { return true }
+        return false
     }
 
     func test_largeFiles_firesAndRespectsCooldown() {
