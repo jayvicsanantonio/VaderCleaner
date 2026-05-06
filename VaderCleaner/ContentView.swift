@@ -8,6 +8,7 @@ struct ContentView: View {
     @EnvironmentObject private var onboarding: PermissionOnboardingViewModel
     @EnvironmentObject private var systemStats: SystemStatsService
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
+    @EnvironmentObject private var exclusions: ExclusionsStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
@@ -71,6 +72,8 @@ struct ContentView: View {
         switch section {
         case .healthMonitor:
             HealthMonitorView(service: systemStats)
+        case .systemJunk:
+            SystemJunkView(viewModel: SystemJunkViewModel.live(exclusions: exclusions))
         default:
             PlaceholderDetailView(section: section)
         }
@@ -122,4 +125,5 @@ private struct PlaceholderDetailView: View {
             preferences: prefs,
             dispatcher: NotificationManager()
         ))
+        .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }
