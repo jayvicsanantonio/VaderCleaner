@@ -32,6 +32,11 @@ struct VaderCleanerApp: App {
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
     @StateObject private var systemStats: SystemStatsService
+    // App-scope: subscribes to `systemStats` and pushes notifications via
+    // `NotificationManager`. Held here so the Combine subscriptions live as
+    // long as the app and so the per-kind cooldown table survives across
+    // window open/close cycles.
+    @StateObject private var notificationMonitor: NotificationThresholdMonitor
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -41,12 +46,11 @@ struct VaderCleanerApp: App {
         // user who toggled "Login Items" in System Settings while VaderCleaner
         // was quit gets pushed back into a consistent state on the next
         // launch.
-        _preferences = StateObject(
-            wrappedValue: PreferencesStore(
-                launchAtLoginHandler: { try LoginItemManager.setEnabled($0) },
-                launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:)
-            )
+        let prefs = PreferencesStore(
+            launchAtLoginHandler: { try LoginItemManager.setEnabled($0) },
+            launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:)
         )
+        _preferences = StateObject(wrappedValue: prefs)
         // Construct the polling service and the menu bar view-model in the
         // same init so both `@StateObject` wrappers reference the *same*
         // service instance. Initializing `menuBarViewModel` at its property
@@ -56,6 +60,19 @@ struct VaderCleanerApp: App {
         let stats = SystemStatsService()
         _systemStats = StateObject(wrappedValue: stats)
         _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(service: stats))
+        // Wire the notification monitor to the same stats + preferences
+        // instances the rest of the app sees. The monitor holds the manager
+        // strongly via `dispatcher`, and ContentView drives the permission
+        // request through `monitor.requestPermission()` after the FDA
+        // onboarding sheet has settled — so we don't need a separate App-
+        // level reference to the manager.
+        _notificationMonitor = StateObject(
+            wrappedValue: NotificationThresholdMonitor(
+                stats: stats,
+                preferences: prefs,
+                dispatcher: NotificationManager()
+            )
+        )
     }
 
     /// Surfaces a launchd registration failure to the user. Kept on the App
@@ -93,6 +110,7 @@ struct VaderCleanerApp: App {
                 .environmentObject(preferences)
                 .environmentObject(exclusions)
                 .environmentObject(systemStats)
+                .environmentObject(notificationMonitor)
         }
 
         // Each SwiftUI scene gets its own environment, so PreferencesView gets

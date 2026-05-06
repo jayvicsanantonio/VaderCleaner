@@ -7,8 +7,15 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var onboarding: PermissionOnboardingViewModel
     @EnvironmentObject private var systemStats: SystemStatsService
+    @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedSection: NavigationSection? = .smartScan
+    /// Latched once the notification permission prompt has been issued for the
+    /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
+    /// dismissal in the same cycle) would request authorization twice — the
+    /// system caches the answer so the second prompt is a no-op, but it's
+    /// cleaner to issue exactly one.
+    @State private var didRequestNotificationPermission = false
 
     var body: some View {
         NavigationSplitView {
@@ -31,6 +38,29 @@ struct ContentView: View {
                 appState.refresh()
             }
         }
+        // Ask for notification permission only after the FDA onboarding has
+        // settled — either the user already has Full Disk Access, or they
+        // dismissed the sheet via "Continue Without Access". Stacking the
+        // notification prompt on top of the FDA sheet would split the user's
+        // attention between two consent dialogs and make it likely they'd
+        // deny notifications without context.
+        .task { await maybeRequestNotificationPermission() }
+        .onChange(of: appState.hasFullDiskAccess) { _, _ in
+            Task { await maybeRequestNotificationPermission() }
+        }
+        .onChange(of: onboarding.isDismissed) { _, _ in
+            Task { await maybeRequestNotificationPermission() }
+        }
+    }
+
+    /// Idempotent permission-request driver. Fires the system prompt at most
+    /// once per session, and only once the FDA onboarding flow has reached a
+    /// terminal state (granted or explicitly dismissed).
+    private func maybeRequestNotificationPermission() async {
+        guard !didRequestNotificationPermission else { return }
+        guard appState.hasFullDiskAccess || onboarding.isDismissed else { return }
+        didRequestNotificationPermission = true
+        await notificationMonitor.requestPermission()
     }
 
     /// Routes the selected sidebar section to its detail view. Sections without
@@ -81,8 +111,15 @@ private struct PlaceholderDetailView: View {
 }
 
 #Preview {
-    ContentView()
+    let stats = SystemStatsService(autostart: false)
+    let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "preview")!)
+    return ContentView()
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
-        .environmentObject(SystemStatsService(autostart: false))
+        .environmentObject(stats)
+        .environmentObject(NotificationThresholdMonitor(
+            stats: stats,
+            preferences: prefs,
+            dispatcher: NotificationManager()
+        ))
 }
