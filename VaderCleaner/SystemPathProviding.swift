@@ -22,19 +22,6 @@ struct DefaultSystemPathProvider: SystemPathProviding {
     private let homeDirectory: URL
     private let languageFileLocator: LanguageFileLocator
 
-    /// Roots searched for `.lproj` bundles. Deviation from the plan, which
-    /// names `/Library` and `/System/Library`: `/System/Library` lives on the
-    /// read-only Signed System Volume and its `.lproj` files cannot be
-    /// deleted, so reporting them as "junk" misleads the user. We restrict
-    /// to user-installed locations: `/Applications` for app bundles plus
-    /// `/Library/Application Support` and `/Library/Frameworks` for
-    /// third-party resources.
-    private static let defaultLanguageScanRoots: [URL] = [
-        URL(fileURLWithPath: "/Applications", isDirectory: true),
-        URL(fileURLWithPath: "/Library/Application Support", isDirectory: true),
-        URL(fileURLWithPath: "/Library/Frameworks", isDirectory: true)
-    ]
-
     init(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -44,9 +31,27 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         self.homeDirectory = homeDirectory
         self.languageFileLocator = languageFileLocator
             ?? LanguageFileLocator(
-                scanRoots: Self.defaultLanguageScanRoots,
+                scanRoots: Self.defaultLanguageScanRoots(homeDirectory: homeDirectory),
                 activeLanguageCodes: Self.activePreferredLanguageCodes()
             )
+    }
+
+    /// Roots searched for `.lproj` bundles. Deviation from the plan, which
+    /// names `/Library` and `/System/Library`: `/System/Library` lives on the
+    /// read-only Signed System Volume and its `.lproj` files cannot be
+    /// deleted, so reporting them as "junk" misleads the user. We restrict
+    /// to user-installed locations: `/Applications` (system-wide installs)
+    /// and `~/Applications` (per-user installs — Codex review on PR #28
+    /// flagged that omitting this missed the entire language-files
+    /// category for non-admin app installs), plus `/Library/Application Support`
+    /// and `/Library/Frameworks` for third-party resources.
+    static func defaultLanguageScanRoots(homeDirectory: URL) -> [URL] {
+        [
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            homeDirectory.appendingPathComponent("Applications", isDirectory: true),
+            URL(fileURLWithPath: "/Library/Application Support", isDirectory: true),
+            URL(fileURLWithPath: "/Library/Frameworks", isDirectory: true)
+        ]
     }
 
     func roots() -> [ScanRoot] {
@@ -132,16 +137,29 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         return roots
     }
 
-    /// Lower-cased BCP-47 language codes the user has configured as
-    /// preferred. Used by `LanguageFileLocator` to filter active locales out
-    /// of the scan. We take only the first component of each preferred
+    /// Lower-cased language codes treated as active during a system-junk
+    /// scan. Used by `LanguageFileLocator` to filter active locales out of
+    /// the result. We take only the first component of each preferred
     /// language (`en-US` → `en`) because macOS will fall back from the
     /// regional variant to the base language code at runtime.
-    private static func activePreferredLanguageCodes() -> Set<String> {
-        Set(
+    ///
+    /// Always includes `"en"` regardless of `Locale.preferredLanguages`.
+    /// Most macOS bundles use English as their `CFBundleDevelopmentRegion`
+    /// fallback — when a string is missing for the user's preferred locale,
+    /// the loader looks up the development region next. Removing
+    /// `en.lproj` (or `English.lproj`) from a non-English user's machine
+    /// can leave apps with missing UI strings. Reading each bundle's
+    /// development region for a per-bundle answer is more accurate but
+    /// costly; defaulting to "always preserve English" matches what other
+    /// macOS cleaners do and is the safe default. Reported by Codex review
+    /// on PR #28.
+    static func activePreferredLanguageCodes() -> Set<String> {
+        var codes = Set(
             Locale.preferredLanguages.compactMap { tag in
                 LanguageFileLocator.languageCode(fromLocaleName: tag)
             }
         )
+        codes.insert("en")
+        return codes
     }
 }
