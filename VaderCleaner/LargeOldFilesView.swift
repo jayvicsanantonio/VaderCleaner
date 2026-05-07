@@ -53,15 +53,29 @@ struct LargeOldFilesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(NavigationSection.largeOldFiles.title)
-        .alert(item: $pendingDeletion) { deletion in
-            Alert(
-                title: Text("Delete \(deletion.count) item\(deletion.count == 1 ? "" : "s")?"),
-                message: Text("\(deletion.formattedSize) will be moved out of these locations. This cannot be undone."),
-                primaryButton: .destructive(Text("Delete")) {
-                    Task { await viewModel.delete(urls: deletion.urls) }
-                },
-                secondaryButton: .cancel()
-            )
+        // The classic `Alert(title:message:primaryButton:secondaryButton:)`
+        // initializer was deprecated in macOS 12 in favor of the role-aware
+        // `.alert(_:isPresented:presenting:actions:message:)` modifier. We
+        // bridge the optional `pendingDeletion` payload through a derived
+        // `Bool` binding because the new modifier separates "show me" and
+        // "what to show" — clearing the binding still also clears the
+        // payload so the next request rebuilds the alert from scratch.
+        .alert(
+            deletionAlertTitle,
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { presented in
+                    if !presented { pendingDeletion = nil }
+                }
+            ),
+            presenting: pendingDeletion
+        ) { deletion in
+            Button("Delete", role: .destructive) {
+                Task { await viewModel.delete(urls: deletion.urls) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { deletion in
+            Text("\(deletion.formattedSize) will be moved out of these locations. This cannot be undone.")
         }
         .onChange(of: viewModel.phase) { _, newPhase in
             handlePhaseChange(newPhase)
@@ -314,6 +328,17 @@ struct LargeOldFilesView: View {
         return Self.dateFormatter.string(from: date)
     }
 
+    /// Title for the destructive-action alert. Computed from
+    /// `pendingDeletion` because the modern `.alert(_:isPresented:...)`
+    /// modifier wants a static title at modifier-call time, but the count
+    /// is dynamic. Re-evaluating per render is cheap and the alert is only
+    /// rendered while `pendingDeletion` is non-nil, so the fallback `0`
+    /// branch is unreachable in practice.
+    private var deletionAlertTitle: String {
+        let count = pendingDeletion?.count ?? 0
+        return "Delete \(count) item\(count == 1 ? "" : "s")?"
+    }
+
     fileprivate static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.allowedUnits = .useAll
@@ -331,10 +356,13 @@ struct LargeOldFilesView: View {
 
 // MARK: - Pending deletion
 
-/// View-local payload describing what's about to be deleted, used by the
-/// `Alert(item:)` modifier. `Identifiable` because `Alert(item:)` requires
-/// it; `id` is a fresh UUID per construction so the same selection re-
-/// triggers a new alert if needed.
+/// View-local payload describing what's about to be deleted, surfaced
+/// to the destructive-action alert via the `presenting:` parameter of
+/// `.alert(_:isPresented:presenting:actions:message:)`. `Identifiable`
+/// is no longer required by the modifier we use, but we keep the fresh-
+/// UUID `id` because `Alert.actions(_:)` re-renders per identity change
+/// and a fresh UUID guarantees a fresh closure capture for each pending
+/// request.
 private struct PendingDeletion: Identifiable {
     let id = UUID()
     let urls: [URL]

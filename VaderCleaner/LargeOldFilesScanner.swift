@@ -80,7 +80,13 @@ struct LargeOldFilesScanner {
         let isLarge = file.size > sizeThresholdBytes
         let isOld: Bool = {
             guard let lastAccess = file.lastAccessDate else { return false }
-            return lastAccess < cutoff
+            // Inclusive: a file accessed exactly at the 6-month cutoff is
+            // already "not accessed within the past six months", so it
+            // belongs in the old-files bucket. Strict `<` would leave a
+            // one-second sliver where the boundary case is invisible to
+            // the user — without inclusive comparison the result depends
+            // on file-system timestamp resolution.
+            return lastAccess <= cutoff
         }()
         guard isLarge || isOld else { return nil }
         return ScannedFile(

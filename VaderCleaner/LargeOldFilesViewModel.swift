@@ -132,7 +132,7 @@ final class LargeOldFilesViewModel: ObservableObject {
             let files = try await scanner()
             applyScanResult(files)
         } catch {
-            log.error("Large & Old Files scan failed: \(String(describing: error), privacy: .public)")
+            log.error("Large & Old Files scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
             displayedFiles = []
             phase = .failed(stage: .scanning, message: error.localizedDescription)
         }
@@ -266,7 +266,13 @@ extension LargeOldFilesViewModel {
     /// return the set of URLs whose deletion succeeded. Failures are logged
     /// and skipped — a single locked file must never abort the whole batch,
     /// and the surviving files stay in the table so the user can retry.
-    private static func removeUserFiles(at urls: [URL]) async -> Set<URL> {
+    ///
+    /// Marked `nonisolated` so the synchronous `FileManager.removeItem`
+    /// loop runs off the main actor — without this annotation a static
+    /// member on a `@MainActor`-isolated class inherits main-actor
+    /// isolation, which would block the UI for the duration of a multi-
+    /// gigabyte delete batch.
+    private nonisolated static func removeUserFiles(at urls: [URL]) async -> Set<URL> {
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "LargeOldFilesViewModel.Deleter")
         var deleted: Set<URL> = []
@@ -276,8 +282,13 @@ extension LargeOldFilesViewModel {
                 try manager.removeItem(at: url)
                 deleted.insert(url)
             } catch {
+                // Both the path and the error message can carry user-
+                // identifying info (full filesystem paths, locale-specific
+                // error descriptions); redact both with hash-masked
+                // private privacy so OSLog displays consistent placeholders
+                // outside the user's own machine.
                 log.debug(
-                    "Skipping unremovable user file \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
+                    "Skipping unremovable user file \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private(mask: .hash))"
                 )
             }
         }

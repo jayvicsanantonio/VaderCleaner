@@ -83,6 +83,29 @@ final class LargeOldFilesScannerTests: XCTestCase {
         XCTAssertEqual(files.first?.category, .oldFile)
     }
 
+    /// A file last accessed *exactly* at the cutoff must be classified as
+    /// `.oldFile` — the comparison is inclusive (`<=`) so users on
+    /// coarse-resolution file systems aren't told a six-month-old file is
+    /// "still fresh" because the cutoff happened to land on the same
+    /// timestamp. Locks the boundary semantics so future refactors don't
+    /// silently flip the behavior.
+    func test_scan_classifiesFileAccessedExactlyAtCutoffAsOld() async throws {
+        let root = try makeRoot("documents-boundary")
+        let edge = try TestHelpers.createDummyFile(named: "edge.txt", size: 32, in: root)
+        let cutoff = referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds)
+        try setAccessDate(at: edge, to: cutoff)
+
+        let scanner = LargeOldFilesScanner(
+            pathProvider: StubUserFilesPathProvider(roots: [root]),
+            now: { self.referenceNow }
+        )
+
+        let files = try await scanner.scan(excluding: [])
+
+        XCTAssertEqual(files.count, 1, "Cutoff is inclusive: a file at the exact threshold counts as old")
+        XCTAssertEqual(files.first?.category, .oldFile)
+    }
+
     // MARK: - Both-match tiebreak
 
     /// A file that is both large AND old must be tagged `.largeFile` — size is
