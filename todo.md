@@ -29,7 +29,7 @@
 - [x] **Prompt 12** — File scanner infrastructure (FileScanner, ScanCategory, ScanResult)
 - [x] **Prompt 13** — System Junk scanner (all 8 categories)
 - [x] **Prompt 14** — System Junk UI + deletion (scan → preview → clean flow)
-- [ ] **Prompt 15** — Large & Old Files scanner + UI
+- [x] **Prompt 15** — Large & Old Files scanner + UI
 - [ ] **Prompt 16** — Space Lens disk scanner (DiskNode tree + DiskScanner)
 - [ ] **Prompt 17** — Space Lens treemap UI (squarified treemap + drill-down)
 

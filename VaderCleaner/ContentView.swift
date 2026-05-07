@@ -74,6 +74,8 @@ struct ContentView: View {
             HealthMonitorView(service: systemStats)
         case .systemJunk:
             SystemJunkView(viewModel: SystemJunkViewModel.live(exclusions: exclusions))
+        case .largeOldFiles:
+            LargeOldFilesView(viewModel: LargeOldFilesViewModel.live(exclusions: exclusions))
         default:
             PlaceholderDetailView(section: section)
         }
