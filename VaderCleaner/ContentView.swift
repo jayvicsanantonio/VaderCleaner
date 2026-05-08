@@ -76,6 +76,8 @@ struct ContentView: View {
             SystemJunkView(viewModel: SystemJunkViewModel.live(exclusions: exclusions))
         case .largeOldFiles:
             LargeOldFilesView(viewModel: LargeOldFilesViewModel.live(exclusions: exclusions))
+        case .spaceLens:
+            SpaceLensView(viewModel: DiskScannerViewModel.live())
         default:
             PlaceholderDetailView(section: section)
         }

@@ -31,7 +31,7 @@
 - [x] **Prompt 14** — System Junk UI + deletion (scan → preview → clean flow)
 - [x] **Prompt 15** — Large & Old Files scanner + UI
 - [x] **Prompt 16** — Space Lens disk scanner (DiskNode tree + DiskScanner)
-- [ ] **Prompt 17** — Space Lens treemap UI (squarified treemap + drill-down)
+- [x] **Prompt 17** — Space Lens treemap UI (squarified treemap + drill-down)
 
 ## Phase 3 — Privacy & Apps
 
