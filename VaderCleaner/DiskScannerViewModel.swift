@@ -76,8 +76,16 @@ final class DiskScannerViewModel: ObservableObject {
     /// avoid. Single-threaded access: `DiskScanner.buildNode` invokes
     /// the closure from one recursive task chain, so no synchronization
     /// is required.
+    ///
+    /// `didScheduleTerminal` latches once the count crosses the
+    /// estimate so a real scan with more files than the default
+    /// estimate (e.g. 1M files on a 250k-file estimate) doesn't keep
+    /// scheduling a Task per file after the bar is already pinned at
+    /// 1.0. Without the latch, every post-estimate file would bypass
+    /// the bucket gate via the `isTerminal` branch.
     private final class ProgressGate {
         var lastScheduledBucket: Int = -1
+        var didScheduleTerminal: Bool = false
     }
 
     /// Monotonically increasing token bumped at the start of every
@@ -167,12 +175,23 @@ final class DiskScannerViewModel: ObservableObject {
         //      progress writes that would otherwise regress a final
         //      `.ready` state back to a fractional value).
         let progressHandler: (Int) -> Void = { [weak self] count in
+            // Once we've already scheduled the terminal 1.0 write, every
+            // subsequent file would still satisfy `isTerminal` and would
+            // bypass the bucket gate. Latch that single-shot event here
+            // so post-estimate files contribute exactly zero scheduled
+            // tasks. (For a 1M-file scan against a 250k estimate that's
+            // 750 000 tasks saved.)
+            if gate.didScheduleTerminal { return }
             let bucket = count / bucketSize
-            // Schedule only when the bucket advances *or* the count has
-            // reached the divisor (terminal — guarantees the bar can
-            // reach 1.0 even when the final file lands mid-bucket).
+            // Treat the *first* crossing to the estimate as terminal —
+            // guarantees the bar reaches 1.0 even when the final file
+            // lands mid-bucket — and remember that we did, so later
+            // files don't schedule again.
             let isTerminal = count >= divisor
             guard isTerminal || bucket > gate.lastScheduledBucket else { return }
+            if isTerminal {
+                gate.didScheduleTerminal = true
+            }
             gate.lastScheduledBucket = bucket
             let fraction = min(1.0, Double(count) / Double(divisor))
             Task { @MainActor [weak self] in
