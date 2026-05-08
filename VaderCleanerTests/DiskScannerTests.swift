@@ -147,6 +147,47 @@ final class DiskScannerTests: XCTestCase {
 
     // MARK: - Missing root
 
+    /// A root that exists *and* has readable metadata (so the upfront
+    /// `resourceValues` validation passes) but whose contents the user
+    /// can't enumerate — `chmod 000`, sandbox-protected folders, certain
+    /// volume-root permission denials — must throw rather than emit a
+    /// single inaccessible node. There is no parent to render the locked
+    /// state, so the VM would otherwise land in `.ready(emptyTree)` and
+    /// the upcoming UI would lie that the scan succeeded.
+    ///
+    /// Skipped when the current process can read `chmod 000` directories
+    /// (root in a CI container, etc.); same gating as the descendant
+    /// permission test.
+    func test_scan_throwsWhenRootIsUnreadable() async throws {
+        let unreadableRoot = tempRoot.appendingPathComponent("locked-root", isDirectory: true)
+        try FileManager.default.createDirectory(at: unreadableRoot, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 8, in: unreadableRoot)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o000))],
+            ofItemAtPath: unreadableRoot.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o755))],
+                ofItemAtPath: unreadableRoot.path
+            )
+        }
+
+        let canStillRead = (try? FileManager.default.contentsOfDirectory(atPath: unreadableRoot.path)) != nil
+        try XCTSkipIf(canStillRead, "Current process can read chmod 000 directories — cannot exercise the deny path here.")
+
+        let scanner = DiskScanner()
+        do {
+            _ = try await scanner.scan(root: unreadableRoot, progress: { _ in })
+            XCTFail("Expected scan to throw for an unreadable root")
+        } catch let error as DiskScanError {
+            XCTAssertEqual(error, .rootInaccessible(unreadableRoot))
+        } catch {
+            XCTFail("Expected DiskScanError.rootInaccessible, got \(error)")
+        }
+    }
+
     /// A root URL that doesn't exist (deleted directory, unmounted
     /// volume) must surface as a thrown `DiskScanError.rootInaccessible`
     /// rather than a successful empty `DiskNode`. Without this guarantee

@@ -105,7 +105,8 @@ struct DiskScanner: DiskScanning {
         return try await Self.buildNode(
             at: root,
             counter: counter,
-            progress: progress
+            progress: progress,
+            isRoot: true
         )
     }
 
@@ -113,6 +114,14 @@ struct DiskScanner: DiskScanning {
     /// every accessible child. Permission errors on the `contentsOfDirectory`
     /// call surface as an inaccessible node so the rest of the walk
     /// continues; per-file metadata errors fall back to zero size.
+    ///
+    /// `isRoot` distinguishes the scan's root call from recursive
+    /// descendant calls. Listing failure on a descendant produces an
+    /// inaccessible node (the parent shows it as a locked child);
+    /// listing failure on the root has nowhere to render — the scan
+    /// would otherwise quietly succeed with a zero-byte tree — so it's
+    /// rethrown as `DiskScanError.rootInaccessible` for the VM to
+    /// route to `.error`.
     ///
     /// Iterative cancellation + cooperative yield at every directory
     /// boundary: `Task.checkCancellation()` lets a freshly-started scan
@@ -125,7 +134,8 @@ struct DiskScanner: DiskScanning {
     private static func buildNode(
         at url: URL,
         counter: FileCounter,
-        progress: @escaping (Int) -> Void
+        progress: @escaping (Int) -> Void,
+        isRoot: Bool = false
     ) async throws -> DiskNode {
         try Task.checkCancellation()
         await Task.yield()
@@ -178,6 +188,15 @@ struct DiskScanner: DiskScanning {
                 options: []
             )
         } catch {
+            // Root listing failure: the chmod-000 / protected-folder
+            // case Codex flagged. `resourceValues` succeeds via stat
+            // through the parent, but the user can't enumerate the
+            // contents — so the scan can't actually run. Fail loudly
+            // rather than emit a single inaccessible node that the VM
+            // would surface as `.ready(emptyTree)`.
+            if isRoot {
+                throw DiskScanError.rootInaccessible(url)
+            }
             log.debug(
                 "Skipping unreadable directory \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
             )
