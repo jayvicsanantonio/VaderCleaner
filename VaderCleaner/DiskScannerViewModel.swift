@@ -91,6 +91,15 @@ final class DiskScannerViewModel: ObservableObject {
     /// `.ready` / `.error` / `.idle`.
     private var scanGeneration: Int = 0
 
+    /// Handle on the currently-running scan so a fresh `startScan`
+    /// (rescan, root switch) can actually cancel the previous walk
+    /// instead of just ignoring its eventual writes. Without this the
+    /// generation guard kept the UI consistent but `DiskScanner` kept
+    /// reading the entire disk in the background, doubling I/O during
+    /// the overlap window. `Task.checkCancellation()` inside
+    /// `buildNode` honors the cancel at every directory boundary.
+    private var currentScanTask: Task<Void, Never>?
+
     private let scanner: Scanner
     private let log = Logger(
         subsystem: "com.personal.VaderCleaner",
@@ -99,6 +108,14 @@ final class DiskScannerViewModel: ObservableObject {
 
     init(scanner: @escaping Scanner) {
         self.scanner = scanner
+    }
+
+    /// Cancel any in-flight walk if the view-model is torn down while a
+    /// scan is running (e.g. the user dismisses Space Lens mid-scan).
+    /// `Task.cancel()` is `Sendable`-safe so this is fine to call from a
+    /// non-isolated deinit on a `@MainActor` class.
+    deinit {
+        currentScanTask?.cancel()
     }
 
     /// Run the injected scanner against `root`. Transitions to `.scanning`
@@ -113,6 +130,13 @@ final class DiskScannerViewModel: ObservableObject {
     /// for the user's sense of motion — actual completion is signaled by
     /// the phase landing on `.ready`, not by progress hitting 1.0.
     func startScan(root: URL, estimatedFileCount: Int = 250_000) async {
+        // Cancel any walk still in flight from a previous startScan.
+        // Cancellation is cooperative — `DiskScanner.buildNode` checks
+        // it at every directory boundary and throws `CancellationError`,
+        // which the previous Task's catch handler swallows (and the
+        // generation guard below ensures it can't clobber our state).
+        currentScanTask?.cancel()
+
         scanGeneration += 1
         let myGeneration = scanGeneration
 
@@ -159,28 +183,44 @@ final class DiskScannerViewModel: ObservableObject {
             }
         }
 
-        do {
-            let node = try await scanner(root, progressHandler)
-            // Generation-guard the terminal write so a stale scan that
-            // resumes after a newer one has started doesn't clobber the
-            // newer scan's `.scanning` (or `.ready`) state.
-            guard scanGeneration == myGeneration else { return }
-            scanProgress = 1.0
-            phase = .ready(node)
-        } catch is CancellationError {
-            // A cancellation is a clean dismissal — the user (or a fresh
-            // scan) chose to stop the in-flight walk. Surfacing this as
-            // `.error("The operation couldn't be completed…")` would
-            // misrepresent it as a failure in the upcoming UI.
-            guard scanGeneration == myGeneration else { return }
-            scanProgress = 0
-            phase = .idle
-        } catch {
-            guard scanGeneration == myGeneration else { return }
-            log.error("Disk scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
-            scanProgress = 0
-            phase = .error(error.localizedDescription)
+        // Wrap the scan in a Task we can hold onto, so a future
+        // `startScan` (rescan / root switch) can call `cancel()` on
+        // it and break out of `DiskScanner.buildNode`. `[weak self]`
+        // because the Task's lifetime is bounded by the scan itself,
+        // not by the VM — without it, dismissing Space Lens mid-scan
+        // would keep the VM alive until the walk finished.
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let node = try await self.scanner(root, progressHandler)
+                // Generation-guard the terminal write so a stale scan
+                // that resumes after a newer one has started doesn't
+                // clobber the newer scan's `.scanning` / `.ready` state.
+                guard self.scanGeneration == myGeneration else { return }
+                self.scanProgress = 1.0
+                self.phase = .ready(node)
+            } catch is CancellationError {
+                // A cancellation is a clean dismissal — the user (or a
+                // fresh scan) chose to stop the in-flight walk.
+                // Surfacing this as `.error("The operation couldn't be
+                // completed…")` would misrepresent it as a failure.
+                guard self.scanGeneration == myGeneration else { return }
+                self.scanProgress = 0
+                self.phase = .idle
+            } catch {
+                guard self.scanGeneration == myGeneration else { return }
+                self.log.error("Disk scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
+                self.scanProgress = 0
+                self.phase = .error(error.localizedDescription)
+            }
         }
+        currentScanTask = task
+        // Suspend until *this* scan finishes so callers `await
+        // vm.startScan(...)` still observe the terminal state on
+        // return. The previous (cancelled) task continues winding
+        // down in parallel; its catch handler drops its writes via
+        // the generation guard.
+        await task.value
     }
 }
 
