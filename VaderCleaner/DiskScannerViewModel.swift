@@ -58,6 +58,27 @@ final class DiskScannerViewModel: ObservableObject {
         return nil
     }
 
+    /// Smallest fractional change worth republishing. A real-volume scan
+    /// can fire the progress callback hundreds of thousands of times;
+    /// without this gate every call would queue a `Task` on the main
+    /// actor and starve the UI thread. 0.5% (200 buckets across the 0–1
+    /// range) is fine-grained enough that the bar never visibly jumps
+    /// while keeping the queued-task count to a couple hundred for the
+    /// largest volumes. The terminal value (`1.0`) and the initial-bump
+    /// case bypass the gate so the bar definitely reaches full.
+    private static let progressUpdateThreshold: Double = 0.005
+
+    /// Monotonically increasing token bumped at the start of every
+    /// `startScan`. Late-arriving progress callbacks and the post-scan
+    /// final-state assignment both compare against the value captured at
+    /// the start of *their* scan; a mismatch means a newer scan has
+    /// already started, so the older one's writes are dropped on the
+    /// floor. Pairs with the `.scanning` phase guard for defense in
+    /// depth — the generation token catches concurrent restarts, the
+    /// phase guard catches in-flight progress callbacks that land after
+    /// `.ready` / `.error` / `.idle`.
+    private var scanGeneration: Int = 0
+
     private let scanner: Scanner
     private let log = Logger(
         subsystem: "com.personal.VaderCleaner",
@@ -80,6 +101,9 @@ final class DiskScannerViewModel: ObservableObject {
     /// for the user's sense of motion — actual completion is signaled by
     /// the phase landing on `.ready`, not by progress hitting 1.0.
     func startScan(root: URL, estimatedFileCount: Int = 250_000) async {
+        scanGeneration += 1
+        let myGeneration = scanGeneration
+
         phase = .scanning
         scanProgress = 0
         navigationPath = []
@@ -87,27 +111,50 @@ final class DiskScannerViewModel: ObservableObject {
         let divisor = max(1, estimatedFileCount)
 
         // Wrap the synchronous `progress` callback the scanner will fire
-        // off-actor. Hopping each update through a `MainActor` task keeps
-        // `scanProgress` updates serialized — without this hop the
-        // `@Published` write would race with view reads.
+        // off-actor. Each invocation hops to the main actor (so the
+        // `@Published` write is serialized with view reads), but only
+        // applies the new fraction when:
+        //
+        //   1. the scan that produced it is still the current one
+        //      (`scanGeneration` match — guards against concurrent
+        //      `startScan` calls),
+        //   2. the phase is still `.scanning` (guards against late
+        //      progress writes that would otherwise regress a final
+        //      `.ready` state back to a fractional value),
+        //   3. the fraction has moved at least `progressUpdateThreshold`
+        //      since the last published value, or it's the terminal
+        //      `1.0` (throttle — without this a 250 000-file scan would
+        //      queue 250 000 main-actor tasks).
         let progressHandler: (Int) -> Void = { [weak self] count in
             let fraction = min(1.0, Double(count) / Double(divisor))
             Task { @MainActor [weak self] in
-                self?.scanProgress = fraction
+                guard let self else { return }
+                guard self.scanGeneration == myGeneration else { return }
+                guard case .scanning = self.phase else { return }
+                if fraction == 1.0 || fraction >= self.scanProgress + Self.progressUpdateThreshold {
+                    self.scanProgress = fraction
+                }
             }
         }
 
         do {
             let node = try await scanner(root, progressHandler)
-            // Yield once so any in-flight progress updates the scanner
-            // enqueued via `Task { @MainActor … }` finish applying before
-            // we stamp the final 1.0. Without this, the last fractional
-            // progress write could land *after* our explicit 1.0 below
-            // and leave the bar visibly short of full.
-            await Task.yield()
+            // Generation-guard the terminal write so a stale scan that
+            // resumes after a newer one has started doesn't clobber the
+            // newer scan's `.scanning` (or `.ready`) state.
+            guard scanGeneration == myGeneration else { return }
             scanProgress = 1.0
             phase = .ready(node)
+        } catch is CancellationError {
+            // A cancellation is a clean dismissal — the user (or a fresh
+            // scan) chose to stop the in-flight walk. Surfacing this as
+            // `.error("The operation couldn't be completed…")` would
+            // misrepresent it as a failure in the upcoming UI.
+            guard scanGeneration == myGeneration else { return }
+            scanProgress = 0
+            phase = .idle
         } catch {
+            guard scanGeneration == myGeneration else { return }
             log.error("Disk scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
             scanProgress = 0
             phase = .error(error.localizedDescription)

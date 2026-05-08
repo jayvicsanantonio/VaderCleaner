@@ -62,9 +62,18 @@ final class DiskScannerViewModelTests: XCTestCase {
     // MARK: - Progress
 
     /// The injected progress callback must drive `scanProgress` toward 1.0
-    /// as the count climbs. Locks the divisor (estimated file count) and
-    /// the clamp at 1.0 — counts above the estimate must not push the bar
-    /// past full.
+    /// as the count climbs. Locks the divisor (estimated file count), the
+    /// clamp at 1.0 (counts above the estimate must not push past full),
+    /// and the throttle bypass for the terminal value.
+    ///
+    /// `await Task.yield()` between progress calls is deliberate: the VM
+    /// hops every published update through `Task { @MainActor … }` so
+    /// the writes serialize with view reads. In production the scanner
+    /// runs off-actor and naturally yields between tree directories; the
+    /// test mirrors that pacing so each queued main-actor write applies
+    /// while the phase is still `.scanning`. Without yields the writes
+    /// would all queue, then bail on the post-scan phase guard, and the
+    /// test would only see the explicit final 1.0.
     func test_startScan_updatesScanProgressFromCallback() async {
         let synthetic = DiskNode(
             url: URL(fileURLWithPath: "/tmp"),
@@ -76,8 +85,11 @@ final class DiskScannerViewModelTests: XCTestCase {
         var observed: [Double] = []
         let vm = DiskScannerViewModel(scanner: { _, progress in
             progress(10)   // 10% of 100
+            await Task.yield()
             progress(50)   // 50% of 100
+            await Task.yield()
             progress(150)  // > 100 → clamped to 1.0
+            await Task.yield()
             return synthetic
         })
 
@@ -95,5 +107,23 @@ final class DiskScannerViewModelTests: XCTestCase {
                       "scanProgress must never exceed 1.0")
         // Final value (post-scan) is 1.0.
         XCTAssertEqual(vm.scanProgress, 1.0)
+    }
+
+    // MARK: - Cancellation
+
+    /// A `CancellationError` is a clean dismissal (a fresh scan replaced
+    /// this one, or the user navigated away), not a failure. The VM must
+    /// route it back to `.idle` rather than `.error("The operation
+    /// couldn't be completed…")`, which the upcoming UI would render as
+    /// a scan failure banner.
+    func test_startScan_treatsCancellationErrorAsCleanDismissal() async {
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            throw CancellationError()
+        })
+
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+
+        XCTAssertEqual(vm.phase, .idle, "Cancellation should land back in .idle, not .error")
+        XCTAssertEqual(vm.scanProgress, 0.0)
     }
 }

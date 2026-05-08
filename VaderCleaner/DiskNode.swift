@@ -68,14 +68,24 @@ final class DiskNode: Identifiable, ObservableObject {
         self.isAccessible = isAccessible
     }
 
+    /// Shared, pre-configured formatter so each `formattedSize` access
+    /// doesn't pay a fresh `ByteCountFormatter` allocation. The treemap
+    /// in Prompt 17 will call this on every visible tile and tooltip,
+    /// often hundreds of times per render — `ByteCountFormatter` is
+    /// thread-safe for `string(fromByteCount:)` reads, so a single
+    /// instance is the right shape.
+    private static let sizeFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = .useAll
+        formatter.countStyle = .binary
+        return formatter
+    }()
+
     /// Pretty-printed byte count for status labels and tile tooltips.
     /// `.useAll` lets the formatter pick the most readable unit for any
     /// magnitude, which is what users expect from a finder-like view.
     var formattedSize: String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = .useAll
-        formatter.countStyle = .binary
-        return formatter.string(fromByteCount: size)
+        Self.sizeFormatter.string(fromByteCount: size)
     }
 
     /// This node's share of `parent` as a value in `[0, 1]`. Returns 0

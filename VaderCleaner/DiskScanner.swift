@@ -60,11 +60,20 @@ struct DiskScanner: DiskScanning {
 
     private static let resourceKeySet = Set(resourceKeys)
 
+    /// Reference-typed counter so the recursion can mutate a shared
+    /// running total across `await` suspension points. Swift forbids
+    /// `inout` parameters across `await`, and a class instance threads
+    /// the same value through every recursive call without that
+    /// restriction.
+    private final class FileCounter {
+        var value: Int = 0
+    }
+
     func scan(root: URL, progress: @escaping (Int) -> Void) async throws -> DiskNode {
-        var fileCounter = 0
-        return try Self.buildNode(
+        let counter = FileCounter()
+        return try await Self.buildNode(
             at: root,
-            counter: &fileCounter,
+            counter: counter,
             progress: progress
         )
     }
@@ -74,16 +83,21 @@ struct DiskScanner: DiskScanning {
     /// call surface as an inaccessible node so the rest of the walk
     /// continues; per-file metadata errors fall back to zero size.
     ///
-    /// Iterative cancellation check: `Task.checkCancellation()` runs at
-    /// every directory boundary. A user kicking off a fresh scan while
-    /// one is in flight cancels the parent task — without this, the old
-    /// scan would keep churning until the volume was fully walked.
+    /// Iterative cancellation + cooperative yield at every directory
+    /// boundary: `Task.checkCancellation()` lets a freshly-started scan
+    /// abort an older one immediately, and `await Task.yield()`
+    /// surrenders the cooperative thread so a multi-million-file walk
+    /// doesn't hold one thread off the pool for the whole scan. The
+    /// yield runs *after* the cancellation check so a cancelled task
+    /// throws right away instead of giving the queue a chance to run
+    /// other ready work first.
     private static func buildNode(
         at url: URL,
-        counter: inout Int,
+        counter: FileCounter,
         progress: @escaping (Int) -> Void
-    ) throws -> DiskNode {
+    ) async throws -> DiskNode {
         try Task.checkCancellation()
+        await Task.yield()
 
         let resourceValues = try? url.resourceValues(forKeys: resourceKeySet)
         let name = resourceValues?.name ?? url.lastPathComponent
@@ -109,8 +123,8 @@ struct DiskScanner: DiskScanning {
             // Regular file: logical byte count (see `resourceKeys`
             // comment) and a single progress tick.
             let bytes = Int64(resourceValues?.fileSize ?? 0)
-            counter += 1
-            progress(counter)
+            counter.value += 1
+            progress(counter.value)
             return DiskNode(
                 url: url,
                 name: name,
@@ -157,7 +171,7 @@ struct DiskScanner: DiskScanning {
                 // policy note.
                 continue
             }
-            let child = try buildNode(at: entry, counter: &counter, progress: progress)
+            let child = try await buildNode(at: entry, counter: counter, progress: progress)
             rolledUpSize += child.size
             children.append(child)
         }
