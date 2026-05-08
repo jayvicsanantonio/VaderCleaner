@@ -58,6 +58,63 @@ final class DiskScannerViewModel: ObservableObject {
         return nil
     }
 
+    /// The node the treemap should currently render — root when the
+    /// breadcrumb stack is empty, otherwise the deepest crumb. Returns
+    /// `nil` outside the `.ready` phase so the view falls back to its
+    /// idle / scanning / error placeholders rather than rendering a
+    /// stale tree.
+    var currentNode: DiskNode? {
+        guard let root else { return nil }
+        return navigationPath.last ?? root
+    }
+
+    // MARK: - Navigation
+
+    /// Drill into a directory child. Pushes onto `navigationPath` so the
+    /// treemap re-renders the child's contents and the breadcrumb grows
+    /// by one entry.
+    ///
+    /// **No-op for non-directories** — files have no children, so a
+    /// drill-down would land the view on an empty rectangle. Centralising
+    /// the guard here means the view layer doesn't have to check before
+    /// every tile click.
+    func drillDown(into node: DiskNode) {
+        guard node.isDirectory else { return }
+        navigationPath.append(node)
+    }
+
+    /// Pop the breadcrumb stack by one entry. No-op when already at root,
+    /// so the back button can stay enabled without checking
+    /// `navigationPath.isEmpty` upstream.
+    func navigateUp() {
+        guard !navigationPath.isEmpty else { return }
+        navigationPath.removeLast()
+    }
+
+    /// Empty the breadcrumb stack so the treemap re-renders against the
+    /// scan root. Wired to the root crumb in the Space Lens breadcrumb;
+    /// kept on the VM (rather than the view writing
+    /// `navigationPath = []` directly) so any future side-effects of
+    /// jumping to root — telemetry, in-flight cancellation — have a
+    /// single hook.
+    func navigateToRoot() {
+        navigationPath = []
+    }
+
+    /// Truncate `navigationPath` so `node` becomes the new tail. Powers
+    /// the breadcrumb's "jump to ancestor" affordance — clicking the
+    /// third crumb pops back two levels in one gesture.
+    ///
+    /// **No-op when `node` isn't on the current path** — a stale crumb
+    /// reference (e.g. captured in a SwiftUI closure across a rescan)
+    /// shouldn't desync the displayed tree. Identity comparison (`===`)
+    /// because two snapshots of the same path under different scans are
+    /// distinct nodes by design (see `DiskNode` doc comment).
+    func navigate(to node: DiskNode) {
+        guard let index = navigationPath.firstIndex(where: { $0 === node }) else { return }
+        navigationPath = Array(navigationPath.prefix(through: index))
+    }
+
     /// Smallest fractional change worth republishing. A real-volume scan
     /// can fire the progress callback hundreds of thousands of times;
     /// without this gate every call would queue a `Task` on the main

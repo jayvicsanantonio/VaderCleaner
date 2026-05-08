@@ -126,4 +126,203 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .idle, "Cancellation should land back in .idle, not .error")
         XCTAssertEqual(vm.scanProgress, 0.0)
     }
+
+    // MARK: - Navigation (Prompt 17)
+
+    /// Drilling into a directory child must push it onto the breadcrumb
+    /// stack so the treemap re-renders against its children. The order
+    /// matters — `navigationPath.last` is the displayed node, so the
+    /// freshly-clicked child must end up at the tail.
+    func test_drillDown_appendsDirectoryToNavigationPath() async {
+        let dirChild = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root/sub"),
+            name: "sub",
+            size: 50,
+            isDirectory: true,
+            children: []
+        )
+        let root = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root"),
+            name: "root",
+            size: 50,
+            isDirectory: true,
+            children: [dirChild]
+        )
+        let vm = DiskScannerViewModel(scanner: { _, _ in root })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+
+        vm.drillDown(into: dirChild)
+
+        XCTAssertEqual(vm.navigationPath.count, 1)
+        XCTAssertTrue(vm.navigationPath.last === dirChild)
+    }
+
+    /// Files cannot be drilled into — the treemap renders `node.children`,
+    /// and a file has none, so a misplaced drill-down would land the UI on
+    /// an empty rectangle. The VM must reject the call instead of trusting
+    /// the view to filter it out.
+    func test_drillDown_isNoOpForNonDirectory() async {
+        let fileChild = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root/note.txt"),
+            name: "note.txt",
+            size: 10,
+            isDirectory: false,
+            children: []
+        )
+        let root = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root"),
+            name: "root",
+            size: 10,
+            isDirectory: true,
+            children: [fileChild]
+        )
+        let vm = DiskScannerViewModel(scanner: { _, _ in root })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+
+        vm.drillDown(into: fileChild)
+
+        XCTAssertTrue(vm.navigationPath.isEmpty,
+                      "drillDown into a file should be a no-op")
+    }
+
+    /// `navigateUp` pops one entry — the back-button affordance behind the
+    /// breadcrumb's leftmost crumb.
+    func test_navigateUp_popsLastEntryFromNavigationPath() {
+        let a = DiskNode(url: URL(fileURLWithPath: "/a"), name: "a",
+                         size: 0, isDirectory: true, children: [])
+        let b = DiskNode(url: URL(fileURLWithPath: "/a/b"), name: "b",
+                         size: 0, isDirectory: true, children: [])
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            DiskNode(url: URL(fileURLWithPath: "/"), name: "/",
+                     size: 0, isDirectory: true, children: [])
+        })
+        vm.navigationPath = [a, b]
+
+        vm.navigateUp()
+
+        XCTAssertEqual(vm.navigationPath.count, 1)
+        XCTAssertTrue(vm.navigationPath.last === a)
+    }
+
+    /// `navigateToRoot` empties the breadcrumb stack in one call so the
+    /// root crumb in `SpaceLensView` doesn't have to mutate
+    /// `navigationPath` directly. Multi-level no-op safety: a second call
+    /// against an already-empty path leaves the path empty.
+    func test_navigateToRoot_clearsNavigationPath() {
+        let a = DiskNode(url: URL(fileURLWithPath: "/a"), name: "a",
+                         size: 0, isDirectory: true, children: [])
+        let b = DiskNode(url: URL(fileURLWithPath: "/a/b"), name: "b",
+                         size: 0, isDirectory: true, children: [])
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            DiskNode(url: URL(fileURLWithPath: "/"), name: "/",
+                     size: 0, isDirectory: true, children: [])
+        })
+        vm.navigationPath = [a, b]
+
+        vm.navigateToRoot()
+
+        XCTAssertTrue(vm.navigationPath.isEmpty)
+
+        // Idempotent — calling again from root must not throw or grow
+        // the path back.
+        vm.navigateToRoot()
+        XCTAssertTrue(vm.navigationPath.isEmpty)
+    }
+
+    /// `navigateUp` on an empty path is a no-op. Defensive against a
+    /// stuck-at-root state where the back button is mistakenly enabled.
+    func test_navigateUp_isNoOpWhenPathEmpty() {
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            DiskNode(url: URL(fileURLWithPath: "/"), name: "/",
+                     size: 0, isDirectory: true, children: [])
+        })
+
+        vm.navigateUp()
+
+        XCTAssertTrue(vm.navigationPath.isEmpty)
+    }
+
+    /// Clicking a breadcrumb crumb truncates the path so the named node
+    /// becomes the new tail. Without this, navigating back N levels would
+    /// require N separate `navigateUp` calls and the breadcrumb's
+    /// "jump to ancestor" affordance would be impossible.
+    func test_navigateTo_truncatesNavigationPathAtNode() {
+        let a = DiskNode(url: URL(fileURLWithPath: "/a"), name: "a",
+                         size: 0, isDirectory: true, children: [])
+        let b = DiskNode(url: URL(fileURLWithPath: "/a/b"), name: "b",
+                         size: 0, isDirectory: true, children: [])
+        let c = DiskNode(url: URL(fileURLWithPath: "/a/b/c"), name: "c",
+                         size: 0, isDirectory: true, children: [])
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            DiskNode(url: URL(fileURLWithPath: "/"), name: "/",
+                     size: 0, isDirectory: true, children: [])
+        })
+        vm.navigationPath = [a, b, c]
+
+        vm.navigate(to: b)
+
+        XCTAssertEqual(vm.navigationPath.count, 2)
+        XCTAssertTrue(vm.navigationPath.last === b)
+    }
+
+    /// `navigate(to:)` against a node that isn't on the current path is a
+    /// no-op — happens when the tree is rescanned and a stale crumb
+    /// reference fires while the new tree hasn't reached the view yet.
+    func test_navigateTo_isNoOpWhenNodeNotInPath() {
+        let a = DiskNode(url: URL(fileURLWithPath: "/a"), name: "a",
+                         size: 0, isDirectory: true, children: [])
+        let b = DiskNode(url: URL(fileURLWithPath: "/b"), name: "b",
+                         size: 0, isDirectory: true, children: [])
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            DiskNode(url: URL(fileURLWithPath: "/"), name: "/",
+                     size: 0, isDirectory: true, children: [])
+        })
+        vm.navigationPath = [a]
+
+        vm.navigate(to: b)
+
+        XCTAssertEqual(vm.navigationPath.count, 1)
+        XCTAssertTrue(vm.navigationPath.last === a,
+                      "navigate(to:) should leave the path untouched when the node isn't on it")
+    }
+
+    /// `currentNode` is the displayed node — root when the breadcrumb is
+    /// empty, the deepest crumb otherwise. The treemap binds to its
+    /// `children` so this property is the single source of truth for what
+    /// the view renders.
+    func test_currentNode_isRootWhenPathIsEmpty() async {
+        let root = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root"),
+            name: "root",
+            size: 100,
+            isDirectory: true,
+            children: []
+        )
+        let vm = DiskScannerViewModel(scanner: { _, _ in root })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+
+        XCTAssertTrue(vm.currentNode === root)
+    }
+
+    func test_currentNode_isLastEntryWhenPathHasNodes() async {
+        let child = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root/sub"),
+            name: "sub",
+            size: 50,
+            isDirectory: true,
+            children: []
+        )
+        let root = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root"),
+            name: "root",
+            size: 50,
+            isDirectory: true,
+            children: [child]
+        )
+        let vm = DiskScannerViewModel(scanner: { _, _ in root })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        vm.drillDown(into: child)
+
+        XCTAssertTrue(vm.currentNode === child)
+    }
 }
