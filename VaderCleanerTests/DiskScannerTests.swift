@@ -145,6 +145,28 @@ final class DiskScannerTests: XCTestCase {
         XCTAssertTrue(lockedNode.children.isEmpty)
     }
 
+    // MARK: - Missing root
+
+    /// A root URL that doesn't exist (deleted directory, unmounted
+    /// volume) must surface as a thrown `DiskScanError.rootInaccessible`
+    /// rather than a successful empty `DiskNode`. Without this guarantee
+    /// the upcoming UI would render a zero-byte tree as a "scan
+    /// finished, nothing here" state instead of letting the user know
+    /// the scan couldn't run.
+    func test_scan_throwsWhenRootIsMissing() async {
+        let missingRoot = tempRoot.appendingPathComponent("does-not-exist", isDirectory: true)
+        let scanner = DiskScanner()
+
+        do {
+            _ = try await scanner.scan(root: missingRoot, progress: { _ in })
+            XCTFail("Expected scan to throw for a missing root")
+        } catch let error as DiskScanError {
+            XCTAssertEqual(error, .rootInaccessible(missingRoot))
+        } catch {
+            XCTFail("Expected DiskScanError.rootInaccessible, got \(error)")
+        }
+    }
+
     // MARK: - Progress
 
     /// The scanner must invoke its progress callback as it processes files,

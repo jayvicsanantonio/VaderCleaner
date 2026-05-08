@@ -12,6 +12,25 @@ protocol DiskScanning {
     func scan(root: URL, progress: @escaping (Int) -> Void) async throws -> DiskNode
 }
 
+/// Conditions under which a scan can't run at all, as distinct from a
+/// per-file/per-dir permission denial inside the walk (which is
+/// recovered as an inaccessible `DiskNode`). Surfaced so the view-model
+/// can land in `.error` instead of producing a misleading zero-byte
+/// tree that looks like a successful empty scan.
+enum DiskScanError: LocalizedError, Equatable {
+    /// The root URL handed to `scan(root:progress:)` is missing,
+    /// unreadable, or on an unmounted volume. The recursive walker
+    /// can't recover from this — there's no parent to mark inaccessible.
+    case rootInaccessible(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .rootInaccessible(let url):
+            return "Couldn't read “\(url.lastPathComponent)”. The location may have been moved, deleted, or the volume is unmounted."
+        }
+    }
+}
+
 /// Walks a root URL recursively and returns a `DiskNode` graph whose
 /// directory sizes are bottom-up rollups of every regular file underneath.
 ///
@@ -70,6 +89,18 @@ struct DiskScanner: DiskScanning {
     }
 
     func scan(root: URL, progress: @escaping (Int) -> Void) async throws -> DiskNode {
+        // Validate the root up front. Inside `buildNode` we `try?`
+        // metadata reads so a single broken descendant doesn't abort
+        // the walk — but at the root, the same forgiveness silently
+        // emits a zero-byte "file" node and the user sees a
+        // successful empty scan. Throw a typed error here so the VM
+        // can render `.error` for missing paths and unmounted volumes.
+        do {
+            _ = try root.resourceValues(forKeys: Self.resourceKeySet)
+        } catch {
+            throw DiskScanError.rootInaccessible(root)
+        }
+
         let counter = FileCounter()
         return try await Self.buildNode(
             at: root,
