@@ -64,9 +64,21 @@ final class DiskScannerViewModel: ObservableObject {
     /// actor and starve the UI thread. 0.5% (200 buckets across the 0–1
     /// range) is fine-grained enough that the bar never visibly jumps
     /// while keeping the queued-task count to a couple hundred for the
-    /// largest volumes. The terminal value (`1.0`) and the initial-bump
-    /// case bypass the gate so the bar definitely reaches full.
+    /// largest volumes. The terminal value (`1.0`) bypasses the gate so
+    /// the bar definitely reaches full.
     private static let progressUpdateThreshold: Double = 0.005
+
+    /// Reference-typed bucket tracker so the off-actor progress closure
+    /// can decide *before* hopping to the main actor whether the new
+    /// count crosses the throttle threshold. Without this, the gate ran
+    /// inside the queued main-actor task and we still spawned one
+    /// `Task` per file — the very behaviour the throttle is meant to
+    /// avoid. Single-threaded access: `DiskScanner.buildNode` invokes
+    /// the closure from one recursive task chain, so no synchronization
+    /// is required.
+    private final class ProgressGate {
+        var lastScheduledBucket: Int = -1
+    }
 
     /// Monotonically increasing token bumped at the start of every
     /// `startScan`. Late-arriving progress callbacks and the post-scan
@@ -109,31 +121,41 @@ final class DiskScannerViewModel: ObservableObject {
         navigationPath = []
 
         let divisor = max(1, estimatedFileCount)
+        // Width (in files) of one throttle bucket. With the default
+        // 0.5% threshold and a 250 000-file estimate this is 1 250 —
+        // i.e. at most ~200 main-actor Tasks per scan. `ceil` so the
+        // bucket is at least 1 even for tiny estimates (the test suite
+        // uses divisors of 100 and below).
+        let bucketSize = max(1, Int((Double(divisor) * Self.progressUpdateThreshold).rounded(.up)))
+        let gate = ProgressGate()
 
         // Wrap the synchronous `progress` callback the scanner will fire
-        // off-actor. Each invocation hops to the main actor (so the
-        // `@Published` write is serialized with view reads), but only
-        // applies the new fraction when:
+        // off-actor. The throttle gate runs *here*, before the main-actor
+        // hop, so a 250 000-file scan only ever schedules ~200 Tasks
+        // (one per crossed bucket plus the terminal write). Each
+        // scheduled Task still re-checks generation + phase on the main
+        // actor for two defense-in-depth reasons:
         //
-        //   1. the scan that produced it is still the current one
+        //   1. the scan that produced it must still be the current one
         //      (`scanGeneration` match — guards against concurrent
-        //      `startScan` calls),
-        //   2. the phase is still `.scanning` (guards against late
+        //      `startScan` calls), and
+        //   2. the phase must still be `.scanning` (guards against late
         //      progress writes that would otherwise regress a final
-        //      `.ready` state back to a fractional value),
-        //   3. the fraction has moved at least `progressUpdateThreshold`
-        //      since the last published value, or it's the terminal
-        //      `1.0` (throttle — without this a 250 000-file scan would
-        //      queue 250 000 main-actor tasks).
+        //      `.ready` state back to a fractional value).
         let progressHandler: (Int) -> Void = { [weak self] count in
+            let bucket = count / bucketSize
+            // Schedule only when the bucket advances *or* the count has
+            // reached the divisor (terminal — guarantees the bar can
+            // reach 1.0 even when the final file lands mid-bucket).
+            let isTerminal = count >= divisor
+            guard isTerminal || bucket > gate.lastScheduledBucket else { return }
+            gate.lastScheduledBucket = bucket
             let fraction = min(1.0, Double(count) / Double(divisor))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.scanGeneration == myGeneration else { return }
                 guard case .scanning = self.phase else { return }
-                if fraction == 1.0 || fraction >= self.scanProgress + Self.progressUpdateThreshold {
-                    self.scanProgress = fraction
-                }
+                self.scanProgress = fraction
             }
         }
 
