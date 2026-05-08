@@ -35,7 +35,7 @@
 
 ## Phase 3 — Privacy & Apps
 
-- [ ] **Prompt 18** — Privacy feature (browser detection + data clearing + recent files)
+- [x] **Prompt 18** — Privacy feature (browser detection + data clearing + recent files)
 - [ ] **Prompt 19** — App Uninstaller (discovery + associated files + deletion)
 - [ ] **Prompt 20** — App Updater (App Store + Sparkle)
 - [ ] **Prompt 21** — Extensions Manager (Safari, browser, Mail, internet plugins, login items)
