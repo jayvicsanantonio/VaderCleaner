@@ -50,9 +50,43 @@ final class FileCategoryTests: XCTestCase {
         XCTAssertEqual(FileCategory.from(node: node), .system)
     }
 
+    /// The `~/Library` directory itself (without trailing slash / children
+    /// in the path) is the top-level system bucket users actually see in a
+    /// home-directory Space Lens scan. Locks the path-component matching
+    /// against a previous substring rule that missed the bare directory.
+    func test_category_systemForLibraryDirectoryItself() {
+        XCTAssertEqual(FileCategory.from(node: makeDirectory(path: "/Library")), .system)
+        XCTAssertEqual(FileCategory.from(node: makeDirectory(path: "/Users/example/Library")), .system)
+    }
+
     func test_category_systemForSystemAndPrivatePaths() {
         XCTAssertEqual(FileCategory.from(node: makeDirectory(path: "/System/Library")), .system)
         XCTAssertEqual(FileCategory.from(node: makeDirectory(path: "/private/var/log")), .system)
+        XCTAssertEqual(FileCategory.from(node: makeDirectory(path: "/usr/local/bin")), .system)
+    }
+
+    /// Path-prefix matching would misclassify these as `.system`. The
+    /// component-aware implementation must not. Regression guard against
+    /// reintroducing `hasPrefix("/usr")` / `contains("/Library/")` style
+    /// rules that match substrings inside legitimate user paths.
+    func test_category_otherForPathBoundaryFalsePositives() {
+        // `/Users/example/usr_data` — `hasPrefix("/usr")` would have to
+        // not match because the path doesn't start with `/usr`, but a
+        // careless rule that checks `path.contains("usr")` would.
+        let usrLike = makeDirectory(path: "/Users/example/usr_data")
+        XCTAssertEqual(FileCategory.from(node: usrLike), .other)
+
+        // `/Users/example/Projects/LibraryNotes` — the literal substring
+        // "Library" appears, but as part of "LibraryNotes", not as a
+        // path component. Component-aware matching must reject it.
+        let libraryLike = makeDirectory(path: "/Users/example/Projects/LibraryNotes")
+        XCTAssertEqual(FileCategory.from(node: libraryLike), .other)
+
+        // A user-managed folder literally named "Library" inside a deep
+        // Projects tree shouldn't read as system either — only the
+        // canonical `~/Library` and `/Library` shapes do.
+        let deepLibrary = makeDirectory(path: "/Users/example/Projects/Library")
+        XCTAssertEqual(FileCategory.from(node: deepLibrary), .other)
     }
 
     func test_category_systemForLowLevelExecutableExtensions() {

@@ -73,20 +73,47 @@ enum FileCategory: Hashable {
 
     // MARK: - Internals
 
-    /// Path-prefix heuristic for directories. `~/Library`, `/System`,
-    /// `/usr`, `/private` are the canonical system locations on macOS;
-    /// anything underneath them is treated as system content. Everything
-    /// else falls into `.other`, which is the right answer for user-managed
-    /// directories like `~/Projects` or `/Users/example/Documents`.
+    /// Path-component heuristic for directories. `~/Library`, `/Library`,
+    /// `/System`, `/usr`, `/private` are the canonical system locations on
+    /// macOS; the directory itself and anything underneath them is treated
+    /// as system content. Everything else falls into `.other`, which is the
+    /// right answer for user-managed directories like `~/Projects` or
+    /// `/Users/example/Documents`.
+    ///
+    /// **Component-based, not substring-based.** `path.hasPrefix("/usr")`
+    /// matches a user's own `/Users/example/usr_data`, and
+    /// `path.contains("/Library/")` matches `/Users/example/Projects/Library/foo`.
+    /// Both would be misclassified as system. Splitting on `/` and comparing
+    /// whole components avoids those false positives, and incidentally lets
+    /// us recognize the Library directory itself (e.g. the top-level
+    /// `~/Library` tile in a Space Lens scan of the home folder), which
+    /// the substring rule missed because the path doesn't end with a slash.
     private static func categoryForDirectoryPath(_ path: String) -> FileCategory {
-        if path.hasPrefix("/System") { return .system }
-        if path.hasPrefix("/usr")    { return .system }
-        if path.hasPrefix("/private") { return .system }
-        // `/Library/...` covers both the system-wide Library and the
-        // per-user `~/Library` (which expands to `/Users/<name>/Library`).
-        // The substring check is sufficient — there's no legitimate path
-        // containing `/Library/` that the user manages by hand.
-        if path.contains("/Library/") { return .system }
+        // `pathComponents` returns `["/", "System", ...]` for an absolute
+        // path, so the second element (index 1) is the first real component.
+        let components = URL(fileURLWithPath: path).pathComponents
+        guard components.count >= 2 else { return .other }
+
+        switch components[1] {
+        case "System", "usr", "private":
+            return .system
+        case "Library":
+            // `/Library` and `/Library/...` — system-wide Library.
+            return .system
+        default:
+            break
+        }
+
+        // `~/Library` expands to `/Users/<name>/Library`. Match the
+        // four-component shape exactly (root + "Users" + name + "Library")
+        // rather than checking `components.contains("Library")`, which
+        // would still misclassify a user-created `~/Projects/Library/...`.
+        if components.count >= 4,
+           components[1] == "Users",
+           components[3] == "Library" {
+            return .system
+        }
+
         return .other
     }
 

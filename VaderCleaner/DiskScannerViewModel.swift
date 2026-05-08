@@ -91,6 +91,16 @@ final class DiskScannerViewModel: ObservableObject {
         navigationPath.removeLast()
     }
 
+    /// Empty the breadcrumb stack so the treemap re-renders against the
+    /// scan root. Wired to the root crumb in the Space Lens breadcrumb;
+    /// kept on the VM (rather than the view writing
+    /// `navigationPath = []` directly) so any future side-effects of
+    /// jumping to root — telemetry, in-flight cancellation — have a
+    /// single hook.
+    func navigateToRoot() {
+        navigationPath = []
+    }
+
     /// Truncate `navigationPath` so `node` becomes the new tail. Powers
     /// the breadcrumb's "jump to ancestor" affordance — clicking the
     /// third crumb pops back two levels in one gesture.

@@ -123,6 +123,34 @@ final class TreemapLayoutTests: XCTestCase {
         XCTAssertEqual(result[0].rect.height, bounds.height, accuracy: 0.01)
     }
 
+    /// Negative, NaN, and ±infinity weights must not crash and must not
+    /// poison the totals. The contract clamps each to zero so a single
+    /// corrupt scan record can't take down the visualization. The output
+    /// length still matches the input so SwiftUI's id-keyed `ForEach`
+    /// stays stable.
+    func test_layout_clampsNonFiniteAndNegativeWeightsToZero() {
+        let items: [(id: Int, weight: Double)] = [
+            (id: 1, weight: -10),
+            (id: 2, weight: .nan),
+            (id: 3, weight: .infinity),
+            (id: 4, weight: -.infinity),
+            (id: 5, weight: 100)
+        ]
+        let result = TreemapLayout.layout(items: items, in: bounds)
+        XCTAssertEqual(result.count, items.count)
+
+        let byID = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0.rect) })
+        for badID in [1, 2, 3, 4] {
+            let rect = byID[badID]
+            XCTAssertNotNil(rect)
+            XCTAssertEqual((rect?.width ?? 1) * (rect?.height ?? 1), 0,
+                           "Item \(badID) with non-finite/negative weight should yield zero area")
+        }
+        let goodArea = (byID[5]?.width ?? 0) * (byID[5]?.height ?? 0)
+        XCTAssertGreaterThan(goodArea, 0,
+                             "The lone valid weight should still produce a positive-area tile")
+    }
+
     /// All-zero weights must not divide-by-zero. The empty-directory case
     /// triggers this: every child is an empty file. The contract is that
     /// each item gets a zero-area placeholder so SwiftUI's `ForEach` still

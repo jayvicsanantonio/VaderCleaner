@@ -204,6 +204,31 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertTrue(vm.navigationPath.last === a)
     }
 
+    /// `navigateToRoot` empties the breadcrumb stack in one call so the
+    /// root crumb in `SpaceLensView` doesn't have to mutate
+    /// `navigationPath` directly. Multi-level no-op safety: a second call
+    /// against an already-empty path leaves the path empty.
+    func test_navigateToRoot_clearsNavigationPath() {
+        let a = DiskNode(url: URL(fileURLWithPath: "/a"), name: "a",
+                         size: 0, isDirectory: true, children: [])
+        let b = DiskNode(url: URL(fileURLWithPath: "/a/b"), name: "b",
+                         size: 0, isDirectory: true, children: [])
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            DiskNode(url: URL(fileURLWithPath: "/"), name: "/",
+                     size: 0, isDirectory: true, children: [])
+        })
+        vm.navigationPath = [a, b]
+
+        vm.navigateToRoot()
+
+        XCTAssertTrue(vm.navigationPath.isEmpty)
+
+        // Idempotent — calling again from root must not throw or grow
+        // the path back.
+        vm.navigateToRoot()
+        XCTAssertTrue(vm.navigationPath.isEmpty)
+    }
+
     /// `navigateUp` on an empty path is a no-op. Defensive against a
     /// stuck-at-root state where the back button is mistakenly enabled.
     func test_navigateUp_isNoOpWhenPathEmpty() {

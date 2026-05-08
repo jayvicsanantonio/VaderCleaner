@@ -20,11 +20,6 @@ import SwiftUI
 struct SpaceLensView: View {
 
     @StateObject private var viewModel: DiskScannerViewModel
-    /// Latched once per view lifetime so we don't re-scan every time
-    /// SwiftUI re-fires `.task` (which can happen on environment
-    /// changes). The user can still trigger a fresh scan via the
-    /// Re-scan button.
-    @State private var didStartInitialScan = false
 
     init(viewModel: DiskScannerViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -52,10 +47,19 @@ struct SpaceLensView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(NavigationSection.spaceLens.title)
-        .task {
-            guard !didStartInitialScan else { return }
-            didStartInitialScan = true
-            await runScan()
+        // `.onAppear` rather than `.task` so the scan isn't tied to the
+        // view's task lifetime — `DiskScannerViewModel` is hoisted to
+        // `ContentView` so the scanned tree survives a sidebar peek, and
+        // a `.task`-driven scan would be cancelled the moment the user
+        // navigated away (the VM's cancellation handler forwards
+        // structured cancellation into the in-flight walk). Spawning the
+        // scan from an unstructured `Task` inside `onAppear` lets the
+        // walk run to completion even while the user browses other
+        // sections; `phase`-guarded so re-entering an already-loaded
+        // tree doesn't restart the scan.
+        .onAppear {
+            guard case .idle = viewModel.phase else { return }
+            Task { await runScan() }
         }
     }
 
@@ -203,11 +207,12 @@ struct SpaceLensView: View {
         Button {
             // The root crumb empties the path; intermediate crumbs
             // truncate via `navigate(to:)`. Both end with the named
-            // crumb at `currentNode`, but the root-special case avoids
-            // requiring `navigate(to:)` to know about the synthetic
-            // "[root] + path" prefix.
+            // crumb at `currentNode`, but the root-special case routes
+            // through `navigateToRoot()` so the VM owns the "jump to
+            // root" semantics instead of the view mutating
+            // `navigationPath` directly.
             if isRoot {
-                viewModel.navigationPath = []
+                viewModel.navigateToRoot()
             } else {
                 viewModel.navigate(to: crumb)
             }

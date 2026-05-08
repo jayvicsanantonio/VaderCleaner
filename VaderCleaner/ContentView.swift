@@ -17,6 +17,16 @@ struct ContentView: View {
     /// system caches the answer so the second prompt is a no-op, but it's
     /// cleaner to issue exactly one.
     @State private var didRequestNotificationPermission = false
+    /// Space Lens scans take long enough that losing the result on a
+    /// sidebar peek would be a frustration point. Hosting the view-model
+    /// here keeps the breadcrumb / scanned tree alive while the user
+    /// flips through other sections, and only the view layer is rebuilt
+    /// when they come back. A short-lived `SpaceLensView`-owned
+    /// `@StateObject` would still latch the first scan via SwiftUI's
+    /// state-object identity rules, but the VM would briefly construct
+    /// (and a `.live()`-spawned `DiskScanner` would briefly allocate) on
+    /// every body recomputation — wasteful enough to lift here.
+    @StateObject private var spaceLensViewModel = DiskScannerViewModel.live()
 
     var body: some View {
         NavigationSplitView {
@@ -77,7 +87,7 @@ struct ContentView: View {
         case .largeOldFiles:
             LargeOldFilesView(viewModel: LargeOldFilesViewModel.live(exclusions: exclusions))
         case .spaceLens:
-            SpaceLensView(viewModel: DiskScannerViewModel.live())
+            SpaceLensView(viewModel: spaceLensViewModel)
         default:
             PlaceholderDetailView(section: section)
         }
