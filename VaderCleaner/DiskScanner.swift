@@ -89,6 +89,18 @@ struct DiskScanner: DiskScanning {
     }
 
     func scan(root: URL, progress: @escaping (Int) -> Void) async throws -> DiskNode {
+        // Resolve symlinks at the root only. macOS exposes `/tmp`,
+        // `/var`, and `/etc` as symlinks to `/private/...`; if the user
+        // picks one as a Space Lens root, the symlink-skip branch
+        // inside the walk would hand back a zero-byte "file" node.
+        // Inside `buildNode` we still skip symlinks unconditionally
+        // (cycle prevention + no double-counting); the asymmetry is
+        // deliberate, the root is the one place where there's no
+        // parent to omit it from. Errors continue to reference the
+        // *original* URL so the user sees the path they actually
+        // selected.
+        let resolvedRoot = root.resolvingSymlinksInPath()
+
         // Validate the root up front. Inside `buildNode` we `try?`
         // metadata reads so a single broken descendant doesn't abort
         // the walk — but at the root, the same forgiveness silently
@@ -96,14 +108,14 @@ struct DiskScanner: DiskScanning {
         // successful empty scan. Throw a typed error here so the VM
         // can render `.error` for missing paths and unmounted volumes.
         do {
-            _ = try root.resourceValues(forKeys: Self.resourceKeySet)
+            _ = try resolvedRoot.resourceValues(forKeys: Self.resourceKeySet)
         } catch {
             throw DiskScanError.rootInaccessible(root)
         }
 
         let counter = FileCounter()
         return try await Self.buildNode(
-            at: root,
+            at: resolvedRoot,
             counter: counter,
             progress: progress,
             isRoot: true

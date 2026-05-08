@@ -145,6 +145,31 @@ final class DiskScannerTests: XCTestCase {
         XCTAssertTrue(lockedNode.children.isEmpty)
     }
 
+    // MARK: - Symlinked root
+
+    /// macOS exposes `/tmp`, `/var`, and `/etc` as symlinks to
+    /// `/private/...`. If the user starts Space Lens at one of those
+    /// (or at any user-created directory symlink they think of as
+    /// "the folder"), we must scan the *target*, not return a single
+    /// zero-byte file node. Inside the walk we still skip symlinks
+    /// (cycle prevention + no double-counting) — this asserts the
+    /// asymmetry at the root is real and verified.
+    func test_scan_resolvesSymlinkedRootToTarget() async throws {
+        let target = tempRoot.appendingPathComponent("target", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "leaf.bin", size: 16, in: target)
+
+        let symlinkRoot = tempRoot.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: symlinkRoot, withDestinationURL: target)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: symlinkRoot, progress: { _ in })
+
+        XCTAssertTrue(root.isDirectory, "Resolved root should be treated as a directory, not a symlink leaf")
+        XCTAssertEqual(root.size, 16, "Tree must reflect the target's contents, not 0 bytes")
+        XCTAssertEqual(root.children.map(\.name).sorted(), ["leaf.bin"])
+    }
+
     // MARK: - Missing root
 
     /// A root that exists *and* has readable metadata (so the upfront
