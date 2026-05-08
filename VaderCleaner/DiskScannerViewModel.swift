@@ -239,7 +239,18 @@ final class DiskScannerViewModel: ObservableObject {
         // return. The previous (cancelled) task continues winding
         // down in parallel; its catch handler drops its writes via
         // the generation guard.
-        await task.value
+        //
+        // The cancellation handler forwards caller-side cancellation
+        // to the unstructured scan task — without it, a SwiftUI
+        // `.task` torn down on view dismissal would leave the disk
+        // walk running. `deinit` can't rescue us here because this
+        // `await` keeps `self` alive; the only way out is to cancel
+        // the inner task explicitly when the caller is cancelled.
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 }
 
