@@ -198,8 +198,11 @@ final class BrowserDataPathProviderTests: XCTestCase {
 
     /// Same SQLite WAL/SHM concern as Chromium — Firefox uses WAL mode
     /// for places.sqlite and cookies.sqlite, so missing the `-shm` /
-    /// `-wal` sidecars leaves orphaned files on disk.
-    func test_firefox_history_includesSqliteWalAndShmSidecars() throws {
+    /// `-wal` sidecars leaves orphaned files on disk. The rollback
+    /// `-journal` sidecar can also linger after a crash mid-write or
+    /// when SQLite isn't in WAL mode, and may still hold copies of the
+    /// rows we're trying to clear.
+    func test_firefox_history_includesAllSqliteSidecars() throws {
         let profilesRoot = tempHome.appendingPathComponent("Library/Application Support/Firefox/Profiles", isDirectory: true)
         let profileDir = profilesRoot.appendingPathComponent("xyz12345.default-release", isDirectory: true)
         try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
@@ -208,10 +211,11 @@ final class BrowserDataPathProviderTests: XCTestCase {
         let paths = provider.dataPaths(for: .firefox, category: .history)
         let resolved = paths.map { Self.stripPrivatePrefix($0.path) }
 
-        let shm = Self.stripPrivatePrefix(profileDir.appendingPathComponent("places.sqlite-shm").path)
-        let wal = Self.stripPrivatePrefix(profileDir.appendingPathComponent("places.sqlite-wal").path)
-        XCTAssertTrue(resolved.contains(shm), "Expected places.sqlite-shm in \(resolved)")
-        XCTAssertTrue(resolved.contains(wal), "Expected places.sqlite-wal in \(resolved)")
+        for sidecar in ["places.sqlite-journal", "places.sqlite-shm", "places.sqlite-wal"] {
+            let expected = Self.stripPrivatePrefix(profileDir.appendingPathComponent(sidecar).path)
+            XCTAssertTrue(resolved.contains(expected),
+                          "Expected \(sidecar) in \(resolved)")
+        }
     }
 
     /// When no Firefox profile exists yet, the provider must return an

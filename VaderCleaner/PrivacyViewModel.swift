@@ -115,6 +115,19 @@ final class PrivacyViewModel: ObservableObject {
         return sumOfSizes(over: Set(allSelections))
     }
 
+    /// Whether `(browser, category)` has any on-disk paths the clearer
+    /// can act on. Returns `false` for cells that are intentionally
+    /// no-ops at the file level — Chromium / Firefox `.downloads` is
+    /// the canonical case (download history lives inside the same
+    /// SQLite as browsing history; a path-based clear of just
+    /// downloads would also wipe history). The view uses this to
+    /// render those rows as informational ("Included with Browsing
+    /// History") rather than as a checkbox the user can toggle, so
+    /// the UI never claims to do something it can't.
+    func isCategoryActionable(browser: Browser, category: PrivacyCategory) -> Bool {
+        !pathsFor(browser, category).isEmpty
+    }
+
     /// Currently-checked selections in a stable
     /// `Browser.allCases` × `PrivacyCategory.allCases` order. Used by
     /// `clear()` to make the destructive loop deterministic — a `Set`

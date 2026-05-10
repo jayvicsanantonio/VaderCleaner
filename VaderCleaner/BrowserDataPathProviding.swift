@@ -266,10 +266,15 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding {
         }
     }
 
-    /// Firefox SQLite + WAL-mode sidecars for a single store.
+    /// Firefox SQLite + sidecars for a single store. Includes WAL-mode
+    /// sidecars (`-shm` / `-wal`) and the rollback-journal sidecar
+    /// (`-journal`) — the rollback journal lingers when SQLite isn't in
+    /// WAL mode or after a crash mid-write, and may still hold copies
+    /// of the rows the user is asking us to clear.
     private func firefoxSqlitePaths(in profileDir: URL, named name: String) -> [URL] {
         [
             profileDir.appendingPathComponent(name),
+            profileDir.appendingPathComponent("\(name)-journal"),
             profileDir.appendingPathComponent("\(name)-shm"),
             profileDir.appendingPathComponent("\(name)-wal")
         ]

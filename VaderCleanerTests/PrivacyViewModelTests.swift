@@ -101,6 +101,54 @@ final class PrivacyViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: - Actionability
+
+    /// `isCategoryActionable` is the contract the view uses to decide
+    /// whether to render a row as a checkbox or as an informational
+    /// "Included with Browsing History" caption. A category with no
+    /// paths must report unactionable so the UI never offers a
+    /// control that does nothing — Codex flagged this as a P2 on
+    /// PR #39.
+    func test_isCategoryActionable_returnsFalseWhenPathsResolverEmpty() async {
+        let vm = makeViewModel(
+            detected: [.chrome],
+            sizer: { _, _ in 100 },
+            pathsFor: { _, category in
+                category == .history
+                    ? [URL(fileURLWithPath: "/tmp/vctests/Chrome/Default/History")]
+                    : []
+            }
+        )
+        await vm.preview()
+
+        XCTAssertTrue(vm.isCategoryActionable(browser: .chrome, category: .history))
+        XCTAssertFalse(vm.isCategoryActionable(browser: .chrome, category: .downloads))
+        XCTAssertFalse(vm.isCategoryActionable(browser: .chrome, category: .cookies))
+    }
+
+    /// Production wiring: `.downloads` must be unactionable for every
+    /// Chromium / Firefox browser so the UI couples the row visually
+    /// to History. Safari's `.downloads` is independently clearable
+    /// (`Downloads.plist`) and must remain actionable.
+    func test_isCategoryActionable_decouplesChromiumDownloads() async {
+        let vm = makeViewModel(
+            detected: [.safari, .chrome, .firefox, .brave, .arc, .opera, .edge],
+            sizer: { _, _ in 0 },
+            pathsFor: { browser, category in
+                DefaultBrowserDataPathProvider(homeDirectory: URL(fileURLWithPath: "/tmp/vctests"))
+                    .dataPaths(for: browser, category: category)
+            }
+        )
+        await vm.preview()
+
+        XCTAssertTrue(vm.isCategoryActionable(browser: .safari, category: .downloads))
+        for browser in [Browser.chrome, .firefox, .brave, .arc, .opera, .edge] {
+            XCTAssertFalse(
+                vm.isCategoryActionable(browser: browser, category: .downloads),
+                "Expected \(browser).downloads to be unactionable")
+        }
+    }
+
     // MARK: - Selection
 
     /// Toggling a `(browser, category)` selection must update both the

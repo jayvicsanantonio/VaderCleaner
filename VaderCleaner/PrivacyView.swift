@@ -112,15 +112,28 @@ struct PrivacyView: View {
             ForEach(viewModel.detectedBrowsers) { browser in
                 Section {
                     ForEach(PrivacyCategory.allCases) { category in
-                        CategoryRow(
-                            category: category,
-                            sizeBytes: viewModel.size(for: browser, category: category),
-                            isChecked: Binding(
-                                get: { viewModel.isChecked(browser: browser, category: category) },
-                                set: { _ in viewModel.toggle(browser: browser, category: category) }
+                        // Non-actionable categories (e.g. Chromium /
+                        // Firefox `.downloads`, which lives inside the
+                        // browsing-history SQLite and can't be cleared
+                        // independently at the file level) render as a
+                        // disabled row with a coupling caption rather
+                        // than a checkbox — otherwise the UI would
+                        // claim to do something the clearer can't
+                        // deliver.
+                        if viewModel.isCategoryActionable(browser: browser, category: category) {
+                            CategoryRow(
+                                category: category,
+                                sizeBytes: viewModel.size(for: browser, category: category),
+                                isChecked: Binding(
+                                    get: { viewModel.isChecked(browser: browser, category: category) },
+                                    set: { _ in viewModel.toggle(browser: browser, category: category) }
+                                )
                             )
-                        )
-                        .accessibilityIdentifier("privacy.row.\(browser.rawValue).\(category.rawValue)")
+                            .accessibilityIdentifier("privacy.row.\(browser.rawValue).\(category.rawValue)")
+                        } else {
+                            CoupledCategoryRow(category: category)
+                                .accessibilityIdentifier("privacy.row.\(browser.rawValue).\(category.rawValue).coupled")
+                        }
                     }
                 } header: {
                     BrowserHeader(
@@ -256,6 +269,33 @@ private struct BrowserHeader: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Row rendered for categories whose data isn't independently
+/// clearable on the surrounding browser — Chromium / Firefox
+/// `.downloads` lives inside the same SQLite as `.history`, so a
+/// path-based clear of just downloads would also wipe browsing
+/// history. The row replaces the checkbox + size with an
+/// informational caption explaining the coupling so the UI never
+/// presents a control that does nothing.
+private struct CoupledCategoryRow: View {
+    let category: PrivacyCategory
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Spacer matches the checkbox width so the category-name
+            // column stays aligned with sibling rows in the same group.
+            Spacer().frame(width: 16)
+            Text(category.displayName)
+                .font(.body)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("Included with Browsing History")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
     }
 }
 
