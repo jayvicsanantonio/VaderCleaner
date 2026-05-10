@@ -10,6 +10,27 @@ final class HelperProtocolTests: XCTestCase {
         XCTAssertEqual(kHelperMachServiceName, "com.personal.VaderCleaner.helper")
     }
 
+    func test_releaseCodeSigningRequirement_includesTeamIdentifier() {
+        let requirement = HelperCodeSigningRequirements.requirement(
+            identifier: "com.personal.VaderCleaner",
+            teamIdentifier: "ABCDE12345"
+        )
+
+        XCTAssertEqual(
+            requirement,
+            "identifier \"com.personal.VaderCleaner\" and certificate leaf[subject.OU] = \"ABCDE12345\""
+        )
+    }
+
+    func test_debugCodeSigningRequirement_canRemainIdentifierOnly() {
+        let requirement = HelperCodeSigningRequirements.requirement(
+            identifier: "com.personal.VaderCleaner",
+            teamIdentifier: nil
+        )
+
+        XCTAssertEqual(requirement, "identifier \"com.personal.VaderCleaner\"")
+    }
+
     func test_protocol_isVisibleToObjCRuntime() {
         // NSXPCConnection requires @objc protocols. NSProtocolFromString resolves them via the
         // ObjC runtime — a Swift-only protocol would return nil here.

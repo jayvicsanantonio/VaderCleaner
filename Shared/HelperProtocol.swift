@@ -8,18 +8,40 @@ import Foundation
 /// and the app's NSXPCConnection. Defined here as the single source of truth.
 let kHelperMachServiceName = "com.personal.VaderCleaner.helper"
 
+enum HelperCodeSigningRequirements {
+    static let appIdentifier = "com.personal.VaderCleaner"
+    static let helperIdentifier = "com.personal.VaderCleaner.helper"
+
+    /// Replace with the Developer ID Team ID before distributing Release builds.
+    /// Debug keeps the looser identifier-only rule so local ad-hoc helper
+    /// registration still works during development.
+    private static let releaseTeamIdentifier = "TEAMID"
+
+    static func requirement(identifier: String, teamIdentifier: String?) -> String {
+        let identifierRequirement = "identifier \"\(identifier)\""
+        guard let teamIdentifier, !teamIdentifier.isEmpty else {
+            return identifierRequirement
+        }
+        return "\(identifierRequirement) and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+    }
+
+    #if DEBUG
+    static let client = requirement(identifier: appIdentifier, teamIdentifier: nil)
+    static let server = requirement(identifier: helperIdentifier, teamIdentifier: nil)
+    #else
+    static let client = requirement(identifier: appIdentifier, teamIdentifier: releaseTeamIdentifier)
+    static let server = requirement(identifier: helperIdentifier, teamIdentifier: releaseTeamIdentifier)
+    #endif
+}
+
 /// Code-signing requirement applied by the helper to incoming XPC connections.
-/// Restricts the privileged interface to processes whose code-signing identifier
-/// matches the main app's bundle identifier. Without this guard, any local process
-/// that can reach the mach service name would be able to invoke privileged ops.
-///
-/// Production hardening: append `and certificate leaf[subject.OU] = "TEAMID"`
-/// once a Developer ID team is wired up so that ad-hoc-signed impostors are rejected.
-let kHelperClientCodeSigningRequirement = "identifier \"com.personal.VaderCleaner\""
+/// Release builds require both the bundle identifier and Developer ID Team ID;
+/// Debug builds intentionally allow identifier-only ad-hoc signing.
+let kHelperClientCodeSigningRequirement = HelperCodeSigningRequirements.client
 
 /// Code-signing requirement applied by the app to the helper connection — the
 /// symmetric check that protects the app from a substituted helper binary.
-let kHelperServerCodeSigningRequirement = "identifier \"com.personal.VaderCleaner.helper\""
+let kHelperServerCodeSigningRequirement = HelperCodeSigningRequirements.server
 
 /// XPC protocol implemented by VaderCleanerHelper and consumed by the main app.
 ///
