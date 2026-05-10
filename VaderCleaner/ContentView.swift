@@ -88,6 +88,8 @@ struct ContentView: View {
             LargeOldFilesView(viewModel: LargeOldFilesViewModel.live(exclusions: exclusions))
         case .spaceLens:
             SpaceLensView(viewModel: spaceLensViewModel)
+        case .privacy:
+            PrivacyView(viewModel: PrivacyViewModel.live())
         default:
             PlaceholderDetailView(section: section)
         }
