@@ -16,10 +16,7 @@ struct BrowserDataClearer {
     typealias Remover = (URL) throws -> Void
 
     private let pathProvider: BrowserDataPathProviding
-    private let fileManager: FileManager
-    private let remover: Remover
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "BrowserDataClearer")
+    private let worker: BrowserDataWorker
 
     init(
         pathProvider: BrowserDataPathProviding,
@@ -27,21 +24,19 @@ struct BrowserDataClearer {
         remover: Remover? = nil
     ) {
         self.pathProvider = pathProvider
-        self.fileManager = fileManager
-        self.remover = remover ?? { url in
-            try fileManager.removeItem(at: url)
-        }
+        self.worker = BrowserDataWorker(
+            pathProvider: pathProvider,
+            fileManager: fileManager,
+            remover: remover
+        )
     }
 
     /// Sum of bytes across every existing path the provider returns for
     /// `(browser, category)`. Files contribute their `fileSize`,
     /// directories contribute the recursive total. Missing paths are
     /// silently skipped — they contribute 0.
-    func previewSize(for category: PrivacyCategory, browser: Browser) -> Int64 {
-        let paths = pathProvider.dataPaths(for: browser, category: category)
-        return paths.reduce(into: Int64(0)) { acc, url in
-            acc += sizeOnDisk(at: url)
-        }
+    func previewSize(for category: PrivacyCategory, browser: Browser) async throws -> Int64 {
+        try await worker.previewSize(for: category, browser: browser)
     }
 
     /// All on-disk paths the provider knows about for `(browser, category)`.
@@ -53,9 +48,49 @@ struct BrowserDataClearer {
 
     /// Remove every existing path for `(browser, category)`. Throws on the
     /// first remover failure; missing paths are silently skipped.
+    func clear(category: PrivacyCategory, browser: Browser) async throws {
+        try await worker.clear(category: category, browser: browser)
+    }
+}
+
+/// Serializes browser-data filesystem work away from the main actor.
+/// `FileManager` calls here are synchronous, so isolating them to this
+/// actor keeps Privacy view-model orchestration responsive while also
+/// giving repeated scans / clears one cooperative cancellation path.
+private actor BrowserDataWorker {
+
+    private let pathProvider: BrowserDataPathProviding
+    private let fileManager: FileManager
+    private let remover: BrowserDataClearer.Remover
+    private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                             category: "BrowserDataClearer")
+
+    init(
+        pathProvider: BrowserDataPathProviding,
+        fileManager: FileManager,
+        remover: BrowserDataClearer.Remover?
+    ) {
+        self.pathProvider = pathProvider
+        self.fileManager = fileManager
+        self.remover = remover ?? { url in
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    func previewSize(for category: PrivacyCategory, browser: Browser) throws -> Int64 {
+        try Task.checkCancellation()
+        let paths = pathProvider.dataPaths(for: browser, category: category)
+        return try paths.reduce(into: Int64(0)) { acc, url in
+            try Task.checkCancellation()
+            acc += try sizeOnDisk(at: url)
+        }
+    }
+
     func clear(category: PrivacyCategory, browser: Browser) throws {
+        try Task.checkCancellation()
         let paths = pathProvider.dataPaths(for: browser, category: category)
         for url in paths {
+            try Task.checkCancellation()
             guard fileManager.fileExists(atPath: url.path) else {
                 log.debug("Skipping missing path: \(url.path, privacy: .public)")
                 continue
@@ -70,7 +105,8 @@ struct BrowserDataClearer {
     /// the process can't read. Directories enumerate via
     /// `FileManager.enumerator` with file-size + directory keys so the walk
     /// runs in one pass without a separate stat for every entry.
-    private func sizeOnDisk(at url: URL) -> Int64 {
+    private func sizeOnDisk(at url: URL) throws -> Int64 {
+        try Task.checkCancellation()
         guard fileManager.fileExists(atPath: url.path) else { return 0 }
 
         let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .totalFileAllocatedSizeKey, .fileSizeKey]
@@ -92,6 +128,7 @@ struct BrowserDataClearer {
 
         var total: Int64 = 0
         for case let entry as URL in enumerator {
+            try Task.checkCancellation()
             if let entryValues = try? entry.resourceValues(forKeys: resourceKeys),
                entryValues.isDirectory == false {
                 total += Int64(entryValues.fileSize ?? 0)
