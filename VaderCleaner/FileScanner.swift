@@ -14,13 +14,30 @@ struct ScanRoot: Equatable {
 }
 
 /// Protocol surface so feature scanners and tests can inject a fake.
-/// Concrete implementation is `FileScanner` below.
+/// Concrete implementation is `FileScanner` below. The required API emits
+/// batches so feature scanners can filter or publish partial progress without
+/// retaining every file under every scanned root.
 protocol FileScanning {
-    func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile]
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        batchSize: Int,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws
 }
 
-/// Walks each root recursively and returns every regular file as a
-/// `ScannedFile` tagged with the root's category. Symlinks are skipped
+extension FileScanning {
+    func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile] {
+        var results: [ScannedFile] = []
+        try await scan(roots: roots, excluding: excluding, batchSize: FileScanner.defaultBatchSize) { batch in
+            results.append(contentsOf: batch)
+        }
+        return results
+    }
+}
+
+/// Walks each root recursively and emits every regular file as a `ScannedFile`
+/// tagged with the root's category. Symlinks are skipped
 /// outright so the same physical file can never appear twice via different
 /// paths and so links pointing outside the scanned tree don't pull external
 /// content in. Permission errors on subdirectories are logged and the walk
@@ -32,6 +49,10 @@ protocol FileScanning {
 /// `ExclusionsStore.exclusions` snapshot through the `excluding` argument so
 /// this layer never touches a `@MainActor` store directly.
 struct FileScanner: FileScanning {
+
+    static let defaultBatchSize = 2_048
+
+    private static let cancellationCheckInterval = 512
 
     private static let log = Logger(
         subsystem: "com.personal.VaderCleaner",
@@ -55,12 +76,30 @@ struct FileScanner: FileScanning {
     /// every iteration matters when scanning hundreds of thousands of files.
     private static let resourceKeySet = Set(resourceKeys)
 
-    func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile] {
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        batchSize: Int = defaultBatchSize,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        let batchLimit = max(1, batchSize)
         let canonicalExclusions = excluding.map(Self.canonicalize)
         let hasExclusions = !canonicalExclusions.isEmpty
-        var results: [ScannedFile] = []
+        var batch: [ScannedFile] = []
+        batch.reserveCapacity(batchLimit)
+        var visitedCount = 0
+
+        func flushBatch() async throws {
+            guard !batch.isEmpty else { return }
+            let emitted = batch
+            batch.removeAll(keepingCapacity: true)
+            try await onBatch(emitted)
+            try Task.checkCancellation()
+        }
 
         for root in roots {
+            try Task.checkCancellation()
+
             if hasExclusions {
                 let canonicalRootPath = Self.canonicalize(root.url)
                 if Self.isExcluded(path: canonicalRootPath, by: canonicalExclusions) {
@@ -86,7 +125,12 @@ struct FileScanner: FileScanning {
 
             guard let enumerator else { continue }
 
-            for case let url as URL in enumerator {
+            while let url = enumerator.nextObject() as? URL {
+                visitedCount += 1
+                if visitedCount.isMultiple(of: Self.cancellationCheckInterval) {
+                    try Task.checkCancellation()
+                }
+
                 let resourceValues = try? url.resourceValues(forKeys: Self.resourceKeySet)
 
                 if resourceValues?.isSymbolicLink == true {
@@ -118,7 +162,7 @@ struct FileScanner: FileScanning {
 
                 let size = Int64(resourceValues?.fileSize ?? 0)
 
-                results.append(
+                batch.append(
                     ScannedFile(
                         url: url,
                         size: size,
@@ -127,10 +171,13 @@ struct FileScanner: FileScanning {
                         category: root.category
                     )
                 )
+                if batch.count >= batchLimit {
+                    try await flushBatch()
+                }
             }
         }
 
-        return results
+        try await flushBatch()
     }
 
     // MARK: - Path helpers

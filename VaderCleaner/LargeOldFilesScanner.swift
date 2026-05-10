@@ -1,18 +1,14 @@
 // LargeOldFilesScanner.swift
-// Walks the user-files roots via FileScanner, then filters and re-tags each ScannedFile as .largeFile (size > 50 MB) or .oldFile (not accessed in 6+ months); files matching neither are dropped.
+// Walks the user-files roots via FileScanner batches, then filters and re-tags each ScannedFile as .largeFile (size > 50 MB) or .oldFile (not accessed in 6+ months); files matching neither are dropped.
 
 import Foundation
 
 /// Top-level entry point for the Large & Old Files feature. Composes a
 /// `UserFilesPathProviding` (which knows where the user keeps their personal
 /// files) with a `FileScanning` (which does the recursive walk) and post-
-/// processes the output to keep only files matching at least one criterion.
-///
-/// Two-pass design — walk-then-classify — instead of teaching `FileScanner`
-/// about size/age predicates: keeps `FileScanner` a generic walker, lets the
-/// thresholds be injected per-test, and means the same `FileScanner` instance
-/// can be shared with `SystemJunkScanner` without either one growing
-/// feature-specific knobs.
+/// processes each emitted batch to keep only files matching at least one
+/// criterion. `FileScanner` stays a generic walker, while this scanner avoids
+/// materializing a complete home-folder listing before it starts filtering.
 struct LargeOldFilesScanner {
 
     /// Files larger than this byte count are tagged `.largeFile`. 50 MB is
@@ -56,9 +52,20 @@ struct LargeOldFilesScanner {
             // synthetic "unclassified" case to the public `ScanCategory` enum.
             ScanRoot(url: $0, category: .largeFile)
         }
-        let everything = try await fileScanner.scan(roots: roots, excluding: excluding)
         let cutoff = now().addingTimeInterval(-Self.ageThresholdSeconds)
-        return everything.compactMap { Self.classify($0, cutoff: cutoff) }
+        var matches: [ScannedFile] = []
+        try await fileScanner.scan(
+            roots: roots,
+            excluding: excluding,
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
+            for file in batch {
+                if let match = Self.classify(file, cutoff: cutoff) {
+                    matches.append(match)
+                }
+            }
+        }
+        return matches
     }
 
     /// Returns the input file with its category re-tagged when it qualifies,

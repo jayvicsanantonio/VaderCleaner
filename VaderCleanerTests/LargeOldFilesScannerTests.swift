@@ -164,6 +164,38 @@ final class LargeOldFilesScannerTests: XCTestCase {
                       "A small file with unknown access date matches neither criterion and must be dropped")
     }
 
+    func test_scan_filtersBatchesWithoutReturningNonMatches() async throws {
+        let nonMatchingFiles = (0..<1_000).map { index in
+            ScannedFile(
+                url: URL(fileURLWithPath: "/tmp/large-old-tests/small-\(index).txt"),
+                size: 32,
+                lastAccessDate: referenceNow.addingTimeInterval(-3_600),
+                lastModifiedDate: nil,
+                category: .largeFile
+            )
+        }
+        let matchingFile = ScannedFile(
+            url: URL(fileURLWithPath: "/tmp/large-old-tests/match.bin"),
+            size: LargeOldFilesScanner.sizeThresholdBytes + 1,
+            lastAccessDate: referenceNow.addingTimeInterval(-3_600),
+            lastModifiedDate: nil,
+            category: .largeFile
+        )
+        let fakeScanner = FakeFileScanner(emittedBatches: [
+            Array(nonMatchingFiles.prefix(500)),
+            Array(nonMatchingFiles.suffix(500)) + [matchingFile]
+        ])
+        let scanner = LargeOldFilesScanner(
+            fileScanner: fakeScanner,
+            pathProvider: StubUserFilesPathProvider(roots: [tempRoot]),
+            now: { self.referenceNow }
+        )
+
+        let files = try await scanner.scan(excluding: [])
+
+        XCTAssertEqual(files, [matchingFile])
+    }
+
     // MARK: - Exclusions
 
     /// `excluding:` is forwarded straight to the underlying `FileScanning`, so
@@ -239,8 +271,24 @@ private struct StubUserFilesPathProvider: UserFilesPathProviding {
 /// a `ScannedFile` with `lastAccessDate == nil` — APFS always populates that
 /// timestamp, so we can't produce one through real I/O.
 private struct FakeFileScanner: FileScanning {
-    let emitted: [ScannedFile]
-    func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile] {
-        emitted
+    let emittedBatches: [[ScannedFile]]
+
+    init(emitted: [ScannedFile]) {
+        self.emittedBatches = [emitted]
+    }
+
+    init(emittedBatches: [[ScannedFile]]) {
+        self.emittedBatches = emittedBatches
+    }
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        batchSize: Int,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        for batch in emittedBatches {
+            try await onBatch(batch)
+        }
     }
 }
