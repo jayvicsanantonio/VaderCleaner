@@ -104,45 +104,78 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding {
     /// Each Chromium-based browser keeps its data under a vendor-specific
     /// `Application Support` root with a near-identical layout: `Default/`
     /// for the primary profile, `History` for browsing + downloads,
-    /// `Cookies` for cookies, `Web Data` for autofill / saved forms.
-    /// Caches live under `~/Library/Caches/<vendor>/...`.
+    /// `Cookies` (legacy) or `Network/Cookies` (modern) for cookies, and
+    /// `Web Data` for autofill / saved forms. Caches live under
+    /// `~/Library/Caches/<vendor>/...`.
+    ///
+    /// `.downloads` returns no paths intentionally — Chromium stores
+    /// download history inside the same `History` SQLite as browsing
+    /// history, so a "downloads only" delete via `removeItem` would also
+    /// wipe browsing history. Until we ship a surgical `DELETE FROM
+    /// downloads` (deferred), the safer contract is "downloads is bundled
+    /// into history on these browsers; check History to clear it." The
+    /// row will show 0 B in the UI, signaling there's nothing to clear at
+    /// the file level.
     private func chromiumPaths(browser: Browser, category: PrivacyCategory) -> [URL] {
         guard let layout = chromiumLayout(for: browser) else { return [] }
 
         switch category {
         case .history:
-            // The History SQLite stores both browsing and downloads, so a
-            // user clearing only "Downloads" via `.downloads` still leaves
-            // the browsing entry intact via this path. We do *not* remove
-            // History under the .downloads category — see below.
-            return layout.profilePath
-                .map { [$0.appendingPathComponent("History"),
-                        $0.appendingPathComponent("History-journal")] }
-                ?? []
+            // SQLite WAL-mode sidecars (`-shm`, `-wal`) are present
+            // whenever the browser is — or recently was — running. The
+            // `-journal` file is the rollback-journal counterpart used
+            // when WAL is off. Including all three keeps the on-disk
+            // state coherent after a remove and avoids the orphaned-
+            // sidecar disk leak Codex / CodeRabbit flagged.
+            return layout.profilePath.map(historyPaths(in:)) ?? []
         case .downloads:
-            // Chromium stores download history inside the same `History`
-            // SQLite as browsing history, so `.downloads` returns the same
-            // paths. The view-model deduplicates URLs when summing
-            // `totalSelectedSize` and when handing paths to the clearer, so
-            // checking both `.history` and `.downloads` doesn't double-count
-            // bytes or attempt a redundant remove.
-            return layout.profilePath
-                .map { [$0.appendingPathComponent("History"),
-                        $0.appendingPathComponent("History-journal")] }
-                ?? []
+            return []
         case .cookies:
-            return layout.profilePath
-                .map { [$0.appendingPathComponent("Cookies"),
-                        $0.appendingPathComponent("Cookies-journal")] }
-                ?? []
+            // Modern Chromium (since ~Chrome 96 / Edge 96) keeps the
+            // cookies SQLite under `Default/Network/Cookies`. The legacy
+            // `Default/Cookies` location persists on older installs and
+            // some downstream forks. Emit both; the clearer skips
+            // whichever doesn't exist.
+            return layout.profilePath.map(cookiePaths(in:)) ?? []
         case .cache:
             return layout.cachePath.map { [$0] } ?? []
         case .savedForms:
-            return layout.profilePath
-                .map { [$0.appendingPathComponent("Web Data"),
-                        $0.appendingPathComponent("Web Data-journal")] }
-                ?? []
+            return layout.profilePath.map(webDataPaths(in:)) ?? []
         }
+    }
+
+    private func historyPaths(in profilePath: URL) -> [URL] {
+        [
+            profilePath.appendingPathComponent("History"),
+            profilePath.appendingPathComponent("History-journal"),
+            profilePath.appendingPathComponent("History-shm"),
+            profilePath.appendingPathComponent("History-wal")
+        ]
+    }
+
+    private func cookiePaths(in profilePath: URL) -> [URL] {
+        let networkSubdir = profilePath.appendingPathComponent("Network", isDirectory: true)
+        return [
+            // Legacy
+            profilePath.appendingPathComponent("Cookies"),
+            profilePath.appendingPathComponent("Cookies-journal"),
+            profilePath.appendingPathComponent("Cookies-shm"),
+            profilePath.appendingPathComponent("Cookies-wal"),
+            // Modern
+            networkSubdir.appendingPathComponent("Cookies"),
+            networkSubdir.appendingPathComponent("Cookies-journal"),
+            networkSubdir.appendingPathComponent("Cookies-shm"),
+            networkSubdir.appendingPathComponent("Cookies-wal")
+        ]
+    }
+
+    private func webDataPaths(in profilePath: URL) -> [URL] {
+        [
+            profilePath.appendingPathComponent("Web Data"),
+            profilePath.appendingPathComponent("Web Data-journal"),
+            profilePath.appendingPathComponent("Web Data-shm"),
+            profilePath.appendingPathComponent("Web Data-wal")
+        ]
     }
 
     private struct ChromiumLayout {
@@ -214,21 +247,32 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding {
 
         switch category {
         case .history:
-            // places.sqlite stores both browsing history and download history
-            // in Firefox; same caveat as Chromium's `History` file applies.
-            return profileDir.map { [$0.appendingPathComponent("places.sqlite")] } ?? []
+            // places.sqlite stores both browsing history and download
+            // history in Firefox; surface its WAL-mode sidecars too so a
+            // remove leaves no orphans on disk.
+            return profileDir.map { firefoxSqlitePaths(in: $0, named: "places.sqlite") } ?? []
         case .downloads:
-            // Firefox stores download history inside places.sqlite alongside
-            // browsing history. Same dedup contract as Chromium — see the
-            // chromiumPaths(.downloads) note.
-            return profileDir.map { [$0.appendingPathComponent("places.sqlite")] } ?? []
+            // Firefox stores download history inside places.sqlite — the
+            // same Chromium constraint applies. See
+            // `chromiumPaths(.downloads)` for the rationale on returning
+            // no paths here.
+            return []
         case .cookies:
-            return profileDir.map { [$0.appendingPathComponent("cookies.sqlite")] } ?? []
+            return profileDir.map { firefoxSqlitePaths(in: $0, named: "cookies.sqlite") } ?? []
         case .cache:
             return cacheProfileDir.map { [$0.appendingPathComponent("cache2", isDirectory: true)] } ?? []
         case .savedForms:
-            return profileDir.map { [$0.appendingPathComponent("formhistory.sqlite")] } ?? []
+            return profileDir.map { firefoxSqlitePaths(in: $0, named: "formhistory.sqlite") } ?? []
         }
+    }
+
+    /// Firefox SQLite + WAL-mode sidecars for a single store.
+    private func firefoxSqlitePaths(in profileDir: URL, named name: String) -> [URL] {
+        [
+            profileDir.appendingPathComponent(name),
+            profileDir.appendingPathComponent("\(name)-shm"),
+            profileDir.appendingPathComponent("\(name)-wal")
+        ]
     }
 
     private func firefoxProfileDirectory(at profilesRoot: URL) -> URL? {

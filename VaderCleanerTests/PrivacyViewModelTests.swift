@@ -246,6 +246,39 @@ final class PrivacyViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .complete(bytesFreed: totalBefore))
     }
 
+    /// `checkedSelections` is a `Set`; iterating it directly would yield
+    /// nondeterministic order, so a mid-run failure would abort at a
+    /// different point each run and make retries / bug reports
+    /// inconsistent. The clear loop must iterate in
+    /// `Browser.allCases × PrivacyCategory.allCases` order.
+    func test_clear_invokesClearerInDeterministicBrowserCategoryOrder() async {
+        let recorded = ActorBox<[String]>([])
+        let vm = makeViewModel(
+            detected: [.safari, .chrome, .firefox],
+            sizer: { _, _ in 50 },
+            clearer: { browser, category in
+                await recorded.append("\(browser.rawValue):\(category.rawValue)")
+            },
+            clearRecentFiles: { }
+        )
+
+        await vm.preview()
+        await vm.clear()
+
+        let received = await recorded.value
+        // Build the expected order from the same Browser × Category
+        // enumeration the production VM uses, intersected with the
+        // detected set.
+        var expected: [String] = []
+        for browser in [Browser.safari, .chrome, .firefox] {
+            for category in PrivacyCategory.allCases {
+                expected.append("\(browser.rawValue):\(category.rawValue)")
+            }
+        }
+        XCTAssertEqual(received, expected,
+                       "Clear must iterate in Browser × Category order")
+    }
+
     /// Recents clearing runs *before* browser clearing — if recents
     /// throws, browser data must still be intact so the user can retry
     /// without hitting "browser shows 0 B because we already wiped it"

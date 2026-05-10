@@ -95,7 +95,15 @@ struct PrivacyView: View {
                 Task { await viewModel.clear() }
             }
         } message: {
-            Text("This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable.")
+            // The Recent Items toggle is independent from the per-browser
+            // selections, so the alert text must reflect whichever steps
+            // actually run. Naming "Recent Items" when its toggle is off
+            // would mislead the user.
+            if viewModel.isClearRecentsChecked {
+                Text("This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable.")
+            } else {
+                Text("This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable.")
+            }
         }
     }
 

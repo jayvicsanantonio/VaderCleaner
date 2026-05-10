@@ -71,7 +71,17 @@ struct RecentFilesManager {
         )
         for url in entries {
             let name = url.lastPathComponent
-            guard name.hasPrefix("com.apple.LSSharedFileList.Recent") else { continue }
+            // Tightened glob: prefix `com.apple.LSSharedFileList.Recent`
+            // *and* an `.sfl*` extension. The prefix-only check would
+            // sweep up any future Apple file that happened to start with
+            // "Recent" (e.g. a hypothetical `Recent.config.plist`); the
+            // suffix anchors removal to the SharedFileList file format
+            // we actually understand. `.sfl2` is the older format,
+            // `.sfl3` the modern one — both are removed.
+            let ext = url.pathExtension
+            guard name.hasPrefix("com.apple.LSSharedFileList.Recent"),
+                  ext == "sfl" || ext == "sfl2" || ext == "sfl3"
+            else { continue }
             do {
                 try fileManager.removeItem(at: url)
             } catch CocoaError.fileNoSuchFile {

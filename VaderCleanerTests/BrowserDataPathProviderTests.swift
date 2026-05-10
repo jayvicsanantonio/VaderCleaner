@@ -75,6 +75,72 @@ final class BrowserDataPathProviderTests: XCTestCase {
         XCTAssertTrue(strings.contains(tempHome.appendingPathComponent("Library/Application Support/Google/Chrome/Default/Cookies").path))
     }
 
+    /// Modern Chromium (since ~Chrome 96 / Edge 96) keeps the cookies
+    /// SQLite under `Default/Network/Cookies`. Targeting only the legacy
+    /// `Default/Cookies` location would silently skip cookies on every
+    /// up-to-date install — the preview reports 0 B and "Clear" leaves
+    /// the user's cookies intact while the UI claims success.
+    func test_chrome_cookies_targetsNetworkCookiesSqliteUnderDefaultProfile() {
+        let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
+        let paths = provider.dataPaths(for: .chrome, category: .cookies)
+        let strings = paths.map { $0.path }
+
+        XCTAssertTrue(strings.contains(tempHome.appendingPathComponent("Library/Application Support/Google/Chrome/Default/Network/Cookies").path))
+    }
+
+    /// SQLite `-wal` / `-shm` sidecars are present whenever the browser
+    /// is or was recently running. Leaving them on disk after a clear
+    /// undercounts the user's reclaimed space and leaves orphaned files
+    /// the browser won't apply to a fresh DB.
+    func test_chrome_history_includesSqliteWalAndShmSidecars() {
+        let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
+        let paths = provider.dataPaths(for: .chrome, category: .history)
+        let strings = paths.map { $0.path }
+
+        let profile = tempHome.appendingPathComponent("Library/Application Support/Google/Chrome/Default")
+        XCTAssertTrue(strings.contains(profile.appendingPathComponent("History-shm").path))
+        XCTAssertTrue(strings.contains(profile.appendingPathComponent("History-wal").path))
+    }
+
+    /// Chromium and Firefox both store download history inside the same
+    /// SQLite as browsing history, so a path-based "remove the file"
+    /// clear of `.downloads` would also wipe browsing history when only
+    /// `.downloads` is checked. The provider returns no paths for
+    /// `.downloads` on these browsers — clearing them at the file level
+    /// is only safe when the user also checks `.history`. The Privacy UI
+    /// shows 0 B for the row so users see there's nothing to clear at
+    /// the file level.
+    func test_chrome_downloads_returnsEmptyToAvoidWipingHistory() {
+        let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
+        XCTAssertEqual(provider.dataPaths(for: .chrome, category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .brave,  category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .arc,    category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .opera,  category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .edge,   category: .downloads), [])
+    }
+
+    func test_firefox_downloads_returnsEmptyToAvoidWipingPlacesSqlite() throws {
+        let profilesRoot = tempHome.appendingPathComponent("Library/Application Support/Firefox/Profiles", isDirectory: true)
+        let profileDir = profilesRoot.appendingPathComponent("xyz12345.default-release", isDirectory: true)
+        try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
+
+        let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
+        XCTAssertEqual(provider.dataPaths(for: .firefox, category: .downloads), [])
+    }
+
+    /// Safari's downloads live in a standalone `Downloads.plist`, so the
+    /// constraint that forces Chromium/Firefox `.downloads` to return
+    /// nothing doesn't apply — we *can* clear Safari's downloads
+    /// independently.
+    func test_safari_downloads_targetsDownloadsPlist() {
+        let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
+        let paths = provider.dataPaths(for: .safari, category: .downloads)
+        let strings = paths.map { $0.path }
+
+        XCTAssertTrue(strings.contains(tempHome.appendingPathComponent("Library/Safari/Downloads.plist").path))
+        XCTAssertTrue(strings.contains(tempHome.appendingPathComponent("Library/Containers/com.apple.Safari/Data/Library/Safari/Downloads.plist").path))
+    }
+
     func test_chrome_cache_targetsCacheDirUnderCachesPath() {
         let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
         let paths = provider.dataPaths(for: .chrome, category: .cache)
@@ -128,6 +194,24 @@ final class BrowserDataPathProviderTests: XCTestCase {
         let expected = Self.stripPrivatePrefix(cacheProfileDir.appendingPathComponent("cache2").path)
         XCTAssertTrue(resolved.contains(expected),
                       "Expected cache2 under \(cacheProfileDir.path), got \(resolved)")
+    }
+
+    /// Same SQLite WAL/SHM concern as Chromium — Firefox uses WAL mode
+    /// for places.sqlite and cookies.sqlite, so missing the `-shm` /
+    /// `-wal` sidecars leaves orphaned files on disk.
+    func test_firefox_history_includesSqliteWalAndShmSidecars() throws {
+        let profilesRoot = tempHome.appendingPathComponent("Library/Application Support/Firefox/Profiles", isDirectory: true)
+        let profileDir = profilesRoot.appendingPathComponent("xyz12345.default-release", isDirectory: true)
+        try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
+
+        let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
+        let paths = provider.dataPaths(for: .firefox, category: .history)
+        let resolved = paths.map { Self.stripPrivatePrefix($0.path) }
+
+        let shm = Self.stripPrivatePrefix(profileDir.appendingPathComponent("places.sqlite-shm").path)
+        let wal = Self.stripPrivatePrefix(profileDir.appendingPathComponent("places.sqlite-wal").path)
+        XCTAssertTrue(resolved.contains(shm), "Expected places.sqlite-shm in \(resolved)")
+        XCTAssertTrue(resolved.contains(wal), "Expected places.sqlite-wal in \(resolved)")
     }
 
     /// When no Firefox profile exists yet, the provider must return an

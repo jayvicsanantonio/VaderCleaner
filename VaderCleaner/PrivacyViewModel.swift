@@ -115,6 +115,24 @@ final class PrivacyViewModel: ObservableObject {
         return sumOfSizes(over: Set(allSelections))
     }
 
+    /// Currently-checked selections in a stable
+    /// `Browser.allCases` × `PrivacyCategory.allCases` order. Used by
+    /// `clear()` to make the destructive loop deterministic — a `Set`
+    /// would order-shuffle between runs and make partial-failure
+    /// retries inconsistent.
+    func orderedCheckedSelections() -> [Selection] {
+        var result: [Selection] = []
+        for browser in Browser.allCases {
+            for category in PrivacyCategory.allCases {
+                let selection = Selection(browser: browser, category: category)
+                if checkedSelections.contains(selection) {
+                    result.append(selection)
+                }
+            }
+        }
+        return result
+    }
+
     /// Path-deduped size sum across an arbitrary selection set. Cells
     /// whose paths overlap (Chromium / Firefox `.history` and
     /// `.downloads` share a SQLite file) contribute the cell size *once*.
@@ -168,7 +186,11 @@ final class PrivacyViewModel: ObservableObject {
             self.isClearRecentsChecked = true
             self.phase = .preview
         } catch {
-            log.error("Privacy preview failed: \(String(describing: error), privacy: .public)")
+            // Log error description as `.private` — `error.localizedDescription`
+            // can include user-specific filesystem paths or browser
+            // profile names, which we don't want in unredacted unified-
+            // log output of a Privacy feature.
+            log.error("Privacy preview failed: \(String(describing: error), privacy: .private)")
             self.detectedBrowsers = []
             self.sizesByBrowserCategory = [:]
             self.checkedSelections = []
@@ -196,12 +218,17 @@ final class PrivacyViewModel: ObservableObject {
             if isClearRecentsChecked {
                 try await clearRecentFiles()
             }
-            for selection in checkedSelections {
+            // Iterate selections in a deterministic
+            // (browser × category) order so a mid-run failure aborts at
+            // a predictable point — `Set` iteration order is undefined,
+            // which would make retries and bug reports inconsistent.
+            for selection in orderedCheckedSelections() {
                 try await clearer(selection.browser, selection.category)
             }
             self.phase = .complete(bytesFreed: bytesPlanned)
         } catch {
-            log.error("Privacy clear failed: \(String(describing: error), privacy: .public)")
+            // See `preview()` — same reasoning for `.private`.
+            log.error("Privacy clear failed: \(String(describing: error), privacy: .private)")
             self.phase = .failed(stage: .clearing, message: error.localizedDescription)
         }
     }

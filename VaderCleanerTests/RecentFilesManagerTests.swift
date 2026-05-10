@@ -48,11 +48,21 @@ final class RecentFilesManagerTests: XCTestCase {
         let sharedDir = tempHome
             .appendingPathComponent("Library/Application Support/com.apple.sharedfilelist", isDirectory: true)
         try FileManager.default.createDirectory(at: sharedDir, withIntermediateDirectories: true)
-        let recents = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentDocuments.sfl3")
-        let apps    = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentApplications.sfl3")
-        let hosts   = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentHosts.sfl3")
-        let other   = sharedDir.appendingPathComponent("com.apple.SomethingElse.plist")
-        for url in [recents, apps, hosts, other] {
+        let recents       = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentDocuments.sfl3")
+        let apps          = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentApplications.sfl3")
+        let hosts         = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentHosts.sfl3")
+        // SFL-prefix sibling that is *not* a Recents list — the
+        // original test used a totally unrelated `.plist` which couldn't
+        // distinguish "only Recent* sfl files removed" from "every sfl
+        // file removed". Favorites is the canonical non-Recent SFL file.
+        let favorites     = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.FavoriteItems.sfl3")
+        // Prefix-only file that lacks an `.sfl*` suffix — exercises the
+        // tightened filter that requires both prefix and suffix.
+        let prefixOnly    = sharedDir.appendingPathComponent("com.apple.LSSharedFileList.RecentDocuments.config.plist")
+        // Unrelated entry, retained to prove the filter doesn't sweep
+        // non-SFL files in the same directory either.
+        let other         = sharedDir.appendingPathComponent("com.apple.SomethingElse.plist")
+        for url in [recents, apps, hosts, favorites, prefixOnly, other] {
             FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 0, count: 8))
         }
 
@@ -66,8 +76,12 @@ final class RecentFilesManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: recents.path), "Recents sfl should be removed")
         XCTAssertFalse(FileManager.default.fileExists(atPath: apps.path),    "Recent apps sfl should be removed")
         XCTAssertFalse(FileManager.default.fileExists(atPath: hosts.path),   "Recent hosts sfl should be removed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: favorites.path),
+                      "Non-Recent SFL entries (FavoriteItems) must be left alone")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: prefixOnly.path),
+                      "Files with the Recent prefix but not an .sfl* suffix must be left alone")
         XCTAssertTrue(FileManager.default.fileExists(atPath: other.path),
-                      "Non-Recent* sfl entries must be left alone")
+                      "Unrelated entries must be left alone")
     }
 
     /// When the sharedfilelist directory is missing entirely, `clear()`
