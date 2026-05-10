@@ -13,6 +13,8 @@ final class HelperDeletionPolicyTests: XCTestCase {
     private var applicationsRoot: URL!
     private var libraryApplicationSupportRoot: URL!
     private var frameworksRoot: URL!
+    private var launchAgentsRoot: URL!
+    private var launchDaemonsRoot: URL!
     private var volumesRoot: URL!
 
     override func setUpWithError() throws {
@@ -25,6 +27,8 @@ final class HelperDeletionPolicyTests: XCTestCase {
         applicationsRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         libraryApplicationSupportRoot = tempRoot.appendingPathComponent("Library/Application Support", isDirectory: true)
         frameworksRoot = tempRoot.appendingPathComponent("Library/Frameworks", isDirectory: true)
+        launchAgentsRoot = tempRoot.appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+        launchDaemonsRoot = tempRoot.appendingPathComponent("Library/LaunchDaemons", isDirectory: true)
         volumesRoot = tempRoot.appendingPathComponent("Volumes", isDirectory: true)
 
         let roots: [URL] = [
@@ -34,6 +38,8 @@ final class HelperDeletionPolicyTests: XCTestCase {
             applicationsRoot,
             libraryApplicationSupportRoot,
             frameworksRoot,
+            launchAgentsRoot,
+            launchDaemonsRoot,
             volumesRoot
         ]
         for root in roots {
@@ -41,7 +47,15 @@ final class HelperDeletionPolicyTests: XCTestCase {
         }
 
         policy = HelperDeletionPolicy(
-            allowedDescendantRoots: [cacheRoot, logsRoot, varFoldersRoot],
+            allowedDescendantRoots: [
+                cacheRoot,
+                logsRoot,
+                varFoldersRoot
+            ],
+            allowedLaunchPlistRoots: [
+                launchAgentsRoot,
+                launchDaemonsRoot
+            ],
             allowedLanguageResourceRoots: [
                 applicationsRoot,
                 libraryApplicationSupportRoot,
@@ -64,6 +78,37 @@ final class HelperDeletionPolicyTests: XCTestCase {
         let url = cacheRoot.appendingPathComponent("com.example/file.bin")
 
         XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
+    }
+
+    func test_validateDeletionPath_acceptsLanguageResourceDirectoryInsideAppBundle() throws {
+        let url = applicationsRoot
+            .appendingPathComponent("Example.app/Contents/Resources/fr.lproj", isDirectory: true)
+
+        XCTAssertEqual(try policy.validateDeletionPath(url.path).path, url.standardizedFileURL.path)
+    }
+
+    func test_validateDeletionPath_acceptsSystemLaunchAgentAndDaemonPlists() throws {
+        let agent = launchAgentsRoot.appendingPathComponent("com.example.agent.plist")
+        let daemon = launchDaemonsRoot.appendingPathComponent("com.example.daemon.plist")
+
+        XCTAssertEqual(try policy.validateDeletionPath(agent.path), agent.standardizedFileURL)
+        XCTAssertEqual(try policy.validateDeletionPath(daemon.path), daemon.standardizedFileURL)
+    }
+
+    func test_validateDeletionPath_rejectsNonPlistLaunchItems() {
+        let path = launchAgentsRoot.appendingPathComponent("com.example.agent.txt").path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
+    }
+
+    func test_validateDeletionPath_rejectsNestedLaunchPlists() {
+        let path = launchAgentsRoot.appendingPathComponent("Nested/com.example.agent.plist").path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
     }
 
     func test_validateDeletionPath_acceptsAllowedVolumeTrashDescendant() throws {
@@ -155,5 +200,23 @@ final class HelperDeletionPolicyTests: XCTestCase {
         let urls = try policy.uniqueValidatedDeletionURLs(for: [file.path, duplicate.path])
 
         XCTAssertEqual(urls, [file.standardizedFileURL])
+    }
+
+    func test_removeValidatedPaths_attemptsRemainingURLsAfterFirstRemovalError() throws {
+        let first = cacheRoot.appendingPathComponent("com.example/locked.bin")
+        let second = cacheRoot.appendingPathComponent("com.example/next.bin")
+        var attempted: [URL] = []
+
+        let error = try policy.removeValidatedPaths([first.path, second.path]) { url in
+            attempted.append(url)
+            if url == first.standardizedFileURL {
+                throw NSError(domain: "test.remove", code: 7)
+            }
+        }
+        let nsError = error as NSError?
+
+        XCTAssertEqual(attempted, [first.standardizedFileURL, second.standardizedFileURL])
+        XCTAssertEqual(nsError?.domain, "test.remove")
+        XCTAssertEqual(nsError?.code, 7)
     }
 }

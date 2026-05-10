@@ -30,6 +30,10 @@ struct HelperDeletionPolicy {
             URL(fileURLWithPath: "/Library/Logs", isDirectory: true),
             URL(fileURLWithPath: "/private/var/folders", isDirectory: true)
         ],
+        allowedLaunchPlistRoots: [
+            URL(fileURLWithPath: "/Library/LaunchAgents", isDirectory: true),
+            URL(fileURLWithPath: "/Library/LaunchDaemons", isDirectory: true)
+        ],
         allowedLanguageResourceRoots: [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: "/Library/Application Support", isDirectory: true),
@@ -39,15 +43,18 @@ struct HelperDeletionPolicy {
     )
 
     private let allowedDescendantRoots: [URL]
+    private let allowedLaunchPlistRoots: [URL]
     private let allowedLanguageResourceRoots: [URL]
     private let volumesRoot: URL
 
     init(
         allowedDescendantRoots: [URL],
+        allowedLaunchPlistRoots: [URL] = [],
         allowedLanguageResourceRoots: [URL],
         volumesRoot: URL
     ) {
         self.allowedDescendantRoots = allowedDescendantRoots.map(Self.canonicalRoot)
+        self.allowedLaunchPlistRoots = allowedLaunchPlistRoots.map(Self.canonicalRoot)
         self.allowedLanguageResourceRoots = allowedLanguageResourceRoots.map(Self.canonicalRoot)
         self.volumesRoot = Self.canonicalRoot(volumesRoot)
     }
@@ -80,8 +87,27 @@ struct HelperDeletionPolicy {
         return urls
     }
 
+    func removeValidatedPaths(
+        _ paths: [String],
+        remove: (URL) throws -> Void
+    ) throws -> Error? {
+        let urls = try uniqueValidatedDeletionURLs(for: paths)
+        var firstError: Error?
+        for url in urls {
+            do {
+                try remove(url)
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        return firstError
+    }
+
     private func isAllowedDeletionTarget(_ url: URL) -> Bool {
         if allowedDescendantRoots.contains(where: { Self.isDescendant(url, of: $0) }) {
+            return true
+        }
+        if isAllowedLaunchPlist(url) {
             return true
         }
         if isAllowedVolumeTrashDescendant(url) {
@@ -100,6 +126,13 @@ struct HelperDeletionPolicy {
         return relative[1] == ".Trashes" && !relative[2].isEmpty
     }
 
+    private func isAllowedLaunchPlist(_ url: URL) -> Bool {
+        guard Self.pathExtension(of: url.lastPathComponent).caseInsensitiveCompare("plist") == .orderedSame else {
+            return false
+        }
+        return allowedLaunchPlistRoots.contains(where: { Self.isDirectChild(url, of: $0) })
+    }
+
     private func isAllowedLanguageResource(_ url: URL) -> Bool {
         guard allowedLanguageResourceRoots.contains(where: { Self.isDescendant(url, of: $0) }) else {
             return false
@@ -110,7 +143,6 @@ struct HelperDeletionPolicy {
         }) else {
             return false
         }
-        guard components.count > lprojIndex + 1 else { return false }
 
         let lprojComponent = components[lprojIndex]
         guard Self.pathExtension(of: lprojComponent).caseInsensitiveCompare("lproj") == .orderedSame else {
@@ -139,6 +171,13 @@ struct HelperDeletionPolicy {
         let path = url.pathComponents
         let rootPath = root.pathComponents
         guard path.count > rootPath.count else { return false }
+        return Array(path.prefix(rootPath.count)) == rootPath
+    }
+
+    private static func isDirectChild(_ url: URL, of root: URL) -> Bool {
+        let path = url.pathComponents
+        let rootPath = root.pathComponents
+        guard path.count == rootPath.count + 1 else { return false }
         return Array(path.prefix(rootPath.count)) == rootPath
     }
 

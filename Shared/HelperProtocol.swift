@@ -12,17 +12,24 @@ enum HelperCodeSigningRequirements {
     static let appIdentifier = "com.personal.VaderCleaner"
     static let helperIdentifier = "com.personal.VaderCleaner.helper"
 
-    /// Replace with the Developer ID Team ID before distributing Release builds.
-    /// Debug keeps the looser identifier-only rule so local ad-hoc helper
-    /// registration still works during development.
-    private static let releaseTeamIdentifier = "TEAMID"
+    /// Set to the Developer ID Team ID before distributing signed Release
+    /// builds. Keeping this nil avoids compiling a placeholder OU requirement
+    /// that would reject locally/ad-hoc signed app-helper connections.
+    private static let releaseTeamIdentifier: String? = nil
 
     static func requirement(identifier: String, teamIdentifier: String?) -> String {
         let identifierRequirement = "identifier \"\(identifier)\""
-        guard let teamIdentifier, !teamIdentifier.isEmpty else {
+        guard let teamIdentifier = configuredTeamIdentifier(teamIdentifier) else {
             return identifierRequirement
         }
         return "\(identifierRequirement) and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+    }
+
+    private static func configuredTeamIdentifier(_ teamIdentifier: String?) -> String? {
+        guard let teamIdentifier else { return nil }
+        let trimmed = teamIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "TEAMID" else { return nil }
+        return trimmed
     }
 
     #if DEBUG
