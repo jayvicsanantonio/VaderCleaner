@@ -214,6 +214,31 @@ final class PrivacyViewModelTests: XCTestCase {
         }
     }
 
+    /// Path resolution can touch disk for Firefox profile discovery, so the
+    /// VM must cache paths during preview and avoid calling the resolver from
+    /// hot UI getters after the preview state has landed.
+    func test_preview_cachesPathsForActionabilityAndTotals() async {
+        var resolverCalls = 0
+        let vm = makeViewModel(
+            detected: [.safari],
+            sizer: { _, _ in 10 },
+            pathsFor: { browser, category in
+                resolverCalls += 1
+                return [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+
+        await vm.preview()
+        let callsAfterPreview = resolverCalls
+
+        XCTAssertTrue(vm.isCategoryActionable(browser: .safari, category: .history))
+        XCTAssertEqual(vm.totalSelectedSize, 50)
+        vm.toggle(browser: .safari, category: .history)
+        XCTAssertEqual(vm.totalSelectedSize, 40)
+        XCTAssertEqual(vm.sizeOnDisk(for: .safari), 50)
+        XCTAssertEqual(resolverCalls, callsAfterPreview)
+    }
+
     // MARK: - Selection
 
     /// Toggling a `(browser, category)` selection must update both the
