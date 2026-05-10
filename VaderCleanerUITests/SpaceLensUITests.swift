@@ -62,21 +62,7 @@ final class SpaceLensUITests: XCTestCase {
             "space-lens.error",
             "space-lens.empty"
         ]
-        let deadline = Date().addingTimeInterval(timeout)
-
-        while Date() < deadline {
-            if identifiers.contains(where: spaceLensElementExists) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        }
-
-        return identifiers.contains(where: spaceLensElementExists)
-    }
-
-    private func spaceLensElementExists(identifier: String) -> Bool {
-        app.groups[identifier].exists
-            || app.otherElements[identifier].exists
-            || app.descendants(matching: .any)[identifier].exists
+        let predicate = NSPredicate(format: "identifier IN %@", identifiers)
+        return app.groups.matching(predicate).firstMatch.waitForExistence(timeout: timeout)
     }
 }
