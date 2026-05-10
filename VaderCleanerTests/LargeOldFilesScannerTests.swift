@@ -196,6 +196,57 @@ final class LargeOldFilesScannerTests: XCTestCase {
         XCTAssertEqual(files, [matchingFile])
     }
 
+    func test_scanBatchAPI_emitsOnlyMatchingFilesPerUnderlyingBatch() async throws {
+        let nonMatchingFile = ScannedFile(
+            url: URL(fileURLWithPath: "/tmp/large-old-tests/small.txt"),
+            size: 32,
+            lastAccessDate: referenceNow.addingTimeInterval(-3_600),
+            lastModifiedDate: nil,
+            category: .largeFile
+        )
+        let largeFile = ScannedFile(
+            url: URL(fileURLWithPath: "/tmp/large-old-tests/large.bin"),
+            size: LargeOldFilesScanner.sizeThresholdBytes + 1,
+            lastAccessDate: referenceNow.addingTimeInterval(-3_600),
+            lastModifiedDate: nil,
+            category: .largeFile
+        )
+        let oldFile = ScannedFile(
+            url: URL(fileURLWithPath: "/tmp/large-old-tests/old.txt"),
+            size: 32,
+            lastAccessDate: referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds - 86_400),
+            lastModifiedDate: nil,
+            category: .largeFile
+        )
+        let fakeScanner = FakeFileScanner(emittedBatches: [
+            [nonMatchingFile, largeFile],
+            [oldFile]
+        ])
+        let scanner = LargeOldFilesScanner(
+            fileScanner: fakeScanner,
+            pathProvider: StubUserFilesPathProvider(roots: [tempRoot]),
+            now: { self.referenceNow }
+        )
+        var emittedBatches: [[ScannedFile]] = []
+
+        try await scanner.scan(excluding: [], batchSize: 2) { batch in
+            emittedBatches.append(batch)
+        }
+
+        XCTAssertEqual(emittedBatches, [
+            [largeFile],
+            [
+                ScannedFile(
+                    url: oldFile.url,
+                    size: oldFile.size,
+                    lastAccessDate: oldFile.lastAccessDate,
+                    lastModifiedDate: oldFile.lastModifiedDate,
+                    category: .oldFile
+                )
+            ]
+        ])
+    }
+
     // MARK: - Exclusions
 
     /// `excluding:` is forwarded straight to the underlying `FileScanning`, so

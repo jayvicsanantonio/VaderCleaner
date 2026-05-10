@@ -93,6 +93,7 @@ struct FileScanner: FileScanning {
             guard !batch.isEmpty else { return }
             let emitted = batch
             batch.removeAll(keepingCapacity: true)
+            try Task.checkCancellation()
             try await onBatch(emitted)
             try Task.checkCancellation()
         }

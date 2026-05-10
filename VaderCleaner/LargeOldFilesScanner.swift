@@ -7,8 +7,8 @@ import Foundation
 /// `UserFilesPathProviding` (which knows where the user keeps their personal
 /// files) with a `FileScanning` (which does the recursive walk) and post-
 /// processes each emitted batch to keep only files matching at least one
-/// criterion. `FileScanner` stays a generic walker, while this scanner avoids
-/// materializing a complete home-folder listing before it starts filtering.
+/// criterion. `FileScanner` stays a generic walker, while this scanner can
+/// stream matched files to callers that want incremental UI updates.
 struct LargeOldFilesScanner {
 
     /// Files larger than this byte count are tagged `.largeFile`. 50 MB is
@@ -36,15 +36,31 @@ struct LargeOldFilesScanner {
         self.now = now
     }
 
-    /// Runs the scan and returns the matching files. `excluding` is forwarded
-    /// straight to the underlying `FileScanning` — the path-component-aware
-    /// match semantics covered in `FileScannerTests` apply unchanged.
+    func scan(excluding: [URL]) async throws -> [ScannedFile] {
+        var matches: [ScannedFile] = []
+        try await scan(
+            excluding: excluding,
+            batchSize: FileScanner.defaultBatchSize
+        ) { matchedBatch in
+            matches.append(contentsOf: matchedBatch)
+        }
+        return matches
+    }
+
+    /// Runs the scan and emits matching files in batches. `excluding` is
+    /// forwarded straight to the underlying `FileScanning` — the
+    /// path-component-aware match semantics covered in `FileScannerTests`
+    /// apply unchanged.
     ///
     /// Walks every root with a placeholder `.largeFile` category tag (the
     /// `ScanRoot` API requires one), then re-tags each file based on the
     /// per-file size and age check. The tiebreak when both apply is
     /// `.largeFile` — see `classify(_:cutoff:)`.
-    func scan(excluding: [URL]) async throws -> [ScannedFile] {
+    func scan(
+        excluding: [URL],
+        batchSize: Int = FileScanner.defaultBatchSize,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
         let roots = pathProvider.roots().map {
             // The placeholder category never reaches the caller — every file
             // is re-tagged below — so the value picked here is irrelevant.
@@ -53,19 +69,17 @@ struct LargeOldFilesScanner {
             ScanRoot(url: $0, category: .largeFile)
         }
         let cutoff = now().addingTimeInterval(-Self.ageThresholdSeconds)
-        var matches: [ScannedFile] = []
         try await fileScanner.scan(
             roots: roots,
             excluding: excluding,
-            batchSize: FileScanner.defaultBatchSize
-        ) { batch in
-            for file in batch {
-                if let match = Self.classify(file, cutoff: cutoff) {
-                    matches.append(match)
-                }
-            }
+            batchSize: batchSize
+        ) { scannedBatch in
+            let matchedBatch = scannedBatch.compactMap { Self.classify($0, cutoff: cutoff) }
+            guard !matchedBatch.isEmpty else { return }
+            try Task.checkCancellation()
+            try await onBatch(matchedBatch)
+            try Task.checkCancellation()
         }
-        return matches
     }
 
     /// Returns the input file with its category re-tagged when it qualifies,
