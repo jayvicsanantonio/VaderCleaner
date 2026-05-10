@@ -47,6 +47,7 @@ struct TreemapView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.treemap")
     }
 

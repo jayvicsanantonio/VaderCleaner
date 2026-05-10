@@ -41,15 +41,7 @@ final class SpaceLensUITests: XCTestCase {
         // the treemap to land before our timeout. The error banner is
         // accepted as well: a CI runner without home-folder access should
         // still surface a recognizable state, not hang on a blank canvas.
-        let scanning = app.otherElements["space-lens.scanning"]
-        let treemap = app.otherElements["space-lens.treemap"]
-        let errorBanner = app.otherElements["space-lens.error"]
-        let emptyBanner = app.otherElements["space-lens.empty"]
-
-        let appeared = scanning.waitForExistence(timeout: 5)
-            || treemap.waitForExistence(timeout: 30)
-            || errorBanner.waitForExistence(timeout: 1)
-            || emptyBanner.waitForExistence(timeout: 1)
+        let appeared = waitForAnySpaceLensState(timeout: 30)
         XCTAssertTrue(appeared,
                       "Expected to land on a recognizable Space Lens state after selection")
     }
@@ -61,5 +53,16 @@ final class SpaceLensUITests: XCTestCase {
         if continueWithout.waitForExistence(timeout: 2) {
             continueWithout.click()
         }
+    }
+
+    private func waitForAnySpaceLensState(timeout: TimeInterval) -> Bool {
+        let identifiers = [
+            "space-lens.scanning",
+            "space-lens.treemap",
+            "space-lens.error",
+            "space-lens.empty"
+        ]
+        let predicate = NSPredicate(format: "identifier IN %@", identifiers)
+        return app.groups.matching(predicate).firstMatch.waitForExistence(timeout: timeout)
     }
 }

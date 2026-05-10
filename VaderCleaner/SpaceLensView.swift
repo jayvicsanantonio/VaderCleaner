@@ -97,6 +97,7 @@ struct SpaceLensView: View {
                 .foregroundStyle(.secondary)
         }
         .padding()
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.scanning")
     }
 
@@ -135,6 +136,7 @@ struct SpaceLensView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.empty")
     }
 
@@ -159,6 +161,7 @@ struct SpaceLensView: View {
             .accessibilityIdentifier("space-lens.tryAgain")
         }
         .padding()
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.error")
     }
 
