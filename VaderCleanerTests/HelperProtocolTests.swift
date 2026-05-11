@@ -22,6 +22,15 @@ final class HelperProtocolTests: XCTestCase {
         )
     }
 
+    func test_releaseCodeSigningRequirement_withoutTeamIdentifierRemainsIdentifierOnly() {
+        let requirement = HelperCodeSigningRequirements.releaseRequirement(
+            identifier: "com.personal.VaderCleaner",
+            teamIdentifier: nil
+        )
+
+        XCTAssertEqual(requirement, "identifier \"com.personal.VaderCleaner\"")
+    }
+
     func test_debugCodeSigningRequirement_canRemainIdentifierOnly() {
         let requirement = HelperCodeSigningRequirements.requirement(
             identifier: "com.personal.VaderCleaner",

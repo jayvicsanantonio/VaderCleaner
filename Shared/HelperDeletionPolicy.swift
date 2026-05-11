@@ -170,15 +170,13 @@ struct HelperDeletionPolicy {
     private static func isDescendant(_ url: URL, of root: URL) -> Bool {
         let path = url.pathComponents
         let rootPath = root.pathComponents
-        guard path.count > rootPath.count else { return false }
-        return Array(path.prefix(rootPath.count)) == rootPath
+        return path.count > rootPath.count && path.starts(with: rootPath)
     }
 
     private static func isDirectChild(_ url: URL, of root: URL) -> Bool {
         let path = url.pathComponents
         let rootPath = root.pathComponents
-        guard path.count == rootPath.count + 1 else { return false }
-        return Array(path.prefix(rootPath.count)) == rootPath
+        return path.count == rootPath.count + 1 && path.starts(with: rootPath)
     }
 
     private static func relativeComponents(of url: URL, under root: URL) -> [String] {

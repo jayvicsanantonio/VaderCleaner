@@ -24,13 +24,7 @@ enum HelperCodeSigningRequirements {
     }
 
     static func releaseRequirement(identifier: String, teamIdentifier: String? = releaseTeamIdentifier) -> String {
-        guard let teamIdentifier = configuredTeamIdentifier(teamIdentifier) else {
-            fatalError(
-                "Release XPC code-signing requirements require a real Developer ID Team ID. " +
-                "Configure HelperCodeSigningRequirements.releaseTeamIdentifier before distributing."
-            )
-        }
-        return requirement(identifier: identifier, teamIdentifier: teamIdentifier)
+        requirement(identifier: identifier, teamIdentifier: teamIdentifier)
     }
 
     private static func configuredTeamIdentifier(_ teamIdentifier: String?) -> String? {
@@ -50,8 +44,8 @@ enum HelperCodeSigningRequirements {
 }
 
 /// Code-signing requirement applied by the helper to incoming XPC connections.
-/// Release builds require both the bundle identifier and Developer ID Team ID;
-/// Debug builds intentionally allow identifier-only ad-hoc signing.
+/// Release builds include the Developer ID Team ID when configured; Debug and
+/// local/ad-hoc builds allow identifier-only signing.
 let kHelperClientCodeSigningRequirement = HelperCodeSigningRequirements.client
 
 /// Code-signing requirement applied by the app to the helper connection — the
