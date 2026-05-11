@@ -138,6 +138,23 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
     }
 
+    func test_validateDeletionPath_acceptsLanguageResourceInsideApplicationSupport() throws {
+        let url = libraryApplicationSupportRoot
+            .appendingPathComponent("Example/Resources/fr.lproj/Localizable.strings")
+
+        XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
+    }
+
+    func test_validateDeletionPath_rejectsLanguageResourceWithoutPackageOutsideApplicationSupport() {
+        let path = applicationsRoot
+            .appendingPathComponent("Example/Resources/fr.lproj/Localizable.strings")
+            .path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
+    }
+
     func test_validateDeletionPath_rejectsTraversalOutOfAllowedRoot() throws {
         let path = cacheRoot
             .appendingPathComponent("../Preferences/com.apple.test.plist")

@@ -147,7 +147,7 @@ struct HelperDeletionPolicy {
     }
 
     private func isAllowedLanguageResource(_ url: URL) -> Bool {
-        guard allowedLanguageResourceRoots.contains(where: { Self.isDescendant(url, of: $0) }) else {
+        guard let allowedRoot = allowedLanguageResourceRoots.first(where: { Self.isDescendant(url, of: $0) }) else {
             return false
         }
         let components = url.pathComponents
@@ -160,6 +160,10 @@ struct HelperDeletionPolicy {
         let lprojComponent = components[lprojIndex]
         guard Self.pathExtension(of: lprojComponent).caseInsensitiveCompare("lproj") == .orderedSame else {
             return false
+        }
+
+        if Self.isApplicationSupportRoot(allowedRoot) {
+            return true
         }
 
         let preceding = components[..<lprojIndex]
@@ -206,6 +210,10 @@ struct HelperDeletionPolicy {
 
     private static func relativeComponents(of url: URL, under root: URL) -> [String] {
         Array(url.pathComponents.dropFirst(root.pathComponents.count))
+    }
+
+    private static func isApplicationSupportRoot(_ url: URL) -> Bool {
+        url.pathComponents.suffix(2).elementsEqual(["Library", "Application Support"])
     }
 
     private static func pathExtension(of component: String) -> String {
