@@ -28,11 +28,8 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     // MARK: - VaderCleanerHelperProtocol
 
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        let fileManager = FileManager.default
         do {
-            let firstError = try deletionPolicy.removeValidatedPaths(paths) { url in
-                try fileManager.removeItem(at: url)
-            }
+            let firstError = try deletionPolicy.removeValidatedPaths(paths)
             reply(firstError)
         } catch {
             reply(error)

@@ -2,6 +2,7 @@
 // Helper-owned validation for privileged deletion requests.
 
 import Foundation
+import Darwin
 
 enum HelperDeletionValidationError: LocalizedError, Equatable {
     case emptyPath
@@ -90,7 +91,7 @@ struct HelperDeletionPolicy {
 
     func removeValidatedPaths(
         _ paths: [String],
-        remove: (URL) throws -> Void
+        remove: (URL) throws -> Void = Self.securelyRemoveItem
     ) throws -> Error? {
         let urls = try uniqueValidatedDeletionURLs(for: paths)
         var firstError: Error?
@@ -102,6 +103,26 @@ struct HelperDeletionPolicy {
             }
         }
         return firstError
+    }
+
+    static func securelyRemoveItem(_ url: URL) throws {
+        var components = url.standardizedFileURL.pathComponents
+        if components.count > 1, components[1] == "var" {
+            components.replaceSubrange(1...1, with: ["private", "var"])
+        }
+        let displayPath = absolutePath(from: components)
+        guard components.first == "/", components.count > 1 else {
+            throw HelperDeletionValidationError.rootPath(url.path)
+        }
+        components.removeFirst()
+
+        let rootFD = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard rootFD >= 0 else {
+            throw posixError(operation: "open", path: "/")
+        }
+        defer { close(rootFD) }
+
+        try removeItem(components: components, from: rootFD, displayPath: displayPath)
     }
 
     private func isAllowedDeletionTarget(_ url: URL) -> Bool {
@@ -182,6 +203,108 @@ struct HelperDeletionPolicy {
 
     private static func canonical(_ url: URL) -> URL {
         url.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    private static func removeItem(components: [String], from rootFD: Int32, displayPath: String) throws {
+        var parentFD = rootFD
+        var openedParentFDs: [Int32] = []
+        defer {
+            for fd in openedParentFDs.reversed() {
+                close(fd)
+            }
+        }
+
+        for component in components.dropLast() {
+            let nextFD = try openDirectory(component, relativeTo: parentFD, displayPath: displayPath)
+            openedParentFDs.append(nextFD)
+            parentFD = nextFD
+        }
+
+        guard let itemName = components.last else {
+            throw HelperDeletionValidationError.rootPath(displayPath)
+        }
+        try removeEntry(named: itemName, in: parentFD, displayPath: displayPath)
+    }
+
+    private static func removeEntry(named name: String, in directoryFD: Int32, displayPath: String) throws {
+        var info = stat()
+        try name.withCString { namePointer in
+            guard fstatat(directoryFD, namePointer, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+                throw posixError(operation: "fstatat", path: displayPath)
+            }
+        }
+
+        if isDirectoryMode(info.st_mode) {
+            try removeDirectoryRecursively(named: name, in: directoryFD, displayPath: displayPath)
+        } else {
+            try name.withCString { namePointer in
+                guard unlinkat(directoryFD, namePointer, 0) == 0 else {
+                    throw posixError(operation: "unlinkat", path: displayPath)
+                }
+            }
+        }
+    }
+
+    private static func removeDirectoryRecursively(named name: String, in parentFD: Int32, displayPath: String) throws {
+        let directoryFD = try openDirectory(name, relativeTo: parentFD, displayPath: displayPath)
+        guard let directory = fdopendir(directoryFD) else {
+            let error = posixError(operation: "fdopendir", path: displayPath)
+            close(directoryFD)
+            throw error
+        }
+        defer { closedir(directory) }
+
+        let currentFD = dirfd(directory)
+        while let entry = readdir(directory) {
+            let entryName = Self.entryName(entry)
+            guard entryName != ".", entryName != ".." else { continue }
+            try removeEntry(named: entryName, in: currentFD, displayPath: displayPath + "/" + entryName)
+        }
+
+        try name.withCString { namePointer in
+            guard unlinkat(parentFD, namePointer, AT_REMOVEDIR) == 0 else {
+                throw posixError(operation: "unlinkat", path: displayPath)
+            }
+        }
+    }
+
+    private static func openDirectory(_ name: String, relativeTo directoryFD: Int32, displayPath: String) throws -> Int32 {
+        try name.withCString { namePointer in
+            let fd = openat(directoryFD, namePointer, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard fd >= 0 else {
+                throw posixError(operation: "openat", path: displayPath)
+            }
+            return fd
+        }
+    }
+
+    private static func entryName(_ entry: UnsafeMutablePointer<dirent>) -> String {
+        withUnsafePointer(to: &entry.pointee.d_name) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: Int(entry.pointee.d_namlen) + 1) {
+                String(cString: $0)
+            }
+        }
+    }
+
+    private static func isDirectoryMode(_ mode: mode_t) -> Bool {
+        (mode & mode_t(S_IFMT)) == mode_t(S_IFDIR)
+    }
+
+    private static func absolutePath(from components: [String]) -> String {
+        guard components.first == "/" else {
+            return components.joined(separator: "/")
+        }
+        return "/" + components.dropFirst().joined(separator: "/")
+    }
+
+    private static func posixError(operation: String, path: String, code: Int32 = errno) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [
+                NSLocalizedDescriptionKey: "\(operation) failed for \(path): \(String(cString: strerror(code)))"
+            ]
+        )
     }
 
     private static func canonicalSystemAlias(for url: URL) -> URL? {

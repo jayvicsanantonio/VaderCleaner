@@ -282,4 +282,52 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertNil(error)
         XCTAssertEqual(attempted, [link.standardizedFileURL])
     }
+
+    func test_removeValidatedPaths_unlinksFinalSymlinkNotResolvedTarget() throws {
+        let target = launchDaemonsRoot.appendingPathComponent("com.example.daemon.plist")
+        try Data().write(to: target)
+        let link = varFoldersRoot.appendingPathComponent("linked-daemon.plist")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let error = try policy.removeValidatedPaths([link.path])
+
+        XCTAssertNil(error)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: link.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    func test_secureRemoveItem_refusesSymlinkedIntermediateAfterValidation() throws {
+        let raceDirectory = varFoldersRoot.appendingPathComponent("race", isDirectory: true)
+        try FileManager.default.createDirectory(at: raceDirectory, withIntermediateDirectories: true)
+        let victim = try TestHelpers.createDummyFile(named: "victim.bin", size: 1, in: raceDirectory)
+        let outside = tempRoot.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let protected = try TestHelpers.createDummyFile(named: victim.lastPathComponent, size: 1, in: outside)
+
+        XCTAssertEqual(try policy.validateDeletionPath(victim.path), victim.standardizedFileURL)
+
+        try FileManager.default.removeItem(at: raceDirectory)
+        try FileManager.default.createSymbolicLink(at: raceDirectory, withDestinationURL: outside)
+
+        XCTAssertThrowsError(try HelperDeletionPolicy.securelyRemoveItem(victim.standardizedFileURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: protected.path))
+    }
+
+    func test_removeValidatedPaths_removesDirectoryRecursivelyWithoutFollowingNestedSymlink() throws {
+        let directory = cacheRoot.appendingPathComponent("com.example", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let nested = try TestHelpers.createDummyFile(named: "nested.bin", size: 1, in: directory)
+        let outside = tempRoot.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let protected = try TestHelpers.createDummyFile(named: "protected.bin", size: 1, in: outside)
+        let link = directory.appendingPathComponent("protected-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: protected)
+
+        let error = try policy.removeValidatedPaths([directory.path])
+
+        XCTAssertNil(error)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: nested.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: protected.path))
+    }
 }
