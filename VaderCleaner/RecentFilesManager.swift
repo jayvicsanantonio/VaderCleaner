@@ -28,14 +28,14 @@ struct RecentFilesManager {
 
     private let homeDirectory: URL
     private let fileManager: FileManager
-    private let clearAppRecentDocuments: () -> Void
+    private let clearAppRecentDocuments: @MainActor () -> Void
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "RecentFilesManager")
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         fileManager: FileManager = .default,
-        clearAppRecentDocuments: @escaping () -> Void = {
+        clearAppRecentDocuments: @escaping @MainActor () -> Void = {
             NSDocumentController.shared.clearRecentDocuments(nil)
         }
     ) {

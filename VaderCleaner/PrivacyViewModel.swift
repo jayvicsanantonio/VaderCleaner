@@ -47,11 +47,11 @@ final class PrivacyViewModel: ObservableObject {
         let category: PrivacyCategory
     }
 
-    typealias Detector             = () async throws -> [Browser]
-    typealias Sizer                = (Browser, PrivacyCategory) async throws -> Int64
-    typealias PathsResolver        = (Browser, PrivacyCategory) -> [URL]
-    typealias Clearer              = (Browser, PrivacyCategory) async throws -> Void
-    typealias RecentFilesClearer   = () async throws -> Void
+    typealias Detector             = @Sendable () async throws -> [Browser]
+    typealias Sizer                = @Sendable (Browser, PrivacyCategory) async throws -> Int64
+    typealias PathsResolver        = @Sendable (Browser, PrivacyCategory) -> [URL]
+    typealias Clearer              = @Sendable (Browser, PrivacyCategory) async throws -> Void
+    typealias RecentFilesClearer   = @MainActor @Sendable () async throws -> Void
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var detectedBrowsers: [Browser] = []

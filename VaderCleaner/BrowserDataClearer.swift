@@ -11,7 +11,7 @@ import os.log
 /// which makes the whole pipeline trivially testable against a temp dir.
 /// Errors on individual files surface as throws from `clear`; a missing
 /// path is treated as already-cleared and silently skipped.
-struct BrowserDataClearer {
+struct BrowserDataClearer: Sendable {
 
     typealias Remover = (URL) throws -> Void
 

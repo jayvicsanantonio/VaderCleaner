@@ -7,7 +7,7 @@ import Foundation
 /// layout. The clearer knows nothing about where Chrome's `History` lives;
 /// the provider does. Tests inject a stub that returns paths under a temp
 /// directory so every clearer / view-model test runs hermetically.
-protocol BrowserDataPathProviding {
+protocol BrowserDataPathProviding: Sendable {
     /// All on-disk paths to read (for size preview) or remove (for clear)
     /// for a given `(browser, category)` pair. Missing paths are not
     /// filtered here — the clearer skips ones that don't exist — so callers
@@ -18,7 +18,7 @@ protocol BrowserDataPathProviding {
 /// Production resolver. Returns the real macOS paths for each
 /// `(browser, category)` pair, anchored to an injectable home directory so
 /// tests can drive every code path without touching the user's actual data.
-struct DefaultBrowserDataPathProvider: BrowserDataPathProviding {
+struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, @unchecked Sendable {
 
     private let homeDirectory: URL
     private let fileManager: FileManager
