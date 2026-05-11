@@ -11,7 +11,7 @@ final class HelperProtocolTests: XCTestCase {
     }
 
     func test_releaseCodeSigningRequirement_includesTeamIdentifier() {
-        let requirement = HelperCodeSigningRequirements.requirement(
+        let requirement = HelperCodeSigningRequirements.releaseRequirement(
             identifier: "com.personal.VaderCleaner",
             teamIdentifier: "ABCDE12345"
         )

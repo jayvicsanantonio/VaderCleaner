@@ -12,9 +12,7 @@ enum HelperCodeSigningRequirements {
     static let appIdentifier = "com.personal.VaderCleaner"
     static let helperIdentifier = "com.personal.VaderCleaner.helper"
 
-    /// Set to the Developer ID Team ID before distributing signed Release
-    /// builds. Keeping this nil avoids compiling a placeholder OU requirement
-    /// that would reject locally/ad-hoc signed app-helper connections.
+    /// Set to the Developer ID Team ID before distributing signed Release builds.
     private static let releaseTeamIdentifier: String? = nil
 
     static func requirement(identifier: String, teamIdentifier: String?) -> String {
@@ -23,6 +21,16 @@ enum HelperCodeSigningRequirements {
             return identifierRequirement
         }
         return "\(identifierRequirement) and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+    }
+
+    static func releaseRequirement(identifier: String, teamIdentifier: String? = releaseTeamIdentifier) -> String {
+        guard let teamIdentifier = configuredTeamIdentifier(teamIdentifier) else {
+            fatalError(
+                "Release XPC code-signing requirements require a real Developer ID Team ID. " +
+                "Configure HelperCodeSigningRequirements.releaseTeamIdentifier before distributing."
+            )
+        }
+        return requirement(identifier: identifier, teamIdentifier: teamIdentifier)
     }
 
     private static func configuredTeamIdentifier(_ teamIdentifier: String?) -> String? {
@@ -36,8 +44,8 @@ enum HelperCodeSigningRequirements {
     static let client = requirement(identifier: appIdentifier, teamIdentifier: nil)
     static let server = requirement(identifier: helperIdentifier, teamIdentifier: nil)
     #else
-    static let client = requirement(identifier: appIdentifier, teamIdentifier: releaseTeamIdentifier)
-    static let server = requirement(identifier: helperIdentifier, teamIdentifier: releaseTeamIdentifier)
+    static let client = releaseRequirement(identifier: appIdentifier)
+    static let server = releaseRequirement(identifier: helperIdentifier)
     #endif
 }
 
