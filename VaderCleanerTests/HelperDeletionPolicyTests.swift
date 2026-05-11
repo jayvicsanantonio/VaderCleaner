@@ -15,6 +15,7 @@ final class HelperDeletionPolicyTests: XCTestCase {
     private var frameworksRoot: URL!
     private var launchAgentsRoot: URL!
     private var launchDaemonsRoot: URL!
+    private var usersRoot: URL!
     private var volumesRoot: URL!
 
     override func setUpWithError() throws {
@@ -29,6 +30,7 @@ final class HelperDeletionPolicyTests: XCTestCase {
         frameworksRoot = tempRoot.appendingPathComponent("Library/Frameworks", isDirectory: true)
         launchAgentsRoot = tempRoot.appendingPathComponent("Library/LaunchAgents", isDirectory: true)
         launchDaemonsRoot = tempRoot.appendingPathComponent("Library/LaunchDaemons", isDirectory: true)
+        usersRoot = tempRoot.appendingPathComponent("Users", isDirectory: true)
         volumesRoot = tempRoot.appendingPathComponent("Volumes", isDirectory: true)
 
         let roots: [URL] = [
@@ -40,6 +42,7 @@ final class HelperDeletionPolicyTests: XCTestCase {
             frameworksRoot,
             launchAgentsRoot,
             launchDaemonsRoot,
+            usersRoot,
             volumesRoot
         ]
         for root in roots {
@@ -56,6 +59,7 @@ final class HelperDeletionPolicyTests: XCTestCase {
                 launchAgentsRoot,
                 launchDaemonsRoot
             ],
+            allowedUserLaunchAgentsRoot: usersRoot,
             allowedLanguageResourceRoots: [
                 applicationsRoot,
                 libraryApplicationSupportRoot,
@@ -105,6 +109,15 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertEqual(try policy.validateDeletionPath(daemon.path), daemon.standardizedFileURL)
     }
 
+    func test_validateDeletionPath_acceptsUserLaunchAgentPlist() throws {
+        let agent = usersRoot
+            .appendingPathComponent("alice", isDirectory: true)
+            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+            .appendingPathComponent("com.example.agent.plist")
+
+        XCTAssertEqual(try policy.validateDeletionPath(agent.path), agent.standardizedFileURL)
+    }
+
     func test_validateDeletionPath_rejectsNonPlistLaunchItems() {
         let path = launchAgentsRoot.appendingPathComponent("com.example.agent.txt").path
 
@@ -115,6 +128,17 @@ final class HelperDeletionPolicyTests: XCTestCase {
 
     func test_validateDeletionPath_rejectsNestedLaunchPlists() {
         let path = launchAgentsRoot.appendingPathComponent("Nested/com.example.agent.plist").path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
+    }
+
+    func test_validateDeletionPath_rejectsNestedUserLaunchAgentPlists() {
+        let path = usersRoot
+            .appendingPathComponent("alice", isDirectory: true)
+            .appendingPathComponent("Library/LaunchAgents/Nested/com.example.agent.plist")
+            .path
 
         XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
             XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))

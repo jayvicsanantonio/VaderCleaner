@@ -35,6 +35,7 @@ struct HelperDeletionPolicy {
             URL(fileURLWithPath: "/Library/LaunchAgents", isDirectory: true),
             URL(fileURLWithPath: "/Library/LaunchDaemons", isDirectory: true)
         ],
+        allowedUserLaunchAgentsRoot: URL(fileURLWithPath: "/Users", isDirectory: true),
         allowedLanguageResourceRoots: [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: "/Library/Application Support", isDirectory: true),
@@ -45,17 +46,20 @@ struct HelperDeletionPolicy {
 
     private let allowedDescendantRoots: [URL]
     private let allowedLaunchPlistRoots: [URL]
+    private let allowedUserLaunchAgentsRoot: URL?
     private let allowedLanguageResourceRoots: [URL]
     private let volumesRoot: URL
 
     init(
         allowedDescendantRoots: [URL],
         allowedLaunchPlistRoots: [URL] = [],
+        allowedUserLaunchAgentsRoot: URL? = nil,
         allowedLanguageResourceRoots: [URL],
         volumesRoot: URL
     ) {
         self.allowedDescendantRoots = allowedDescendantRoots.map(Self.canonicalRoot)
         self.allowedLaunchPlistRoots = allowedLaunchPlistRoots.map(Self.canonicalRoot)
+        self.allowedUserLaunchAgentsRoot = allowedUserLaunchAgentsRoot.map(Self.canonicalRoot)
         self.allowedLanguageResourceRoots = allowedLanguageResourceRoots.map(Self.canonicalRoot)
         self.volumesRoot = Self.canonicalRoot(volumesRoot)
     }
@@ -167,6 +171,20 @@ struct HelperDeletionPolicy {
             return false
         }
         return allowedLaunchPlistRoots.contains(where: { Self.isDirectChild(url, of: $0) })
+            || isAllowedUserLaunchAgent(url)
+    }
+
+    private func isAllowedUserLaunchAgent(_ url: URL) -> Bool {
+        guard let allowedUserLaunchAgentsRoot,
+              Self.isDescendant(url, of: allowedUserLaunchAgentsRoot) else {
+            return false
+        }
+
+        let relative = Self.relativeComponents(of: url, under: allowedUserLaunchAgentsRoot)
+        return relative.count == 4
+            && !relative[0].isEmpty
+            && relative[1] == "Library"
+            && relative[2] == "LaunchAgents"
     }
 
     private func isAllowedLanguageResource(_ url: URL) -> Bool {
