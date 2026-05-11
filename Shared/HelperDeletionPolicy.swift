@@ -123,6 +123,8 @@ struct HelperDeletionPolicy {
     private func isAllowedVolumeTrashDescendant(_ url: URL) -> Bool {
         guard Self.isDescendant(url, of: volumesRoot) else { return false }
         let relative = Self.relativeComponents(of: url, under: volumesRoot)
+        // Require /Volumes/<volume>/.Trashes/<uid>/<item> so neither the
+        // .Trashes root nor a user's trash directory can be deleted.
         guard relative.count >= 4 else { return false }
         return relative[1] == ".Trashes" && !relative[2].isEmpty
     }

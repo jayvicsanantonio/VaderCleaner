@@ -15,6 +15,10 @@ enum HelperCodeSigningRequirements {
     /// Set to the Developer ID Team ID before distributing signed Release builds.
     private static let releaseTeamIdentifier: String? = nil
 
+    #if !DEBUG
+    #warning("Set releaseTeamIdentifier to the Developer ID Team ID before distributing signed Release builds.")
+    #endif
+
     static func requirement(identifier: String, teamIdentifier: String?) -> String {
         let identifierRequirement = "identifier \"\(identifier)\""
         guard let teamIdentifier = configuredTeamIdentifier(teamIdentifier) else {
