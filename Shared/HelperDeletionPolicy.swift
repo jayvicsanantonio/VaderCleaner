@@ -93,10 +93,12 @@ struct HelperDeletionPolicy {
         _ paths: [String],
         remove: (URL) throws -> Void = Self.securelyRemoveItem
     ) throws -> Error? {
-        let urls = try uniqueValidatedDeletionURLs(for: paths)
+        var seen = Set<String>()
         var firstError: Error?
-        for url in urls {
+        for path in paths {
             do {
+                let url = try validateDeletionPath(path)
+                guard seen.insert(url.path).inserted else { continue }
                 try remove(url)
             } catch {
                 if firstError == nil { firstError = error }

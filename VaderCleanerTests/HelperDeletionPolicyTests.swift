@@ -268,6 +268,21 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertEqual(nsError?.code, 7)
     }
 
+    func test_removeValidatedPaths_attemptsValidURLsAfterValidationError() throws {
+        let invalid = tempRoot
+            .appendingPathComponent("System/Library/disallowed.bin")
+            .path
+        let valid = cacheRoot.appendingPathComponent("com.example/next.bin")
+        var attempted: [URL] = []
+
+        let error = try policy.removeValidatedPaths([invalid, valid.path]) { url in
+            attempted.append(url)
+        }
+
+        XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(invalid))
+        XCTAssertEqual(attempted, [valid.standardizedFileURL])
+    }
+
     func test_removeValidatedPaths_removesRequestedSymlinkNotResolvedTarget() throws {
         let target = launchDaemonsRoot.appendingPathComponent("com.example.daemon.plist")
         try Data().write(to: target)
