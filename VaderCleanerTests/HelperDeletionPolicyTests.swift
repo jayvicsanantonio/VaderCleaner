@@ -80,6 +80,16 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
     }
 
+    func test_productionPolicy_acceptsVarFoldersAlias() throws {
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: "/var/folders"))
+        let path = "/var/folders/com.example/file.bin"
+
+        XCTAssertEqual(
+            try HelperDeletionPolicy.production.validateDeletionPath(path).path,
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
+    }
+
     func test_validateDeletionPath_acceptsLanguageResourceDirectoryInsideAppBundle() throws {
         let url = applicationsRoot
             .appendingPathComponent("Example.app/Contents/Resources/fr.lproj", isDirectory: true)

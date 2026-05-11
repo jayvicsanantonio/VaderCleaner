@@ -41,12 +41,14 @@ final class HelperProtocolTests: XCTestCase {
     }
 
     func test_placeholderTeamIdentifier_isNotCompiledIntoRequirement() {
-        let requirement = HelperCodeSigningRequirements.requirement(
-            identifier: "com.personal.VaderCleaner",
-            teamIdentifier: "TEAMID"
-        )
+        for placeholder in ["TEAMID", "TeamID", "teamid"] {
+            let requirement = HelperCodeSigningRequirements.requirement(
+                identifier: "com.personal.VaderCleaner",
+                teamIdentifier: placeholder
+            )
 
-        XCTAssertEqual(requirement, "identifier \"com.personal.VaderCleaner\"")
+            XCTAssertEqual(requirement, "identifier \"com.personal.VaderCleaner\"")
+        }
     }
 
     func test_protocol_isVisibleToObjCRuntime() {

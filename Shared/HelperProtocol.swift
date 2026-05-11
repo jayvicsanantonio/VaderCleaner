@@ -34,7 +34,7 @@ enum HelperCodeSigningRequirements {
     private static func configuredTeamIdentifier(_ teamIdentifier: String?) -> String? {
         guard let teamIdentifier else { return nil }
         let trimmed = teamIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "TEAMID" else { return nil }
+        guard !trimmed.isEmpty, trimmed.caseInsensitiveCompare("TEAMID") != .orderedSame else { return nil }
         return trimmed
     }
 

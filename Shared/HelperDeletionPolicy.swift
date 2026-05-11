@@ -105,6 +105,16 @@ struct HelperDeletionPolicy {
     }
 
     private func isAllowedDeletionTarget(_ url: URL) -> Bool {
+        if isAllowedDeletionTargetWithoutSystemAliases(url) {
+            return true
+        }
+        if let aliasURL = Self.canonicalSystemAlias(for: url) {
+            return isAllowedDeletionTargetWithoutSystemAliases(aliasURL)
+        }
+        return false
+    }
+
+    private func isAllowedDeletionTargetWithoutSystemAliases(_ url: URL) -> Bool {
         if allowedDescendantRoots.contains(where: { Self.isDescendant(url, of: $0) }) {
             return true
         }
@@ -168,6 +178,18 @@ struct HelperDeletionPolicy {
 
     private static func canonical(_ url: URL) -> URL {
         url.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    private static func canonicalSystemAlias(for url: URL) -> URL? {
+        let path = url.path
+        let varPrefix = "/var"
+        guard path == varPrefix || path.hasPrefix(varPrefix + "/") else {
+            return nil
+        }
+        // macOS exposes /var as an alias of /private/var; keep this narrow so
+        // arbitrary symlinks still have to pass validation in both spellings.
+        let suffix = path.dropFirst(varPrefix.count)
+        return URL(fileURLWithPath: "/private/var" + suffix, isDirectory: url.hasDirectoryPath).standardizedFileURL
     }
 
     private static func isDescendant(_ url: URL, of root: URL) -> Bool {
