@@ -6,6 +6,7 @@ import Foundation
 /// NSXPCListener delegate that vends a HelperService for each new XPC connection
 /// and implements the privileged operations defined in VaderCleanerHelperProtocol.
 final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperProtocol {
+    private let deletionPolicy = HelperDeletionPolicy.production
 
     // MARK: - NSXPCListenerDelegate
 
@@ -17,11 +18,7 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         // Without this check, any local process able to reach the mach service name could
         // invoke privileged operations (file deletion, /usr/sbin/purge, periodic scripts).
         // setCodeSigningRequirement is macOS 13+ — well within the macOS 14.0 deployment target.
-        do {
-            try newConnection.setCodeSigningRequirement(kHelperClientCodeSigningRequirement)
-        } catch {
-            return false
-        }
+        newConnection.setCodeSigningRequirement(kHelperClientCodeSigningRequirement)
         newConnection.exportedInterface = NSXPCInterface(with: VaderCleanerHelperProtocol.self)
         newConnection.exportedObject = self
         newConnection.resume()
@@ -31,16 +28,12 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     // MARK: - VaderCleanerHelperProtocol
 
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        let fileManager = FileManager.default
-        var firstError: Error?
-        for path in paths {
-            do {
-                try fileManager.removeItem(atPath: path)
-            } catch {
-                if firstError == nil { firstError = error }
-            }
+        do {
+            let firstError = try deletionPolicy.removeValidatedPaths(paths)
+            reply(firstError)
+        } catch {
+            reply(error)
         }
-        reply(firstError)
     }
 
     func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {
