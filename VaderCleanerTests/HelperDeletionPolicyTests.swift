@@ -173,6 +173,27 @@ final class HelperDeletionPolicyTests: XCTestCase {
         }
     }
 
+    func test_validateDeletionPath_returnsRequestedSymlinkPathWhenTargetIsAllowed() throws {
+        let target = launchDaemonsRoot.appendingPathComponent("com.example.daemon.plist")
+        try Data().write(to: target)
+        let link = varFoldersRoot.appendingPathComponent("linked-daemon.plist")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertEqual(try policy.validateDeletionPath(link.path), link.standardizedFileURL)
+    }
+
+    func test_validateDeletionPath_rejectsOutsideSymlinkToAllowedTarget() throws {
+        let target = cacheRoot.appendingPathComponent("com.example/file.bin")
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: target)
+        let outside = tempRoot.appendingPathComponent("outside-link")
+        try FileManager.default.createSymbolicLink(at: outside, withDestinationURL: target)
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(outside.path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(outside.path))
+        }
+    }
+
     func test_validateDeletionPath_rejectsEmptyAndRelativePaths() {
         XCTAssertThrowsError(try policy.validateDeletionPath("")) { error in
             XCTAssertEqual(error as? HelperDeletionValidationError, .emptyPath)
@@ -218,5 +239,20 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertEqual(attempted, [first.standardizedFileURL, second.standardizedFileURL])
         XCTAssertEqual(nsError?.domain, "test.remove")
         XCTAssertEqual(nsError?.code, 7)
+    }
+
+    func test_removeValidatedPaths_removesRequestedSymlinkNotResolvedTarget() throws {
+        let target = launchDaemonsRoot.appendingPathComponent("com.example.daemon.plist")
+        try Data().write(to: target)
+        let link = varFoldersRoot.appendingPathComponent("linked-daemon.plist")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        var attempted: [URL] = []
+
+        let error = try policy.removeValidatedPaths([link.path]) { url in
+            attempted.append(url)
+        }
+
+        XCTAssertNil(error)
+        XCTAssertEqual(attempted, [link.standardizedFileURL])
     }
 }

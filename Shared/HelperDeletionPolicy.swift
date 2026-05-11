@@ -65,14 +65,15 @@ struct HelperDeletionPolicy {
             throw HelperDeletionValidationError.relativePath(path)
         }
 
-        let url = Self.canonical(URL(fileURLWithPath: path))
-        guard url.path != "/" else {
+        let requestedURL = URL(fileURLWithPath: path).standardizedFileURL
+        let resolvedURL = Self.canonical(requestedURL)
+        guard requestedURL.path != "/", resolvedURL.path != "/" else {
             throw HelperDeletionValidationError.rootPath(path)
         }
-        guard isAllowedDeletionTarget(url) else {
+        guard isAllowedDeletionTarget(requestedURL), isAllowedDeletionTarget(resolvedURL) else {
             throw HelperDeletionValidationError.disallowedPath(path)
         }
-        return url
+        return requestedURL
     }
 
     func uniqueValidatedDeletionURLs(for paths: [String]) throws -> [URL] {
