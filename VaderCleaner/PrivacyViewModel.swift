@@ -47,11 +47,11 @@ final class PrivacyViewModel: ObservableObject {
         let category: PrivacyCategory
     }
 
-    typealias Detector             = () async throws -> [Browser]
-    typealias Sizer                = (Browser, PrivacyCategory) -> Int64
-    typealias PathsResolver        = (Browser, PrivacyCategory) -> [URL]
-    typealias Clearer              = (Browser, PrivacyCategory) async throws -> Void
-    typealias RecentFilesClearer   = () async throws -> Void
+    typealias Detector             = @Sendable () async throws -> [Browser]
+    typealias Sizer                = @Sendable (Browser, PrivacyCategory) async throws -> Int64
+    typealias PathsResolver        = @Sendable (Browser, PrivacyCategory) -> [URL]
+    typealias Clearer              = @Sendable (Browser, PrivacyCategory) async throws -> Void
+    typealias RecentFilesClearer   = @MainActor @Sendable () async throws -> Void
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var detectedBrowsers: [Browser] = []
@@ -66,9 +66,25 @@ final class PrivacyViewModel: ObservableObject {
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "PrivacyViewModel")
 
+    /// Monotonically increasing token for preview / clear work. When a
+    /// newer operation starts, older tasks can still finish winding down,
+    /// but they must not publish stale results back into the UI.
+    private var operationGeneration: Int = 0
+
+    /// Handle for the currently-running Privacy operation. A new preview,
+    /// clear, reset, or view-model teardown cancels the old one so expensive
+    /// browser-data filesystem work does not keep competing in the
+    /// background after the user has moved on.
+    private var currentOperationTask: Task<Void, Never>?
+
     /// Cached per-cell sizes, populated at the end of `preview()` so the
     /// view's row labels and `totalSelectedSize` compute in O(1).
     private var sizesByBrowserCategory: [Selection: Int64] = [:]
+
+    /// Cached per-cell paths, populated alongside preview sizes so SwiftUI
+    /// rendering and checkbox toggles don't synchronously resolve browser
+    /// profile directories on the main actor.
+    private var pathsByBrowserCategory: [Selection: [URL]] = [:]
 
     init(
         detector: @escaping Detector,
@@ -82,6 +98,10 @@ final class PrivacyViewModel: ObservableObject {
         self.pathsFor = pathsFor
         self.clearer = clearer
         self.clearRecentFiles = clearRecentFiles
+    }
+
+    deinit {
+        currentOperationTask?.cancel()
     }
 
     // MARK: - Public surface
@@ -125,7 +145,7 @@ final class PrivacyViewModel: ObservableObject {
     /// History") rather than as a checkbox the user can toggle, so
     /// the UI never claims to do something it can't.
     func isCategoryActionable(browser: Browser, category: PrivacyCategory) -> Bool {
-        !pathsFor(browser, category).isEmpty
+        !paths(for: browser, category: category).isEmpty
     }
 
     /// Currently-checked selections in a stable
@@ -163,7 +183,7 @@ final class PrivacyViewModel: ObservableObject {
             for category in PrivacyCategory.allCases {
                 let selection = Selection(browser: browser, category: category)
                 guard selections.contains(selection) else { continue }
-                let paths = pathsFor(browser, category)
+                let paths = paths(for: browser, category: category)
                 guard !paths.isEmpty else { continue }
                 let firstUnseen = paths.first { !visitedPaths.contains($0) }
                 if firstUnseen != nil {
@@ -175,40 +195,115 @@ final class PrivacyViewModel: ObservableObject {
         return total
     }
 
+    private func paths(for browser: Browser, category: PrivacyCategory) -> [URL] {
+        let selection = Selection(browser: browser, category: category)
+        return pathsByBrowserCategory[selection] ?? pathsFor(browser, category)
+    }
+
     // MARK: - Actions
 
     /// Run detection + sizing and land in `.preview` (or `.failed`).
     /// Marks every detected `(browser, category)` checked by default
     /// (and the recent-items toggle on) so the user is at "select all".
     func preview() async {
+        let generation = beginOperation()
         phase = .scanning
-        do {
-            let browsers = try await detector()
-            var sizes: [Selection: Int64] = [:]
-            var checked: Set<Selection> = []
-            for browser in browsers {
-                for category in PrivacyCategory.allCases {
-                    let selection = Selection(browser: browser, category: category)
-                    sizes[selection] = sizer(browser, category)
-                    checked.insert(selection)
+        let detector = detector
+        let sizer = sizer
+        let pathsFor = pathsFor
+        let log = log
+
+        let task = Task.detached {
+            do {
+                let browsers = try await detector()
+                var sizes: [Selection: Int64] = [:]
+                var pathsBySelection: [Selection: [URL]] = [:]
+                var checked: Set<Selection> = []
+                for browser in browsers {
+                    for category in PrivacyCategory.allCases {
+                        try Task.checkCancellation()
+                        let selection = Selection(browser: browser, category: category)
+                        sizes[selection] = try await sizer(browser, category)
+                        pathsBySelection[selection] = pathsFor(browser, category)
+                        checked.insert(selection)
+                    }
+                }
+                try Task.checkCancellation()
+                let sizesSnapshot = sizes
+                let pathsSnapshot = pathsBySelection
+                let checkedSnapshot = checked
+                await MainActor.run { [weak self] in
+                    guard let self, self.operationGeneration == generation else { return }
+                    self.detectedBrowsers = browsers
+                    self.sizesByBrowserCategory = sizesSnapshot
+                    self.pathsByBrowserCategory = pathsSnapshot
+                    self.checkedSelections = checkedSnapshot
+                    self.isClearRecentsChecked = true
+                    self.phase = .preview
+                }
+            } catch is CancellationError {
+                await MainActor.run { [weak self] in
+                    guard let self, self.operationGeneration == generation else { return }
+                    self.clearPreviewState()
+                    self.phase = .idle
+                }
+            } catch {
+                // Log error description as `.private` — `error.localizedDescription`
+                // can include user-specific filesystem paths or browser
+                // profile names, which we don't want in unredacted unified-
+                // log output of a Privacy feature.
+                log.error("Privacy preview failed: \(String(describing: error), privacy: .private)")
+                await MainActor.run { [weak self] in
+                    guard let self, self.operationGeneration == generation else { return }
+                    self.detectedBrowsers = []
+                    self.sizesByBrowserCategory = [:]
+                    self.pathsByBrowserCategory = [:]
+                    self.checkedSelections = []
+                    self.phase = .failed(stage: .scanning, message: error.localizedDescription)
                 }
             }
-            self.detectedBrowsers = browsers
-            self.sizesByBrowserCategory = sizes
-            self.checkedSelections = checked
-            self.isClearRecentsChecked = true
-            self.phase = .preview
-        } catch {
-            // Log error description as `.private` — `error.localizedDescription`
-            // can include user-specific filesystem paths or browser
-            // profile names, which we don't want in unredacted unified-
-            // log output of a Privacy feature.
-            log.error("Privacy preview failed: \(String(describing: error), privacy: .private)")
-            self.detectedBrowsers = []
-            self.sizesByBrowserCategory = [:]
-            self.checkedSelections = []
-            self.phase = .failed(stage: .scanning, message: error.localizedDescription)
         }
+
+        currentOperationTask = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        finishOperation(generation)
+    }
+
+    /// Start a new operation by cancelling the old one and invalidating any
+    /// late-arriving writes it might try to publish.
+    private func beginOperation() -> Int {
+        currentOperationTask?.cancel()
+        operationGeneration += 1
+        return operationGeneration
+    }
+
+    /// Clear the operation handle only if it still belongs to the task that
+    /// just completed. A newer operation will have advanced the generation.
+    private func finishOperation(_ generation: Int) {
+        if operationGeneration == generation {
+            currentOperationTask = nil
+        }
+    }
+
+    /// Cancel work without immediately replacing it. Used by `scanAgain()`
+    /// so the reset state wins even if a background task completes later.
+    private func cancelCurrentOperation() {
+        currentOperationTask?.cancel()
+        currentOperationTask = nil
+        operationGeneration += 1
+    }
+
+    /// Clear cached preview state while preserving the current phase choice.
+    private func clearPreviewState() {
+        detectedBrowsers = []
+        checkedSelections = []
+        sizesByBrowserCategory = [:]
+        pathsByBrowserCategory = [:]
+        isClearRecentsChecked = true
     }
 
     /// Hand each checked selection to the injected clearer and (when the
@@ -226,24 +321,57 @@ final class PrivacyViewModel: ObservableObject {
     func clear() async {
         guard phase == .preview else { return }
         let bytesPlanned = totalSelectedSize
+        let shouldClearRecents = isClearRecentsChecked
+        let selections = orderedCheckedSelections()
+        let generation = beginOperation()
         phase = .clearing
-        do {
-            if isClearRecentsChecked {
-                try await clearRecentFiles()
+        let clearRecentFiles = clearRecentFiles
+        let clearer = clearer
+        let log = log
+
+        let task = Task {
+            do {
+                if shouldClearRecents {
+                    try await clearRecentFiles()
+                }
+                // Iterate selections in a deterministic
+                // (browser × category) order so a mid-run failure aborts at
+                // a predictable point — `Set` iteration order is undefined,
+                // which would make retries and bug reports inconsistent.
+                for selection in selections {
+                    try Task.checkCancellation()
+                    try await clearer(selection.browser, selection.category)
+                }
+                try Task.checkCancellation()
+                await MainActor.run { [weak self] in
+                    guard let self, self.operationGeneration == generation else { return }
+                    self.phase = .complete(bytesFreed: bytesPlanned)
+                }
+            } catch is CancellationError {
+                await MainActor.run { [weak self] in
+                    guard let self, self.operationGeneration == generation else { return }
+                    // Some browser data may already have been cleared, but
+                    // keeping the selection visible is the least surprising
+                    // recovery path for a retry or manual adjustment.
+                    self.phase = .preview
+                }
+            } catch {
+                // See `preview()` — same reasoning for `.private`.
+                log.error("Privacy clear failed: \(String(describing: error), privacy: .private)")
+                await MainActor.run { [weak self] in
+                    guard let self, self.operationGeneration == generation else { return }
+                    self.phase = .failed(stage: .clearing, message: error.localizedDescription)
+                }
             }
-            // Iterate selections in a deterministic
-            // (browser × category) order so a mid-run failure aborts at
-            // a predictable point — `Set` iteration order is undefined,
-            // which would make retries and bug reports inconsistent.
-            for selection in orderedCheckedSelections() {
-                try await clearer(selection.browser, selection.category)
-            }
-            self.phase = .complete(bytesFreed: bytesPlanned)
-        } catch {
-            // See `preview()` — same reasoning for `.private`.
-            log.error("Privacy clear failed: \(String(describing: error), privacy: .private)")
-            self.phase = .failed(stage: .clearing, message: error.localizedDescription)
         }
+
+        currentOperationTask = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        finishOperation(generation)
     }
 
     /// Flip the per-cell checkbox.
@@ -263,10 +391,8 @@ final class PrivacyViewModel: ObservableObject {
 
     /// Reset to `.idle`, dropping cached preview state.
     func scanAgain() {
-        detectedBrowsers = []
-        checkedSelections = []
-        sizesByBrowserCategory = [:]
-        isClearRecentsChecked = true
+        cancelCurrentOperation()
+        clearPreviewState()
         phase = .idle
     }
 }
@@ -288,13 +414,13 @@ extension PrivacyViewModel {
         return PrivacyViewModel(
             detector: { detector.installedBrowsers() },
             sizer: { browser, category in
-                clearer.previewSize(for: category, browser: browser)
+                try await clearer.previewSize(for: category, browser: browser)
             },
             pathsFor: { browser, category in
                 clearer.paths(for: category, browser: browser)
             },
             clearer: { browser, category in
-                try clearer.clear(category: category, browser: browser)
+                try await clearer.clear(category: category, browser: browser)
             },
             clearRecentFiles: {
                 // `RecentFilesManager` is `@MainActor`, and this closure

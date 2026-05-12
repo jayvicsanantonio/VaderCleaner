@@ -15,10 +15,10 @@ protocol BrowserDetecting {
 /// not uninstallable through normal channels), and includes any other
 /// browser whose `.app` exists under `/Applications` or
 /// `~/Applications`.
-struct DefaultBrowserDetector: BrowserDetecting {
+struct DefaultBrowserDetector: BrowserDetecting, Sendable {
 
     private let homeDirectory: URL
-    private let existsAt: (URL) -> Bool
+    private let existsAt: @Sendable (URL) -> Bool
 
     /// - Parameter existsAt: closure that answers "does a file/directory
     ///   exist at this URL?". Defaults to `FileManager.fileExists`. The
@@ -26,7 +26,7 @@ struct DefaultBrowserDetector: BrowserDetecting {
     ///   `/Applications` on the host.
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        existsAt: @escaping (URL) -> Bool = { url in
+        existsAt: @escaping @Sendable (URL) -> Bool = { url in
             FileManager.default.fileExists(atPath: url.path)
         }
     ) {

@@ -101,6 +101,71 @@ final class PrivacyViewModelTests: XCTestCase {
         }
     }
 
+    /// A slow async sizer must yield the main actor while filesystem work is
+    /// in flight. This protects the SwiftUI spinner / repaint loop from
+    /// being pinned by Privacy preview work.
+    func test_preview_yieldsMainActorWhileSizingIsSuspended() async {
+        let sizerStarted = expectation(description: "sizer started")
+        let mainActorWasFree = expectation(description: "main actor accepted another task")
+        var didSuspendSizer = false
+        var releaseSizer: CheckedContinuation<Void, Never>?
+        let vm = makeViewModel(
+            detected: [.safari],
+            sizer: { _, _ in
+                if !didSuspendSizer {
+                    didSuspendSizer = true
+                    sizerStarted.fulfill()
+                    await withCheckedContinuation { continuation in
+                        releaseSizer = continuation
+                    }
+                }
+                return 1
+            }
+        )
+
+        let previewTask = Task { await vm.preview() }
+        await fulfillment(of: [sizerStarted], timeout: 1)
+        Task { @MainActor in mainActorWasFree.fulfill() }
+        await fulfillment(of: [mainActorWasFree], timeout: 1)
+
+        releaseSizer?.resume()
+        await previewTask.value
+        XCTAssertEqual(vm.phase, .preview)
+    }
+
+    /// Starting a fresh preview must cancel the old one and ignore any stale
+    /// result it might try to publish after cancellation unwinds.
+    func test_preview_restartCancelsInFlightScanAndKeepsLatestResult() async {
+        let firstSizerStarted = expectation(description: "first sizer started")
+        var detectorCalls = 0
+        var sizerCalls = 0
+        let vm = makeViewModel(
+            detector: {
+                detectorCalls += 1
+                return detectorCalls == 1 ? [.safari] : [.chrome]
+            },
+            sizer: { _, _ in
+                sizerCalls += 1
+                if sizerCalls == 1 {
+                    firstSizerStarted.fulfill()
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+                return 25
+            }
+        )
+
+        let firstPreview = Task { await vm.preview() }
+        await fulfillment(of: [firstSizerStarted], timeout: 1)
+
+        let secondPreview = Task { await vm.preview() }
+        await secondPreview.value
+        await firstPreview.value
+
+        XCTAssertEqual(vm.phase, .preview)
+        XCTAssertEqual(vm.detectedBrowsers, [.chrome])
+        XCTAssertEqual(vm.size(for: .chrome, category: .history), 25)
+    }
+
     // MARK: - Actionability
 
     /// `isCategoryActionable` is the contract the view uses to decide
@@ -147,6 +212,31 @@ final class PrivacyViewModelTests: XCTestCase {
                 vm.isCategoryActionable(browser: browser, category: .downloads),
                 "Expected \(browser).downloads to be unactionable")
         }
+    }
+
+    /// Path resolution can touch disk for Firefox profile discovery, so the
+    /// VM must cache paths during preview and avoid calling the resolver from
+    /// hot UI getters after the preview state has landed.
+    func test_preview_cachesPathsForActionabilityAndTotals() async {
+        var resolverCalls = 0
+        let vm = makeViewModel(
+            detected: [.safari],
+            sizer: { _, _ in 10 },
+            pathsFor: { browser, category in
+                resolverCalls += 1
+                return [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+
+        await vm.preview()
+        let callsAfterPreview = resolverCalls
+
+        XCTAssertTrue(vm.isCategoryActionable(browser: .safari, category: .history))
+        XCTAssertEqual(vm.totalSelectedSize, 50)
+        vm.toggle(browser: .safari, category: .history)
+        XCTAssertEqual(vm.totalSelectedSize, 40)
+        XCTAssertEqual(vm.sizeOnDisk(for: .safari), 50)
+        XCTAssertEqual(resolverCalls, callsAfterPreview)
     }
 
     // MARK: - Selection
@@ -373,6 +463,35 @@ final class PrivacyViewModelTests: XCTestCase {
         } else {
             XCTFail("Expected .failed, got \(vm.phase)")
         }
+    }
+
+    /// Resetting while a clear is in progress must cancel the operation and
+    /// leave the VM in a clean idle state, with any late task completion
+    /// prevented from publishing `.complete`.
+    func test_scanAgain_cancelsInFlightClearAndLeavesIdle() async {
+        let firstClearStarted = expectation(description: "first clear started")
+        var clearCalls = 0
+        let vm = makeViewModel(
+            detected: [.safari],
+            sizer: { _, _ in 50 },
+            clearer: { _, _ in
+                clearCalls += 1
+                if clearCalls == 1 {
+                    firstClearStarted.fulfill()
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+            }
+        )
+
+        await vm.preview()
+        let clearTask = Task { await vm.clear() }
+        await fulfillment(of: [firstClearStarted], timeout: 1)
+
+        vm.scanAgain()
+        await clearTask.value
+
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertEqual(vm.totalSelectedSize, 0)
     }
 
     // MARK: - Reset
