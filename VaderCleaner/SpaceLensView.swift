@@ -19,10 +19,10 @@ import SwiftUI
 /// elsewhere in the app.
 struct SpaceLensView: View {
 
-    @StateObject private var viewModel: DiskScannerViewModel
+    @ObservedObject private var viewModel: DiskScannerViewModel
 
     init(viewModel: DiskScannerViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel)
+        self.viewModel = viewModel
     }
 
     var body: some View {

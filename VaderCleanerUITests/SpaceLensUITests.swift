@@ -36,7 +36,7 @@ final class SpaceLensUITests: XCTestCase {
                       "Expected Space Lens row in sidebar")
         sidebarRow.click()
 
-        // The scan starts automatically from `.task`, so we expect either
+        // The scan starts automatically on first appearance, so we expect either
         // the scanning indicator or — on tiny home folders / fast machines —
         // the treemap to land before our timeout. The error banner is
         // accepted as well: a CI runner without home-folder access should

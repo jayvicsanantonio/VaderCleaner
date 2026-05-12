@@ -16,10 +16,10 @@ import SwiftUI
 /// can drive the flow without relying on label localisation.
 struct SystemJunkView: View {
 
-    @StateObject private var viewModel: SystemJunkViewModel
+    @ObservedObject private var viewModel: SystemJunkViewModel
 
     init(viewModel: SystemJunkViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel)
+        self.viewModel = viewModel
     }
 
     var body: some View {
