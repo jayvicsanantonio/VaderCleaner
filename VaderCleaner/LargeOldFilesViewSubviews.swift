@@ -1,0 +1,297 @@
+// LargeOldFilesViewSubviews.swift
+// Dedicated subviews for LargeOldFilesView state screens, table, rows, and footer.
+
+import SwiftUI
+import AppKit
+
+enum LargeOldFilesFormatting {
+    static let byteFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.allowedUnits = .useAll
+        f.countStyle = .file
+        return f
+    }()
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
+    static func accessDate(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return dateFormatter.string(from: date)
+    }
+}
+
+enum LargeOldFilesActions {
+    static func showInFinder(_ file: ScannedFile) {
+        NSWorkspace.shared.activateFileViewerSelecting([file.url])
+    }
+}
+
+struct LargeOldFilesIdleState: View {
+    let onScan: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 56))
+                .foregroundStyle(.secondary)
+            Text("Large & Old Files")
+                .font(.title2.weight(.semibold))
+            Text("Scan your home folder for files larger than 50 MB or not accessed in the past six months.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+            Button("Scan", action: onScan)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("large-old.scan")
+        }
+        .padding()
+    }
+}
+
+struct LargeOldFilesProgressState: View {
+    let label: String
+    let identifier: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+struct LargeOldFilesResultsContent: View {
+    let files: [ScannedFile]
+    @Binding var sortOrder: LargeOldFilesViewModel.SortOrder
+    let totalSelectedSize: Int64
+    let canDelete: Bool
+    let isSelected: (ScannedFile) -> Bool
+    let onToggleSelection: (ScannedFile) -> Void
+    let onRescan: () -> Void
+    let onDeleteSelected: () -> Void
+    let onShowInFinder: (ScannedFile) -> Void
+    let onDeleteFile: (ScannedFile) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LargeOldFilesTable(
+                files: files,
+                sortOrder: $sortOrder,
+                isSelected: isSelected,
+                onToggleSelection: onToggleSelection,
+                onShowInFinder: onShowInFinder,
+                onDeleteFile: onDeleteFile
+            )
+            Divider()
+            LargeOldFilesFooter(
+                totalSelectedSize: totalSelectedSize,
+                canDelete: canDelete,
+                onRescan: onRescan,
+                onDeleteSelected: onDeleteSelected
+            )
+        }
+    }
+}
+
+struct LargeOldFilesTable: View {
+    let files: [ScannedFile]
+    @Binding var sortOrder: LargeOldFilesViewModel.SortOrder
+    let isSelected: (ScannedFile) -> Bool
+    let onToggleSelection: (ScannedFile) -> Void
+    let onShowInFinder: (ScannedFile) -> Void
+    let onDeleteFile: (ScannedFile) -> Void
+
+    var body: some View {
+        Table(files) {
+            TableColumn("") { file in
+                Toggle("", isOn: Binding(
+                    get: { isSelected(file) },
+                    set: { _ in onToggleSelection(file) }
+                ))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .accessibilityIdentifier("large-old.row.\(file.url.path).checkbox")
+            }
+            .width(28)
+
+            TableColumn("Name") { file in
+                LargeOldFilesRowNameCell(
+                    file: file,
+                    onShowInFinder: onShowInFinder,
+                    onDelete: onDeleteFile
+                )
+            }
+
+            TableColumn("Size") { file in
+                Text(LargeOldFilesFormatting.byteFormatter.string(fromByteCount: file.size))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 70, ideal: 90, max: 120)
+
+            TableColumn("Last Accessed") { file in
+                Text(LargeOldFilesFormatting.accessDate(file.lastAccessDate))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .width(min: 110, ideal: 140, max: 180)
+
+            TableColumn("Path") { file in
+                Text(file.url.deletingLastPathComponent().path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .help(file.url.path)
+            }
+        }
+        .accessibilityIdentifier("large-old.table")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Picker("Sort by", selection: $sortOrder) {
+                    Text("Largest first").tag(LargeOldFilesViewModel.SortOrder.sizeDescending)
+                    Text("Smallest first").tag(LargeOldFilesViewModel.SortOrder.sizeAscending)
+                    Text("Oldest first").tag(LargeOldFilesViewModel.SortOrder.dateAscending)
+                    Text("Newest first").tag(LargeOldFilesViewModel.SortOrder.dateDescending)
+                    Text("Name (A–Z)").tag(LargeOldFilesViewModel.SortOrder.nameAscending)
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("large-old.sort")
+            }
+        }
+    }
+}
+
+struct LargeOldFilesRowNameCell: View {
+    let file: ScannedFile
+    let onShowInFinder: (ScannedFile) -> Void
+    let onDelete: (ScannedFile) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: file.url.path))
+                .resizable()
+                .frame(width: 16, height: 16)
+            Text(file.url.lastPathComponent)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .contextMenu {
+            Button("Show in Finder") {
+                onShowInFinder(file)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                onDelete(file)
+            }
+        }
+    }
+}
+
+struct LargeOldFilesFooter: View {
+    let totalSelectedSize: Int64
+    let canDelete: Bool
+    let onRescan: () -> Void
+    let onDeleteSelected: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Total selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(LargeOldFilesFormatting.byteFormatter.string(fromByteCount: totalSelectedSize))
+                    .font(.title3.weight(.semibold))
+                    .accessibilityIdentifier("large-old.totalSelected")
+            }
+            Spacer()
+            Button("Re-scan", action: onRescan)
+                .accessibilityIdentifier("large-old.rescan")
+            Button("Delete Selected", action: onDeleteSelected)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canDelete)
+                .accessibilityIdentifier("large-old.delete")
+        }
+        .padding(16)
+    }
+}
+
+struct LargeOldFilesEmptyState: View {
+    let onScanAgain: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.green)
+            Text("Nothing to clean up")
+                .font(.title2.weight(.semibold))
+                .accessibilityIdentifier("large-old.emptyTitle")
+            Text("No files larger than 50 MB or untouched for the past six months were found in your home folder.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+            Button("Scan Again", action: onScanAgain)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("large-old.scanAgain")
+        }
+        .padding()
+    }
+}
+
+struct LargeOldFilesFailedState: View {
+    let stage: LargeOldFilesViewModel.FailureStage
+    let message: String
+    let onTryAgain: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.orange)
+            Text(stage == .scanning ? "Couldn't complete the scan" : "Couldn't finish deleting")
+                .font(.title2.weight(.semibold))
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+                .accessibilityIdentifier("large-old.errorMessage")
+            Button("Try Again", action: onTryAgain)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("large-old.tryAgain")
+        }
+        .padding()
+    }
+}
+
+extension ScannedFile: Identifiable {
+    var id: URL { url }
+}
+
+#Preview("Large Old Files Footer") {
+    LargeOldFilesFooter(
+        totalSelectedSize: 128_000_000,
+        canDelete: true,
+        onRescan: {},
+        onDeleteSelected: {}
+    )
+    .frame(width: 800)
+}
