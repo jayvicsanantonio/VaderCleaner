@@ -72,6 +72,77 @@ final class FileScannerTests: XCTestCase {
         XCTAssertEqual(files.filter { $0.category == .trash }.count, 1)
     }
 
+    func test_scan_emitsMultipleBatchesBeforeCompleting() async throws {
+        try TestHelpers.createDummyFiles(count: 5, size: 8, in: tempRoot)
+
+        let scanner = FileScanner()
+        var batchSizes: [Int] = []
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .userCache)],
+            excluding: [],
+            batchSize: 2
+        ) { batch in
+            batchSizes.append(batch.count)
+        }
+
+        XCTAssertEqual(batchSizes, [2, 2, 1])
+    }
+
+    func test_scan_stopsWhenBatchConsumerCancels() async throws {
+        try TestHelpers.createDummyFiles(count: 20, size: 8, in: tempRoot)
+
+        let scanner = FileScanner()
+        var deliveredCount = 0
+
+        do {
+            try await scanner.scan(
+                roots: [ScanRoot(url: tempRoot, category: .userCache)],
+                excluding: [],
+                batchSize: 1
+            ) { batch in
+                deliveredCount += batch.count
+                if deliveredCount == 3 {
+                    throw CancellationError()
+                }
+            }
+            XCTFail("Expected cancellation to stop the scan")
+        } catch is CancellationError {
+            XCTAssertEqual(deliveredCount, 3)
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    func test_scan_doesNotDeliverBufferedBatchAfterTaskCancellation() async throws {
+        try TestHelpers.createDummyFile(named: "pending.bin", size: 8, in: tempRoot)
+
+        let scanner = FileScanner()
+        var didDeliverBatch = false
+        let task = Task {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            try await scanner.scan(
+                roots: [ScanRoot(url: tempRoot, category: .userCache)],
+                excluding: [],
+                batchSize: 10
+            ) { _ in
+                didDeliverBatch = true
+            }
+        }
+
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("Expected cancellation to stop the scan")
+        } catch is CancellationError {
+            XCTAssertFalse(didDeliverBatch)
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
     // MARK: - Exclusions
 
     func test_scan_skipsFilesUnderExcludedPath() async throws {
