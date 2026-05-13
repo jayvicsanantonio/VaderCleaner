@@ -39,9 +39,15 @@ struct LargeOldFilesIdleState: View {
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)
-            Text("Large & Old Files")
+            Text(String(
+                localized: "Large & Old Files",
+                comment: "Title for the Large & Old Files scan feature."
+            ))
                 .font(.title2.weight(.semibold))
-            Text("Scan your home folder for files larger than 50 MB or not accessed in the past six months.")
+            Text(String(
+                localized: "Scan your home folder for files larger than 50 MB or not accessed in the past six months.",
+                comment: "Description of what the Large & Old Files scan checks."
+            ))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -20,9 +20,15 @@ struct PrivacyIdleState: View {
             Image(systemName: "lock.shield")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)
-            Text("Privacy")
+            Text(String(
+                localized: "Privacy",
+                comment: "Title for the Privacy cleanup feature."
+            ))
                 .font(.title2.weight(.semibold))
-            Text("Clear browsing history, downloads, cookies, cache, saved form data across detected browsers, and the system Recent Items list.")
+            Text(String(
+                localized: "Clear browsing history, downloads, cookies, cache, saved form data across detected browsers, and the system Recent Items list.",
+                comment: "Description of what the Privacy cleanup feature can clear."
+            ))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -162,7 +168,10 @@ struct PrivacyCoupledCategoryRow: View {
                 .font(.body)
                 .foregroundStyle(.secondary)
             Spacer()
-            Text("Included with Browsing History")
+            Text(String(
+                localized: "Included with Browsing History",
+                comment: "Explanation for why a privacy category cannot be cleared independently."
+            ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

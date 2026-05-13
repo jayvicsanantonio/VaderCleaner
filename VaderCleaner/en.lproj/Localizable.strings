@@ -1,4 +1,9 @@
 "Clear selected privacy data?" = "Clear selected privacy data?";
+"Clear browsing history, downloads, cookies, cache, saved form data across detected browsers, and the system Recent Items list." = "Clear browsing history, downloads, cookies, cache, saved form data across detected browsers, and the system Recent Items list.";
+"Included with Browsing History" = "Included with Browsing History";
+"Large & Old Files" = "Large & Old Files";
+"Privacy" = "Privacy";
+"Scan your home folder for files larger than 50 MB or not accessed in the past six months." = "Scan your home folder for files larger than 50 MB or not accessed in the past six months.";
 "This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable." = "This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable.";
 "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable." = "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable.";
 "%@ freed" = "%@ freed";
