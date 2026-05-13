@@ -91,8 +91,18 @@ enum SystemStatsFormatters {
     }
 
     private static func percentString(_ value: Double) -> String {
-        unitRatio(value).formatted(.percent.precision(.fractionLength(0)))
+        let clamped = unitRatio(value)
+        return percentFormatter.string(from: NSNumber(value: clamped)) ?? "\(Int((clamped * 100).rounded()))%"
     }
+
+    private static let percentFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .percent
+        f.minimumFractionDigits = 0
+        f.maximumFractionDigits = 0
+        f.roundingMode = .halfUp
+        return f
+    }()
 
     /// Shared `ByteCountFormatter` configured for GB output. Reused so we
     /// don't re-allocate one per card on every telemetry tick.

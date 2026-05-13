@@ -28,6 +28,13 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(HealthMonitorViewModel.cpuPercentString(1.5), "100%")
     }
 
+    /// Preserve the original `rounded()` tie behavior at x.5 percentage
+    /// boundaries while still using localized percent formatting.
+    func test_cpuPercentString_roundsHalfPercentBoundariesAwayFromZero() {
+        XCTAssertEqual(HealthMonitorViewModel.cpuPercentString(0.005), "1%")
+        XCTAssertEqual(HealthMonitorViewModel.cpuPercentString(0.025), "3%")
+    }
+
     /// `cpuRatio` is what the card's progress bar binds to. Same clamp.
     func test_cpuRatio_clampsToUnitInterval() {
         XCTAssertEqual(HealthMonitorViewModel.cpuRatio(-0.5), 0.0)
@@ -195,6 +202,11 @@ final class HealthMonitorViewModelTests: XCTestCase {
     func test_batteryCapacityString_formatsAsPercent() {
         let stats = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Good")
         XCTAssertEqual(HealthMonitorViewModel.batteryCapacityString(stats), "95%")
+    }
+
+    func test_batteryCapacityString_roundsHalfPercentBoundariesAwayFromZero() {
+        let stats = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.005, condition: "Good")
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityString(stats), "1%")
     }
 
     // MARK: - SMART color
