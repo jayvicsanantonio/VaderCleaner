@@ -151,5 +151,4 @@ private struct PlaceholderDetailView: View {
             preferences: prefs,
             dispatcher: NotificationManager()
         ))
-        .environmentObject(exclusions)
 }
