@@ -8,11 +8,11 @@ import SwiftUI
 /// dedicated subviews render each phase and preview row.
 struct PrivacyView: View {
 
-    @StateObject private var viewModel: PrivacyViewModel
+    @ObservedObject private var viewModel: PrivacyViewModel
     @State private var showClearConfirmation = false
 
     init(viewModel: PrivacyViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel)
+        self.viewModel = viewModel
     }
 
     var body: some View {

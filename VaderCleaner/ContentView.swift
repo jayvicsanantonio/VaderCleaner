@@ -8,8 +8,11 @@ struct ContentView: View {
     @EnvironmentObject private var onboarding: PermissionOnboardingViewModel
     @EnvironmentObject private var systemStats: SystemStatsService
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
-    @EnvironmentObject private var exclusions: ExclusionsStore
     @Environment(\.scenePhase) private var scenePhase
+    private let systemJunkViewModel: SystemJunkViewModel
+    private let largeOldFilesViewModel: LargeOldFilesViewModel
+    private let spaceLensViewModel: DiskScannerViewModel
+    private let privacyViewModel: PrivacyViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
@@ -17,16 +20,17 @@ struct ContentView: View {
     /// system caches the answer so the second prompt is a no-op, but it's
     /// cleaner to issue exactly one.
     @State private var didRequestNotificationPermission = false
-    /// Space Lens scans take long enough that losing the result on a
-    /// sidebar peek would be a frustration point. Hosting the view-model
-    /// here keeps the breadcrumb / scanned tree alive while the user
-    /// flips through other sections, and only the view layer is rebuilt
-    /// when they come back. A short-lived `SpaceLensView`-owned
-    /// `@StateObject` would still latch the first scan via SwiftUI's
-    /// state-object identity rules, but the VM would briefly construct
-    /// (and a `.live()`-spawned `DiskScanner` would briefly allocate) on
-    /// every body recomputation — wasteful enough to lift here.
-    @StateObject private var spaceLensViewModel = DiskScannerViewModel.live()
+    init(
+        systemJunkViewModel: SystemJunkViewModel,
+        largeOldFilesViewModel: LargeOldFilesViewModel,
+        spaceLensViewModel: DiskScannerViewModel,
+        privacyViewModel: PrivacyViewModel
+    ) {
+        self.systemJunkViewModel = systemJunkViewModel
+        self.largeOldFilesViewModel = largeOldFilesViewModel
+        self.spaceLensViewModel = spaceLensViewModel
+        self.privacyViewModel = privacyViewModel
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -62,6 +66,9 @@ struct ContentView: View {
         .onChange(of: onboarding.isDismissed) { _, _ in
             Task { await maybeRequestNotificationPermission() }
         }
+        .onDisappear {
+            spaceLensViewModel.cancelScan()
+        }
     }
 
     /// Idempotent permission-request driver. Fires the system prompt at most
@@ -83,13 +90,13 @@ struct ContentView: View {
         case .healthMonitor:
             HealthMonitorView(service: systemStats)
         case .systemJunk:
-            SystemJunkView(viewModel: SystemJunkViewModel.live(exclusions: exclusions))
+            SystemJunkView(viewModel: systemJunkViewModel)
         case .largeOldFiles:
-            LargeOldFilesView(viewModel: LargeOldFilesViewModel.live(exclusions: exclusions))
+            LargeOldFilesView(viewModel: largeOldFilesViewModel)
         case .spaceLens:
             SpaceLensView(viewModel: spaceLensViewModel)
         case .privacy:
-            PrivacyView(viewModel: PrivacyViewModel.live())
+            PrivacyView(viewModel: privacyViewModel)
         default:
             PlaceholderDetailView(section: section)
         }
@@ -132,7 +139,13 @@ private struct PlaceholderDetailView: View {
 #Preview {
     let stats = SystemStatsService(autostart: false)
     let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "preview")!)
-    return ContentView()
+    let exclusions = ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!)
+    return ContentView(
+        systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
+        largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
+        spaceLensViewModel: DiskScannerViewModel.live(),
+        privacyViewModel: PrivacyViewModel.live()
+    )
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
         .environmentObject(stats)
@@ -141,5 +154,4 @@ private struct PlaceholderDetailView: View {
             preferences: prefs,
             dispatcher: NotificationManager()
         ))
-        .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }

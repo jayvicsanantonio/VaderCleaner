@@ -8,7 +8,7 @@ import SwiftUI
 /// dedicated subviews render each phase, the table, rows, and footer.
 struct LargeOldFilesView: View {
 
-    @StateObject private var viewModel: LargeOldFilesViewModel
+    @ObservedObject private var viewModel: LargeOldFilesViewModel
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
 
     /// Drives the "Are you sure?" alert before destructive actions. Held on
@@ -21,7 +21,7 @@ struct LargeOldFilesView: View {
     @State private var notifiedForCurrentScan = false
 
     init(viewModel: LargeOldFilesViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel)
+        self.viewModel = viewModel
     }
 
     var body: some View {
