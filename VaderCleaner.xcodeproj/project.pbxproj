@@ -45,6 +45,7 @@
 		4A3FEBEBF48CA7078F98EA17 /* BrowserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F6A5DF7364E1886699488B /* BrowserTests.swift */; };
 		4E43B8F6DFA386900DC8CA24 /* com.personal.VaderCleaner.helper.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = 36FD121EC3D77731E8032A96 /* com.personal.VaderCleaner.helper.plist */; };
 		50B0458DB3351E7011490C1D /* LargeOldFilesScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 603E7AED5C7A32BB0FE282B8 /* LargeOldFilesScannerTests.swift */; };
+		51688E781C12B6E4622A58F2 /* FileIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 991F5B5938F51D3BC7016E88 /* FileIconCache.swift */; };
 		52E7E444ACD88BC4E77BD2FC /* FileScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCB49EDAF88E02A105E9B9FE /* FileScanner.swift */; };
 		55C5A32390A164FEC4DEBE0C /* HelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3852658DC221FB8B03631D1 /* HelperProtocol.swift */; };
 		567D2B366B03261E808DA1B2 /* RecentFilesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A932AAC115A2ADB167D59F8 /* RecentFilesManager.swift */; };
@@ -230,6 +231,7 @@
 		93E602D46A51164E50C879C2 /* LargeOldFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldFilesView.swift; sourceTree = "<group>"; };
 		9546ABE698D709FA5CB9ED29 /* BrowserDataClearer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDataClearer.swift; sourceTree = "<group>"; };
 		98D7B18095634307C5D7223D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		991F5B5938F51D3BC7016E88 /* FileIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileIconCache.swift; sourceTree = "<group>"; };
 		9C5EE2C8752F5E1308B4FDF0 /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
 		9D7CECF29BA2A62749F36062 /* SystemJunkScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkScanner.swift; sourceTree = "<group>"; };
 		9DDDE766D46D79E2C23FB557 /* UserFilesPathProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFilesPathProviding.swift; sourceTree = "<group>"; };
@@ -323,6 +325,7 @@
 				613035D3B46AA30DBD14381C /* DiskScannerViewModel.swift */,
 				6085B6A39985DFF334821551 /* ExclusionsStore.swift */,
 				F421495C84A41EDEF253EBD6 /* FileCategory.swift */,
+				991F5B5938F51D3BC7016E88 /* FileIconCache.swift */,
 				BCB49EDAF88E02A105E9B9FE /* FileScanner.swift */,
 				AE43D4A4C7D499E8C2889832 /* HealthMonitorView.swift */,
 				FF079C62CE2E7C5C9B2B7C2C /* HealthMonitorViewModel.swift */,
@@ -668,6 +671,7 @@
 				F25011B395398F5A2C18C25E /* DiskScannerViewModel.swift in Sources */,
 				C3F9A86A896DAD3A63EB8F9F /* ExclusionsStore.swift in Sources */,
 				60DBED2582B50DA009B180C4 /* FileCategory.swift in Sources */,
+				51688E781C12B6E4622A58F2 /* FileIconCache.swift in Sources */,
 				52E7E444ACD88BC4E77BD2FC /* FileScanner.swift in Sources */,
 				92BA2AB6A76731911DB04EF2 /* HealthMonitorView.swift in Sources */,
 				3A3C0E7B444AE96C4C2D1C8F /* HealthMonitorViewModel.swift in Sources */,

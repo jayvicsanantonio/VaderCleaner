@@ -39,21 +39,6 @@ enum LargeOldFilesActions {
     }
 }
 
-enum LargeOldFilesIconCache {
-    private static let cache = NSCache<NSString, NSImage>()
-
-    static func icon(forFile path: String) -> NSImage {
-        let key = path as NSString
-        if let cachedIcon = cache.object(forKey: key) {
-            return cachedIcon
-        }
-
-        let icon = NSWorkspace.shared.icon(forFile: path)
-        cache.setObject(icon, forKey: key)
-        return icon
-    }
-}
-
 struct LargeOldFilesIdleState: View {
     let onScan: () -> Void
 
@@ -106,6 +91,7 @@ struct LargeOldFilesResultsContent: View {
     @Binding var sortOrder: LargeOldFilesViewModel.SortOrder
     let totalSelectedSize: Int64
     let canDelete: Bool
+    @ObservedObject var fileIconCache: FileIconCache
     let isSelected: (ScannedFile) -> Bool
     let onToggleSelection: (ScannedFile) -> Void
     let onRescan: () -> Void
@@ -118,6 +104,7 @@ struct LargeOldFilesResultsContent: View {
             LargeOldFilesTable(
                 files: files,
                 sortOrder: $sortOrder,
+                fileIconCache: fileIconCache,
                 isSelected: isSelected,
                 onToggleSelection: onToggleSelection,
                 onShowInFinder: onShowInFinder,
@@ -131,12 +118,16 @@ struct LargeOldFilesResultsContent: View {
                 onDeleteSelected: onDeleteSelected
             )
         }
+        .task(id: files) {
+            await fileIconCache.preloadIcons(for: files.map(\.url))
+        }
     }
 }
 
 struct LargeOldFilesTable: View {
     let files: [ScannedFile]
     @Binding var sortOrder: LargeOldFilesViewModel.SortOrder
+    @ObservedObject var fileIconCache: FileIconCache
     let isSelected: (ScannedFile) -> Bool
     let onToggleSelection: (ScannedFile) -> Void
     let onShowInFinder: (ScannedFile) -> Void
@@ -162,6 +153,7 @@ struct LargeOldFilesTable: View {
             )) { file in
                 LargeOldFilesRowNameCell(
                     file: file,
+                    fileIconCache: fileIconCache,
                     onShowInFinder: onShowInFinder,
                     onDelete: onDeleteFile
                 )
@@ -236,12 +228,13 @@ struct LargeOldFilesTable: View {
 
 struct LargeOldFilesRowNameCell: View {
     let file: ScannedFile
+    @ObservedObject var fileIconCache: FileIconCache
     let onShowInFinder: (ScannedFile) -> Void
     let onDelete: (ScannedFile) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(nsImage: LargeOldFilesIconCache.icon(forFile: file.url.path))
+            Image(nsImage: fileIconCache.cachedIcon(for: file.url))
                 .resizable()
                 .frame(width: 16, height: 16)
             Text(file.url.lastPathComponent)

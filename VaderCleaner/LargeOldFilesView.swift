@@ -9,6 +9,7 @@ import SwiftUI
 struct LargeOldFilesView: View {
 
     @ObservedObject private var viewModel: LargeOldFilesViewModel
+    @StateObject private var fileIconCache = FileIconCache()
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
 
     /// Drives the "Are you sure?" alert before destructive actions. Held on
@@ -63,6 +64,7 @@ struct LargeOldFilesView: View {
                 sortOrder: $viewModel.sortOrder,
                 totalSelectedSize: viewModel.totalSelectedSize,
                 canDelete: !viewModel.selectedURLs.isEmpty,
+                fileIconCache: fileIconCache,
                 isSelected: viewModel.isSelected,
                 onToggleSelection: viewModel.toggleSelection,
                 onRescan: startScan,
