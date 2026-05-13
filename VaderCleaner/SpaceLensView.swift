@@ -19,10 +19,10 @@ import SwiftUI
 /// elsewhere in the app.
 struct SpaceLensView: View {
 
-    @StateObject private var viewModel: DiskScannerViewModel
+    @ObservedObject private var viewModel: DiskScannerViewModel
 
     init(viewModel: DiskScannerViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel)
+        self.viewModel = viewModel
     }
 
     var body: some View {
@@ -48,8 +48,8 @@ struct SpaceLensView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(NavigationSection.spaceLens.title)
         // `.onAppear` rather than `.task` so the scan isn't tied to the
-        // view's task lifetime — `DiskScannerViewModel` is hoisted to
-        // `ContentView` so the scanned tree survives a sidebar peek, and
+        // view's task lifetime — `DiskScannerViewModel` is owned above
+        // this detail view so the scanned tree survives a sidebar peek, and
         // a `.task`-driven scan would be cancelled the moment the user
         // navigated away (the VM's cancellation handler forwards
         // structured cancellation into the in-flight walk). Spawning the

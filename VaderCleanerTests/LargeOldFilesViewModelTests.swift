@@ -223,43 +223,46 @@ final class LargeOldFilesViewModelTests: XCTestCase {
     /// Files that share an extension should share one cached NSWorkspace
     /// result. The table may render thousands of PDF rows; the icon work
     /// should still be bounded by file type, not row count.
-    func test_fileIconCache_reusesOneIconForMatchingExtensions() {
+    func test_fileIconCache_reusesOneIconForMatchingExtensions() async {
         let placeholder = NSImage(size: NSSize(width: 1, height: 1))
-        var requestedKeys: [String] = []
+        let requestedKeys = LockedBox<[FileIconCache.CacheKey]>([])
         let cache = FileIconCache(placeholderIcon: placeholder) { key in
-            requestedKeys.append(key)
+            requestedKeys.mutate { $0.append(key) }
             return NSImage(size: NSSize(width: 16, height: 16))
         }
         let firstPDF = URL(fileURLWithPath: "/tmp/large-old-vm/report.PDF")
         let secondPDF = URL(fileURLWithPath: "/tmp/large-old-vm/archive.pdf")
         let textFile = URL(fileURLWithPath: "/tmp/large-old-vm/notes.txt")
 
-        XCTAssertEqual(cache.preloadIcons(for: [firstPDF, secondPDF, textFile]), 2)
-        XCTAssertEqual(requestedKeys.count, 2)
+        let addedCount = await cache.preloadIcons(for: [firstPDF, secondPDF, textFile])
 
-        cache.preloadIcons(for: [URL(fileURLWithPath: "/tmp/large-old-vm/third.pdf")])
+        XCTAssertEqual(addedCount, 2)
+        XCTAssertEqual(requestedKeys.value.count, 2)
 
-        XCTAssertEqual(requestedKeys.count, 2)
+        await cache.preloadIcons(for: [URL(fileURLWithPath: "/tmp/large-old-vm/third.pdf")])
+
+        XCTAssertEqual(requestedKeys.value.count, 2)
         XCTAssertTrue(cache.cachedIcon(for: firstPDF) === cache.cachedIcon(for: secondPDF))
     }
 
     /// Extensionless files should use one stable generic-file entry rather
     /// than falling back to repeated path-based lookups.
-    func test_fileIconCache_reusesGenericIconForExtensionlessFiles() {
+    func test_fileIconCache_reusesGenericIconForExtensionlessFiles() async {
         let placeholder = NSImage(size: NSSize(width: 1, height: 1))
         let loadedIcon = NSImage(size: NSSize(width: 16, height: 16))
-        var requestCount = 0
+        let requestCount = LockedBox(0)
         let cache = FileIconCache(placeholderIcon: placeholder) { _ in
-            requestCount += 1
+            requestCount.mutate { $0 += 1 }
             return loadedIcon
         }
         let first = URL(fileURLWithPath: "/tmp/large-old-vm/README")
         let second = URL(fileURLWithPath: "/tmp/large-old-vm/LICENSE")
 
         XCTAssertTrue(cache.cachedIcon(for: first) === placeholder)
-        XCTAssertEqual(cache.preloadIcons(for: [first, second]), 1)
+        let addedCount = await cache.preloadIcons(for: [first, second])
 
-        XCTAssertEqual(requestCount, 1)
+        XCTAssertEqual(addedCount, 1)
+        XCTAssertEqual(requestCount.value, 1)
         XCTAssertTrue(cache.cachedIcon(for: first) === loadedIcon)
         XCTAssertTrue(cache.cachedIcon(for: first) === cache.cachedIcon(for: second))
     }
@@ -297,4 +300,25 @@ private actor ActorBox<Value: Sendable> {
     private(set) var value: Value
     init(_ initial: Value) { self.value = initial }
     func set(_ newValue: Value) { value = newValue }
+}
+
+private final class LockedBox<Value> {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ initial: Value) {
+        storage = initial
+    }
+
+    var value: Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func mutate(_ update: (inout Value) -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        update(&storage)
+    }
 }
