@@ -304,22 +304,23 @@ struct FileScanner: FileScanning {
                 // doesn't guarantee canonical-prefixed URLs even when given
                 // a canonical root, so the comparison has to happen on a
                 // resolved path.
-                if hasExclusions {
-                    let canonicalPath = PathExclusionMatcher.canonicalize(url)
-                    if PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
-                        if resourceValues?.isDirectory == true {
-                            enumerator.skipDescendants()
-                        }
-                        continue
+                let canonicalPath = hasExclusions
+                    ? PathExclusionMatcher.canonicalize(url)
+                    : nil
+                if let canonicalPath,
+                   PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
+                    if resourceValues?.isDirectory == true {
+                        enumerator.skipDescendants()
                     }
+                    continue
                 }
 
                 let isDirectory = resourceValues?.isDirectory == true
                 if options.packagesAsFiles,
                    isDirectory,
                    resourceValues?.isPackage == true {
-                    let canonicalPath = PathExclusionMatcher.canonicalize(url)
-                    if PathExclusionMatcher.containsExcludedDescendant(
+                    if let canonicalPath,
+                       PathExclusionMatcher.containsExcludedDescendant(
                         of: canonicalPath,
                         in: canonicalExclusions
                     ) {
