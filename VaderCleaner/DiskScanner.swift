@@ -72,6 +72,7 @@ struct DiskScanner: DiskScanning {
     private static let resourceKeys: [URLResourceKey] = [
         .isRegularFileKey,
         .isDirectoryKey,
+        .isPackageKey,
         .isSymbolicLinkKey,
         .fileSizeKey,
         .nameKey
@@ -178,6 +179,21 @@ struct DiskScanner: DiskScanning {
             let bytes = Int64(resourceValues?.fileSize ?? 0)
             counter.value += 1
             progress(counter.value)
+            return DiskNode(
+                url: url,
+                name: name,
+                size: bytes,
+                isDirectory: false,
+                children: [],
+                isAccessible: true
+            )
+        }
+
+        if resourceValues?.isPackage == true {
+            let bytes = try await PackageDirectorySizer.recursiveSize(of: url) {
+                counter.value += 1
+                progress(counter.value)
+            }
             return DiskNode(
                 url: url,
                 name: name,

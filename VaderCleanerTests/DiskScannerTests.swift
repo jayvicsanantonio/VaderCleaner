@@ -64,6 +64,27 @@ final class DiskScannerTests: XCTestCase {
         XCTAssertEqual(root.size, 96)
     }
 
+    func test_scan_treatsPackageDirectoryAsLeafWithRolledUpSize() async throws {
+        let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "a.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "b.bin", size: 64, in: contents)
+
+        var progressCounts: [Int] = []
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { count in
+            progressCounts.append(count)
+        })
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Photos.app" })
+        XCTAssertFalse(packageNode.isDirectory, "Packages render as leaf tiles, not drill-down folders")
+        XCTAssertTrue(packageNode.children.isEmpty)
+        XCTAssertEqual(packageNode.size, 96)
+        XCTAssertEqual(root.size, 96)
+        XCTAssertEqual(progressCounts.last, 2, "Progress should still count regular files inside package rollups")
+    }
+
     // MARK: - Symlink handling
 
     /// A symlink whose target is the scan's own root would cause infinite

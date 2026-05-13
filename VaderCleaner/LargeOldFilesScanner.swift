@@ -72,6 +72,7 @@ struct LargeOldFilesScanner {
         try await fileScanner.scan(
             roots: roots,
             excluding: excluding,
+            options: FileScanOptions(packagesAsFiles: true),
             batchSize: batchSize
         ) { scannedBatch in
             let matchedBatch = scannedBatch.compactMap { Self.classify($0, cutoff: cutoff) }
