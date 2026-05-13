@@ -93,7 +93,10 @@ struct PrivacyPreviewContent: View {
                         onToggle: onToggleClearRecents
                     )
                 } header: {
-                    Text("System")
+                    Text(String(
+                        localized: "System",
+                        comment: "Section title for system privacy cleanup options."
+                    ))
                         .font(.callout.weight(.semibold))
                 }
             }
@@ -189,6 +192,7 @@ struct PrivacyCategoryRow: View {
             Toggle("", isOn: $isChecked)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
+                .accessibilityLabel(Text(category.displayName))
             Text(category.displayName)
                 .font(.body)
             Spacer()
@@ -212,10 +216,11 @@ struct PrivacyRecentItemsRow: View {
             ))
             .toggleStyle(.checkbox)
             .labelsHidden()
+            .accessibilityLabel(Text(recentItemsTitle))
             VStack(alignment: .leading, spacing: 2) {
-                Text("System Recent Items")
+                Text(recentItemsTitle)
                     .font(.body.weight(.medium))
-                Text("Clears the Apple-menu Recent Items list and this app's recent documents.")
+                Text(recentItemsDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -223,6 +228,20 @@ struct PrivacyRecentItemsRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityIdentifier("privacy.row.recentItems")
+    }
+
+    private var recentItemsTitle: String {
+        String(
+            localized: "System Recent Items",
+            comment: "Title for the option that clears the macOS Recent Items list."
+        )
+    }
+
+    private var recentItemsDescription: String {
+        String(
+            localized: "Clears the Apple-menu Recent Items list and this app's recent documents.",
+            comment: "Description for the option that clears system recent items."
+        )
     }
 }
 

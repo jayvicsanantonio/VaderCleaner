@@ -23,11 +23,34 @@ enum LargeOldFilesFormatting {
         guard let date else { return "—" }
         return dateFormatter.string(from: date)
     }
+
+    static func selectionLabel(for file: ScannedFile) -> String {
+        let format = String(
+            localized: "Select %@",
+            comment: "Accessibility label for selecting a file in the Large & Old Files table."
+        )
+        return String.localizedStringWithFormat(format, file.url.lastPathComponent)
+    }
 }
 
 enum LargeOldFilesActions {
     static func showInFinder(_ file: ScannedFile) {
         NSWorkspace.shared.activateFileViewerSelecting([file.url])
+    }
+}
+
+enum LargeOldFilesIconCache {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func icon(forFile path: String) -> NSImage {
+        let key = path as NSString
+        if let cachedIcon = cache.object(forKey: key) {
+            return cachedIcon
+        }
+
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        cache.setObject(icon, forKey: key)
+        return icon
     }
 }
 
@@ -128,11 +151,15 @@ struct LargeOldFilesTable: View {
                 ))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
+                .accessibilityLabel(Text(LargeOldFilesFormatting.selectionLabel(for: file)))
                 .accessibilityIdentifier("large-old.row.\(file.url.path).checkbox")
             }
             .width(28)
 
-            TableColumn("Name") { file in
+            TableColumn(String(
+                localized: "Name",
+                comment: "Column title for the file name column in the Large & Old Files table."
+            )) { file in
                 LargeOldFilesRowNameCell(
                     file: file,
                     onShowInFinder: onShowInFinder,
@@ -140,21 +167,30 @@ struct LargeOldFilesTable: View {
                 )
             }
 
-            TableColumn("Size") { file in
+            TableColumn(String(
+                localized: "Size",
+                comment: "Column title for the file size column in the Large & Old Files table."
+            )) { file in
                 Text(LargeOldFilesFormatting.byteFormatter.string(fromByteCount: file.size))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             .width(min: 70, ideal: 90, max: 120)
 
-            TableColumn("Last Accessed") { file in
+            TableColumn(String(
+                localized: "Last Accessed",
+                comment: "Column title for the last accessed date column in the Large & Old Files table."
+            )) { file in
                 Text(LargeOldFilesFormatting.accessDate(file.lastAccessDate))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             .width(min: 110, ideal: 140, max: 180)
 
-            TableColumn("Path") { file in
+            TableColumn(String(
+                localized: "Path",
+                comment: "Column title for the file path column in the Large & Old Files table."
+            )) { file in
                 Text(file.url.deletingLastPathComponent().path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -166,12 +202,30 @@ struct LargeOldFilesTable: View {
         .accessibilityIdentifier("large-old.table")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Picker("Sort by", selection: $sortOrder) {
-                    Text("Largest first").tag(LargeOldFilesViewModel.SortOrder.sizeDescending)
-                    Text("Smallest first").tag(LargeOldFilesViewModel.SortOrder.sizeAscending)
-                    Text("Oldest first").tag(LargeOldFilesViewModel.SortOrder.dateAscending)
-                    Text("Newest first").tag(LargeOldFilesViewModel.SortOrder.dateDescending)
-                    Text("Name (A–Z)").tag(LargeOldFilesViewModel.SortOrder.nameAscending)
+                Picker(String(
+                    localized: "Sort by",
+                    comment: "Label for the Large & Old Files sort menu."
+                ), selection: $sortOrder) {
+                    Text(String(
+                        localized: "Largest first",
+                        comment: "Sort option that orders files from largest to smallest."
+                    )).tag(LargeOldFilesViewModel.SortOrder.sizeDescending)
+                    Text(String(
+                        localized: "Smallest first",
+                        comment: "Sort option that orders files from smallest to largest."
+                    )).tag(LargeOldFilesViewModel.SortOrder.sizeAscending)
+                    Text(String(
+                        localized: "Oldest first",
+                        comment: "Sort option that orders files by oldest access date first."
+                    )).tag(LargeOldFilesViewModel.SortOrder.dateAscending)
+                    Text(String(
+                        localized: "Newest first",
+                        comment: "Sort option that orders files by newest access date first."
+                    )).tag(LargeOldFilesViewModel.SortOrder.dateDescending)
+                    Text(String(
+                        localized: "Name (A–Z)",
+                        comment: "Sort option that orders files alphabetically by name."
+                    )).tag(LargeOldFilesViewModel.SortOrder.nameAscending)
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("large-old.sort")
@@ -187,7 +241,7 @@ struct LargeOldFilesRowNameCell: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: file.url.path))
+            Image(nsImage: LargeOldFilesIconCache.icon(forFile: file.url.path))
                 .resizable()
                 .frame(width: 16, height: 16)
             Text(file.url.lastPathComponent)
