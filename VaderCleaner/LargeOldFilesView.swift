@@ -43,7 +43,7 @@ struct LargeOldFilesView: View {
                 }
                 Button("Cancel", role: .cancel) { }
             } message: { deletion in
-                Text("\(deletion.formattedSize) will be moved out of these locations. This cannot be undone.")
+                Text(deletionAlertMessage(for: deletion))
             }
             .onChange(of: viewModel.phase) { _, newPhase in
                 handlePhaseChange(newPhase)
@@ -79,7 +79,19 @@ struct LargeOldFilesView: View {
 
     private var deletionAlertTitle: String {
         let count = pendingDeletion?.count ?? 0
-        return "Delete \(count) item\(count == 1 ? "" : "s")?"
+        let format = String(
+            localized: "Delete %d items?",
+            comment: "Alert title asking the user to confirm deleting one or more selected large/old files."
+        )
+        return String.localizedStringWithFormat(format, count)
+    }
+
+    private func deletionAlertMessage(for deletion: PendingDeletion) -> String {
+        let format = String(
+            localized: "%@ will be moved out of these locations. This cannot be undone.",
+            comment: "Alert message explaining that the selected large/old files will be deleted."
+        )
+        return String.localizedStringWithFormat(format, deletion.formattedSize)
     }
 
     private func startScan() {

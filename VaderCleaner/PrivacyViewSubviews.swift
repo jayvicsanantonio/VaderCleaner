@@ -256,7 +256,7 @@ struct PrivacyCompleteState: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(.green)
-            Text(PrivacyViewFormatting.byteFormatter.string(fromByteCount: bytesFreed) + " freed")
+            Text(bytesFreedText)
                 .font(.title2.weight(.semibold))
                 .accessibilityIdentifier("privacy.bytesFreed")
             Text("Browsers may need to be restarted before disk space fully reflects the change.")
@@ -270,6 +270,17 @@ struct PrivacyCompleteState: View {
                 .accessibilityIdentifier("privacy.scanAgain")
         }
         .padding()
+    }
+
+    private var bytesFreedText: String {
+        let format = String(
+            localized: "%@ freed",
+            comment: "Summary of disk space freed after clearing privacy data."
+        )
+        return String.localizedStringWithFormat(
+            format,
+            PrivacyViewFormatting.byteFormatter.string(fromByteCount: bytesFreed)
+        )
     }
 }
 

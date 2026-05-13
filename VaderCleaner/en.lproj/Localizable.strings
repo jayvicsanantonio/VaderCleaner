@@ -1,0 +1,5 @@
+"Clear selected privacy data?" = "Clear selected privacy data?";
+"This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable." = "This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable.";
+"This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable." = "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable.";
+"%@ freed" = "%@ freed";
+"%@ will be moved out of these locations. This cannot be undone." = "%@ will be moved out of these locations. This cannot be undone.";

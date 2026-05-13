@@ -19,7 +19,7 @@ struct PrivacyView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(NavigationSection.privacy.title)
-            .alert("Clear selected privacy data?", isPresented: $showClearConfirmation) {
+            .alert(clearConfirmationTitle, isPresented: $showClearConfirmation) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
                     Task { await viewModel.clear() }
@@ -60,11 +60,24 @@ struct PrivacyView: View {
         }
     }
 
+    private var clearConfirmationTitle: String {
+        String(
+            localized: "Clear selected privacy data?",
+            comment: "Alert title asking the user to confirm clearing selected privacy data."
+        )
+    }
+
     private var clearConfirmationMessage: String {
         if viewModel.isClearRecentsChecked {
-            return "This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable."
+            return String(
+                localized: "This permanently removes the selected browser data and the system Recent Items list. Browsers will recreate the storage on next launch but the data won't be recoverable.",
+                comment: "Alert message shown when clearing selected browser data and system Recent Items."
+            )
         }
-        return "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable."
+        return String(
+            localized: "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable.",
+            comment: "Alert message shown when clearing selected browser data only."
+        )
     }
 
     private func startPreview() {
