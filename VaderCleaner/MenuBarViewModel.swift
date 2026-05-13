@@ -97,8 +97,7 @@ final class MenuBarViewModel: ObservableObject {
     /// show.
     static func formattedBatteryHealth(_ availability: BatteryAvailability) -> String? {
         guard case .present(let stats) = availability else { return nil }
-        let clamped = max(0.0, min(1.0, stats.maxCapacityPercent))
-        return "\(Int((clamped * 100).rounded()))%"
+        return HealthMonitorViewModel.batteryCapacityString(stats)
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the

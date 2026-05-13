@@ -73,11 +73,7 @@ final class HealthMonitorViewModel: ObservableObject {
     var diskColor: StatusColor { Self.diskColor(for: service.diskSpace) }
 
     var batteryAvailability: BatteryAvailability { service.batteryAvailability }
-    var battery: BatteryStats? { Self.batteryStats(from: batteryAvailability) }
     var batteryColor: StatusColor { Self.batteryColor(for: batteryAvailability) }
-    var batteryCapacity: String? { battery.map(Self.batteryCapacityString) }
-    var batteryCondition: String? { battery?.condition }
-    var batteryCycleCount: Int? { battery?.cycleCount }
 
     var smartStatus: SMARTStatus { service.diskSMARTStatus }
     var smartLabel: String { Self.smartLabel(for: smartStatus) }
@@ -204,11 +200,6 @@ final class HealthMonitorViewModel: ObservableObject {
             // ambiguous, which is itself worth surfacing.
             return .yellow
         }
-    }
-
-    static func batteryStats(from availability: BatteryAvailability) -> BatteryStats? {
-        guard case .present(let stats) = availability else { return nil }
-        return stats
     }
 
     /// Formats `maxCapacityPercent` (0.0–1.0) as an integer percentage.

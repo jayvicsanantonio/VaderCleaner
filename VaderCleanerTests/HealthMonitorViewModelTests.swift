@@ -191,13 +191,6 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .absent), .gray)
     }
 
-    func test_batteryStats_extractsOnlyPresentStats() {
-        let stats = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Good")
-        XCTAssertEqual(HealthMonitorViewModel.batteryStats(from: .present(stats)), stats)
-        XCTAssertNil(HealthMonitorViewModel.batteryStats(from: .unknown))
-        XCTAssertNil(HealthMonitorViewModel.batteryStats(from: .absent))
-    }
-
     /// `batteryCapacityString` formats the unit-interval capacity as a
     /// percentage. `0.95` → `"95%"`.
     func test_batteryCapacityString_formatsAsPercent() {
