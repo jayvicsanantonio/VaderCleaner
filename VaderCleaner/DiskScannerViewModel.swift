@@ -183,6 +183,20 @@ final class DiskScannerViewModel: ObservableObject {
         currentScanTask?.cancel()
     }
 
+    /// Stop any in-flight disk walk and return Space Lens to its idle state.
+    /// This is used when the main window closes while the app may continue
+    /// running from the menu bar: the app-scoped view-model can outlive the
+    /// visible UI, so cancellation cannot depend only on `deinit`.
+    func cancelScan() {
+        currentScanTask?.cancel()
+        currentScanTask = nil
+        scanGeneration += 1
+        if case .scanning = phase {
+            scanProgress = 0
+            phase = .idle
+        }
+    }
+
     /// Run the injected scanner against `root`. Transitions to `.scanning`
     /// up front, then to `.ready(node)` or `.error(message)` depending on
     /// outcome. The selection / breadcrumb stack is reset because the

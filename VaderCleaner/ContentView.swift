@@ -66,6 +66,9 @@ struct ContentView: View {
         .onChange(of: onboarding.isDismissed) { _, _ in
             Task { await maybeRequestNotificationPermission() }
         }
+        .onDisappear {
+            spaceLensViewModel.cancelScan()
+        }
     }
 
     /// Idempotent permission-request driver. Fires the system prompt at most
