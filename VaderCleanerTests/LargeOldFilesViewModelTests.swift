@@ -2,6 +2,7 @@
 // Tests the LargeOldFilesViewModel state machine, sort order, selection set, and deleteSelected — driven through injected fake scanner and deleter closures so no real filesystem is touched.
 
 import XCTest
+import AppKit
 @testable import VaderCleaner
 
 @MainActor
@@ -215,6 +216,52 @@ final class LargeOldFilesViewModelTests: XCTestCase {
         await vm.deleteSelected()
 
         XCTAssertEqual(vm.displayedFiles.map(\.url), [b.url])
+    }
+
+    // MARK: - Icon cache
+
+    /// Files that share an extension should share one cached NSWorkspace
+    /// result. The table may render thousands of PDF rows; the icon work
+    /// should still be bounded by file type, not row count.
+    func test_fileIconCache_reusesOneIconForMatchingExtensions() {
+        let placeholder = NSImage(size: NSSize(width: 1, height: 1))
+        var requestedKeys: [String] = []
+        let cache = FileIconCache(placeholderIcon: placeholder) { key in
+            requestedKeys.append(key)
+            return NSImage(size: NSSize(width: 16, height: 16))
+        }
+        let firstPDF = URL(fileURLWithPath: "/tmp/large-old-vm/report.PDF")
+        let secondPDF = URL(fileURLWithPath: "/tmp/large-old-vm/archive.pdf")
+        let textFile = URL(fileURLWithPath: "/tmp/large-old-vm/notes.txt")
+
+        XCTAssertEqual(cache.preloadIcons(for: [firstPDF, secondPDF, textFile]), 2)
+        XCTAssertEqual(requestedKeys.count, 2)
+
+        cache.preloadIcons(for: [URL(fileURLWithPath: "/tmp/large-old-vm/third.pdf")])
+
+        XCTAssertEqual(requestedKeys.count, 2)
+        XCTAssertTrue(cache.cachedIcon(for: firstPDF) === cache.cachedIcon(for: secondPDF))
+    }
+
+    /// Extensionless files should use one stable generic-file entry rather
+    /// than falling back to repeated path-based lookups.
+    func test_fileIconCache_reusesGenericIconForExtensionlessFiles() {
+        let placeholder = NSImage(size: NSSize(width: 1, height: 1))
+        let loadedIcon = NSImage(size: NSSize(width: 16, height: 16))
+        var requestCount = 0
+        let cache = FileIconCache(placeholderIcon: placeholder) { _ in
+            requestCount += 1
+            return loadedIcon
+        }
+        let first = URL(fileURLWithPath: "/tmp/large-old-vm/README")
+        let second = URL(fileURLWithPath: "/tmp/large-old-vm/LICENSE")
+
+        XCTAssertTrue(cache.cachedIcon(for: first) === placeholder)
+        XCTAssertEqual(cache.preloadIcons(for: [first, second]), 1)
+
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(cache.cachedIcon(for: first) === loadedIcon)
+        XCTAssertTrue(cache.cachedIcon(for: first) === cache.cachedIcon(for: second))
     }
 
     // MARK: - Helpers

@@ -18,6 +18,7 @@ import AppKit
 struct LargeOldFilesView: View {
 
     @StateObject private var viewModel: LargeOldFilesViewModel
+    @StateObject private var fileIconCache = FileIconCache()
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
 
     /// Drives the "Are you sure?" alert before destructive actions. Held on
@@ -127,6 +128,9 @@ struct LargeOldFilesView: View {
             Divider()
             resultsFooter
         }
+        .task(id: files.map(\.url)) {
+            fileIconCache.preloadIcons(for: files.map(\.url))
+        }
     }
 
     private var resultsTable: some View {
@@ -144,7 +148,7 @@ struct LargeOldFilesView: View {
 
             TableColumn("Name") { file in
                 HStack(spacing: 6) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: file.url.path))
+                    Image(nsImage: fileIconCache.cachedIcon(for: file.url))
                         .resizable()
                         .frame(width: 16, height: 16)
                     Text(file.url.lastPathComponent)
