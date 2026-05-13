@@ -102,19 +102,33 @@ final class SystemStatsServiceTests: XCTestCase {
         XCTAssertLessThanOrEqual(service.diskSpace.usedBytes, service.diskSpace.totalBytes)
     }
 
-    /// Battery may be `nil` on a desktop or absent on a Mac mini. When present,
+    /// The two device states that used to default to a definitive false/nil
+    /// reading now start as explicit unknowns. This is the state previews and
+    /// first render bind to before the first cheap/device-health refresh.
+    func test_initialDeviceStates_areUnknown() {
+        let service = SystemStatsService(interval: 2.0, autostart: false)
+        XCTAssertEqual(service.batteryAvailability, .unknown)
+        XCTAssertEqual(service.fileVaultState, .unknown)
+    }
+
+    /// Battery may be absent on a desktop or present on a laptop. When present,
     /// cycleCount is non-negative and the condition string is not empty. This
-    /// is the "either nil or plausible" invariant — tests can't force the
-    /// nil branch on a laptop runner.
-    func test_batteryHealth_eitherNilOrPlausible() {
+    /// is the "either absent or plausible" invariant — tests can't force both
+    /// hardware branches on one runner.
+    func test_batteryAvailability_afterRefreshIsAbsentOrPlausible() {
         let service = SystemStatsService(interval: 2.0, autostart: false)
         service.refresh()
-        if let battery = service.batteryHealth {
+
+        switch service.batteryAvailability {
+        case .unknown:
+            XCTFail("refresh() must resolve battery availability out of .unknown")
+        case .absent:
+            break
+        case .present(let battery):
             XCTAssertGreaterThanOrEqual(battery.cycleCount, 0)
             XCTAssertGreaterThanOrEqual(battery.maxCapacityPercent, 0.0)
             XCTAssertFalse(battery.condition.isEmpty)
         }
-        // Else: no battery present, which is a valid state — nothing to assert.
     }
 
     // MARK: - Timer wiring

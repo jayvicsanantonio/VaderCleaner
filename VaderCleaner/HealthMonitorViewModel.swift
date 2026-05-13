@@ -72,8 +72,9 @@ final class HealthMonitorViewModel: ObservableObject {
     var diskRatio: Double { Self.diskUsageRatio(service.diskSpace) }
     var diskColor: StatusColor { Self.diskColor(for: service.diskSpace) }
 
-    var battery: BatteryStats? { service.batteryHealth }
-    var batteryColor: StatusColor { Self.batteryColor(for: battery) }
+    var batteryAvailability: BatteryAvailability { service.batteryAvailability }
+    var battery: BatteryStats? { Self.batteryStats(from: batteryAvailability) }
+    var batteryColor: StatusColor { Self.batteryColor(for: batteryAvailability) }
     var batteryCapacity: String? { battery.map(Self.batteryCapacityString) }
     var batteryCondition: String? { battery?.condition }
     var batteryCycleCount: Int? { battery?.cycleCount }
@@ -82,9 +83,10 @@ final class HealthMonitorViewModel: ObservableObject {
     var smartLabel: String { Self.smartLabel(for: smartStatus) }
     var smartColor: StatusColor { Self.smartColor(for: smartStatus) }
 
-    var fileVaultEnabled: Bool { service.fileVaultEnabled }
-    var fileVaultLabel: String { Self.fileVaultLabel(enabled: fileVaultEnabled) }
-    var fileVaultColor: StatusColor { Self.fileVaultColor(enabled: fileVaultEnabled) }
+    var fileVaultState: FileVaultState { service.fileVaultState }
+    var fileVaultIsOn: Bool { fileVaultState == .on }
+    var fileVaultLabel: String { Self.fileVaultLabel(for: fileVaultState) }
+    var fileVaultColor: StatusColor { Self.fileVaultColor(for: fileVaultState) }
 
     // MARK: - Pure formatters / color rules
 
@@ -185,12 +187,11 @@ final class HealthMonitorViewModel: ObservableObject {
         }
     }
 
-    /// Battery health color from `BatteryStats.condition`. The IOKit key
-    /// flipped from `BatteryHealth` to `BatteryHealthCondition` across macOS
-    /// versions, so we accept both vocabularies. `nil` means no internal
-    /// battery (Mac mini / Studio / Pro) → gray.
-    static func batteryColor(for stats: BatteryStats?) -> StatusColor {
-        guard let stats = stats else { return .gray }
+    /// Battery health color from explicit availability. `.unknown` and
+    /// `.absent` are both neutral gray; only a present battery can produce
+    /// health colors.
+    static func batteryColor(for availability: BatteryAvailability) -> StatusColor {
+        guard case .present(let stats) = availability else { return .gray }
         switch stats.condition {
         case "Good", "Normal":
             return .green
@@ -203,6 +204,11 @@ final class HealthMonitorViewModel: ObservableObject {
             // ambiguous, which is itself worth surfacing.
             return .yellow
         }
+    }
+
+    static func batteryStats(from availability: BatteryAvailability) -> BatteryStats? {
+        guard case .present(let stats) = availability else { return nil }
+        return stats
     }
 
     /// Formats `maxCapacityPercent` (0.0–1.0) as an integer percentage.
@@ -233,17 +239,25 @@ final class HealthMonitorViewModel: ObservableObject {
         }
     }
 
-    /// FileVault footer text. The "On" / "Off" wording mirrors the
-    /// `fdesetup status` vocabulary the service parses.
-    static func fileVaultLabel(enabled: Bool) -> String {
-        enabled ? "FileVault: On" : "FileVault: Off"
+    /// FileVault footer text. Unknown is distinct from a definitive Off so
+    /// the first render and previews do not imply encryption is disabled.
+    static func fileVaultLabel(for state: FileVaultState) -> String {
+        switch state {
+        case .unknown: return "FileVault: —"
+        case .off: return "FileVault: Off"
+        case .on: return "FileVault: On"
+        }
     }
 
     /// FileVault color. Off is yellow rather than red because disabling
     /// FileVault is a deliberate user choice, not a failure mode — the dot
-    /// flags it for visibility without alarmism.
-    static func fileVaultColor(enabled: Bool) -> StatusColor {
-        enabled ? .green : .yellow
+    /// flags it for visibility without alarmism. Unknown stays neutral.
+    static func fileVaultColor(for state: FileVaultState) -> StatusColor {
+        switch state {
+        case .unknown: return .gray
+        case .off: return .yellow
+        case .on: return .green
+        }
     }
 
     // MARK: - Helpers

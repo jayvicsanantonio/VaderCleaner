@@ -77,9 +77,7 @@ struct DiskStats: Equatable {
     static let empty = DiskStats(usedBytes: 0, totalBytes: 0)
 }
 
-/// Battery health snapshot from `AppleSmartBattery` IOKit registry. Returned
-/// as `nil` from `SystemStatsService.batteryHealth` on machines without an
-/// internal battery (Mac mini, Mac Studio, Mac Pro).
+/// Battery health snapshot from `AppleSmartBattery` IOKit registry.
 struct BatteryStats: Equatable {
     /// Number of full charge cycles the battery has logged.
     let cycleCount: Int
@@ -93,6 +91,17 @@ struct BatteryStats: Equatable {
     let condition: String
 }
 
+/// Explicit battery availability state.
+///
+/// `.unknown` is the startup / not-yet-refreshed state, `.absent` means the
+/// Mac has no internal battery, and `.present` carries the health snapshot
+/// when one was read from IOKit.
+enum BatteryAvailability: Equatable {
+    case unknown
+    case absent
+    case present(BatteryStats)
+}
+
 /// SMART status of the boot disk. `.good` corresponds to diskutil's
 /// `"Verified"`, `.failing` to `"Failing"`. `.unknown` covers everything
 /// else — most relevantly, the case where `diskutil info -plist /` fails or
@@ -101,6 +110,16 @@ enum SMARTStatus: Equatable {
     case good
     case failing
     case unknown
+}
+
+/// Explicit FileVault state.
+///
+/// `.unknown` is the startup / not-yet-refreshed state. `.off` and `.on` are
+/// definitive readings parsed from `fdesetup status`.
+enum FileVaultState: Equatable {
+    case unknown
+    case off
+    case on
 }
 
 // MARK: - SystemStatsService
@@ -119,10 +138,10 @@ enum SMARTStatus: Equatable {
 ///   - `cpuUsage` (`host_processor_info`)
 ///   - `ramUsage` (`host_statistics64`)
 ///   - `diskSpace` (`FileManager.attributesOfFileSystem`)
-///   - `batteryHealth` (`AppleSmartBattery` IOKit registry — synchronous,
-///     microseconds)
+///   - `batteryAvailability` (`AppleSmartBattery` IOKit registry —
+///     synchronous, microseconds)
 ///
-/// Subprocess-driven readings (`diskSMARTStatus`, `fileVaultEnabled`) take
+/// Subprocess-driven readings (`diskSMARTStatus`, `fileVaultState`) take
 /// tens of milliseconds because `diskutil` and `fdesetup` fork + exec. Running
 /// them on the same 2-second main-thread tick would jank the UI as soon as
 /// anything subscribes. They run on a background `DispatchQueue` and refresh
@@ -142,9 +161,9 @@ final class SystemStatsService: ObservableObject {
     @Published private(set) var cpuUsage: Double = 0
     @Published private(set) var ramUsage: MemoryStats = .empty
     @Published private(set) var diskSpace: DiskStats = .empty
-    @Published private(set) var batteryHealth: BatteryStats?
+    @Published private(set) var batteryAvailability: BatteryAvailability = .unknown
     @Published private(set) var diskSMARTStatus: SMARTStatus = .unknown
-    @Published private(set) var fileVaultEnabled: Bool = false
+    @Published private(set) var fileVaultState: FileVaultState = .unknown
 
     // MARK: Configuration
 
@@ -257,7 +276,7 @@ final class SystemStatsService: ObservableObject {
         cpuUsage = readCPUUsage()
         ramUsage = readMemoryStats()
         diskSpace = readDiskStats()
-        batteryHealth = readBatteryStats()
+        batteryAvailability = readBatteryAvailability()
     }
 
     // MARK: CPU
@@ -419,15 +438,15 @@ final class SystemStatsService: ObservableObject {
 
     // MARK: Battery
 
-    /// Reads battery health from the `AppleSmartBattery` IORegistry entry.
-    /// Returns `nil` on machines with no internal battery (the matching call
-    /// fails silently with `IO_OBJECT_NULL`). The keys read here are stable
-    /// across at least the last decade of macOS releases — Apple uses the
-    /// same registry for `system_profiler SPPowerDataType`.
-    private func readBatteryStats() -> BatteryStats? {
+    /// Reads battery availability from the `AppleSmartBattery` IORegistry
+    /// entry. A missing service means this Mac has no internal battery. The
+    /// keys read here are stable across at least the last decade of macOS
+    /// releases — Apple uses the same registry for
+    /// `system_profiler SPPowerDataType`.
+    private func readBatteryAvailability() -> BatteryAvailability {
         let matching = IOServiceMatching("AppleSmartBattery")
         let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
-        guard service != IO_OBJECT_NULL else { return nil }
+        guard service != IO_OBJECT_NULL else { return .absent }
         defer { IOObjectRelease(service) }
 
         let cycle = (copyProperty(service: service, key: "CycleCount") as? NSNumber)?.intValue ?? 0
@@ -446,10 +465,12 @@ final class SystemStatsService: ObservableObject {
             ?? "Unknown"
 
         let healthFraction = designCap > 0 ? min(1.0, maxCap / designCap) : 0.0
-        return BatteryStats(
-            cycleCount: cycle,
-            maxCapacityPercent: healthFraction,
-            condition: condition.isEmpty ? "Unknown" : condition
+        return .present(
+            BatteryStats(
+                cycleCount: cycle,
+                maxCapacityPercent: healthFraction,
+                condition: condition.isEmpty ? "Unknown" : condition
+            )
         )
     }
 
@@ -472,9 +493,9 @@ final class SystemStatsService: ObservableObject {
 
     /// Refreshes SMART and FileVault state by shelling out to `diskutil` and
     /// `fdesetup` on a background queue, then publishing back on the main
-    /// actor. Safe to call from any context. Errors fall back to `.unknown`
-    /// and `false` so a transient failure doesn't flicker existing UI between
-    /// stale and zero values.
+    /// actor. Safe to call from any context. Read failures preserve the
+    /// previously published value so a transient subprocess error doesn't
+    /// flicker existing UI between stale and unknown/off values.
     func refreshDeviceHealth() {
         backgroundQueue.async {
             // Static methods read SMART and FileVault from subprocesses; no
@@ -498,7 +519,7 @@ final class SystemStatsService: ObservableObject {
                     self.diskSMARTStatus = smart
                 }
                 if let fv = fv {
-                    self.fileVaultEnabled = fv
+                    self.fileVaultState = fv ? .on : .off
                 }
             }
         }

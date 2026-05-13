@@ -48,7 +48,20 @@ struct HealthMonitorView: View {
             title: "Battery Health",
             statusColor: viewModel.batteryColor
         ) {
-            if let stats = viewModel.battery {
+            switch viewModel.batteryAvailability {
+            case .unknown:
+                Text("—")
+                    .font(.title2.weight(.semibold))
+                Text("Checking battery")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            case .absent:
+                Text("—")
+                    .font(.title2.weight(.semibold))
+                Text("No internal battery")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            case .present(let stats):
                 Text(HealthMonitorViewModel.batteryCapacityString(stats))
                     .font(.title2.weight(.semibold))
                     .accessibilityIdentifier("health.battery.capacity")
@@ -57,12 +70,6 @@ struct HealthMonitorView: View {
                     .foregroundStyle(.secondary)
                 Text("\(stats.cycleCount) cycles")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("—")
-                    .font(.title2.weight(.semibold))
-                Text("No internal battery")
-                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
         }
@@ -138,7 +145,7 @@ struct HealthMonitorView: View {
 
     private var fileVaultRow: some View {
         HStack(spacing: 10) {
-            Image(systemName: viewModel.fileVaultEnabled ? "lock.shield.fill" : "lock.open")
+            Image(systemName: viewModel.fileVaultIsOn ? "lock.shield.fill" : "lock.open")
                 .font(.title3)
                 .foregroundStyle(viewModel.fileVaultColor.color)
             Text(viewModel.fileVaultLabel)
