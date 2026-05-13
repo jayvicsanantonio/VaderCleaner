@@ -74,13 +74,14 @@ final class MenuBarViewModelTests: XCTestCase {
     /// `MenuBarViewModel` so tests pin the menu bar's contract independently.
     func test_formattedBatteryHealth_formatsAsPercent() {
         let stats = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Good")
-        XCTAssertEqual(MenuBarViewModel.formattedBatteryHealth(stats), "95%")
+        XCTAssertEqual(MenuBarViewModel.formattedBatteryHealth(.present(stats)), "95%")
     }
 
-    /// Desktops have no internal battery — the service publishes `nil` and the
-    /// popover hides the row entirely. The formatter signals that with `nil`.
-    func test_formattedBatteryHealth_isNilWhenNoBattery() {
-        XCTAssertNil(MenuBarViewModel.formattedBatteryHealth(nil))
+    /// Startup and desktop/no-battery states should not render a misleading
+    /// empty Battery row in the compact popover.
+    func test_formattedBatteryHealth_isNilWhenUnknownOrAbsent() {
+        XCTAssertNil(MenuBarViewModel.formattedBatteryHealth(.unknown))
+        XCTAssertNil(MenuBarViewModel.formattedBatteryHealth(.absent))
     }
 
     // MARK: - Pressure indicator
@@ -203,7 +204,7 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(sut.formattedRAMUsage, MenuBarViewModel.formattedRAMUsage(service.ramUsage))
         XCTAssertEqual(sut.formattedDiskSpace, MenuBarViewModel.formattedDiskSpace(service.diskSpace))
         XCTAssertEqual(sut.formattedCPU, MenuBarViewModel.formattedCPU(service.cpuUsage))
-        XCTAssertEqual(sut.formattedBatteryHealth, MenuBarViewModel.formattedBatteryHealth(service.batteryHealth))
+        XCTAssertEqual(sut.formattedBatteryHealth, MenuBarViewModel.formattedBatteryHealth(service.batteryAvailability))
         XCTAssertEqual(
             sut.menuBarLabelText,
             MenuBarViewModel.menuBarLabel(ram: service.ramUsage, disk: service.diskSpace)

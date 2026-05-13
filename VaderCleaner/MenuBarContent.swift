@@ -8,9 +8,9 @@ import AppKit
 /// driven by `MenuBarViewModel` which is in turn fed by `SystemStatsService`,
 /// so values refresh on the same 2-second cadence as the Health Monitor.
 ///
-/// The Battery row is conditional — desktops report no internal battery
-/// (`SystemStatsService.batteryHealth == nil`), and rendering an empty row
-/// would just look like a UI bug.
+/// The Battery row is conditional — desktops report no internal battery and
+/// startup begins with unknown battery state, so rendering an empty row would
+/// just look like a UI bug.
 struct MenuBarContent: View {
 
     @EnvironmentObject private var menuBar: MenuBarViewModel
