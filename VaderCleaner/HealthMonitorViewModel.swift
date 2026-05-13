@@ -80,7 +80,7 @@ final class HealthMonitorViewModel: ObservableObject {
     var smartColor: StatusColor { Self.smartColor(for: smartStatus) }
 
     var fileVaultState: FileVaultState { service.fileVaultState }
-    var fileVaultIsOn: Bool { fileVaultState == .on }
+    var fileVaultIconName: String { Self.fileVaultIconName(for: fileVaultState) }
     var fileVaultLabel: String { Self.fileVaultLabel(for: fileVaultState) }
     var fileVaultColor: StatusColor { Self.fileVaultColor(for: fileVaultState) }
 
@@ -237,6 +237,16 @@ final class HealthMonitorViewModel: ObservableObject {
         case .unknown: return "FileVault: —"
         case .off: return "FileVault: Off"
         case .on: return "FileVault: On"
+        }
+    }
+
+    /// FileVault icon. Unknown uses an indeterminate symbol instead of the
+    /// open lock used for a definitive Off state.
+    static func fileVaultIconName(for state: FileVaultState) -> String {
+        switch state {
+        case .unknown: return "questionmark.circle"
+        case .off: return "lock.open"
+        case .on: return "lock.shield.fill"
         }
     }
 

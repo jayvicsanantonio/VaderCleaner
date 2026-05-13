@@ -145,7 +145,7 @@ struct HealthMonitorView: View {
 
     private var fileVaultRow: some View {
         HStack(spacing: 10) {
-            Image(systemName: viewModel.fileVaultIsOn ? "lock.shield.fill" : "lock.open")
+            Image(systemName: viewModel.fileVaultIconName)
                 .font(.title3)
                 .foregroundStyle(viewModel.fileVaultColor.color)
             Text(viewModel.fileVaultLabel)

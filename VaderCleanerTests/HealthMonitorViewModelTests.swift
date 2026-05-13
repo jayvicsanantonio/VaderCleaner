@@ -229,6 +229,12 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(HealthMonitorViewModel.fileVaultLabel(for: .off), "FileVault: Off")
     }
 
+    func test_fileVaultIconName_reflectsTriState() {
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultIconName(for: .unknown), "questionmark.circle")
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultIconName(for: .on), "lock.shield.fill")
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultIconName(for: .off), "lock.open")
+    }
+
     func test_fileVaultColor_reflectsTriState() {
         XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(for: .unknown), .gray)
         XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(for: .on), .green)
