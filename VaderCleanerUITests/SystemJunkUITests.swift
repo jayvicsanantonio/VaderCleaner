@@ -59,6 +59,44 @@ final class SystemJunkUITests: XCTestCase {
                       "Expected to land on the preview state after a Scan")
     }
 
+    /// Once a scan has landed, visiting another sidebar item and coming back
+    /// should preserve the same System Junk session model rather than
+    /// rebuilding a fresh idle state.
+    func test_systemJunkPreviewPersistsAcrossSidebarNavigation() throws {
+        dismissOnboardingIfNeeded()
+
+        let sidebarRow = app.outlines.staticTexts["System Junk"].firstMatch
+        XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
+                      "Expected System Junk row in sidebar")
+        sidebarRow.click()
+
+        let scanButton = app.buttons["system-junk.scan"]
+        XCTAssertTrue(scanButton.waitForExistence(timeout: 5),
+                      "Expected Scan button in System Junk idle state")
+        scanButton.click()
+
+        let totalSelected = app.staticTexts["system-junk.totalSelected"]
+        let cleanButton = app.buttons["system-junk.clean"]
+        let appeared = totalSelected.waitForExistence(timeout: 30)
+            || cleanButton.waitForExistence(timeout: 1)
+        XCTAssertTrue(appeared,
+                      "Expected to land on the preview state after a Scan")
+
+        let smartScanRow = app.outlines.staticTexts["Smart Scan"].firstMatch
+        XCTAssertTrue(smartScanRow.waitForExistence(timeout: 5),
+                      "Expected Smart Scan row in sidebar")
+        smartScanRow.click()
+
+        sidebarRow.click()
+
+        let previewStillVisible = totalSelected.waitForExistence(timeout: 5)
+            || cleanButton.waitForExistence(timeout: 1)
+        XCTAssertTrue(previewStillVisible,
+                      "Expected System Junk preview state to persist after sidebar navigation")
+        XCTAssertFalse(app.buttons["system-junk.scan"].exists,
+                       "Expected System Junk not to reset to idle after sidebar navigation")
+    }
+
     // MARK: - Helpers
 
     private func dismissOnboardingIfNeeded() {

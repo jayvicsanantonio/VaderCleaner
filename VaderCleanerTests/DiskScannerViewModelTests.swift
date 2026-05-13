@@ -127,6 +127,44 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.scanProgress, 0.0)
     }
 
+    /// App-scoped Space Lens state can outlive the main window when the
+    /// menu bar extra keeps the process running. Explicit cancellation must
+    /// stop the scanner instead of waiting for VM teardown.
+    func test_cancelScan_cancelsInFlightScanAndReturnsToIdle() async {
+        let scanStarted = expectation(description: "scan started")
+        let scanCancelled = expectation(description: "scan cancelled")
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            scanStarted.fulfill()
+            do {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+                XCTFail("Expected cancelScan() to cancel the in-flight scanner")
+                return DiskNode(
+                    url: URL(fileURLWithPath: "/tmp"),
+                    name: "tmp",
+                    size: 0,
+                    isDirectory: true,
+                    children: []
+                )
+            } catch is CancellationError {
+                scanCancelled.fulfill()
+                throw CancellationError()
+            }
+        })
+
+        let scanTask = Task {
+            await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        }
+        await fulfillment(of: [scanStarted], timeout: 1)
+        XCTAssertEqual(vm.phase, .scanning)
+
+        vm.cancelScan()
+
+        await fulfillment(of: [scanCancelled], timeout: 1)
+        await scanTask.value
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertEqual(vm.scanProgress, 0.0)
+    }
+
     // MARK: - Navigation (Prompt 17)
 
     /// Drilling into a directory child must push it onto the breadcrumb
