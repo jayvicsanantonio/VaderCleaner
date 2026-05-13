@@ -21,8 +21,7 @@ enum SystemStatsFormatters {
     /// Formats a unit-interval CPU usage to an integer percentage. Inputs
     /// outside `[0, 1]` clamp at the boundary.
     static func cpuPercentString(_ usage: Double) -> String {
-        let clamped = unitRatio(usage)
-        return "\(Int((clamped * 100).rounded()))%"
+        percentString(usage)
     }
 
     /// Returns `value` clamped to `[0, 1]`.
@@ -42,16 +41,27 @@ enum SystemStatsFormatters {
 
     /// Formats `maxCapacityPercent` (0.0-1.0) as an integer percentage.
     static func batteryCapacityString(_ stats: BatteryStats) -> String {
-        let clamped = unitRatio(stats.maxCapacityPercent)
-        return "\(Int((clamped * 100).rounded()))%"
+        percentString(stats.maxCapacityPercent)
     }
 
     /// Human-readable label for a memory-pressure bucket.
     static func pressureLabel(for level: MemoryPressureLevel) -> String {
         switch level {
-        case .nominal: return "Nominal"
-        case .fair: return "Fair"
-        case .critical: return "Critical"
+        case .nominal:
+            return NSLocalizedString(
+                "MemoryPressure.Nominal",
+                comment: "Label for nominal memory pressure"
+            )
+        case .fair:
+            return NSLocalizedString(
+                "MemoryPressure.Fair",
+                comment: "Label for fair memory pressure"
+            )
+        case .critical:
+            return NSLocalizedString(
+                "MemoryPressure.Critical",
+                comment: "Label for critical memory pressure"
+            )
         }
     }
 
@@ -73,7 +83,15 @@ enum SystemStatsFormatters {
     private static func usedTotalString(usedBytes: UInt64, totalBytes: UInt64) -> String {
         let used = byteString(usedBytes)
         let total = byteString(totalBytes)
-        return "\(used) / \(total)"
+        let format = NSLocalizedString(
+            "%@ / %@",
+            comment: "Format for used / total bytes, for example 8 GB / 16 GB"
+        )
+        return String(format: format, used, total)
+    }
+
+    private static func percentString(_ value: Double) -> String {
+        unitRatio(value).formatted(.percent.precision(.fractionLength(0)))
     }
 
     /// Shared `ByteCountFormatter` configured for GB output. Reused so we
