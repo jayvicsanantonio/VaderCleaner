@@ -1,0 +1,329 @@
+// AppUninstallerViewModelTests.swift
+// Tests the AppUninstallerViewModel state machine — load, selection, associated files lookup, total reclaimable, uninstall, failure paths — driving every transition through injected fakes so no real apps are touched.
+
+import XCTest
+@testable import VaderCleaner
+
+@MainActor
+final class AppUninstallerViewModelTests: XCTestCase {
+
+    // MARK: - Initial state
+
+    /// On construction the VM is `.idle` so the view shows its loading state
+    /// after `task { loadApps() }` rather than a stale list from a prior
+    /// session.
+    func test_init_phaseIsIdle() {
+        let vm = makeViewModel()
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertTrue(vm.apps.isEmpty)
+        XCTAssertNil(vm.selectedAppID)
+    }
+
+    // MARK: - Load
+
+    /// `loadApps()` populates the app list and lands in `.ready`.
+    func test_loadApps_transitionsToReadyWithSortedApps() async {
+        let apps = [
+            makeApp(name: "Zephyr", bundleID: "com.acme.zephyr"),
+            makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        ]
+        let vm = makeViewModel(
+            discover: { _ in apps }
+        )
+        await vm.loadApps()
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertEqual(vm.apps.map(\.bundleID), ["com.acme.zephyr", "com.acme.alpha"])
+    }
+
+    /// A throwing discovery surfaces `.failed(stage: .loading, ...)`.
+    func test_loadApps_failureTransitionsToFailed() async {
+        struct BoomError: Error {}
+        let vm = makeViewModel(discover: { _ in throw BoomError() })
+        await vm.loadApps()
+
+        if case .failed(let stage, _) = vm.phase {
+            XCTAssertEqual(stage, .loading)
+        } else {
+            XCTFail("Expected .failed(.loading), got \(vm.phase)")
+        }
+        XCTAssertTrue(vm.apps.isEmpty)
+    }
+
+    /// Toggling `includesSystemApps` and reloading must forward the flag
+    /// to the discovery layer.
+    func test_reloadApps_forwardsIncludesSystemAppsFlag() async {
+        var receivedFlag: Bool?
+        let vm = makeViewModel(discover: { includes in
+            receivedFlag = includes
+            return []
+        })
+        vm.includesSystemApps = true
+        await vm.reloadApps()
+        XCTAssertEqual(receivedFlag, true)
+    }
+
+    // MARK: - Filtering
+
+    /// `filteredApps` matches case-insensitively on name and bundle ID.
+    func test_filteredApps_matchesNameAndBundleID() async {
+        let apps = [
+            makeApp(name: "Helio", bundleID: "com.acme.helio"),
+            makeApp(name: "Mango", bundleID: "com.acme.mango"),
+            makeApp(name: "Solar", bundleID: "com.unrelated.solar")
+        ]
+        let vm = makeViewModel(discover: { _ in apps })
+        await vm.loadApps()
+
+        vm.searchQuery = "helio"
+        XCTAssertEqual(vm.filteredApps.map(\.bundleID), ["com.acme.helio"])
+
+        vm.searchQuery = "ACME"
+        XCTAssertEqual(vm.filteredApps.map(\.bundleID).sorted(),
+                       ["com.acme.helio", "com.acme.mango"])
+
+        vm.searchQuery = ""
+        XCTAssertEqual(vm.filteredApps.count, 3)
+    }
+
+    // MARK: - Selection
+
+    /// Selecting an app populates `associatedFiles` from the injected finder.
+    func test_select_populatesAssociatedFiles() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let stubFiles = [
+            AssociatedFile(
+                url: URL(fileURLWithPath: "/tmp/p.plist"),
+                sizeBytes: 10,
+                category: .preferences
+            ),
+            AssociatedFile(
+                url: URL(fileURLWithPath: "/tmp/c.bin"),
+                sizeBytes: 50,
+                category: .cache
+            )
+        ]
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in stubFiles }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { vm.associatedFiles.count == stubFiles.count }
+        XCTAssertEqual(vm.associatedFiles.map(\.sizeBytes), [10, 50])
+        XCTAssertFalse(vm.isLoadingAssociatedFiles)
+    }
+
+    /// Deselecting (passing `nil`) clears the associated files panel.
+    func test_select_nilClearsAssociatedFiles() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in [
+                AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 1, category: .preferences)
+            ] }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { !vm.associatedFiles.isEmpty }
+        vm.select(nil)
+        XCTAssertNil(vm.selectedAppID)
+        XCTAssertTrue(vm.associatedFiles.isEmpty)
+    }
+
+    /// Re-selecting the same app reuses the cached associated files and
+    /// does not invoke the finder again.
+    func test_select_secondTimeUsesCache() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        var finderCalls = 0
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in
+                finderCalls += 1
+                return [AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 1, category: .preferences)]
+            }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { !vm.associatedFiles.isEmpty }
+        vm.select(nil)
+        vm.select(app.id)
+        await waitFor { !vm.associatedFiles.isEmpty }
+        XCTAssertEqual(finderCalls, 1)
+    }
+
+    // MARK: - Totals
+
+    /// `totalReclaimableSize` is bundle size + sum of associated files.
+    func test_totalReclaimableSize_isBundleSizePlusAssociated() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio", bundleSize: 1_000)
+        let stubFiles = [
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/a"), sizeBytes: 50, category: .cache),
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/b"), sizeBytes: 200, category: .logs)
+        ]
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in stubFiles }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { !vm.associatedFiles.isEmpty }
+        XCTAssertEqual(vm.totalReclaimableSize, 1_250)
+    }
+
+    /// Files are exposed grouped by category in declaration order.
+    func test_associatedFilesByCategory_groupsAndSortsByDeclarationOrder() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let stubFiles = [
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/a"), sizeBytes: 1, category: .logs),
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/b"), sizeBytes: 1, category: .preferences),
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/c"), sizeBytes: 1, category: .cache)
+        ]
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in stubFiles }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { !vm.associatedFiles.isEmpty }
+        let groups = vm.associatedFilesByCategory
+        XCTAssertEqual(groups.map(\.0), [.preferences, .cache, .logs])
+    }
+
+    // MARK: - Uninstall
+
+    /// `uninstall()` hands the bundle URL + every associated URL to the
+    /// recycler, drops the app from `apps`, and lands in `.complete`.
+    func test_uninstall_invokesRecyclerWithBundleAndAssociatedURLs() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let stubFiles = [
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 10, category: .preferences),
+            AssociatedFile(url: URL(fileURLWithPath: "/tmp/c"), sizeBytes: 50, category: .cache)
+        ]
+        let received = ActorBox<[URL]>([])
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in stubFiles },
+            recycle: { urls in
+                await received.set(urls)
+                return 60
+            }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { !vm.associatedFiles.isEmpty }
+
+        await vm.uninstall()
+
+        let urls = await received.value
+        XCTAssertEqual(urls.first, app.bundleURL)
+        XCTAssertEqual(Set(urls), Set([app.bundleURL] + stubFiles.map(\.url)))
+        XCTAssertEqual(vm.phase, .complete(bytesFreed: 60))
+        XCTAssertFalse(vm.apps.contains(where: { $0.id == app.id }))
+        XCTAssertNil(vm.selectedAppID)
+    }
+
+    /// A throwing recycler surfaces `.failed(stage: .uninstalling, ...)`.
+    func test_uninstall_failureTransitionsToFailed() async {
+        struct BoomError: Error {}
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in [] },
+            recycle: { _ in throw BoomError() }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { vm.selectedApp != nil }
+        await vm.uninstall()
+        if case .failed(let stage, _) = vm.phase {
+            XCTAssertEqual(stage, .uninstalling)
+        } else {
+            XCTFail("Expected .failed(.uninstalling), got \(vm.phase)")
+        }
+    }
+
+    /// `uninstall()` is a no-op when nothing is selected.
+    func test_uninstall_isNoOpWithoutSelection() async {
+        let calls = ActorBox(0)
+        let vm = makeViewModel(
+            discover: { _ in [] },
+            recycle: { _ in await calls.increment(); return 0 }
+        )
+        await vm.loadApps()
+        await vm.uninstall()
+        let count = await calls.value
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    /// `dismissResult()` brings the VM back to `.ready` after a complete
+    /// or failed phase.
+    func test_dismissResult_returnsToReady() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in [] },
+            recycle: { _ in 0 }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { vm.selectedApp != nil }
+        await vm.uninstall()
+        vm.dismissResult()
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    // MARK: - Helpers
+
+    private func makeViewModel(
+        discover: @escaping AppUninstallerViewModel.Discover = { _ in [] },
+        findFiles: @escaping AppUninstallerViewModel.FindFiles = { _ in [] },
+        recycle: @escaping AppUninstallerViewModel.Recycle = { _ in 0 }
+    ) -> AppUninstallerViewModel {
+        AppUninstallerViewModel(
+            discover: discover,
+            findFiles: findFiles,
+            recycle: recycle
+        )
+    }
+
+    private func makeApp(
+        name: String,
+        bundleID: String,
+        bundleSize: Int64 = 0
+    ) -> AppInfo {
+        AppInfo(
+            name: name,
+            bundleID: bundleID,
+            version: "1.0",
+            bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
+            bundleSizeBytes: bundleSize,
+            isAppStore: false
+        )
+    }
+
+    /// Polls `condition` on the main actor until it becomes true or the
+    /// timeout elapses. Used because `select(...)` kicks off an async
+    /// associated-files lookup whose result lands on the main actor after
+    /// the awaiting `Task` resumes.
+    private func waitFor(
+        timeout: TimeInterval = 1.0,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+}
+
+private actor ActorBox<Value: Sendable> {
+    private(set) var value: Value
+    init(_ initial: Value) { self.value = initial }
+    func set(_ newValue: Value) { value = newValue }
+}
+
+private extension ActorBox where Value == Int {
+    func increment() { value += 1 }
+}

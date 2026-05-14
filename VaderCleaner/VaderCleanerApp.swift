@@ -30,6 +30,7 @@ struct VaderCleanerApp: App {
     @StateObject private var largeOldFilesViewModel: LargeOldFilesViewModel
     @StateObject private var spaceLensViewModel: DiskScannerViewModel
     @StateObject private var privacyViewModel: PrivacyViewModel
+    @StateObject private var appUninstallerViewModel: AppUninstallerViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
     // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
     // notification dispatcher (Prompt 11) all subscribe via
@@ -69,6 +70,7 @@ struct VaderCleanerApp: App {
         )
         _spaceLensViewModel = StateObject(wrappedValue: DiskScannerViewModel.live())
         _privacyViewModel = StateObject(wrappedValue: PrivacyViewModel.live())
+        _appUninstallerViewModel = StateObject(wrappedValue: AppUninstallerViewModel.live())
         // Construct the polling service and the menu bar view-model in the
         // same init so both `@StateObject` wrappers reference the *same*
         // service instance. Initializing `menuBarViewModel` at its property
@@ -126,7 +128,8 @@ struct VaderCleanerApp: App {
                 systemJunkViewModel: systemJunkViewModel,
                 largeOldFilesViewModel: largeOldFilesViewModel,
                 spaceLensViewModel: spaceLensViewModel,
-                privacyViewModel: privacyViewModel
+                privacyViewModel: privacyViewModel,
+                appUninstallerViewModel: appUninstallerViewModel
             )
                 .environmentObject(appState)
                 .environmentObject(onboardingViewModel)
