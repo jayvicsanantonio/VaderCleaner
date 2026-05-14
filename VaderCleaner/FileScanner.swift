@@ -21,18 +21,264 @@ protocol FileScanning {
     func scan(
         roots: [ScanRoot],
         excluding: [URL],
+        options: FileScanOptions,
         batchSize: Int,
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws
 }
 
+struct FileScanOptions: Equatable {
+    static let `default` = FileScanOptions()
+
+    let packagesAsFiles: Bool
+
+    init(packagesAsFiles: Bool = false) {
+        self.packagesAsFiles = packagesAsFiles
+    }
+}
+
 extension FileScanning {
     func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile] {
         var results: [ScannedFile] = []
-        try await scan(roots: roots, excluding: excluding, batchSize: FileScanner.defaultBatchSize) { batch in
+        try await scan(
+            roots: roots,
+            excluding: excluding,
+            options: .default,
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
             results.append(contentsOf: batch)
         }
         return results
+    }
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        batchSize: Int,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        try await scan(
+            roots: roots,
+            excluding: excluding,
+            options: .default,
+            batchSize: batchSize,
+            onBatch: onBatch
+        )
+    }
+}
+
+enum PathExclusionMatcher {
+    struct CanonicalPathMapper {
+        let canonicalRootPath: String
+        private let displayedRootPath: String
+
+        init(canonicalRootPath: String, displayedRootPath: String) {
+            self.canonicalRootPath = canonicalRootPath
+            self.displayedRootPath = displayedRootPath
+        }
+
+        func canonicalPath(for url: URL) -> String {
+            PathExclusionMatcher.project(
+                normalizedPath(url),
+                from: displayedRootPath,
+                to: canonicalRootPath
+            )
+        }
+    }
+
+    /// Resolves symlinks and normalises `..`/`.` so exclusion comparisons are
+    /// done on canonical paths. Mirrors `ExclusionsStore.canonicalize` so a
+    /// path the user excluded matches the same canonical form a scanner sees.
+    static func canonicalize(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().path
+    }
+
+    static func makeCanonicalPathMapper(for root: URL) -> CanonicalPathMapper {
+        CanonicalPathMapper(
+            canonicalRootPath: canonicalize(root),
+            displayedRootPath: normalizedPath(root)
+        )
+    }
+
+    /// True when `path` is exactly an excluded path or sits beneath one.
+    /// Comparison is at path-component boundaries (not raw prefix) so
+    /// excluding `/tmp/foo` does not also exclude `/tmp/foobar`. macOS's
+    /// default APFS is case-insensitive, hence the case-insensitive compare.
+    /// Uses `range(of:options:)` rather than `lowercased()` so we don't
+    /// allocate a fresh lowercased copy of every enumerated path.
+    static func isExcluded(path: String, by exclusions: [String]) -> Bool {
+        for excluded in exclusions {
+            if path.caseInsensitiveCompare(excluded) == .orderedSame {
+                return true
+            }
+            let prefix = excluded.hasSuffix("/") ? excluded : excluded + "/"
+            if path.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// True when one of the excluded paths sits inside `path`, but is not
+    /// equal to `path` itself. Package-as-leaf scans use this to force descent
+    /// when a user excluded something inside a package; otherwise selecting the
+    /// package leaf for deletion would still remove excluded content.
+    static func containsExcludedDescendant(of path: String, in exclusions: [String]) -> Bool {
+        let prefix = path.hasSuffix("/") ? path : path + "/"
+        return exclusions.contains { exclusion in
+            exclusion.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil
+        }
+    }
+
+    private static func normalizedPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+
+    private static func project(_ path: String, from displayedRootPath: String, to canonicalRootPath: String) -> String {
+        if path.caseInsensitiveCompare(displayedRootPath) == .orderedSame {
+            return canonicalRootPath
+        }
+
+        let displayedPrefix = displayedRootPath.hasSuffix("/") ? displayedRootPath : displayedRootPath + "/"
+        guard path.range(of: displayedPrefix, options: [.anchored, .caseInsensitive]) != nil else {
+            return path
+        }
+
+        let suffix = String(path.dropFirst(displayedPrefix.count))
+        if canonicalRootPath == "/" {
+            return "/" + suffix
+        }
+        let canonicalPrefix = canonicalRootPath.hasSuffix("/") ? canonicalRootPath : canonicalRootPath + "/"
+        return canonicalPrefix + suffix
+    }
+}
+
+/// Shared recursive logical-size calculator for macOS package directories.
+/// It intentionally mirrors the scanners' symlink policy: symlinks do not
+/// contribute bytes, so package rollups cannot double-count content or pull in
+/// data outside the scanned tree.
+enum PackageDirectorySizer {
+
+    struct Result: Equatable {
+        let size: Int64
+        let isAccessible: Bool
+        let lastAccessDate: Date?
+        let lastModifiedDate: Date?
+    }
+
+    private static let cancellationCheckInterval = 512
+
+    private static let log = Logger(
+        subsystem: "com.personal.VaderCleaner",
+        category: "PackageDirectorySizer"
+    )
+
+    private static let resourceKeys: [URLResourceKey] = [
+        .isRegularFileKey,
+        .isDirectoryKey,
+        .isSymbolicLinkKey,
+        .fileSizeKey,
+        .contentAccessDateKey,
+        .contentModificationDateKey
+    ]
+
+    private static let resourceKeySet = Set(resourceKeys)
+
+    static func recursiveSize(
+        of packageURL: URL,
+        excluding canonicalExclusions: [String] = [],
+        progress: (() -> Void)? = nil
+    ) async throws -> Int64 {
+        try await recursiveSizeResult(
+            of: packageURL,
+            excluding: canonicalExclusions,
+            progress: progress
+        ).size
+    }
+
+    static func recursiveSizeResult(
+        of packageURL: URL,
+        excluding canonicalExclusions: [String] = [],
+        progress: (() -> Void)? = nil
+    ) async throws -> Result {
+        let hasExclusions = !canonicalExclusions.isEmpty
+        var totalSize: Int64 = 0
+        var visitedCount = 0
+        var isAccessible = true
+        var newestAccessDate: Date?
+        var newestModifiedDate: Date?
+        let pathMapper = hasExclusions ? PathExclusionMatcher.makeCanonicalPathMapper(for: packageURL) : nil
+
+        let enumerator = FileManager.default.enumerator(
+            at: packageURL,
+            includingPropertiesForKeys: resourceKeys,
+            options: [],
+            errorHandler: { url, error in
+                isAccessible = false
+                Self.log.debug(
+                    "Skipping unreadable package path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
+                )
+                return true
+            }
+        )
+
+        guard let enumerator else {
+            return Result(
+                size: 0,
+                isAccessible: false,
+                lastAccessDate: nil,
+                lastModifiedDate: nil
+            )
+        }
+
+        while let url = enumerator.nextObject() as? URL {
+            visitedCount += 1
+            if visitedCount.isMultiple(of: Self.cancellationCheckInterval) {
+                try Task.checkCancellation()
+                await Task.yield()
+            }
+
+            let resourceValues = try? url.resourceValues(forKeys: resourceKeySet)
+
+            if resourceValues?.isSymbolicLink == true {
+                continue
+            }
+
+            if let pathMapper {
+                let canonicalPath = pathMapper.canonicalPath(for: url)
+                if PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
+                    if resourceValues?.isDirectory == true {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+            }
+
+            guard resourceValues?.isRegularFile == true else { continue }
+
+            totalSize += Int64(resourceValues?.fileSize ?? 0)
+            newestAccessDate = Self.newer(of: newestAccessDate, and: resourceValues?.contentAccessDate)
+            newestModifiedDate = Self.newer(of: newestModifiedDate, and: resourceValues?.contentModificationDate)
+            progress?()
+        }
+
+        return Result(
+            size: totalSize,
+            isAccessible: isAccessible,
+            lastAccessDate: newestAccessDate,
+            lastModifiedDate: newestModifiedDate
+        )
+    }
+
+    private static func newer(of lhs: Date?, and rhs: Date?) -> Date? {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return nil
+        case (.some(let date), nil), (nil, .some(let date)):
+            return date
+        case (.some(let lhs), .some(let rhs)):
+            return max(lhs, rhs)
+        }
     }
 }
 
@@ -66,6 +312,7 @@ struct FileScanner: FileScanning {
         .isRegularFileKey,
         .isSymbolicLinkKey,
         .isDirectoryKey,
+        .isPackageKey,
         .fileSizeKey,
         .contentAccessDateKey,
         .contentModificationDateKey
@@ -79,11 +326,12 @@ struct FileScanner: FileScanning {
     func scan(
         roots: [ScanRoot],
         excluding: [URL],
+        options: FileScanOptions = .default,
         batchSize: Int = defaultBatchSize,
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws {
         let batchLimit = max(1, batchSize)
-        let canonicalExclusions = excluding.map(Self.canonicalize)
+        let canonicalExclusions = excluding.map(PathExclusionMatcher.canonicalize)
         let hasExclusions = !canonicalExclusions.isEmpty
         var batch: [ScannedFile] = []
         batch.reserveCapacity(batchLimit)
@@ -101,21 +349,26 @@ struct FileScanner: FileScanning {
         for root in roots {
             try Task.checkCancellation()
 
-            if hasExclusions {
-                let canonicalRootPath = Self.canonicalize(root.url)
-                if Self.isExcluded(path: canonicalRootPath, by: canonicalExclusions) {
+            let pathMapper = hasExclusions ? PathExclusionMatcher.makeCanonicalPathMapper(for: root.url) : nil
+            if let pathMapper {
+                if PathExclusionMatcher.isExcluded(path: pathMapper.canonicalRootPath, by: canonicalExclusions) {
                     continue
                 }
             }
 
-            // `.skipsPackageDescendants` keeps us out of .app bundles and
-            // similar packages. `.skipsHiddenFiles` is intentionally NOT
-            // set: cache and log directories on macOS routinely contain
-            // dot-prefixed files we need to count.
+            // In default mode, `.skipsPackageDescendants` preserves the
+            // historical system-junk behaviour: package internals are not
+            // emitted. Package-as-file mode needs to see the package URL first
+            // so it can emit one rolled-up item and call `skipDescendants()`.
+            // `.skipsHiddenFiles` is intentionally NOT set: cache and log
+            // directories on macOS routinely contain dot-prefixed files we
+            // need to count.
+            let enumerationOptions: FileManager.DirectoryEnumerationOptions =
+                options.packagesAsFiles ? [] : [.skipsPackageDescendants]
             let enumerator = FileManager.default.enumerator(
                 at: root.url,
                 includingPropertiesForKeys: Self.resourceKeys,
-                options: [.skipsPackageDescendants],
+                options: enumerationOptions,
                 errorHandler: { url, error in
                     Self.log.debug(
                         "Skipping unreadable path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
@@ -142,21 +395,49 @@ struct FileScanner: FileScanning {
                     continue
                 }
 
-                // Canonicalize per-file *only* when there are exclusions to
-                // compare against — the common case (no exclusions) avoids
-                // the extra symlink-resolution work entirely. We can't lift
-                // this above the loop because `FileManager.enumerator`
-                // doesn't guarantee canonical-prefixed URLs even when given
-                // a canonical root, so the comparison has to happen on a
-                // resolved path.
-                if hasExclusions {
-                    let canonicalPath = Self.canonicalize(url)
-                    if Self.isExcluded(path: canonicalPath, by: canonicalExclusions) {
-                        if resourceValues?.isDirectory == true {
-                            enumerator.skipDescendants()
-                        }
+                // Exclusions are canonical, while enumerator URLs keep the
+                // root spelling they were given. Projecting through the root
+                // mapper preserves canonical matching without doing
+                // symlink-resolution I/O for every item.
+                let canonicalPath = pathMapper?.canonicalPath(for: url)
+                if let canonicalPath,
+                   PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
+                    if resourceValues?.isDirectory == true {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
+                let isDirectory = resourceValues?.isDirectory == true
+                if options.packagesAsFiles,
+                   isDirectory,
+                   resourceValues?.isPackage == true {
+                    if let canonicalPath,
+                       PathExclusionMatcher.containsExcludedDescendant(
+                        of: canonicalPath,
+                        in: canonicalExclusions
+                    ) {
                         continue
                     }
+
+                    let packageResult = try await PackageDirectorySizer.recursiveSizeResult(
+                        of: url,
+                        excluding: canonicalExclusions
+                    )
+                    batch.append(
+                        ScannedFile(
+                            url: url,
+                            size: packageResult.size,
+                            lastAccessDate: packageResult.lastAccessDate,
+                            lastModifiedDate: packageResult.lastModifiedDate,
+                            category: root.category
+                        )
+                    )
+                    enumerator.skipDescendants()
+                    if batch.count >= batchLimit {
+                        try await flushBatch()
+                    }
+                    continue
                 }
 
                 guard resourceValues?.isRegularFile == true else { continue }
@@ -179,33 +460,5 @@ struct FileScanner: FileScanning {
         }
 
         try await flushBatch()
-    }
-
-    // MARK: - Path helpers
-
-    /// Resolves symlinks and normalises `..`/`.` so exclusion comparisons are
-    /// done on canonical paths. Mirrors `ExclusionsStore.canonicalize` so a
-    /// path the user excluded matches the same canonical form a scanner sees.
-    private static func canonicalize(_ url: URL) -> String {
-        url.resolvingSymlinksInPath().path
-    }
-
-    /// True when `path` is exactly an excluded path or sits beneath one.
-    /// Comparison is at path-component boundaries (not raw prefix) so
-    /// excluding `/tmp/foo` does not also exclude `/tmp/foobar`. macOS's
-    /// default APFS is case-insensitive, hence the case-insensitive compare.
-    /// Uses `range(of:options:)` rather than `lowercased()` so we don't
-    /// allocate a fresh lowercased copy of every enumerated path.
-    private static func isExcluded(path: String, by exclusions: [String]) -> Bool {
-        for excluded in exclusions {
-            if path.caseInsensitiveCompare(excluded) == .orderedSame {
-                return true
-            }
-            let prefix = excluded.hasSuffix("/") ? excluded : excluded + "/"
-            if path.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil {
-                return true
-            }
-        }
-        return false
     }
 }

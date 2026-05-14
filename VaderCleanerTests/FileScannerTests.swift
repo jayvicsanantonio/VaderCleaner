@@ -188,6 +188,28 @@ final class FileScannerTests: XCTestCase {
         XCTAssertTrue(files[0].url.path.contains("foobar"))
     }
 
+    func test_canonicalPathMapperProjectsDisplayedRootToCanonicalRoot() {
+        let mapper = PathExclusionMatcher.CanonicalPathMapper(
+            canonicalRootPath: "/private/tmp/root",
+            displayedRootPath: "/tmp/root"
+        )
+
+        let child = URL(fileURLWithPath: "/tmp/root/excluded/file.bin")
+
+        XCTAssertEqual(mapper.canonicalPath(for: child), "/private/tmp/root/excluded/file.bin")
+    }
+
+    func test_canonicalPathMapperPreservesPathBoundary() {
+        let mapper = PathExclusionMatcher.CanonicalPathMapper(
+            canonicalRootPath: "/private/tmp/root",
+            displayedRootPath: "/tmp/root"
+        )
+
+        let sibling = URL(fileURLWithPath: "/tmp/root-sibling/file.bin")
+
+        XCTAssertEqual(mapper.canonicalPath(for: sibling), "/tmp/root-sibling/file.bin")
+    }
+
     // MARK: - Total size
 
     func test_scan_resultTotalSizeMatchesFileSizes() async throws {
@@ -247,6 +269,81 @@ final class FileScannerTests: XCTestCase {
             1_000,
             "External 1 KB file appears to have been counted via symlink"
         )
+    }
+
+    // MARK: - Packages
+
+    func test_fileManagerSkipsPackageDescendantsEmitsPackageURLItself() throws {
+        let package = tempRoot.appendingPathComponent("Demo.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let innerFile = try TestHelpers.createDummyFile(named: "Info.plist", size: 16, in: contents)
+
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(
+            at: tempRoot,
+            includingPropertiesForKeys: [.isPackageKey],
+            options: [.skipsPackageDescendants]
+        ))
+        let urls = enumerator.compactMap { $0 as? URL }
+        let resolvedPaths = Set(urls.map { $0.resolvingSymlinksInPath().path })
+
+        XCTAssertTrue(
+            resolvedPaths.contains(package.resolvingSymlinksInPath().path),
+            ".skipsPackageDescendants should still surface the package URL so package-as-file mode can emit it"
+        )
+        XCTAssertFalse(
+            resolvedPaths.contains(innerFile.resolvingSymlinksInPath().path),
+            ".skipsPackageDescendants should skip package internals"
+        )
+    }
+
+    func test_scan_packagesAsFilesEmitsPackageDirectoryAsSingleRolledUpItem() async throws {
+        let package = tempRoot.appendingPathComponent("Demo.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "a.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "b.bin", size: 64, in: contents)
+
+        let scanner = FileScanner()
+        var files: [ScannedFile] = []
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .largeFile)],
+            excluding: [],
+            options: FileScanOptions(packagesAsFiles: true),
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
+            files.append(contentsOf: batch)
+        }
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files.first?.url.resolvingSymlinksInPath().path, package.resolvingSymlinksInPath().path)
+        XCTAssertEqual(files.first?.size, 96)
+        XCTAssertEqual(files.first?.category, .largeFile)
+    }
+
+    func test_scan_packagesAsFilesDescendsWhenExclusionTargetsPackageChild() async throws {
+        let package = tempRoot.appendingPathComponent("Demo.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let kept = try TestHelpers.createDummyFile(named: "kept.bin", size: 32, in: contents)
+        let excluded = try TestHelpers.createDummyFile(named: "excluded.bin", size: 64, in: contents)
+
+        let scanner = FileScanner()
+        var files: [ScannedFile] = []
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .largeFile)],
+            excluding: [excluded],
+            options: FileScanOptions(packagesAsFiles: true),
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
+            files.append(contentsOf: batch)
+        }
+
+        XCTAssertEqual(
+            files.map { $0.url.resolvingSymlinksInPath().path },
+            [kept.resolvingSymlinksInPath().path]
+        )
+        XCTAssertEqual(files.map(\.size), [32])
     }
 
     // MARK: - Permission denied

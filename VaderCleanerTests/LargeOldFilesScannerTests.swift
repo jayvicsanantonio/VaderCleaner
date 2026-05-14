@@ -58,6 +58,55 @@ final class LargeOldFilesScannerTests: XCTestCase {
         XCTAssertEqual(files.first?.category, .largeFile)
     }
 
+    func test_scan_emitsLargePackageAsSingleLargeFile() async throws {
+        let root = try makeRoot("applications")
+        let package = root.appendingPathComponent("Archive.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let innerFile = contents.appendingPathComponent("payload.bin")
+        try createSparseFile(at: innerFile, size: LargeOldFilesScanner.sizeThresholdBytes + 1)
+
+        let scanner = LargeOldFilesScanner(
+            pathProvider: StubUserFilesPathProvider(roots: [root]),
+            now: { self.referenceNow }
+        )
+
+        let files = try await scanner.scan(excluding: [])
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files.first?.url.resolvingSymlinksInPath().path, package.resolvingSymlinksInPath().path)
+        XCTAssertEqual(files.first?.size, LargeOldFilesScanner.sizeThresholdBytes + 1)
+        XCTAssertEqual(files.first?.category, .largeFile)
+        XCTAssertFalse(
+            files.contains {
+                $0.url.resolvingSymlinksInPath().path == innerFile.resolvingSymlinksInPath().path
+            },
+            "Package internals should not leak as separate large-file rows"
+        )
+    }
+
+    func test_scan_usesPackageContentAccessDateForAgeClassification() async throws {
+        let root = try makeRoot("pictures")
+        let package = root.appendingPathComponent("PhotoLibrary.photoslibrary", isDirectory: true)
+        let contents = package.appendingPathComponent("database", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let innerFile = try TestHelpers.createDummyFile(named: "active.sqlite", size: 32, in: contents)
+        try setAccessDate(at: innerFile, to: referenceNow.addingTimeInterval(-3_600))
+        try setAccessDate(
+            at: package,
+            to: referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds - 86_400)
+        )
+
+        let scanner = LargeOldFilesScanner(
+            pathProvider: StubUserFilesPathProvider(roots: [root]),
+            now: { self.referenceNow }
+        )
+
+        let files = try await scanner.scan(excluding: [])
+
+        XCTAssertTrue(files.isEmpty, "Fresh package contents should keep a small package out of old-file results")
+    }
+
     // MARK: - Age classification
 
     /// A file last accessed before the cutoff must be returned tagged
@@ -306,6 +355,13 @@ final class LargeOldFilesScannerTests: XCTestCase {
         var mutable = url
         try mutable.setResourceValues(values)
     }
+
+    private func createSparseFile(at url: URL, size: Int64) throws {
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data()))
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(size))
+        try handle.close()
+    }
 }
 
 // MARK: - Stubs
@@ -335,6 +391,7 @@ private struct FakeFileScanner: FileScanning {
     func scan(
         roots: [ScanRoot],
         excluding: [URL],
+        options: FileScanOptions,
         batchSize: Int,
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws {

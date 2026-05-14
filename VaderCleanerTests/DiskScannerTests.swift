@@ -64,6 +64,56 @@ final class DiskScannerTests: XCTestCase {
         XCTAssertEqual(root.size, 96)
     }
 
+    func test_scan_treatsPackageDirectoryAsLeafWithRolledUpSize() async throws {
+        let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "a.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "b.bin", size: 64, in: contents)
+
+        var progressCounts: [Int] = []
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { count in
+            progressCounts.append(count)
+        })
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Photos.app" })
+        XCTAssertFalse(packageNode.isDirectory, "Packages render as leaf tiles, not drill-down folders")
+        XCTAssertTrue(packageNode.children.isEmpty)
+        XCTAssertEqual(packageNode.size, 96)
+        XCTAssertEqual(root.size, 96)
+        XCTAssertEqual(progressCounts.last, 2, "Progress should still count regular files inside package rollups")
+    }
+
+    func test_scan_marksUnreadablePackageAsInaccessibleLeaf() async throws {
+        let package = tempRoot.appendingPathComponent("Protected.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: contents)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o000))],
+            ofItemAtPath: package.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o755))],
+                ofItemAtPath: package.path
+            )
+        }
+
+        let canStillRead = (try? FileManager.default.contentsOfDirectory(atPath: package.path)) != nil
+        try XCTSkipIf(canStillRead, "Current process can read chmod 000 packages; cannot exercise the deny path here.")
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Protected.app" })
+        XCTAssertFalse(packageNode.isDirectory, "Packages should remain leaf nodes even when inaccessible")
+        XCTAssertFalse(packageNode.isAccessible, "An unreadable package must not be reported as accessible")
+        XCTAssertTrue(packageNode.children.isEmpty)
+    }
+
     // MARK: - Symlink handling
 
     /// A symlink whose target is the scan's own root would cause infinite
