@@ -46,7 +46,7 @@ final class MenuBarViewModel: ObservableObject {
     var formattedRAMUsage: String { Self.formattedRAMUsage(service.ramUsage) }
     var formattedDiskSpace: String { Self.formattedDiskSpace(service.diskSpace) }
     var formattedCPU: String { Self.formattedCPU(service.cpuUsage) }
-    var formattedBatteryHealth: String? { Self.formattedBatteryHealth(service.batteryHealth) }
+    var formattedBatteryHealth: String? { Self.formattedBatteryHealth(service.batteryAvailability) }
     var ramPressureLevel: MemoryPressureLevel { service.ramUsage.pressureLevel }
     var ramPressureLabel: String { Self.pressureLabel(for: ramPressureLevel) }
     var ramPressureColor: StatusColor { Self.pressureColor(for: ramPressureLevel) }
@@ -88,11 +88,13 @@ final class MenuBarViewModel: ObservableObject {
         SystemStatsFormatters.cpuPercentString(usage)
     }
 
-    /// Formats a battery's `maxCapacityPercent` (0.0–1.0) as an integer
-    /// percent. Returns `nil` when no battery is present so the popover can
-    /// hide the row entirely on desktops.
-    static func formattedBatteryHealth(_ stats: BatteryStats?) -> String? {
-        stats.map(SystemStatsFormatters.batteryCapacityString)
+    /// Formats a present battery's `maxCapacityPercent` (0.0–1.0) as an
+    /// integer percent. Returns `nil` when battery state is unknown or absent
+    /// so the popover hides the row until there is a definitive battery to
+    /// show.
+    static func formattedBatteryHealth(_ availability: BatteryAvailability) -> String? {
+        guard case .present(let stats) = availability else { return nil }
+        return SystemStatsFormatters.batteryCapacityString(stats)
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the
