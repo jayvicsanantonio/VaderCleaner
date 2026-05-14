@@ -112,6 +112,11 @@ enum PathExclusionMatcher {
 /// data outside the scanned tree.
 enum PackageDirectorySizer {
 
+    struct Result: Equatable {
+        let size: Int64
+        let isAccessible: Bool
+    }
+
     private static let cancellationCheckInterval = 512
 
     private static let log = Logger(
@@ -133,15 +138,29 @@ enum PackageDirectorySizer {
         excluding canonicalExclusions: [String] = [],
         progress: (() -> Void)? = nil
     ) async throws -> Int64 {
+        try await recursiveSizeResult(
+            of: packageURL,
+            excluding: canonicalExclusions,
+            progress: progress
+        ).size
+    }
+
+    static func recursiveSizeResult(
+        of packageURL: URL,
+        excluding canonicalExclusions: [String] = [],
+        progress: (() -> Void)? = nil
+    ) async throws -> Result {
         let hasExclusions = !canonicalExclusions.isEmpty
         var totalSize: Int64 = 0
         var visitedCount = 0
+        var isAccessible = true
 
         let enumerator = FileManager.default.enumerator(
             at: packageURL,
             includingPropertiesForKeys: resourceKeys,
             options: [],
             errorHandler: { url, error in
+                isAccessible = false
                 Self.log.debug(
                     "Skipping unreadable package path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
                 )
@@ -149,7 +168,9 @@ enum PackageDirectorySizer {
             }
         )
 
-        guard let enumerator else { return 0 }
+        guard let enumerator else {
+            return Result(size: 0, isAccessible: false)
+        }
 
         while let url = enumerator.nextObject() as? URL {
             visitedCount += 1
@@ -180,7 +201,7 @@ enum PackageDirectorySizer {
             progress?()
         }
 
-        return totalSize
+        return Result(size: totalSize, isAccessible: isAccessible)
     }
 }
 

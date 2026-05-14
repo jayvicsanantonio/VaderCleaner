@@ -190,17 +190,20 @@ struct DiskScanner: DiskScanning {
         }
 
         if resourceValues?.isPackage == true {
-            let bytes = try await PackageDirectorySizer.recursiveSize(of: url) {
+            let result = try await PackageDirectorySizer.recursiveSizeResult(of: url) {
                 counter.value += 1
                 progress(counter.value)
+            }
+            if isRoot && !result.isAccessible {
+                throw DiskScanError.rootInaccessible(url)
             }
             return DiskNode(
                 url: url,
                 name: name,
-                size: bytes,
+                size: result.size,
                 isDirectory: false,
                 children: [],
-                isAccessible: true
+                isAccessible: result.isAccessible
             )
         }
 
