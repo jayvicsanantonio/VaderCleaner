@@ -28,8 +28,14 @@ struct AppUninstallerView: View {
                 }
             }
             .alert(uninstallConfirmationTitle, isPresented: $showUninstallConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Move to Trash", role: .destructive) {
+                Button(String(
+                    localized: "Cancel",
+                    comment: "Cancel button on the App Uninstaller confirmation alert."
+                ), role: .cancel) { }
+                Button(String(
+                    localized: "Move to Trash",
+                    comment: "Confirm-uninstall button on the App Uninstaller confirmation alert."
+                ), role: .destructive) {
                     Task { await viewModel.uninstall() }
                 }
             } message: {
@@ -41,12 +47,18 @@ struct AppUninstallerView: View {
     private var content: some View {
         switch viewModel.phase {
         case .idle, .loading:
-            AppUninstallerProgressState(label: "Discovering installed apps…",
+            AppUninstallerProgressState(label: String(
+                                            localized: "Discovering installed apps…",
+                                            comment: "Progress label while the App Uninstaller scans for installed apps."
+                                        ),
                                          identifier: "appUninstaller.loading")
         case .ready:
             readyContent
         case .uninstalling:
-            AppUninstallerProgressState(label: "Moving to Trash…",
+            AppUninstallerProgressState(label: String(
+                                            localized: "Moving to Trash…",
+                                            comment: "Progress label while the App Uninstaller is moving items to Trash."
+                                        ),
                                          identifier: "appUninstaller.uninstalling")
         case .complete(let bytes):
             AppUninstallerCompleteState(bytesFreed: bytes,

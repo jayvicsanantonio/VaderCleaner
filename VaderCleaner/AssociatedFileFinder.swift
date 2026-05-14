@@ -121,6 +121,7 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             results.append(contentsOf: matches(
                 inDirectory: userLaunchAgentsDir,
                 nameContains: bundleID,
+                requiredSuffix: ".plist",
                 category: .launchAgents,
                 fileManager: fileManager
             ))
@@ -129,6 +130,7 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             results.append(contentsOf: matches(
                 inDirectory: systemLaunchAgentsDir,
                 nameContains: bundleID,
+                requiredSuffix: ".plist",
                 category: .launchAgents,
                 fileManager: fileManager
             ))
@@ -185,9 +187,13 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
     /// while still rejecting siblings like `com.acme.helio2.plist` for a
     /// search of `com.acme.helio`. The bundle ID must be surrounded by
     /// dots, or anchored at the start / end of the filename.
+    /// `requiredSuffix` is enforced (case-insensitive) so LaunchAgents
+    /// can be locked to `.plist` files and stray binaries / unrelated
+    /// resources never enter the uninstall plan.
     private func matches(
         inDirectory directory: URL,
         nameContains needle: String,
+        requiredSuffix: String? = nil,
         category: AssociatedFileCategory,
         fileManager: FileManager
     ) -> [AssociatedFile] {
@@ -199,6 +205,10 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
         return entries.compactMap { entry in
             let name = entry.lastPathComponent
             guard Self.nameContainsBundleID(name, bundleID: needle) else { return nil }
+            if let requiredSuffix,
+               name.range(of: requiredSuffix, options: [.caseInsensitive, .anchored, .backwards]) == nil {
+                return nil
+            }
             return makeAssociatedFile(at: entry, category: category, fileManager: fileManager)
         }
     }

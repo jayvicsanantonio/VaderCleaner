@@ -50,6 +50,16 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
             roots.append(URL(fileURLWithPath: "/Applications", isDirectory: true))
             roots.append(URL(fileURLWithPath: "/Applications/Utilities", isDirectory: true))
             roots.append(homeDirectory.appendingPathComponent("Applications", isDirectory: true))
+            // On modern macOS most Apple system apps (Finder, Notes,
+            // Calendar, etc.) live under `/System/Applications` on the
+            // read-only Signed System Volume, not `/Applications`. Without
+            // these roots the "Show system apps" toggle would silently
+            // fail to surface most system apps even after the
+            // `com.apple.*` filter is disabled. Trashing them is blocked
+            // by SSV — the workspace recycler reports failure for those
+            // bundles, which the view-model already routes to `.failed`.
+            roots.append(URL(fileURLWithPath: "/System/Applications", isDirectory: true))
+            roots.append(URL(fileURLWithPath: "/System/Applications/Utilities", isDirectory: true))
         }
         roots.append(contentsOf: additionalRoots)
         self.roots = roots

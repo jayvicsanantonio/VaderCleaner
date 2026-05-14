@@ -94,6 +94,26 @@ final class AppDiscoveryTests: XCTestCase {
         XCTAssertEqual(apps.map(\.bundleID), ["com.acme.good"])
     }
 
+    /// `useDefaultRoots: true` must include `/System/Applications` and
+    /// its `Utilities` subfolder. Many Apple system apps live there on
+    /// modern macOS; without these roots the "Show system apps" toggle
+    /// would silently fail to surface most system apps even after the
+    /// `com.apple.*` filter is disabled. Codex P2 on PR #58.
+    func test_init_defaultRootsIncludeSystemApplications() {
+        let discovery = DefaultAppDiscovery(
+            homeDirectory: URL(fileURLWithPath: "/Users/test"),
+            useDefaultRoots: true
+        )
+        let mirror = Mirror(reflecting: discovery)
+        let roots = mirror.children.first(where: { $0.label == "roots" })?.value as? [URL] ?? []
+        let rootPaths = roots.map(\.path)
+        XCTAssertTrue(rootPaths.contains("/Applications"))
+        XCTAssertTrue(rootPaths.contains("/Applications/Utilities"))
+        XCTAssertTrue(rootPaths.contains("/Users/test/Applications"))
+        XCTAssertTrue(rootPaths.contains("/System/Applications"))
+        XCTAssertTrue(rootPaths.contains("/System/Applications/Utilities"))
+    }
+
     /// `_MASReceipt/receipt` presence flips `isAppStore` to `true`.
     func test_installedApps_detectsAppStoreInstall() async throws {
         try makeAppBundle(named: "Premium", bundleID: "com.acme.premium", appStore: true)

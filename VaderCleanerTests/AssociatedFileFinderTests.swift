@@ -158,6 +158,21 @@ final class AssociatedFileFinderTests: XCTestCase {
         XCTAssertEqual(savedState?.sizeBytes, 12)
     }
 
+    /// LaunchAgents lookup must require the `.plist` extension —
+    /// vendors occasionally drop unrelated companion files (binaries,
+    /// scripts, sockets) into LaunchAgents directories and a too-broad
+    /// substring match would Trash them during uninstall.
+    func test_find_launchAgentsRequireDotPlistSuffix() async throws {
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio.updater.plist", size: 16)
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio.helper.binary", size: 8_192)
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio.socket", size: 0)
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        let names = result.filter { $0.category == .launchAgents }.map { $0.url.lastPathComponent }
+        XCTAssertEqual(names, ["com.acme.helio.updater.plist"])
+    }
+
     func test_find_includesUserAndSystemLaunchAgents() async throws {
         try makeFile(under: "Library/LaunchAgents/com.acme.helio.updater.plist", size: 64)
         let systemAgentURL = systemLibrary
