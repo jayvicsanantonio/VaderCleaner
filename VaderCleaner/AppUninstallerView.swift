@@ -10,10 +10,12 @@ import SwiftUI
 struct AppUninstallerView: View {
 
     @ObservedObject private var viewModel: AppUninstallerViewModel
+    @StateObject private var iconCache: AppIconCache
     @State private var showUninstallConfirmation = false
 
-    init(viewModel: AppUninstallerViewModel) {
+    init(viewModel: AppUninstallerViewModel, iconCache: AppIconCache = AppIconCache()) {
         self.viewModel = viewModel
+        _iconCache = StateObject(wrappedValue: iconCache)
     }
 
     var body: some View {
@@ -62,6 +64,7 @@ struct AppUninstallerView: View {
             AppUninstallerListPane(
                 apps: viewModel.filteredApps,
                 selectedAppID: viewModel.selectedAppID,
+                bundleSize: viewModel.bundleSize(for:),
                 searchQuery: Binding(
                     get: { viewModel.searchQuery },
                     set: { viewModel.searchQuery = $0 }
@@ -74,17 +77,27 @@ struct AppUninstallerView: View {
                         Task { await viewModel.reloadApps() }
                     }
                 ),
-                onSelect: viewModel.select
+                onSelect: viewModel.select,
+                iconCache: iconCache
             )
             .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
             Divider()
             AppUninstallerDetailPane(
                 app: viewModel.selectedApp,
+                bundleSize: viewModel.selectedAppBundleSize,
                 isLoadingAssociatedFiles: viewModel.isLoadingAssociatedFiles,
                 groupedFiles: viewModel.associatedFilesByCategory,
                 totalReclaimableSize: viewModel.totalReclaimableSize,
-                onUninstall: { showUninstallConfirmation = true }
+                canUninstall: viewModel.canUninstallSelectedApp,
+                onUninstall: { showUninstallConfirmation = true },
+                iconCache: iconCache
             )
+        }
+        .onChange(of: viewModel.filteredApps.map(\.id)) { _, _ in
+            Task { await iconCache.preloadIcons(for: viewModel.filteredApps.map(\.bundleURL)) }
+        }
+        .task(id: viewModel.apps.map(\.id)) {
+            await iconCache.preloadIcons(for: viewModel.apps.map(\.bundleURL))
         }
     }
 

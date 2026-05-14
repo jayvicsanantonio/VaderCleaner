@@ -15,6 +15,12 @@ protocol AppDiscovering: Sendable {
     ///   Defaults to `false` at the view-model layer; the Preferences
     ///   toggle (future work) can flip it on.
     func installedApps(includingSystemApps: Bool) async throws -> [AppInfo]
+
+    /// Recursive byte size of the `.app` directory tree. Runs lazily
+    /// when the user selects a row in the App Uninstaller — folding
+    /// this into `installedApps` would pin launch on multi-second
+    /// directory walks for users with many installed apps.
+    func bundleSize(at url: URL) async -> Int64
 }
 
 /// Production discovery — walks the three canonical macOS app roots and
@@ -69,7 +75,9 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
                         options: [.skipsHiddenFiles]
                     )
                 } catch {
-                    log.debug("AppDiscovery skipping unreadable root \(root.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    // Privacy: paths and raw error text can leak user-
+                    // identifying info into Console; redact both.
+                    log.debug("AppDiscovery skipping unreadable root \(root.path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
                     continue
                 }
                 for entry in entries {
@@ -130,23 +138,30 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
             .appendingPathComponent("receipt")
         let isAppStore = fileManager.fileExists(atPath: receipt.path)
 
-        let size = bundleSize(at: url, fileManager: fileManager)
-
         return AppInfo(
             name: name,
             bundleID: bundleID,
             version: version,
             bundleURL: url,
-            bundleSizeBytes: size,
             isAppStore: isAppStore
         )
+    }
+
+    /// Recursive byte size of the `.app` directory tree. Hops to a
+    /// background queue so the view-model can `await` it without pinning
+    /// the main actor while the directory walk runs.
+    func bundleSize(at url: URL) async -> Int64 {
+        let fileManager = fileManager
+        return await Task.detached(priority: .userInitiated) {
+            Self.bundleSize(at: url, fileManager: fileManager)
+        }.value
     }
 
     /// Recursive byte size of the `.app` directory tree. Errors are
     /// tolerated — a permission failure inside a single nested resource
     /// (e.g. a sandboxed `XPCService` we can't stat) must not zero out
     /// the whole row.
-    private static func bundleSize(at url: URL, fileManager: FileManager) -> Int64 {
+    static func bundleSize(at url: URL, fileManager: FileManager) -> Int64 {
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],

@@ -33,6 +33,7 @@ final class AppUninstallerViewModel: ObservableObject {
 
     typealias Discover     = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
     typealias FindFiles    = @Sendable (_ bundleID: String) async -> [AssociatedFile]
+    typealias MeasureSize  = @Sendable (_ bundleURL: URL) async -> Int64
     typealias Recycle      = @Sendable (_ urls: [URL]) async throws -> Int64
 
     @Published private(set) var phase: Phase = .idle
@@ -40,11 +41,15 @@ final class AppUninstallerViewModel: ObservableObject {
     @Published private(set) var selectedAppID: AppInfo.ID?
     @Published private(set) var associatedFiles: [AssociatedFile] = []
     @Published private(set) var isLoadingAssociatedFiles: Bool = false
+    /// Bundle size of the currently selected app, computed lazily on
+    /// selection. `nil` until the per-app size measurement returns.
+    @Published private(set) var selectedAppBundleSize: Int64?
     @Published var includesSystemApps: Bool = false
     @Published var searchQuery: String = ""
 
     private let discover: Discover
     private let findFiles: FindFiles
+    private let measureSize: MeasureSize
     private let recycle: Recycle
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "AppUninstallerViewModel")
@@ -52,6 +57,11 @@ final class AppUninstallerViewModel: ObservableObject {
     /// Cached associated-files results keyed by bundle URL path. Selecting
     /// the same app twice in a session doesn't re-walk the filesystem.
     private var associatedFilesCache: [AppInfo.ID: [AssociatedFile]] = [:]
+
+    /// Cached bundle sizes keyed by bundle URL path. The size walk is
+    /// expensive on apps with many bundled frameworks, so we avoid
+    /// repeating it after the first selection.
+    private var bundleSizeCache: [AppInfo.ID: Int64] = [:]
 
     /// Monotonically increasing token for in-flight operations — see the
     /// same pattern in `PrivacyViewModel` for the rationale.
@@ -61,10 +71,12 @@ final class AppUninstallerViewModel: ObservableObject {
     init(
         discover: @escaping Discover,
         findFiles: @escaping FindFiles,
+        measureSize: @escaping MeasureSize = { _ in 0 },
         recycle: @escaping Recycle
     ) {
         self.discover = discover
         self.findFiles = findFiles
+        self.measureSize = measureSize
         self.recycle = recycle
     }
 
@@ -90,11 +102,13 @@ final class AppUninstallerViewModel: ObservableObject {
 
     /// Sum of bundle size + all associated file sizes for the selected app.
     /// Returns 0 when nothing is selected — the footer renders "0 bytes" in
-    /// that case, which is correct (nothing will be Trashed).
+    /// that case, which is correct (nothing will be Trashed). The bundle
+    /// size component is `nil` until the per-app size measurement
+    /// returns; the footer reflects the partial total in the meantime.
     var totalReclaimableSize: Int64 {
-        guard let app = selectedApp else { return 0 }
+        guard selectedApp != nil else { return 0 }
         let associated = associatedFiles.reduce(Int64(0)) { $0 + $1.sizeBytes }
-        return app.bundleSizeBytes + associated
+        return (selectedAppBundleSize ?? 0) + associated
     }
 
     /// Associated files for the selected app grouped by category, in the
@@ -134,7 +148,8 @@ final class AppUninstallerViewModel: ObservableObject {
             }
             self.phase = .ready
         } catch {
-            log.error("App discovery failed: \(String(describing: error), privacy: .public)")
+            // Privacy: errors may include user-specific paths.
+            log.error("App discovery failed: \(String(describing: error), privacy: .private)")
             guard self.loadGeneration == generation else { return }
             self.apps = []
             self.selectedAppID = nil
@@ -150,64 +165,115 @@ final class AppUninstallerViewModel: ObservableObject {
         await loadApps()
     }
 
-    /// Select an app by ID. Drives an async associated-files lookup,
-    /// publishing `associatedFiles` once the finder returns. A second
-    /// `select(...)` before the first finishes cancels the older lookup
-    /// so the right-hand panel can't flash stale rows from a previous
-    /// selection.
+    /// Select an app by ID. Drives an async associated-files lookup AND
+    /// a deferred bundle-size measurement in parallel, publishing
+    /// `associatedFiles` and `selectedAppBundleSize` independently as
+    /// each one finishes. A second `select(...)` before the first
+    /// finishes cancels the older lookups so the right-hand panel can't
+    /// flash stale rows from a previous selection.
     func select(_ appID: AppInfo.ID?) {
         selectedAppID = appID
         guard let appID, let app = apps.first(where: { $0.id == appID }) else {
             associatedFiles = []
+            selectedAppBundleSize = nil
             isLoadingAssociatedFiles = false
             return
         }
-        if let cached = associatedFilesCache[appID] {
-            associatedFiles = cached
+
+        // Hydrate cached results synchronously so the UI doesn't flash
+        // back to "loading" for an app the user has already inspected.
+        selectedAppBundleSize = bundleSizeCache[appID]
+
+        if let cachedFiles = associatedFilesCache[appID] {
+            associatedFiles = cachedFiles
             isLoadingAssociatedFiles = false
-            return
+            // Bundle-size measurement may still be outstanding even when
+            // associated files were cached (e.g. an error path skipped it
+            // last time); fall through to schedule it if needed.
+        } else {
+            associatedFiles = []
+            isLoadingAssociatedFiles = true
         }
-        associatedFiles = []
-        isLoadingAssociatedFiles = true
+
         let generation = beginSelect()
         let bundleID = app.bundleID
+        let bundleURL = app.bundleURL
         let findFiles = findFiles
-        Task { [weak self] in
-            let found = await findFiles(bundleID)
-            await MainActor.run { [weak self] in
-                guard let self, self.selectGeneration == generation else { return }
-                self.associatedFilesCache[appID] = found
-                if self.selectedAppID == appID {
-                    self.associatedFiles = found
-                    self.isLoadingAssociatedFiles = false
+        let measureSize = measureSize
+        let needsFiles = associatedFilesCache[appID] == nil
+        let needsSize = bundleSizeCache[appID] == nil
+
+        if needsFiles {
+            Task { [weak self] in
+                let found = await findFiles(bundleID)
+                await MainActor.run { [weak self] in
+                    guard let self, self.selectGeneration == generation else { return }
+                    self.associatedFilesCache[appID] = found
+                    if self.selectedAppID == appID {
+                        self.associatedFiles = found
+                        self.isLoadingAssociatedFiles = false
+                    }
+                }
+            }
+        }
+
+        if needsSize {
+            Task { [weak self] in
+                let size = await measureSize(bundleURL)
+                await MainActor.run { [weak self] in
+                    guard let self, self.selectGeneration == generation else { return }
+                    self.bundleSizeCache[appID] = size
+                    if self.selectedAppID == appID {
+                        self.selectedAppBundleSize = size
+                    }
                 }
             }
         }
     }
 
+    /// Bundle size for an app, if it has been measured. Used by the list
+    /// row to show "— MB" only after the size lands rather than during
+    /// the initial discovery pass.
+    func bundleSize(for appID: AppInfo.ID) -> Int64? {
+        bundleSizeCache[appID]
+    }
+
+    /// Whether the destructive uninstall button should be enabled for
+    /// the currently selected app. False while the associated-files
+    /// scan is in flight — confirming early would only Trash the bundle
+    /// and leave residual user data behind.
+    var canUninstallSelectedApp: Bool {
+        selectedApp != nil && !isLoadingAssociatedFiles
+    }
+
     /// Uninstall the currently-selected app. Routes the bundle URL plus
     /// every associated file URL through the injected recycler. A no-op
-    /// when nothing is selected.
+    /// when nothing is selected or when the associated-files scan is
+    /// still in flight — confirming early would Trash only the bundle
+    /// and leave residual user data behind.
     func uninstall() async {
-        guard let app = selectedApp else { return }
+        guard let app = selectedApp, !isLoadingAssociatedFiles else { return }
         let urls = [app.bundleURL] + associatedFiles.map { $0.url }
         guard !urls.isEmpty else { return }
-        let plannedBytes = totalReclaimableSize
         phase = .uninstalling
         do {
             let bytesFreed = try await recycle(urls)
             // Drop the app from the cached list and reset selection so the
             // user sees the result without a stale row pointing at a now-
-            // Trashed bundle. We use the optimistic `plannedBytes` when the
-            // recycler reports `0` only as a degenerate fallback — the
-            // recycler is the source of truth.
+            // Trashed bundle. `bytesFreed` is the recycler's authoritative
+            // sum of what it actually moved to Trash — we do NOT fall back
+            // to a planned/optimistic total, since that would claim
+            // "X MB freed" when the recycler reports 0.
             apps.removeAll(where: { $0.id == app.id })
             selectedAppID = nil
             associatedFiles = []
+            selectedAppBundleSize = nil
             associatedFilesCache.removeValue(forKey: app.id)
-            phase = .complete(bytesFreed: bytesFreed > 0 ? bytesFreed : plannedBytes)
+            bundleSizeCache.removeValue(forKey: app.id)
+            phase = .complete(bytesFreed: bytesFreed)
         } catch {
-            log.error("App uninstall failed: \(String(describing: error), privacy: .public)")
+            // Privacy: errors may include user-specific paths.
+            log.error("App uninstall failed: \(String(describing: error), privacy: .private)")
             phase = .failed(stage: .uninstalling, message: error.localizedDescription)
         }
     }
@@ -248,6 +314,9 @@ extension AppUninstallerViewModel {
             },
             findFiles: { bundleID in
                 await finder.find(forBundleID: bundleID)
+            },
+            measureSize: { url in
+                await discovery.bundleSize(at: url)
             },
             recycle: { urls in
                 try await Self.recycleViaWorkspace(urls: urls)

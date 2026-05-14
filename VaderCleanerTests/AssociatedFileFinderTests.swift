@@ -44,6 +44,52 @@ final class AssociatedFileFinderTests: XCTestCase {
         XCTAssertEqual(result.first?.url.lastPathComponent, "com.acme.helio.plist")
     }
 
+    /// A Preferences scan must reject non-`.plist` entries that happen
+    /// to share the bundle-ID prefix — without the extension filter, a
+    /// stray `com.acme.helio.db` would be Trashed during uninstall.
+    func test_find_excludesNonPlistEntriesUnderPreferences() async throws {
+        try makeFile(under: "Library/Preferences/com.acme.helio.plist", size: 16)
+        try makeFile(under: "Library/Preferences/com.acme.helio.db", size: 64)
+        try makeFile(under: "Library/Preferences/com.acme.helio.lock", size: 8)
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        let names = result.map { $0.url.lastPathComponent }
+        XCTAssertTrue(names.contains("com.acme.helio.plist"))
+        XCTAssertFalse(names.contains("com.acme.helio.db"),
+                       "Preferences scan must require the .plist suffix")
+        XCTAssertFalse(names.contains("com.acme.helio.lock"),
+                       "Preferences scan must require the .plist suffix")
+    }
+
+    /// A Group Containers / LaunchAgents scan must reject siblings that
+    /// share the bundle-ID prefix but lack a dot boundary on the
+    /// matched substring (`com.acme.helio2`, `com.acme.helioworld`).
+    /// The finder emits the matched directory itself (Group Containers
+    /// are directories the user wants Trashed wholesale), so the
+    /// assertions match on the last path component.
+    func test_find_groupContainersAndLaunchAgentsRejectNonBoundaryMatches() async throws {
+        // Wanted hits.
+        try makeFile(under: "Library/Group Containers/TEAM1234.com.acme.helio/shared.bin", size: 1)
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio.helper.plist", size: 1)
+        // Sibling apps — must be excluded.
+        try makeFile(under: "Library/Group Containers/TEAM5678.com.acme.helio2/shared.bin", size: 1)
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio2.helper.plist", size: 1)
+        try makeFile(under: "Library/LaunchAgents/com.acme.helioworld.plist", size: 1)
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        let names = result.map { $0.url.lastPathComponent }
+        XCTAssertTrue(names.contains("TEAM1234.com.acme.helio"))
+        XCTAssertTrue(names.contains("com.acme.helio.helper.plist"))
+        XCTAssertFalse(names.contains("TEAM5678.com.acme.helio2"),
+                       "Substring match must not pull in helio2 sibling app")
+        XCTAssertFalse(names.contains("com.acme.helio2.helper.plist"),
+                       "Substring match must not pull in helio2 sibling app")
+        XCTAssertFalse(names.contains("com.acme.helioworld.plist"),
+                       "Substring match must require a dot boundary")
+    }
+
     /// A search for `com.acme.helio` must NOT also match
     /// `com.acme.helio2.plist` or `com.acme.helioworld.savedState` —
     /// the bundle ID has to be followed by a dot (or end-of-name).

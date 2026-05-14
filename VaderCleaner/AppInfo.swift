@@ -6,14 +6,17 @@ import Foundation
 /// A single installed `.app` bundle plus the metadata the App Uninstaller
 /// needs to display it and decide what to remove.
 ///
-/// `bundleSizeBytes` is computed lazily by `AppDiscovery` (size of the
-/// `.app` directory tree); a value of `0` is acceptable when sizing
-/// failed — the row still renders, just with no size label. `iconPath`
-/// is intentionally a `URL?` rather than an `NSImage` so the value type
-/// stays cleanly `Sendable`; the view layer resolves the icon via
-/// `NSWorkspace.shared.icon(forFile:)` at render time so it picks up
-/// the asset-catalog (`.car`) icons that modern apps use without us
-/// having to parse `CFBundleIconFile` ourselves.
+/// Bundle size is **not** part of this value — recursively summing every
+/// regular file in every installed `.app` during the initial discovery
+/// pass is expensive (multi-second on machines with many apps) and
+/// pinning that work to launch makes the entire feature feel slow.
+/// `AppUninstallerViewModel.bundleSize(for:)` computes the size lazily
+/// when the user selects a row, in parallel with the associated-files
+/// scan.
+///
+/// Icons are similarly resolved through a dedicated `@MainActor`
+/// `AppIconCache` rather than carried on `AppInfo`, so the value type
+/// stays cleanly `Sendable`.
 ///
 /// `isAppStore` reflects the presence of `Contents/_MASReceipt/receipt`
 /// inside the bundle — the canonical Mac App Store install marker —
@@ -24,7 +27,6 @@ struct AppInfo: Identifiable, Hashable, Sendable {
     let bundleID: String
     let version: String?
     let bundleURL: URL
-    let bundleSizeBytes: Int64
     let isAppStore: Bool
 
     /// `id` keys off the bundle URL path so SwiftUI lists stay stable across

@@ -153,21 +153,98 @@ final class AppUninstallerViewModelTests: XCTestCase {
 
     // MARK: - Totals
 
-    /// `totalReclaimableSize` is bundle size + sum of associated files.
+    /// `totalReclaimableSize` is bundle size + sum of associated files
+    /// once both async lookups have landed.
     func test_totalReclaimableSize_isBundleSizePlusAssociated() async {
-        let app = makeApp(name: "Helio", bundleID: "com.acme.helio", bundleSize: 1_000)
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
         let stubFiles = [
             AssociatedFile(url: URL(fileURLWithPath: "/tmp/a"), sizeBytes: 50, category: .cache),
             AssociatedFile(url: URL(fileURLWithPath: "/tmp/b"), sizeBytes: 200, category: .logs)
         ]
         let vm = makeViewModel(
             discover: { _ in [app] },
-            findFiles: { _ in stubFiles }
+            findFiles: { _ in stubFiles },
+            measureSize: { _ in 1_000 }
         )
         await vm.loadApps()
         vm.select(app.id)
-        await waitFor { !vm.associatedFiles.isEmpty }
+        await waitFor { !vm.associatedFiles.isEmpty && vm.selectedAppBundleSize != nil }
         XCTAssertEqual(vm.totalReclaimableSize, 1_250)
+    }
+
+    /// `bundleSize(for:)` returns `nil` until the per-app size
+    /// measurement lands, then the measured value. The list row uses
+    /// this to defer rendering the size label.
+    func test_bundleSize_returnsNilUntilMeasured() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in [] },
+            measureSize: { _ in 4_096 }
+        )
+        await vm.loadApps()
+        XCTAssertNil(vm.bundleSize(for: app.id),
+                     "Bundle size must not be computed during discovery")
+        vm.select(app.id)
+        await waitFor { vm.bundleSize(for: app.id) != nil }
+        XCTAssertEqual(vm.bundleSize(for: app.id), 4_096)
+    }
+
+    /// `canUninstallSelectedApp` is false while the associated-files
+    /// scan is in flight so the destructive button is disabled — see
+    /// the Codex review comment on the uninstall flow.
+    func test_canUninstallSelectedApp_isFalseWhileAssociatedFilesLoading() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let releaseFinder = ActorBox<CheckedContinuation<Void, Never>?>(nil)
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in
+                await withCheckedContinuation { continuation in
+                    Task { await releaseFinder.set(continuation) }
+                }
+                return []
+            }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitForActor { await releaseFinder.value != nil }
+        XCTAssertTrue(vm.isLoadingAssociatedFiles)
+        XCTAssertFalse(vm.canUninstallSelectedApp,
+                       "Uninstall must be gated while associated files are still being scanned")
+
+        // Release the finder and confirm canUninstall flips true.
+        let continuation: CheckedContinuation<Void, Never>? = await releaseFinder.value
+        continuation?.resume()
+        await waitFor { !vm.isLoadingAssociatedFiles }
+        XCTAssertTrue(vm.canUninstallSelectedApp)
+    }
+
+    /// `uninstall()` must be a no-op while the associated-files scan is
+    /// in flight — confirming early would otherwise Trash only the
+    /// bundle and leave caches/preferences behind.
+    func test_uninstall_isNoOpWhileAssociatedFilesLoading() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let recycleCalls = ActorBox(0)
+        let releaseFinder = ActorBox<CheckedContinuation<Void, Never>?>(nil)
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in
+                await withCheckedContinuation { continuation in
+                    Task { await releaseFinder.set(continuation) }
+                }
+                return []
+            },
+            recycle: { _ in await recycleCalls.increment(); return 1 }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitForActor { await releaseFinder.value != nil }
+        XCTAssertTrue(vm.isLoadingAssociatedFiles)
+        await vm.uninstall()
+        let count = await recycleCalls.value
+        XCTAssertEqual(count, 0, "uninstall must not run while scan is in flight")
+        let continuation: CheckedContinuation<Void, Never>? = await releaseFinder.value
+        continuation?.resume()
     }
 
     /// Files are exposed grouped by category in declaration order.
@@ -233,7 +310,10 @@ final class AppUninstallerViewModelTests: XCTestCase {
         )
         await vm.loadApps()
         vm.select(app.id)
-        await waitFor { vm.selectedApp != nil }
+        // Wait for the associated-files scan to finish — `uninstall()`
+        // is a no-op while the scan is still in flight, so an early call
+        // would never reach the recycler.
+        await waitFor { vm.canUninstallSelectedApp }
         await vm.uninstall()
         if case .failed(let stage, _) = vm.phase {
             XCTAssertEqual(stage, .uninstalling)
@@ -267,7 +347,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         )
         await vm.loadApps()
         vm.select(app.id)
-        await waitFor { vm.selectedApp != nil }
+        await waitFor { vm.canUninstallSelectedApp }
         await vm.uninstall()
         vm.dismissResult()
         XCTAssertEqual(vm.phase, .ready)
@@ -278,26 +358,26 @@ final class AppUninstallerViewModelTests: XCTestCase {
     private func makeViewModel(
         discover: @escaping AppUninstallerViewModel.Discover = { _ in [] },
         findFiles: @escaping AppUninstallerViewModel.FindFiles = { _ in [] },
+        measureSize: @escaping AppUninstallerViewModel.MeasureSize = { _ in 0 },
         recycle: @escaping AppUninstallerViewModel.Recycle = { _ in 0 }
     ) -> AppUninstallerViewModel {
         AppUninstallerViewModel(
             discover: discover,
             findFiles: findFiles,
+            measureSize: measureSize,
             recycle: recycle
         )
     }
 
     private func makeApp(
         name: String,
-        bundleID: String,
-        bundleSize: Int64 = 0
+        bundleID: String
     ) -> AppInfo {
         AppInfo(
             name: name,
             bundleID: bundleID,
             version: "1.0",
             bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
-            bundleSizeBytes: bundleSize,
             isAppStore: false
         )
     }
@@ -312,6 +392,19 @@ final class AppUninstallerViewModelTests: XCTestCase {
     ) async {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
+            if Date() > deadline { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// Same as `waitFor` but for predicates that need to `await` an
+    /// actor (e.g. reading from an `ActorBox`).
+    private func waitForActor(
+        timeout: TimeInterval = 2.0,
+        _ condition: @Sendable () async -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while await !condition() {
             if Date() > deadline { return }
             try? await Task.sleep(nanoseconds: 5_000_000)
         }

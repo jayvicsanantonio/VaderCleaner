@@ -56,6 +56,7 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             results.append(contentsOf: matches(
                 inDirectory: preferencesDir,
                 nameStartsWith: bundleID,
+                requiredSuffix: ".plist",
                 category: .preferences,
                 fileManager: fileManager
             ))
@@ -63,6 +64,7 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             results.append(contentsOf: matches(
                 inDirectory: byHostDir,
                 nameStartsWith: bundleID,
+                requiredSuffix: ".plist",
                 category: .preferences,
                 fileManager: fileManager
             ))
@@ -104,6 +106,7 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             results.append(contentsOf: matches(
                 inDirectory: savedStateDir,
                 nameStartsWith: bundleID,
+                requiredSuffix: ".savedState",
                 category: .savedState,
                 fileManager: fileManager
             ))
@@ -143,15 +146,19 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
         }.value
     }
 
-    /// Returns every entry in `directory` whose name is the bundle ID or
-    /// starts with the bundle ID *followed by a dot* — required so a
-    /// search for `com.acme.helio` doesn't sweep in `com.acme.helio2.plist`
-    /// or `com.acme.helioworld.plist`. Sized and tagged with `category`.
+    /// Returns every entry in `directory` whose name matches the bundle ID
+    /// on a dot-boundary — exactly `<bundleID>` (with optional `requiredSuffix`)
+    /// or `<bundleID>.<anything>` (also subject to `requiredSuffix`). Required
+    /// so a search for `com.acme.helio` doesn't sweep in `com.acme.helio2`.
+    /// When `requiredSuffix` is non-nil the entry name must also end with it
+    /// (case-insensitive), so a Preferences scan can be locked to `.plist`
+    /// files and Saved Application State to `.savedState` directories.
     /// Missing or unreadable directories are tolerated — they're the common
     /// case (most apps don't write to most of these locations).
     private func matches(
         inDirectory directory: URL,
         nameStartsWith prefix: String,
+        requiredSuffix: String? = nil,
         category: AssociatedFileCategory,
         fileManager: FileManager
     ) -> [AssociatedFile] {
@@ -164,13 +171,20 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
         return entries.compactMap { entry in
             let name = entry.lastPathComponent
             guard name == prefix || name.hasPrefix(dottedPrefix) else { return nil }
+            if let requiredSuffix,
+               name.range(of: requiredSuffix, options: [.caseInsensitive, .anchored, .backwards]) == nil {
+                return nil
+            }
             return makeAssociatedFile(at: entry, category: category, fileManager: fileManager)
         }
     }
 
-    /// Same as `nameStartsWith` but uses substring matching — required
-    /// for Group Containers (team-ID prefix) and Launch Agents (vendor
-    /// suffixes).
+    /// Returns every entry whose name contains the bundle ID on a
+    /// dot-boundary — required for Group Containers (`<TEAMID>.<bundleID>`)
+    /// and Launch Agents (`<bundleID>.helper.plist`, `<bundleID>.updater.plist`),
+    /// while still rejecting siblings like `com.acme.helio2.plist` for a
+    /// search of `com.acme.helio`. The bundle ID must be surrounded by
+    /// dots, or anchored at the start / end of the filename.
     private func matches(
         inDirectory directory: URL,
         nameContains needle: String,
@@ -183,9 +197,25 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             options: [.skipsHiddenFiles]
         )) ?? []
         return entries.compactMap { entry in
-            guard entry.lastPathComponent.contains(needle) else { return nil }
+            let name = entry.lastPathComponent
+            guard Self.nameContainsBundleID(name, bundleID: needle) else { return nil }
             return makeAssociatedFile(at: entry, category: category, fileManager: fileManager)
         }
+    }
+
+    /// True when `bundleID` appears in `name` on a dot-boundary at either
+    /// end or both — `<bundleID>`, `<bundleID>.suffix`, `<prefix>.<bundleID>`,
+    /// or `<prefix>.<bundleID>.suffix`. Pure substring matching would mark
+    /// `com.acme.helio2.plist` as a match for `com.acme.helio`, which the
+    /// recycler would then Trash unsolicited.
+    static func nameContainsBundleID(_ name: String, bundleID: String) -> Bool {
+        guard !bundleID.isEmpty else { return false }
+        guard let range = name.range(of: bundleID) else { return false }
+        let hasLeftBoundary = range.lowerBound == name.startIndex
+            || name[name.index(before: range.lowerBound)] == "."
+        let hasRightBoundary = range.upperBound == name.endIndex
+            || name[range.upperBound] == "."
+        return hasLeftBoundary && hasRightBoundary
     }
 
     /// Stat + size for a candidate path. Returns `nil` when the path

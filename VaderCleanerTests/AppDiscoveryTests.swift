@@ -110,8 +110,11 @@ final class AppDiscoveryTests: XCTestCase {
         XCTAssertTrue(byID["com.acme.sideloaded"]?.isAppStore == false)
     }
 
-    /// Bundle size is summed from regular-file children inside the `.app`.
-    func test_installedApps_sumsBundleSize() async throws {
+    /// Bundle size is computed on demand by `bundleSize(at:)`, not
+    /// during the initial discovery pass — folding the directory walk
+    /// into `installedApps` would pin launch on multi-second I/O for
+    /// users with many installed apps.
+    func test_bundleSize_sumsRegularFiles() async throws {
         let bundle = try makeAppBundle(named: "Sized", bundleID: "com.acme.sized")
         let executableDir = bundle
             .appendingPathComponent("Contents", isDirectory: true)
@@ -124,10 +127,9 @@ final class AppDiscoveryTests: XCTestCase {
             additionalRoots: [tempRoot],
             useDefaultRoots: false
         )
-        let apps = try await discovery.installedApps(includingSystemApps: true)
-        XCTAssertEqual(apps.count, 1)
+        let size = await discovery.bundleSize(at: bundle)
         // Two files × 4096 bytes + the Info.plist contributes its own size.
-        XCTAssertGreaterThanOrEqual(apps.first?.bundleSizeBytes ?? 0, 8_192)
+        XCTAssertGreaterThanOrEqual(size, 8_192)
     }
 
     // MARK: - Fixture helpers

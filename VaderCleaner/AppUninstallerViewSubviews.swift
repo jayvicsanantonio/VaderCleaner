@@ -33,9 +33,11 @@ struct AppUninstallerProgressState: View {
 struct AppUninstallerListPane: View {
     let apps: [AppInfo]
     let selectedAppID: AppInfo.ID?
+    let bundleSize: (AppInfo.ID) -> Int64?
     @Binding var searchQuery: String
     @Binding var includesSystemApps: Bool
     let onSelect: (AppInfo.ID?) -> Void
+    @ObservedObject var iconCache: AppIconCache
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,7 +52,9 @@ struct AppUninstallerListPane: View {
                     set: { onSelect($0) }
                 )) {
                     ForEach(apps) { app in
-                        AppUninstallerListRow(app: app)
+                        AppUninstallerListRow(app: app,
+                                              size: bundleSize(app.id),
+                                              iconCache: iconCache)
                             .tag(Optional(app.id))
                             .accessibilityIdentifier("appUninstaller.row.\(app.bundleID)")
                     }
@@ -95,10 +99,16 @@ struct AppUninstallerSearchField: View {
 
 struct AppUninstallerListRow: View {
     let app: AppInfo
+    let size: Int64?
+    @ObservedObject var iconCache: AppIconCache
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: app.bundleURL.path))
+            // Cached icon — falls back to the generic application icon
+            // until the background pre-load lands. `iconCache` is an
+            // ObservedObject so its `revision` bump re-renders this row
+            // once the real icon is available.
+            Image(nsImage: iconCache.icon(for: app.bundleURL))
                 .resizable()
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 2) {
@@ -111,9 +121,9 @@ struct AppUninstallerListRow: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    if app.bundleSizeBytes > 0 {
+                    if let size, size > 0 {
                         Text(AppUninstallerFormatting.byteFormatter
-                            .string(fromByteCount: app.bundleSizeBytes))
+                            .string(fromByteCount: size))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -144,15 +154,18 @@ struct AppUninstallerEmptyListState: View {
 
 struct AppUninstallerDetailPane: View {
     let app: AppInfo?
+    let bundleSize: Int64?
     let isLoadingAssociatedFiles: Bool
     let groupedFiles: [(AssociatedFileCategory, [AssociatedFile])]
     let totalReclaimableSize: Int64
+    let canUninstall: Bool
     let onUninstall: () -> Void
+    @ObservedObject var iconCache: AppIconCache
 
     var body: some View {
         if let app {
             VStack(spacing: 0) {
-                AppUninstallerDetailHeader(app: app)
+                AppUninstallerDetailHeader(app: app, bundleSize: bundleSize, iconCache: iconCache)
                 Divider()
                 if isLoadingAssociatedFiles {
                     VStack(spacing: 12) {
@@ -173,6 +186,7 @@ struct AppUninstallerDetailPane: View {
                 Divider()
                 AppUninstallerDetailFooter(
                     totalReclaimableSize: totalReclaimableSize,
+                    canUninstall: canUninstall,
                     onUninstall: onUninstall
                 )
             }
@@ -184,10 +198,14 @@ struct AppUninstallerDetailPane: View {
 
 struct AppUninstallerDetailHeader: View {
     let app: AppInfo
+    let bundleSize: Int64?
+    @ObservedObject var iconCache: AppIconCache
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: app.bundleURL.path))
+            // Cached icon — see `AppUninstallerListRow` for why the
+            // cache is observed.
+            Image(nsImage: iconCache.icon(for: app.bundleURL))
                 .resizable()
                 .frame(width: 56, height: 56)
             VStack(alignment: .leading, spacing: 4) {
@@ -210,10 +228,12 @@ struct AppUninstallerDetailHeader: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Text(AppUninstallerFormatting.byteFormatter
-                        .string(fromByteCount: app.bundleSizeBytes))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    if let bundleSize {
+                        Text(AppUninstallerFormatting.byteFormatter
+                            .string(fromByteCount: bundleSize))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             Spacer()
@@ -316,6 +336,7 @@ struct AppUninstallerFileRow: View {
 
 struct AppUninstallerDetailFooter: View {
     let totalReclaimableSize: Int64
+    let canUninstall: Bool
     let onUninstall: () -> Void
 
     var body: some View {
@@ -333,6 +354,10 @@ struct AppUninstallerDetailFooter: View {
                     .accessibilityIdentifier("appUninstaller.totalReclaimable")
             }
             Spacer()
+            // Disabled while the associated-files scan is in flight so a
+            // user who confirms early can't ship the bundle to Trash and
+            // leave caches / preferences behind — the confirmation alert
+            // promises "app and its associated files" will be moved.
             Button(String(
                 localized: "Uninstall",
                 comment: "Primary action button on the App Uninstaller detail pane."
@@ -340,6 +365,7 @@ struct AppUninstallerDetailFooter: View {
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
+                .disabled(!canUninstall)
                 .accessibilityIdentifier("appUninstaller.uninstall")
         }
         .padding(16)
@@ -410,7 +436,10 @@ struct AppUninstallerFailedState: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
                 .accessibilityIdentifier("appUninstaller.errorMessage")
-            Button("Try Again", action: onTryAgain)
+            Button(String(
+                localized: "Try Again",
+                comment: "Retry action on the App Uninstaller failure screen."
+            ), action: onTryAgain)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("appUninstaller.tryAgain")
