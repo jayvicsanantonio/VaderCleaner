@@ -13,6 +13,7 @@ struct ContentView: View {
     private let largeOldFilesViewModel: LargeOldFilesViewModel
     private let spaceLensViewModel: DiskScannerViewModel
     private let privacyViewModel: PrivacyViewModel
+    private let appUninstallerViewModel: AppUninstallerViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
@@ -24,12 +25,14 @@ struct ContentView: View {
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
         spaceLensViewModel: DiskScannerViewModel,
-        privacyViewModel: PrivacyViewModel
+        privacyViewModel: PrivacyViewModel,
+        appUninstallerViewModel: AppUninstallerViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
         self.largeOldFilesViewModel = largeOldFilesViewModel
         self.spaceLensViewModel = spaceLensViewModel
         self.privacyViewModel = privacyViewModel
+        self.appUninstallerViewModel = appUninstallerViewModel
     }
 
     var body: some View {
@@ -97,6 +100,8 @@ struct ContentView: View {
             SpaceLensView(viewModel: spaceLensViewModel)
         case .privacy:
             PrivacyView(viewModel: privacyViewModel)
+        case .appUninstaller:
+            AppUninstallerView(viewModel: appUninstallerViewModel)
         default:
             PlaceholderDetailView(section: section)
         }
@@ -144,7 +149,8 @@ private struct PlaceholderDetailView: View {
         systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
         largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
         spaceLensViewModel: DiskScannerViewModel.live(),
-        privacyViewModel: PrivacyViewModel.live()
+        privacyViewModel: PrivacyViewModel.live(),
+        appUninstallerViewModel: AppUninstallerViewModel.live()
     )
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
