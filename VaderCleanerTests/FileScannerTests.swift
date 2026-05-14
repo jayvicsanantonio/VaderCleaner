@@ -188,6 +188,28 @@ final class FileScannerTests: XCTestCase {
         XCTAssertTrue(files[0].url.path.contains("foobar"))
     }
 
+    func test_canonicalPathMapperProjectsDisplayedRootToCanonicalRoot() {
+        let mapper = PathExclusionMatcher.CanonicalPathMapper(
+            canonicalRootPath: "/private/tmp/root",
+            displayedRootPath: "/tmp/root"
+        )
+
+        let child = URL(fileURLWithPath: "/tmp/root/excluded/file.bin")
+
+        XCTAssertEqual(mapper.canonicalPath(for: child), "/private/tmp/root/excluded/file.bin")
+    }
+
+    func test_canonicalPathMapperPreservesPathBoundary() {
+        let mapper = PathExclusionMatcher.CanonicalPathMapper(
+            canonicalRootPath: "/private/tmp/root",
+            displayedRootPath: "/tmp/root"
+        )
+
+        let sibling = URL(fileURLWithPath: "/tmp/root-sibling/file.bin")
+
+        XCTAssertEqual(mapper.canonicalPath(for: sibling), "/tmp/root-sibling/file.bin")
+    }
+
     // MARK: - Total size
 
     func test_scan_resultTotalSizeMatchesFileSizes() async throws {

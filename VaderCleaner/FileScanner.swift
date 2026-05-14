@@ -68,11 +68,36 @@ extension FileScanning {
 }
 
 enum PathExclusionMatcher {
+    struct CanonicalPathMapper {
+        let canonicalRootPath: String
+        private let displayedRootPath: String
+
+        init(canonicalRootPath: String, displayedRootPath: String) {
+            self.canonicalRootPath = canonicalRootPath
+            self.displayedRootPath = displayedRootPath
+        }
+
+        func canonicalPath(for url: URL) -> String {
+            PathExclusionMatcher.project(
+                normalizedPath(url),
+                from: displayedRootPath,
+                to: canonicalRootPath
+            )
+        }
+    }
+
     /// Resolves symlinks and normalises `..`/`.` so exclusion comparisons are
     /// done on canonical paths. Mirrors `ExclusionsStore.canonicalize` so a
     /// path the user excluded matches the same canonical form a scanner sees.
     static func canonicalize(_ url: URL) -> String {
         url.resolvingSymlinksInPath().path
+    }
+
+    static func makeCanonicalPathMapper(for root: URL) -> CanonicalPathMapper {
+        CanonicalPathMapper(
+            canonicalRootPath: canonicalize(root),
+            displayedRootPath: normalizedPath(root)
+        )
     }
 
     /// True when `path` is exactly an excluded path or sits beneath one.
@@ -104,6 +129,28 @@ enum PathExclusionMatcher {
             exclusion.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil
         }
     }
+
+    private static func normalizedPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+
+    private static func project(_ path: String, from displayedRootPath: String, to canonicalRootPath: String) -> String {
+        if path.caseInsensitiveCompare(displayedRootPath) == .orderedSame {
+            return canonicalRootPath
+        }
+
+        let displayedPrefix = displayedRootPath.hasSuffix("/") ? displayedRootPath : displayedRootPath + "/"
+        guard path.range(of: displayedPrefix, options: [.anchored, .caseInsensitive]) != nil else {
+            return path
+        }
+
+        let suffix = String(path.dropFirst(displayedPrefix.count))
+        if canonicalRootPath == "/" {
+            return "/" + suffix
+        }
+        let canonicalPrefix = canonicalRootPath.hasSuffix("/") ? canonicalRootPath : canonicalRootPath + "/"
+        return canonicalPrefix + suffix
+    }
 }
 
 /// Shared recursive logical-size calculator for macOS package directories.
@@ -115,6 +162,8 @@ enum PackageDirectorySizer {
     struct Result: Equatable {
         let size: Int64
         let isAccessible: Bool
+        let lastAccessDate: Date?
+        let lastModifiedDate: Date?
     }
 
     private static let cancellationCheckInterval = 512
@@ -128,7 +177,9 @@ enum PackageDirectorySizer {
         .isRegularFileKey,
         .isDirectoryKey,
         .isSymbolicLinkKey,
-        .fileSizeKey
+        .fileSizeKey,
+        .contentAccessDateKey,
+        .contentModificationDateKey
     ]
 
     private static let resourceKeySet = Set(resourceKeys)
@@ -154,6 +205,9 @@ enum PackageDirectorySizer {
         var totalSize: Int64 = 0
         var visitedCount = 0
         var isAccessible = true
+        var newestAccessDate: Date?
+        var newestModifiedDate: Date?
+        let pathMapper = hasExclusions ? PathExclusionMatcher.makeCanonicalPathMapper(for: packageURL) : nil
 
         let enumerator = FileManager.default.enumerator(
             at: packageURL,
@@ -169,7 +223,12 @@ enum PackageDirectorySizer {
         )
 
         guard let enumerator else {
-            return Result(size: 0, isAccessible: false)
+            return Result(
+                size: 0,
+                isAccessible: false,
+                lastAccessDate: nil,
+                lastModifiedDate: nil
+            )
         }
 
         while let url = enumerator.nextObject() as? URL {
@@ -185,8 +244,8 @@ enum PackageDirectorySizer {
                 continue
             }
 
-            if hasExclusions {
-                let canonicalPath = PathExclusionMatcher.canonicalize(url)
+            if let pathMapper {
+                let canonicalPath = pathMapper.canonicalPath(for: url)
                 if PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
                     if resourceValues?.isDirectory == true {
                         enumerator.skipDescendants()
@@ -198,10 +257,28 @@ enum PackageDirectorySizer {
             guard resourceValues?.isRegularFile == true else { continue }
 
             totalSize += Int64(resourceValues?.fileSize ?? 0)
+            newestAccessDate = Self.newer(of: newestAccessDate, and: resourceValues?.contentAccessDate)
+            newestModifiedDate = Self.newer(of: newestModifiedDate, and: resourceValues?.contentModificationDate)
             progress?()
         }
 
-        return Result(size: totalSize, isAccessible: isAccessible)
+        return Result(
+            size: totalSize,
+            isAccessible: isAccessible,
+            lastAccessDate: newestAccessDate,
+            lastModifiedDate: newestModifiedDate
+        )
+    }
+
+    private static func newer(of lhs: Date?, and rhs: Date?) -> Date? {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return nil
+        case (.some(let date), nil), (nil, .some(let date)):
+            return date
+        case (.some(let lhs), .some(let rhs)):
+            return max(lhs, rhs)
+        }
     }
 }
 
@@ -272,9 +349,9 @@ struct FileScanner: FileScanning {
         for root in roots {
             try Task.checkCancellation()
 
-            if hasExclusions {
-                let canonicalRootPath = PathExclusionMatcher.canonicalize(root.url)
-                if PathExclusionMatcher.isExcluded(path: canonicalRootPath, by: canonicalExclusions) {
+            let pathMapper = hasExclusions ? PathExclusionMatcher.makeCanonicalPathMapper(for: root.url) : nil
+            if let pathMapper {
+                if PathExclusionMatcher.isExcluded(path: pathMapper.canonicalRootPath, by: canonicalExclusions) {
                     continue
                 }
             }
@@ -318,16 +395,11 @@ struct FileScanner: FileScanning {
                     continue
                 }
 
-                // Canonicalize per-file *only* when there are exclusions to
-                // compare against — the common case (no exclusions) avoids
-                // the extra symlink-resolution work entirely. We can't lift
-                // this above the loop because `FileManager.enumerator`
-                // doesn't guarantee canonical-prefixed URLs even when given
-                // a canonical root, so the comparison has to happen on a
-                // resolved path.
-                let canonicalPath = hasExclusions
-                    ? PathExclusionMatcher.canonicalize(url)
-                    : nil
+                // Exclusions are canonical, while enumerator URLs keep the
+                // root spelling they were given. Projecting through the root
+                // mapper preserves canonical matching without doing
+                // symlink-resolution I/O for every item.
+                let canonicalPath = pathMapper?.canonicalPath(for: url)
                 if let canonicalPath,
                    PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
                     if resourceValues?.isDirectory == true {
@@ -348,16 +420,16 @@ struct FileScanner: FileScanning {
                         continue
                     }
 
-                    let size = try await PackageDirectorySizer.recursiveSize(
+                    let packageResult = try await PackageDirectorySizer.recursiveSizeResult(
                         of: url,
                         excluding: canonicalExclusions
                     )
                     batch.append(
                         ScannedFile(
                             url: url,
-                            size: size,
-                            lastAccessDate: resourceValues?.contentAccessDate,
-                            lastModifiedDate: resourceValues?.contentModificationDate,
+                            size: packageResult.size,
+                            lastAccessDate: packageResult.lastAccessDate,
+                            lastModifiedDate: packageResult.lastModifiedDate,
                             category: root.category
                         )
                     )

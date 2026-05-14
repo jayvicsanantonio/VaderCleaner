@@ -85,6 +85,28 @@ final class LargeOldFilesScannerTests: XCTestCase {
         )
     }
 
+    func test_scan_usesPackageContentAccessDateForAgeClassification() async throws {
+        let root = try makeRoot("pictures")
+        let package = root.appendingPathComponent("PhotoLibrary.photoslibrary", isDirectory: true)
+        let contents = package.appendingPathComponent("database", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let innerFile = try TestHelpers.createDummyFile(named: "active.sqlite", size: 32, in: contents)
+        try setAccessDate(at: innerFile, to: referenceNow.addingTimeInterval(-3_600))
+        try setAccessDate(
+            at: package,
+            to: referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds - 86_400)
+        )
+
+        let scanner = LargeOldFilesScanner(
+            pathProvider: StubUserFilesPathProvider(roots: [root]),
+            now: { self.referenceNow }
+        )
+
+        let files = try await scanner.scan(excluding: [])
+
+        XCTAssertTrue(files.isEmpty, "Fresh package contents should keep a small package out of old-file results")
+    }
+
     // MARK: - Age classification
 
     /// A file last accessed before the cutoff must be returned tagged
