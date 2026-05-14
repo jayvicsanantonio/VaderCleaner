@@ -86,6 +86,32 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
                 }
             }
 
+            // ── System-wide /Library counterparts ───────────────────
+            // Installers that drop machine-wide data (typically through
+            // pkg installers) leave their residue under `/Library/...`,
+            // not the user's home. Without these lookups uninstalling
+            // the app would leave system-wide caches / app support /
+            // preferences orphaned on disk. These paths are usually
+            // root-owned; the recycler prompts for authorization the
+            // same way Finder does when Trashing system files.
+            let systemPreferencesDir = systemLibrary
+                .appendingPathComponent("Preferences", isDirectory: true)
+            results.append(contentsOf: matches(
+                inDirectory: systemPreferencesDir,
+                nameStartsWith: bundleID,
+                requiredSuffix: ".plist",
+                category: .preferences,
+                fileManager: fileManager
+            ))
+            for (subpath, category) in singleNameLocations {
+                let candidate = systemLibrary
+                    .appendingPathComponent(subpath, isDirectory: true)
+                    .appendingPathComponent(bundleID, isDirectory: false)
+                if let file = makeAssociatedFile(at: candidate, category: category, fileManager: fileManager) {
+                    results.append(file)
+                }
+            }
+
             // ── Group Containers ────────────────────────────────────
             // Vendors prefix the directory with a Team ID:
             //   ~/Library/Group Containers/<TEAMID>.<bundleID>

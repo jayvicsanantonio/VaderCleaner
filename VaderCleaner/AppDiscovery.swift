@@ -77,20 +77,28 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
             var apps: [AppInfo] = []
             for root in roots {
                 guard fileManager.fileExists(atPath: root.path) else { continue }
-                let entries: [URL]
-                do {
-                    entries = try fileManager.contentsOfDirectory(
-                        at: root,
-                        includingPropertiesForKeys: [.isDirectoryKey],
-                        options: [.skipsHiddenFiles]
-                    )
-                } catch {
-                    // Privacy: paths and raw error text can leak user-
-                    // identifying info into Console; redact both.
-                    log.debug("AppDiscovery skipping unreadable root \(root.path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
-                    continue
-                }
-                for entry in entries {
+                // `.skipsPackageDescendants` keeps the enumerator from
+                // walking *inside* `.app` bundles (Contents/MacOS, etc.) —
+                // we want to find the bundle itself, not its frameworks
+                // or XPC services. Without recursion we'd miss apps
+                // installed in vendor subfolders like
+                // `/Applications/Adobe/.../*.app` or `/Applications/Setapp/*.app`.
+                guard let enumerator = fileManager.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                    errorHandler: { url, error in
+                        // Privacy: paths and raw error text can leak user-
+                        // identifying info into Console; redact both. Keep
+                        // walking the rest of the tree — a single
+                        // unreadable subfolder must not blank the whole
+                        // app list.
+                        log.debug("AppDiscovery skipping unreadable entry \(url.path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
+                        return true
+                    }
+                ) else { continue }
+
+                for case let entry as URL in enumerator {
                     guard entry.pathExtension.caseInsensitiveCompare("app") == .orderedSame else {
                         continue
                     }

@@ -223,8 +223,77 @@ final class AssociatedFileFinderTests: XCTestCase {
         let finder = makeFinder()
         let result = await finder.find(forBundleID: "com.acme.helio")
         let launchAgents = result.filter { $0.category == .launchAgents }
-        XCTAssertEqual(launchAgents.count, 2)
-        XCTAssertEqual(launchAgents.reduce(0) { $0 + $1.sizeBytes }, 144)
+        XCTAssertEqual(
+            Set(launchAgents.map { $0.url.lastPathComponent }),
+            ["com.acme.helio.updater.plist", "com.acme.helio.helper.plist"]
+        )
+        let sizesByName = Dictionary(
+            uniqueKeysWithValues: launchAgents.map { ($0.url.lastPathComponent, $0.sizeBytes) }
+        )
+        XCTAssertEqual(sizesByName["com.acme.helio.updater.plist"], 64)
+        XCTAssertEqual(sizesByName["com.acme.helio.helper.plist"], 80)
+    }
+
+    // MARK: - System-wide /Library coverage
+
+    /// Pkg-installer-style apps drop machine-wide data under
+    /// `/Library/...`, not the user's home. Without scanning those
+    /// roots, residue would survive uninstall. Codex P2 on PR #58.
+    func test_find_includesSystemWideLibraryResidue() async throws {
+        let systemPrefs = systemLibrary
+            .appendingPathComponent("Preferences", isDirectory: true)
+            .appendingPathComponent("com.acme.helio.plist")
+        let systemAppSupport = systemLibrary
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("com.acme.helio", isDirectory: true)
+            .appendingPathComponent("data.bin")
+        let systemCache = systemLibrary
+            .appendingPathComponent("Caches", isDirectory: true)
+            .appendingPathComponent("com.acme.helio", isDirectory: true)
+            .appendingPathComponent("blob.bin")
+        let systemLogs = systemLibrary
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("com.acme.helio", isDirectory: true)
+            .appendingPathComponent("daemon.log")
+        for url in [systemPrefs, systemAppSupport, systemCache, systemLogs] {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(repeating: 0xCD, count: 16).write(to: url)
+        }
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        // Compare via standardized paths so `/var/...` vs `/private/var/...`
+        // differences from `contentsOfDirectory(at:)` don't flake the test.
+        let standardizedPaths = Set(result.map { $0.url.standardizedFileURL.path })
+        func expect(_ url: URL, _ label: String) {
+            XCTAssertTrue(
+                standardizedPaths.contains(url.standardizedFileURL.path),
+                "\(label) must be surfaced (got \(standardizedPaths))"
+            )
+        }
+        expect(systemPrefs, "system Preferences plist")
+        expect(systemAppSupport.deletingLastPathComponent(), "system Application Support directory")
+        expect(systemCache.deletingLastPathComponent(), "system Caches directory")
+        expect(systemLogs.deletingLastPathComponent(), "system Logs directory")
+    }
+
+    /// The system /Library Preferences scan must require the .plist
+    /// extension — same constraint as the user-domain scan so stray
+    /// `.db` / `.lock` files don't enter the uninstall plan.
+    func test_find_systemPreferencesRequireDotPlistSuffix() async throws {
+        let prefsDir = systemLibrary.appendingPathComponent("Preferences", isDirectory: true)
+        try FileManager.default.createDirectory(at: prefsDir, withIntermediateDirectories: true)
+        try Data().write(to: prefsDir.appendingPathComponent("com.acme.helio.plist"))
+        try Data().write(to: prefsDir.appendingPathComponent("com.acme.helio.db"))
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        let names = result.filter { $0.category == .preferences }.map { $0.url.lastPathComponent }
+        XCTAssertTrue(names.contains("com.acme.helio.plist"))
+        XCTAssertFalse(names.contains("com.acme.helio.db"))
     }
 
     // MARK: - Empty / missing
@@ -239,17 +308,31 @@ final class AssociatedFileFinderTests: XCTestCase {
     // MARK: - Ordering
 
     /// Results are stably ordered by category in declaration order, then
-    /// by URL path — so SwiftUI list diffing is predictable.
+    /// by URL path within a category — so SwiftUI list diffing is
+    /// predictable and unit tests on the order don't flake.
     func test_find_resultsAreStableOrderedByCategoryThenPath() async throws {
         try makeFile(under: "Library/Logs/com.acme.helio/app.log", size: 1)
         try makeFile(under: "Library/Preferences/com.acme.helio.plist", size: 1)
-        try makeFile(under: "Library/Caches/com.acme.helio/blob.bin", size: 1)
+        // Two LaunchAgents in the user domain so we can pin path ordering
+        // within a single category — `zeta` should sort after `alpha`.
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio.zeta.plist", size: 1)
+        try makeFile(under: "Library/LaunchAgents/com.acme.helio.alpha.plist", size: 1)
 
         let finder = makeFinder()
         let result = await finder.find(forBundleID: "com.acme.helio")
+
         let categories = result.map(\.category)
         let categoryRanks = categories.map { AssociatedFileCategory.allCases.firstIndex(of: $0)! }
         XCTAssertEqual(categoryRanks, categoryRanks.sorted())
+
+        // Within-category path ordering — assert for every category
+        // present in the result so a regression on any single category
+        // is caught.
+        for category in Set(result.map(\.category)) {
+            let paths = result.filter { $0.category == category }.map { $0.url.path }
+            XCTAssertEqual(paths, paths.sorted(),
+                           "Items in \(category) must be path-sorted")
+        }
     }
 
     // MARK: - Helpers

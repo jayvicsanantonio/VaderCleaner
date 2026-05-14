@@ -42,6 +42,64 @@ final class AppDiscoveryTests: XCTestCase {
         XCTAssertEqual(apps.first?.bundleURL.lastPathComponent, "Helio.app")
     }
 
+    /// Apps installed inside vendor subfolders such as
+    /// `/Applications/Adobe/.../*.app` or `/Applications/Setapp/*.app`
+    /// must surface in the list; the enumerator walks recursively but
+    /// `.skipsPackageDescendants` keeps it out of `.app` internals.
+    /// Codex P2 on PR #58.
+    func test_installedApps_findsAppsInsideVendorSubfolders() async throws {
+        try makeAppBundle(named: "TopLevel", bundleID: "com.acme.toplevel")
+        let vendorDir = tempRoot.appendingPathComponent("Adobe", isDirectory: true)
+        try FileManager.default.createDirectory(at: vendorDir, withIntermediateDirectories: true)
+        try makeAppBundle(named: "Vendor", bundleID: "com.acme.vendor", inDirectory: vendorDir)
+        let deeperDir = vendorDir.appendingPathComponent("Suite", isDirectory: true)
+        try FileManager.default.createDirectory(at: deeperDir, withIntermediateDirectories: true)
+        try makeAppBundle(named: "Deeper", bundleID: "com.acme.deeper", inDirectory: deeperDir)
+
+        let discovery = DefaultAppDiscovery(
+            homeDirectory: tempRoot.appendingPathComponent("home", isDirectory: true),
+            additionalRoots: [tempRoot],
+            useDefaultRoots: false
+        )
+        let apps = try await discovery.installedApps(includingSystemApps: true)
+        XCTAssertEqual(
+            Set(apps.map(\.bundleID)),
+            ["com.acme.toplevel", "com.acme.vendor", "com.acme.deeper"]
+        )
+    }
+
+    /// The enumerator must NOT descend into `.app` bundle internals —
+    /// XPC services and helper apps nested in `Contents/MacOS` /
+    /// `Contents/XPCServices` should never appear in the App Uninstaller
+    /// list (they're sub-components of their parent app).
+    func test_installedApps_doesNotDescendIntoAppBundles() async throws {
+        let parent = try makeAppBundle(named: "Parent", bundleID: "com.acme.parent")
+        let nestedDir = parent
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("XPCServices", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedDir, withIntermediateDirectories: true)
+        // Write a fully-formed nested `.app` with its own Info.plist.
+        let nested = nestedDir.appendingPathComponent("Helper.app", isDirectory: true)
+        let nestedContents = nested.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedContents, withIntermediateDirectories: true)
+        let nestedPlist: [String: Any] = [
+            "CFBundleIdentifier": "com.acme.parent.helper",
+            "CFBundleName": "Helper"
+        ]
+        let nestedData = try PropertyListSerialization.data(
+            fromPropertyList: nestedPlist, format: .xml, options: 0
+        )
+        try nestedData.write(to: nestedContents.appendingPathComponent("Info.plist"))
+
+        let discovery = DefaultAppDiscovery(
+            homeDirectory: tempRoot.appendingPathComponent("home", isDirectory: true),
+            additionalRoots: [tempRoot],
+            useDefaultRoots: false
+        )
+        let apps = try await discovery.installedApps(includingSystemApps: true)
+        XCTAssertEqual(apps.map(\.bundleID), ["com.acme.parent"])
+    }
+
     /// Multiple apps must come back sorted by case-insensitive name so
     /// the rendered list is deterministic and human-friendly.
     func test_installedApps_sortsResultsAlphabetically() async throws {
@@ -159,9 +217,11 @@ final class AppDiscoveryTests: XCTestCase {
         named name: String,
         bundleID: String,
         version: String? = "1.0",
-        appStore: Bool = false
+        appStore: Bool = false,
+        inDirectory directory: URL? = nil
     ) throws -> URL {
-        let bundle = tempRoot.appendingPathComponent("\(name).app", isDirectory: true)
+        let parent: URL = directory ?? tempRoot
+        let bundle = parent.appendingPathComponent("\(name).app", isDirectory: true)
         let contents = bundle.appendingPathComponent("Contents", isDirectory: true)
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
         var plist: [String: Any] = [
