@@ -28,6 +28,13 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(HealthMonitorViewModel.cpuPercentString(1.5), "100%")
     }
 
+    /// Preserve the original `rounded()` tie behavior at x.5 percentage
+    /// boundaries while still using localized percent formatting.
+    func test_cpuPercentString_roundsHalfPercentBoundariesAwayFromZero() {
+        XCTAssertEqual(HealthMonitorViewModel.cpuPercentString(0.005), "1%")
+        XCTAssertEqual(HealthMonitorViewModel.cpuPercentString(0.025), "3%")
+    }
+
     /// `cpuRatio` is what the card's progress bar binds to. Same clamp.
     func test_cpuRatio_clampsToUnitInterval() {
         XCTAssertEqual(HealthMonitorViewModel.cpuRatio(-0.5), 0.0)
@@ -160,10 +167,10 @@ final class HealthMonitorViewModelTests: XCTestCase {
     /// macOS.
     func test_batteryColor_isGreenForGoodCondition() {
         let good = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Good")
-        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: good), .green)
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .present(good)), .green)
 
         let normal = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Normal")
-        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: normal), .green)
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .present(normal)), .green)
     }
 
     /// Apple's documented "needs service" condition strings — `"Service
@@ -171,23 +178,24 @@ final class HealthMonitorViewModelTests: XCTestCase {
     /// the two states that warrant a red dot on the card.
     func test_batteryColor_isRedForServiceCondition() {
         let service = BatteryStats(cycleCount: 1200, maxCapacityPercent: 0.65, condition: "Service Battery")
-        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: service), .red)
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .present(service)), .red)
 
         let serviceRecommended = BatteryStats(cycleCount: 1500, maxCapacityPercent: 0.60, condition: "Service Recommended")
-        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: serviceRecommended), .red)
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .present(serviceRecommended)), .red)
     }
 
     /// Anything else (`"Fair"`, `"Poor"`, `"Unknown"`) is yellow — it's not
     /// pristine but doesn't warrant the alarm of red.
     func test_batteryColor_isYellowForOtherKnownConditions() {
         let fair = BatteryStats(cycleCount: 800, maxCapacityPercent: 0.82, condition: "Fair")
-        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: fair), .yellow)
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .present(fair)), .yellow)
     }
 
-    /// Desktops have no internal battery — the service publishes `nil`. The
-    /// card displays a neutral "—" + gray dot instead of being absent.
-    func test_batteryColor_isGrayWhenNoBattery() {
-        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: nil), .gray)
+    /// Unknown startup state and true desktop/no-battery state are distinct,
+    /// but both render as neutral health colors.
+    func test_batteryColor_isGrayWhenUnknownOrAbsent() {
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .unknown), .gray)
+        XCTAssertEqual(HealthMonitorViewModel.batteryColor(for: .absent), .gray)
     }
 
     /// `batteryCapacityString` formats the unit-interval capacity as a
@@ -195,6 +203,11 @@ final class HealthMonitorViewModelTests: XCTestCase {
     func test_batteryCapacityString_formatsAsPercent() {
         let stats = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Good")
         XCTAssertEqual(HealthMonitorViewModel.batteryCapacityString(stats), "95%")
+    }
+
+    func test_batteryCapacityString_roundsHalfPercentBoundariesAwayFromZero() {
+        let stats = BatteryStats(cycleCount: 100, maxCapacityPercent: 0.005, condition: "Good")
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityString(stats), "1%")
     }
 
     // MARK: - SMART color
@@ -222,14 +235,22 @@ final class HealthMonitorViewModelTests: XCTestCase {
 
     // MARK: - FileVault footer
 
-    func test_fileVaultLabel_reflectsEnabledState() {
-        XCTAssertEqual(HealthMonitorViewModel.fileVaultLabel(enabled: true), "FileVault: On")
-        XCTAssertEqual(HealthMonitorViewModel.fileVaultLabel(enabled: false), "FileVault: Off")
+    func test_fileVaultLabel_reflectsTriState() {
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultLabel(for: .unknown), "FileVault: —")
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultLabel(for: .on), "FileVault: On")
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultLabel(for: .off), "FileVault: Off")
     }
 
-    func test_fileVaultColor_isGreenWhenEnabled() {
-        XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(enabled: true), .green)
-        XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(enabled: false), .yellow)
+    func test_fileVaultIconName_reflectsTriState() {
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultIconName(for: .unknown), "questionmark.circle")
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultIconName(for: .on), "lock.shield.fill")
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultIconName(for: .off), "lock.open")
+    }
+
+    func test_fileVaultColor_reflectsTriState() {
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(for: .unknown), .gray)
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(for: .on), .green)
+        XCTAssertEqual(HealthMonitorViewModel.fileVaultColor(for: .off), .yellow)
     }
 
     // MARK: - Service binding

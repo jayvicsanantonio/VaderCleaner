@@ -4,19 +4,6 @@
 import Foundation
 import Combine
 
-/// Traffic-light state the Health Monitor cards bind to.
-///
-/// We deliberately don't use `SwiftUI.Color` here so the view-model — and its
-/// tests — stay free of SwiftUI imports. The view layer maps `StatusColor` →
-/// `Color` once at the leaf. The same enum will back the menu bar (Prompt 10)
-/// and notification dispatcher (Prompt 11) palette.
-enum StatusColor: Equatable {
-    case green
-    case yellow
-    case red
-    case gray
-}
-
 /// Drives the Health Monitor feature view.
 ///
 /// The view-model is intentionally thin: it holds a reference to
@@ -72,19 +59,17 @@ final class HealthMonitorViewModel: ObservableObject {
     var diskRatio: Double { Self.diskUsageRatio(service.diskSpace) }
     var diskColor: StatusColor { Self.diskColor(for: service.diskSpace) }
 
-    var battery: BatteryStats? { service.batteryHealth }
-    var batteryColor: StatusColor { Self.batteryColor(for: battery) }
-    var batteryCapacity: String? { battery.map(Self.batteryCapacityString) }
-    var batteryCondition: String? { battery?.condition }
-    var batteryCycleCount: Int? { battery?.cycleCount }
+    var batteryAvailability: BatteryAvailability { service.batteryAvailability }
+    var batteryColor: StatusColor { Self.batteryColor(for: batteryAvailability) }
 
     var smartStatus: SMARTStatus { service.diskSMARTStatus }
     var smartLabel: String { Self.smartLabel(for: smartStatus) }
     var smartColor: StatusColor { Self.smartColor(for: smartStatus) }
 
-    var fileVaultEnabled: Bool { service.fileVaultEnabled }
-    var fileVaultLabel: String { Self.fileVaultLabel(enabled: fileVaultEnabled) }
-    var fileVaultColor: StatusColor { Self.fileVaultColor(enabled: fileVaultEnabled) }
+    var fileVaultState: FileVaultState { service.fileVaultState }
+    var fileVaultIconName: String { Self.fileVaultIconName(for: fileVaultState) }
+    var fileVaultLabel: String { Self.fileVaultLabel(for: fileVaultState) }
+    var fileVaultColor: StatusColor { Self.fileVaultColor(for: fileVaultState) }
 
     // MARK: - Pure formatters / color rules
 
@@ -93,30 +78,25 @@ final class HealthMonitorViewModel: ObservableObject {
     /// clamp first, but the formatter is the last line of defence and is
     /// reused by the menu bar (Prompt 10) and Smart Scan (Prompt 25).
     static func cpuPercentString(_ usage: Double) -> String {
-        let clamped = cpuRatio(usage)
-        return "\(Int((clamped * 100).rounded()))%"
+        SystemStatsFormatters.cpuPercentString(usage)
     }
 
     /// Returns `usage` clamped to `[0, 1]`. Drives the CPU progress bar.
     static func cpuRatio(_ usage: Double) -> Double {
-        max(0.0, min(1.0, usage))
+        SystemStatsFormatters.unitRatio(usage)
     }
 
     /// Formats RAM byte counts as `"used / total"` in GB. We force the GB unit
     /// (rather than letting `ByteCountFormatter` pick) so 8 GB never renders
     /// as "8,000 MB" on a non-en locale and so the card width stays stable.
     static func ramUsageString(_ stats: MemoryStats) -> String {
-        let used = byteString(stats.usedBytes)
-        let total = byteString(stats.totalBytes)
-        return "\(used) / \(total)"
+        SystemStatsFormatters.memoryUsageString(stats)
     }
 
     /// Formats disk byte counts identically to RAM — see `ramUsageString` for
     /// rationale on locking the unit.
     static func diskSpaceString(_ stats: DiskStats) -> String {
-        let used = byteString(stats.usedBytes)
-        let total = byteString(stats.totalBytes)
-        return "\(used) / \(total)"
+        SystemStatsFormatters.diskUsageString(stats)
     }
 
     /// `usedBytes / totalBytes` clamped to `[0, 1]`. Returns `0` for zero-byte
@@ -169,28 +149,19 @@ final class HealthMonitorViewModel: ObservableObject {
     /// off `MemoryPressureLevel` (whose thresholds are pinned in
     /// `SystemStatsService`).
     static func pressureColor(for level: MemoryPressureLevel) -> StatusColor {
-        switch level {
-        case .nominal: return .green
-        case .fair: return .yellow
-        case .critical: return .red
-        }
+        SystemStatsFormatters.pressureColor(for: level)
     }
 
     /// Human-readable label for a memory-pressure bucket.
     static func pressureLabel(for level: MemoryPressureLevel) -> String {
-        switch level {
-        case .nominal: return "Nominal"
-        case .fair: return "Fair"
-        case .critical: return "Critical"
-        }
+        SystemStatsFormatters.pressureLabel(for: level)
     }
 
-    /// Battery health color from `BatteryStats.condition`. The IOKit key
-    /// flipped from `BatteryHealth` to `BatteryHealthCondition` across macOS
-    /// versions, so we accept both vocabularies. `nil` means no internal
-    /// battery (Mac mini / Studio / Pro) → gray.
-    static func batteryColor(for stats: BatteryStats?) -> StatusColor {
-        guard let stats = stats else { return .gray }
+    /// Battery health color from explicit availability. `.unknown` and
+    /// `.absent` are both neutral gray; only a present battery can produce
+    /// health colors.
+    static func batteryColor(for availability: BatteryAvailability) -> StatusColor {
+        guard case .present(let stats) = availability else { return .gray }
         switch stats.condition {
         case "Good", "Normal":
             return .green
@@ -207,8 +178,7 @@ final class HealthMonitorViewModel: ObservableObject {
 
     /// Formats `maxCapacityPercent` (0.0–1.0) as an integer percentage.
     static func batteryCapacityString(_ stats: BatteryStats) -> String {
-        let clamped = max(0.0, min(1.0, stats.maxCapacityPercent))
-        return "\(Int((clamped * 100).rounded()))%"
+        SystemStatsFormatters.batteryCapacityString(stats)
     }
 
     /// SMART status color. Only `.failing` warrants red — the user needs to
@@ -233,36 +203,35 @@ final class HealthMonitorViewModel: ObservableObject {
         }
     }
 
-    /// FileVault footer text. The "On" / "Off" wording mirrors the
-    /// `fdesetup status` vocabulary the service parses.
-    static func fileVaultLabel(enabled: Bool) -> String {
-        enabled ? "FileVault: On" : "FileVault: Off"
+    /// FileVault footer text. Unknown is distinct from a definitive Off so
+    /// the first render and previews do not imply encryption is disabled.
+    static func fileVaultLabel(for state: FileVaultState) -> String {
+        switch state {
+        case .unknown: return "FileVault: —"
+        case .off: return "FileVault: Off"
+        case .on: return "FileVault: On"
+        }
+    }
+
+    /// FileVault icon. Unknown uses an indeterminate symbol instead of the
+    /// open lock used for a definitive Off state.
+    static func fileVaultIconName(for state: FileVaultState) -> String {
+        switch state {
+        case .unknown: return "questionmark.circle"
+        case .off: return "lock.open"
+        case .on: return "lock.shield.fill"
+        }
     }
 
     /// FileVault color. Off is yellow rather than red because disabling
     /// FileVault is a deliberate user choice, not a failure mode — the dot
-    /// flags it for visibility without alarmism.
-    static func fileVaultColor(enabled: Bool) -> StatusColor {
-        enabled ? .green : .yellow
+    /// flags it for visibility without alarmism. Unknown stays neutral.
+    static func fileVaultColor(for state: FileVaultState) -> StatusColor {
+        switch state {
+        case .unknown: return .gray
+        case .off: return .yellow
+        case .on: return .green
+        }
     }
 
-    // MARK: - Helpers
-
-    /// Shared `ByteCountFormatter` configured for GB output. Reused so we
-    /// don't re-allocate one per card on every 2-second tick.
-    ///
-    /// `.useGB` forces the unit even for sub-1 GB inputs ("0.7 GB" rather
-    /// than "700 MB"), which keeps the card layout stable as the value
-    /// changes. `countStyle = .file` matches what Finder shows.
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = [.useGB]
-        f.countStyle = .file
-        f.includesUnit = true
-        return f
-    }()
-
-    private static func byteString(_ bytes: UInt64) -> String {
-        byteFormatter.string(fromByteCount: Int64(min(bytes, UInt64(Int64.max))))
-    }
 }

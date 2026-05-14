@@ -46,7 +46,7 @@ final class MenuBarViewModel: ObservableObject {
     var formattedRAMUsage: String { Self.formattedRAMUsage(service.ramUsage) }
     var formattedDiskSpace: String { Self.formattedDiskSpace(service.diskSpace) }
     var formattedCPU: String { Self.formattedCPU(service.cpuUsage) }
-    var formattedBatteryHealth: String? { Self.formattedBatteryHealth(service.batteryHealth) }
+    var formattedBatteryHealth: String? { Self.formattedBatteryHealth(service.batteryAvailability) }
     var ramPressureLevel: MemoryPressureLevel { service.ramUsage.pressureLevel }
     var ramPressureLabel: String { Self.pressureLabel(for: ramPressureLevel) }
     var ramPressureColor: StatusColor { Self.pressureColor(for: ramPressureLevel) }
@@ -67,19 +67,20 @@ final class MenuBarViewModel: ObservableObject {
     /// as "8,000 MB" on a non-en locale and so the popover row width stays
     /// stable across ticks.
     static func formattedRAMUsage(_ stats: MemoryStats) -> String {
-        let used = byteString(stats.usedBytes)
-        let total = byteString(stats.totalBytes)
-        return "\(used) / \(total)"
+        SystemStatsFormatters.memoryUsageString(stats)
     }
 
     /// Formats `DiskStats` to `"used / total · NN% free"`. Free percent is
     /// derived from `(total - used) / total`; rounded to integer so a noisy
     /// reading doesn't visually thrash with decimals.
     static func formattedDiskSpace(_ stats: DiskStats) -> String {
-        let used = byteString(stats.usedBytes)
-        let total = byteString(stats.totalBytes)
+        let usage = SystemStatsFormatters.diskUsageString(stats)
         let freePercent = freePercentInt(stats)
-        return "\(used) / \(total) · \(freePercent)% free"
+        let format = NSLocalizedString(
+            "%@ · %d%% free",
+            comment: "Format for disk usage and percent free, for example 250 GB / 500 GB · 50% free"
+        )
+        return String(format: format, usage, freePercent)
     }
 
     /// Formats a unit-interval CPU usage to an integer percentage. Inputs
@@ -87,39 +88,29 @@ final class MenuBarViewModel: ObservableObject {
     /// `HealthMonitorViewModel.cpuPercentString` so both consumers display
     /// the same value for the same reading.
     static func formattedCPU(_ usage: Double) -> String {
-        let clamped = max(0.0, min(1.0, usage))
-        return "\(Int((clamped * 100).rounded()))%"
+        SystemStatsFormatters.cpuPercentString(usage)
     }
 
-    /// Formats a battery's `maxCapacityPercent` (0.0–1.0) as an integer
-    /// percent. Returns `nil` when no battery is present so the popover can
-    /// hide the row entirely on desktops.
-    static func formattedBatteryHealth(_ stats: BatteryStats?) -> String? {
-        guard let stats = stats else { return nil }
-        let clamped = max(0.0, min(1.0, stats.maxCapacityPercent))
-        return "\(Int((clamped * 100).rounded()))%"
+    /// Formats a present battery's `maxCapacityPercent` (0.0–1.0) as an
+    /// integer percent. Returns `nil` when battery state is unknown or absent
+    /// so the popover hides the row until there is a definitive battery to
+    /// show.
+    static func formattedBatteryHealth(_ availability: BatteryAvailability) -> String? {
+        guard case .present(let stats) = availability else { return nil }
+        return SystemStatsFormatters.batteryCapacityString(stats)
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the
     /// `HealthMonitorViewModel` vocabulary so the badge in the popover and
     /// the badge in the Health Monitor card always read the same way.
     static func pressureLabel(for level: MemoryPressureLevel) -> String {
-        switch level {
-        case .nominal: return "Nominal"
-        case .fair: return "Fair"
-        case .critical: return "Critical"
-        }
+        SystemStatsFormatters.pressureLabel(for: level)
     }
 
-    /// Color for a memory-pressure bucket. Reuses `StatusColor` from
-    /// `HealthMonitorViewModel` so the menu bar palette and the Health
-    /// Monitor palette can never drift apart.
+    /// Color for a memory-pressure bucket. Uses the shared system-stat
+    /// palette so the menu bar and Health Monitor can never drift apart.
     static func pressureColor(for level: MemoryPressureLevel) -> StatusColor {
-        switch level {
-        case .nominal: return .green
-        case .fair: return .yellow
-        case .critical: return .red
-        }
+        SystemStatsFormatters.pressureColor(for: level)
     }
 
     // MARK: - Compact menu bar label
@@ -145,24 +136,6 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     // MARK: - Helpers
-
-    /// Shared `ByteCountFormatter` configured for GB output. Reused so we
-    /// don't re-allocate one per render on every 2-second tick.
-    ///
-    /// `.useGB` forces the unit even for sub-1 GB inputs ("0.7 GB" rather
-    /// than "700 MB"), keeping popover row width stable as the value
-    /// changes. `countStyle = .file` matches what Finder shows.
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = [.useGB]
-        f.countStyle = .file
-        f.includesUnit = true
-        return f
-    }()
-
-    private static func byteString(_ bytes: UInt64) -> String {
-        byteFormatter.string(fromByteCount: Int64(min(bytes, UInt64(Int64.max))))
-    }
 
     /// Renders a byte count as compact GB ("12 GB"), capping the integer
     /// component at `compactGBCap` so absurd inputs render as "9999+ GB"
