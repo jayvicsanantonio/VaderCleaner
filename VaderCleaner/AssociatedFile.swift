@@ -17,6 +17,7 @@ enum AssociatedFileCategory: String, CaseIterable, Codable, Hashable, Identifiab
     case groupContainers
     case savedState
     case launchAgents
+    case launchDaemons
 
     var id: String { rawValue }
 
@@ -33,6 +34,7 @@ enum AssociatedFileCategory: String, CaseIterable, Codable, Hashable, Identifiab
         case .groupContainers:    return "Group Containers"
         case .savedState:         return "Saved Application State"
         case .launchAgents:       return "Launch Agents"
+        case .launchDaemons:      return "Launch Daemons"
         }
     }
 }

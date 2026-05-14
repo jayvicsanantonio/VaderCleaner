@@ -135,6 +135,22 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
                 fileManager: fileManager
             ))
 
+            // ── Launch Daemons (root background services) ───────────
+            // Apps that install a privileged helper register it under
+            // `/Library/LaunchDaemons/<bundleID>*.plist`. Without this
+            // lookup the daemon stays registered after uninstall and
+            // can keep running on the next boot. The recycler prompts
+            // for authorization since the directory is root-owned.
+            let systemLaunchDaemonsDir = systemLibrary
+                .appendingPathComponent("LaunchDaemons", isDirectory: true)
+            results.append(contentsOf: matches(
+                inDirectory: systemLaunchDaemonsDir,
+                nameContains: bundleID,
+                requiredSuffix: ".plist",
+                category: .launchDaemons,
+                fileManager: fileManager
+            ))
+
             // Stable order: category (in declaration order), then URL path —
             // makes the rendered list deterministic across runs and makes
             // test fixtures easier to reason about.

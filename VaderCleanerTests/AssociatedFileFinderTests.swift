@@ -173,6 +173,42 @@ final class AssociatedFileFinderTests: XCTestCase {
         XCTAssertEqual(names, ["com.acme.helio.updater.plist"])
     }
 
+    /// Apps that install a privileged helper register it under
+    /// `/Library/LaunchDaemons/<bundleID>*.plist`. The scan must
+    /// include those so the daemon doesn't survive uninstall and
+    /// keep running on the next boot. Codex P2 on PR #58.
+    func test_find_includesSystemLaunchDaemons() async throws {
+        let systemDaemonURL = systemLibrary
+            .appendingPathComponent("LaunchDaemons", isDirectory: true)
+            .appendingPathComponent("com.acme.helio.daemon.plist")
+        try FileManager.default.createDirectory(
+            at: systemDaemonURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(repeating: 0xCD, count: 128).write(to: systemDaemonURL)
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        let daemons = result.filter { $0.category == .launchDaemons }
+        XCTAssertEqual(daemons.count, 1)
+        XCTAssertEqual(daemons.first?.url.lastPathComponent, "com.acme.helio.daemon.plist")
+        XCTAssertEqual(daemons.first?.sizeBytes, 128)
+    }
+
+    /// LaunchDaemons lookup must require the `.plist` extension —
+    /// same rationale as LaunchAgents.
+    func test_find_launchDaemonsRequireDotPlistSuffix() async throws {
+        let dir = systemLibrary.appendingPathComponent("LaunchDaemons", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data().write(to: dir.appendingPathComponent("com.acme.helio.daemon.plist"))
+        try Data().write(to: dir.appendingPathComponent("com.acme.helio.daemon.binary"))
+
+        let finder = makeFinder()
+        let result = await finder.find(forBundleID: "com.acme.helio")
+        let names = result.filter { $0.category == .launchDaemons }.map { $0.url.lastPathComponent }
+        XCTAssertEqual(names, ["com.acme.helio.daemon.plist"])
+    }
+
     func test_find_includesUserAndSystemLaunchAgents() async throws {
         try makeFile(under: "Library/LaunchAgents/com.acme.helio.updater.plist", size: 64)
         let systemAgentURL = systemLibrary
