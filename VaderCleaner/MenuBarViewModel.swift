@@ -74,10 +74,13 @@ final class MenuBarViewModel: ObservableObject {
     /// derived from `(total - used) / total`; rounded to integer so a noisy
     /// reading doesn't visually thrash with decimals.
     static func formattedDiskSpace(_ stats: DiskStats) -> String {
-        let used = SystemStatsFormatters.byteString(stats.usedBytes)
-        let total = SystemStatsFormatters.byteString(stats.totalBytes)
+        let usage = SystemStatsFormatters.diskUsageString(stats)
         let freePercent = freePercentInt(stats)
-        return "\(used) / \(total) · \(freePercent)% free"
+        let format = NSLocalizedString(
+            "%@ · %d%% free",
+            comment: "Format for disk usage and percent free, for example 250 GB / 500 GB · 50% free"
+        )
+        return String(format: format, usage, freePercent)
     }
 
     /// Formats a unit-interval CPU usage to an integer percentage. Inputs

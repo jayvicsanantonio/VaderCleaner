@@ -22,6 +22,7 @@
 "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable." = "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable.";
 "%@ freed" = "%@ freed";
 "%@ / %@" = "%@ / %@";
+"%@ · %d%% free" = "%@ · %d%% free";
 "%@ will be moved out of these locations. This cannot be undone." = "%@ will be moved out of these locations. This cannot be undone.";
 "MemoryPressure.Critical" = "Critical";
 "MemoryPressure.Fair" = "Fair";
