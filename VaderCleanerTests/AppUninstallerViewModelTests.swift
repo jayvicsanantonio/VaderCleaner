@@ -234,7 +234,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
                 }
                 return []
             },
-            recycle: { _ in await recycleCalls.increment(); return 1 }
+            recycle: { _, _ in await recycleCalls.increment(); return 1 }
         )
         await vm.loadApps()
         vm.select(app.id)
@@ -276,12 +276,14 @@ final class AppUninstallerViewModelTests: XCTestCase {
             AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 10, category: .preferences),
             AssociatedFile(url: URL(fileURLWithPath: "/tmp/c"), sizeBytes: 50, category: .cache)
         ]
-        let received = ActorBox<[URL]>([])
+        let receivedBundle = ActorBox<URL?>(nil)
+        let receivedAssociated = ActorBox<[URL]>([])
         let vm = makeViewModel(
             discover: { _ in [app] },
             findFiles: { _ in stubFiles },
-            recycle: { urls in
-                await received.set(urls)
+            recycle: { bundleURL, associatedURLs in
+                await receivedBundle.set(bundleURL)
+                await receivedAssociated.set(associatedURLs)
                 return 60
             }
         )
@@ -291,12 +293,42 @@ final class AppUninstallerViewModelTests: XCTestCase {
 
         await vm.uninstall()
 
-        let urls = await received.value
-        XCTAssertEqual(urls.first, app.bundleURL)
-        XCTAssertEqual(Set(urls), Set([app.bundleURL] + stubFiles.map(\.url)))
+        let bundle = await receivedBundle.value
+        let associated = await receivedAssociated.value
+        XCTAssertEqual(bundle, app.bundleURL)
+        XCTAssertEqual(Set(associated), Set(stubFiles.map(\.url)))
         XCTAssertEqual(vm.phase, .complete(bytesFreed: 60))
         XCTAssertFalse(vm.apps.contains(where: { $0.id == app.id }))
         XCTAssertNil(vm.selectedAppID)
+    }
+
+    /// If the recycler reports that the bundle could not be moved
+    /// (e.g. root-owned `/Applications/*.app` denied while user-domain
+    /// associated files succeeded), the view-model must surface
+    /// `.failed(.uninstalling)` rather than showing "complete" — the
+    /// app is still installed, leaving a stale row in the list would
+    /// mislead the user. Codex P2 on PR #58.
+    func test_uninstall_recyclerBundleFailureSurfacesAsFailed() async {
+        struct BundleNotMovedError: Error {}
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            findFiles: { _ in [] },
+            recycle: { _, _ in throw BundleNotMovedError() }
+        )
+        await vm.loadApps()
+        vm.select(app.id)
+        await waitFor { vm.canUninstallSelectedApp }
+        await vm.uninstall()
+
+        if case .failed(let stage, _) = vm.phase {
+            XCTAssertEqual(stage, .uninstalling)
+        } else {
+            XCTFail("Expected .failed(.uninstalling), got \(vm.phase)")
+        }
+        // App row must still be present so the user can retry.
+        XCTAssertTrue(vm.apps.contains(where: { $0.id == app.id }),
+                      "App must stay in the list when its bundle was not Trashed")
     }
 
     /// A throwing recycler surfaces `.failed(stage: .uninstalling, ...)`.
@@ -306,7 +338,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         let vm = makeViewModel(
             discover: { _ in [app] },
             findFiles: { _ in [] },
-            recycle: { _ in throw BoomError() }
+            recycle: { _, _ in throw BoomError() }
         )
         await vm.loadApps()
         vm.select(app.id)
@@ -327,7 +359,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         let calls = ActorBox(0)
         let vm = makeViewModel(
             discover: { _ in [] },
-            recycle: { _ in await calls.increment(); return 0 }
+            recycle: { _, _ in await calls.increment(); return 0 }
         )
         await vm.loadApps()
         await vm.uninstall()
@@ -343,7 +375,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         let vm = makeViewModel(
             discover: { _ in [app] },
             findFiles: { _ in [] },
-            recycle: { _ in 0 }
+            recycle: { _, _ in 0 }
         )
         await vm.loadApps()
         vm.select(app.id)
@@ -359,7 +391,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         discover: @escaping AppUninstallerViewModel.Discover = { _ in [] },
         findFiles: @escaping AppUninstallerViewModel.FindFiles = { _ in [] },
         measureSize: @escaping AppUninstallerViewModel.MeasureSize = { _ in 0 },
-        recycle: @escaping AppUninstallerViewModel.Recycle = { _ in 0 }
+        recycle: @escaping AppUninstallerViewModel.Recycle = { _, _ in 0 }
     ) -> AppUninstallerViewModel {
         AppUninstallerViewModel(
             discover: discover,

@@ -34,7 +34,11 @@ final class AppUninstallerViewModel: ObservableObject {
     typealias Discover     = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
     typealias FindFiles    = @Sendable (_ bundleID: String) async -> [AssociatedFile]
     typealias MeasureSize  = @Sendable (_ bundleURL: URL) async -> Int64
-    typealias Recycle      = @Sendable (_ urls: [URL]) async throws -> Int64
+    /// Recycler contract: takes the `.app` bundle URL and the associated
+    /// file URLs separately so the production implementation can verify
+    /// the bundle itself was moved (and not just the user-writable
+    /// residue). Returns the byte-count actually freed.
+    typealias Recycle      = @Sendable (_ bundleURL: URL, _ associatedURLs: [URL]) async throws -> Int64
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var apps: [AppInfo] = []
@@ -253,11 +257,10 @@ final class AppUninstallerViewModel: ObservableObject {
     /// and leave residual user data behind.
     func uninstall() async {
         guard let app = selectedApp, !isLoadingAssociatedFiles else { return }
-        let urls = [app.bundleURL] + associatedFiles.map { $0.url }
-        guard !urls.isEmpty else { return }
+        let associatedURLs = associatedFiles.map { $0.url }
         phase = .uninstalling
         do {
-            let bytesFreed = try await recycle(urls)
+            let bytesFreed = try await recycle(app.bundleURL, associatedURLs)
             // Drop the app from the cached list and reset selection so the
             // user sees the result without a stale row pointing at a now-
             // Trashed bundle. `bytesFreed` is the recycler's authoritative
@@ -318,8 +321,11 @@ extension AppUninstallerViewModel {
             measureSize: { url in
                 await discovery.bundleSize(at: url)
             },
-            recycle: { urls in
-                try await Self.recycleViaWorkspace(urls: urls)
+            recycle: { bundleURL, associatedURLs in
+                try await Self.recycleViaWorkspace(
+                    bundleURL: bundleURL,
+                    associatedURLs: associatedURLs
+                )
             }
         )
     }
@@ -330,23 +336,37 @@ extension AppUninstallerViewModel {
     ///
     /// `NSWorkspace.recycle` does NOT throw on partial failure — it returns
     /// the items it managed to Trash and reports an error only when the
-    /// entire batch failed. We sum sizes for items the system confirmed
-    /// were moved.
-    private static func recycleViaWorkspace(urls: [URL]) async throws -> Int64 {
+    /// entire batch failed. The `.app` bundle is the must-succeed item:
+    /// if user-writable residue gets Trashed but the root-owned bundle
+    /// itself is denied, the app is still installed and showing
+    /// "Complete" would mislead the user (and leave a stale row in the
+    /// list). We therefore throw whenever the bundle URL is missing from
+    /// `newURLs`, even if some associated files succeeded. Associated-
+    /// file partial failures are tolerated — they're best-effort
+    /// cleanup, and "we Trashed the app and most of its data" is a
+    /// useful outcome.
+    private static func recycleViaWorkspace(
+        bundleURL: URL,
+        associatedURLs: [URL]
+    ) async throws -> Int64 {
+        let allURLs = [bundleURL] + associatedURLs
         // Capture sizes before recycle — once the path is in Trash, the
         // original URL doesn't stat anymore. We need this to credit
         // bytes-freed for the items the workspace successfully moved.
-        let sizesByPath = sizes(for: urls)
+        let sizesByPath = sizes(for: allURLs)
         return try await withCheckedThrowingContinuation { continuation in
-            NSWorkspace.shared.recycle(urls) { newURLs, error in
-                if let error {
-                    // Only fail when nothing was Trashed. A partial failure
-                    // (some items missing from `newURLs`) still credits the
-                    // ones that succeeded.
-                    if newURLs.isEmpty {
-                        continuation.resume(throwing: error)
-                        return
-                    }
+            NSWorkspace.shared.recycle(allURLs) { newURLs, error in
+                let bundleMoved = newURLs.keys.contains(where: { $0.path == bundleURL.path })
+                if !bundleMoved {
+                    let resolvedError = error ?? NSError(
+                        domain: "com.personal.VaderCleaner.AppUninstaller",
+                        code: -1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "The application bundle could not be moved to the Trash."
+                        ]
+                    )
+                    continuation.resume(throwing: resolvedError)
+                    return
                 }
                 var bytesFreed: Int64 = 0
                 for original in newURLs.keys {

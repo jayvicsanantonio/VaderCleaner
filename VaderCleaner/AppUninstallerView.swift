@@ -127,7 +127,7 @@ struct AppUninstallerView: View {
     AppUninstallerView(viewModel: AppUninstallerViewModel(
         discover: { _ in [] },
         findFiles: { _ in [] },
-        recycle: { _ in 0 }
+        recycle: { _, _ in 0 }
     ))
     .frame(width: 900, height: 600)
 }
