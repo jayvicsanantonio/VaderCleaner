@@ -35,27 +35,20 @@ protocol SparkleUpdateChecking: Sendable {
 struct DefaultSparkleUpdateChecker: SparkleUpdateChecking, Sendable {
 
     private let httpFetcher: HTTPFetching
-    private let fileManager: FileManager
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "SparkleUpdateChecker")
 
-    init(httpFetcher: HTTPFetching = URLSession.shared,
-         fileManager: FileManager = .default) {
+    init(httpFetcher: HTTPFetching = URLSession.shared) {
         self.httpFetcher = httpFetcher
-        self.fileManager = fileManager
     }
 
     func feedURL(for app: AppInfo) -> URL? {
-        let infoPlist = app.bundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Info.plist")
-        guard let data = try? Data(contentsOf: infoPlist),
-              let plist = try? PropertyListSerialization.propertyList(
-                from: data,
-                options: [],
-                format: nil
-              ) as? [String: Any],
-              let raw = plist["SUFeedURL"] as? String,
+        // `Bundle(url:)` + `object(forInfoDictionaryKey:)` transparently
+        // handles binary vs. XML plists and leverages the system bundle
+        // cache, rather than us re-reading and re-parsing Info.plist by
+        // hand.
+        guard let bundle = Bundle(url: app.bundleURL),
+              let raw = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
               !raw.isEmpty else {
             return nil
         }
@@ -75,14 +68,33 @@ struct DefaultSparkleUpdateChecker: SparkleUpdateChecking, Sendable {
 
     /// Parses appcast XML and returns the newest `<item>` (by
     /// `shortVersionString`, with `version` as a tiebreaker) that has a
-    /// downloadable `<enclosure>`. Items without an enclosure are
-    /// skipped — release-notes-only entries aren't actionable updates.
-    static func parseAppcast(xml: Data) -> SparkleAppcastItem? {
+    /// downloadable `<enclosure>` **and** whose
+    /// `sparkle:minimumSystemVersion` (if any) the running macOS
+    /// satisfies. Items without an enclosure are skipped — release-notes-
+    /// only entries aren't actionable updates — and items that require a
+    /// newer macOS than the user is on are filtered out so we never offer
+    /// a download Sparkle itself would refuse to install.
+    ///
+    /// - Parameter currentSystemVersion: the running macOS product
+    ///   version ("14.5.0"). Defaults to the live value; injected by
+    ///   tests so the OS-compatibility filter is deterministic.
+    static func parseAppcast(
+        xml: Data,
+        currentSystemVersion: String = DefaultSparkleUpdateChecker.currentSystemVersionString()
+    ) -> SparkleAppcastItem? {
         let parser = AppcastXMLParser()
         let xmlParser = XMLParser(data: xml)
         xmlParser.delegate = parser
         guard xmlParser.parse() else { return nil }
-        return parser.bestItem()
+        return parser.bestItem(currentSystemVersion: currentSystemVersion)
+    }
+
+    /// The running macOS product version as a dotted string. Kept here
+    /// (rather than read inline) so the OS-compatibility filter has a
+    /// single, injectable source of truth.
+    static func currentSystemVersionString() -> String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
     }
 }
 
@@ -90,14 +102,26 @@ struct DefaultSparkleUpdateChecker: SparkleUpdateChecking, Sendable {
 /// appcast and picks the newest enclosure-bearing one.
 private final class AppcastXMLParser: NSObject, XMLParserDelegate {
 
-    private var items: [SparkleAppcastItem] = []
+    /// Each parsed item paired with its `sparkle:minimumSystemVersion`
+    /// (nil when the feed doesn't constrain the OS for that item).
+    private var collected: [(item: SparkleAppcastItem, minimumSystemVersion: String?)] = []
     private var currentEnclosureURL: URL?
     private var currentShortVersion: String?
     private var currentVersion: String?
+    private var currentMinimumSystemVersion: String?
+    private var minimumSystemVersionBuffer: String?
     private var inItem = false
 
-    func bestItem() -> SparkleAppcastItem? {
-        return items.max { lhs, rhs in
+    func bestItem(currentSystemVersion: String) -> SparkleAppcastItem? {
+        let compatible = collected.filter { entry in
+            guard let minimum = entry.minimumSystemVersion, !minimum.isEmpty else {
+                return true
+            }
+            // Keep the item only when the running OS is at least the
+            // required minimum (current >= minimum).
+            return VersionComparator.compare(currentSystemVersion, minimum) != .orderedAscending
+        }
+        return compatible.map(\.item).max { lhs, rhs in
             let shortComparison = VersionComparator.compare(
                 lhs.shortVersion,
                 rhs.shortVersion
@@ -126,6 +150,7 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         if local == "item" {
             inItem = true
             currentEnclosureURL = nil
+            currentMinimumSystemVersion = nil
             // Seed from any version attributes carried on the `<item>`
             // itself — older feeds place `sparkle:shortVersionString` /
             // `sparkle:version` here rather than on the enclosure. The
@@ -135,6 +160,13 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 ?? attributeDict["shortVersionString"]
             currentVersion = attributeDict["sparkle:version"]
                 ?? attributeDict["version"]
+            return
+        }
+        if inItem, local == "minimumSystemVersion" {
+            // `<sparkle:minimumSystemVersion>` carries its value as
+            // element text, so start buffering character data until the
+            // matching end tag.
+            minimumSystemVersionBuffer = ""
             return
         }
         if inItem, local == "enclosure" {
@@ -162,6 +194,12 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         let local = localName(for: elementName)
+        if local == "minimumSystemVersion", let buffer = minimumSystemVersionBuffer {
+            let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentMinimumSystemVersion = trimmed.isEmpty ? nil : trimmed
+            minimumSystemVersionBuffer = nil
+            return
+        }
         guard local == "item", inItem else {
             return
         }
@@ -171,11 +209,22 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         guard let downloadURL = currentEnclosureURL else { return }
         let shortVersion = currentShortVersion ?? currentVersion ?? ""
         guard !shortVersion.isEmpty else { return }
-        items.append(SparkleAppcastItem(
-            shortVersion: shortVersion,
-            version: currentVersion,
-            downloadURL: downloadURL
+        collected.append((
+            item: SparkleAppcastItem(
+                shortVersion: shortVersion,
+                version: currentVersion,
+                downloadURL: downloadURL
+            ),
+            minimumSystemVersion: currentMinimumSystemVersion
         ))
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        // Only accumulate while inside a `<sparkle:minimumSystemVersion>`
+        // element — we don't care about any other text nodes.
+        if minimumSystemVersionBuffer != nil {
+            minimumSystemVersionBuffer?.append(string)
+        }
     }
 
     /// XMLParser delivers the qualified name ("sparkle:enclosure") rather

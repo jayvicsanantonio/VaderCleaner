@@ -58,9 +58,10 @@ final class VersionComparatorTests: XCTestCase {
         XCTAssertFalse(VersionComparator.isNewer(version: "v1.0.0", than: "1.0.0"))
     }
 
-    /// Numeric components larger than `Int.max` would crash a naive Int
-    /// parse; the comparator falls back to lexicographic compare in that case
-    /// without crashing.
+    /// Numeric components larger than `UInt64.max` would crash a naive
+    /// parse; `leadingNumber` returns `UInt64(digits) ?? 0`, so overflow
+    /// is treated as 0 (the version compares as equal-or-older) without
+    /// crashing.
     func test_isNewer_doesNotCrashOnHugeComponents() {
         XCTAssertNoThrow(VersionComparator.isNewer(
             version: "99999999999999999999.0",

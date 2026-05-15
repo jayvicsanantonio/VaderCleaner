@@ -143,6 +143,60 @@ final class SparkleUpdateCheckerTests: XCTestCase {
                        URL(string: "https://example.com/Helio-4.2.0.dmg"))
     }
 
+    /// The newest item requires a macOS the user isn't running, so the
+    /// parser must fall back to the newest *compatible* item rather than
+    /// offering a build Sparkle itself would refuse to install.
+    func test_parseAppcast_skipsItemsRequiringNewerMacOS() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <sparkle:minimumSystemVersion>99.0.0</sparkle:minimumSystemVersion>
+              <enclosure url="https://example.com/Helio-3.0.0.dmg"
+                         sparkle:shortVersionString="3.0.0" sparkle:version="3000" />
+            </item>
+            <item>
+              <sparkle:minimumSystemVersion>12.0.0</sparkle:minimumSystemVersion>
+              <enclosure url="https://example.com/Helio-2.0.0.dmg"
+                         sparkle:shortVersionString="2.0.0" sparkle:version="2000" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let item = DefaultSparkleUpdateChecker.parseAppcast(
+            xml: xml,
+            currentSystemVersion: "14.5.0"
+        )
+        XCTAssertEqual(item?.shortVersion, "2.0.0")
+        XCTAssertEqual(item?.downloadURL,
+                       URL(string: "https://example.com/Helio-2.0.0.dmg"))
+    }
+
+    /// An item is eligible exactly when the running OS meets its
+    /// `minimumSystemVersion`; equal versions are eligible.
+    func test_parseAppcast_includesItemWhenOSMeetsMinimum() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <sparkle:minimumSystemVersion>14.5.0</sparkle:minimumSystemVersion>
+              <enclosure url="https://example.com/Helio-5.0.0.dmg"
+                         sparkle:shortVersionString="5.0.0" sparkle:version="5000" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let item = DefaultSparkleUpdateChecker.parseAppcast(
+            xml: xml,
+            currentSystemVersion: "14.5.0"
+        )
+        XCTAssertEqual(item?.shortVersion, "5.0.0")
+    }
+
     // MARK: - fetchAppcast
 
     /// `fetchAppcast` runs feed bytes through the injected HTTP fetcher
