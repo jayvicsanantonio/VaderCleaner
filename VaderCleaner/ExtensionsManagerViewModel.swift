@@ -153,7 +153,7 @@ extension ExtensionsManagerViewModel {
     /// plug-ins) go through the privileged helper — launch-agent plists via
     /// the dedicated `removeLaunchAgent(path:)`, everything else via the
     /// batched `deleteFiles(_:)`.
-    private static func removeItem(_ item: ExtensionItem) async throws {
+    private nonisolated static func removeItem(_ item: ExtensionItem) async throws {
         let path = item.path.path
         guard SystemJunkDeleter.requiresHelper(path: path) else {
             try FileManager.default.removeItem(at: item.path)
@@ -174,7 +174,7 @@ extension ExtensionsManagerViewModel {
     /// the per-call XPC error handler and the reply block; whichever fires
     /// first resumes the continuation (the other becomes a no-op via the
     /// once-only guard) so a dropped connection can't freeze removal.
-    private static func helperCall(
+    private nonisolated static func helperCall(
         _ body: @escaping (VaderCleanerHelperProtocol, @escaping (Error?) -> Void) -> Void
     ) async throws {
         let error: Error? = await withCheckedContinuation { continuation in

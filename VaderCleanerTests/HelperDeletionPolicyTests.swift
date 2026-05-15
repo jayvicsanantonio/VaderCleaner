@@ -10,6 +10,8 @@ final class HelperDeletionPolicyTests: XCTestCase {
     private var cacheRoot: URL!
     private var logsRoot: URL!
     private var varFoldersRoot: URL!
+    private var mailBundlesRoot: URL!
+    private var internetPluginsRoot: URL!
     private var applicationsRoot: URL!
     private var libraryApplicationSupportRoot: URL!
     private var frameworksRoot: URL!
@@ -25,6 +27,8 @@ final class HelperDeletionPolicyTests: XCTestCase {
         cacheRoot = tempRoot.appendingPathComponent("Library/Caches", isDirectory: true)
         logsRoot = tempRoot.appendingPathComponent("Library/Logs", isDirectory: true)
         varFoldersRoot = tempRoot.appendingPathComponent("private/var/folders", isDirectory: true)
+        mailBundlesRoot = tempRoot.appendingPathComponent("Library/Mail/Bundles", isDirectory: true)
+        internetPluginsRoot = tempRoot.appendingPathComponent("Library/Internet Plug-Ins", isDirectory: true)
         applicationsRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         libraryApplicationSupportRoot = tempRoot.appendingPathComponent("Library/Application Support", isDirectory: true)
         frameworksRoot = tempRoot.appendingPathComponent("Library/Frameworks", isDirectory: true)
@@ -37,6 +41,8 @@ final class HelperDeletionPolicyTests: XCTestCase {
             cacheRoot,
             logsRoot,
             varFoldersRoot,
+            mailBundlesRoot,
+            internetPluginsRoot,
             applicationsRoot,
             libraryApplicationSupportRoot,
             frameworksRoot,
@@ -53,7 +59,9 @@ final class HelperDeletionPolicyTests: XCTestCase {
             allowedDescendantRoots: [
                 cacheRoot,
                 logsRoot,
-                varFoldersRoot
+                varFoldersRoot,
+                mailBundlesRoot,
+                internetPluginsRoot
             ],
             allowedLaunchPlistRoots: [
                 launchAgentsRoot,
@@ -82,6 +90,39 @@ final class HelperDeletionPolicyTests: XCTestCase {
         let url = cacheRoot.appendingPathComponent("com.example/file.bin")
 
         XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
+    }
+
+    func test_validateDeletionPath_acceptsSystemMailBundleDescendant() throws {
+        let url = mailBundlesRoot.appendingPathComponent("GPGMail.mailbundle")
+
+        XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
+    }
+
+    func test_validateDeletionPath_acceptsSystemInternetPluginDescendant() throws {
+        let url = internetPluginsRoot.appendingPathComponent("Flash Player.plugin")
+
+        XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
+    }
+
+    /// Production-policy pins for the Extensions Manager: the two system
+    /// product directories must validate. Path-prefix validation does not
+    /// stat the target, so no `XCTSkipUnless` / on-disk fixture is needed.
+    func test_productionPolicy_acceptsSystemMailBundle() throws {
+        let path = "/Library/Mail/Bundles/Foo.mailbundle"
+
+        XCTAssertEqual(
+            try HelperDeletionPolicy.production.validateDeletionPath(path).path,
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
+    }
+
+    func test_productionPolicy_acceptsSystemInternetPlugin() throws {
+        let path = "/Library/Internet Plug-Ins/Example.plugin"
+
+        XCTAssertEqual(
+            try HelperDeletionPolicy.production.validateDeletionPath(path).path,
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
     }
 
     func test_productionPolicy_acceptsVarFoldersAlias() throws {
