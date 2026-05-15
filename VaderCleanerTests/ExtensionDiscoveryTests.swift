@@ -69,7 +69,7 @@ final class ExtensionDiscoveryTests: XCTestCase {
             to: agentsDir.appendingPathComponent("com.acme.updater.plist")
         )
 
-        let discovery = LaunchAgentDiscovery(homeDirectory: tempHome)
+        let discovery = LaunchAgentDiscovery(homeDirectory: tempHome, systemRoots: [])
         let agents = await discovery.userAgents()
 
         XCTAssertEqual(agents.count, 1)
@@ -99,7 +99,7 @@ final class ExtensionDiscoveryTests: XCTestCase {
             to: agentsDir.appendingPathComponent("com.acme.disabled.plist")
         )
 
-        let discovery = LaunchAgentDiscovery(homeDirectory: tempHome)
+        let discovery = LaunchAgentDiscovery(homeDirectory: tempHome, systemRoots: [])
         let byName = Dictionary(
             uniqueKeysWithValues: await discovery.userAgents().map { ($0.name, $0) }
         )
@@ -121,10 +121,59 @@ final class ExtensionDiscoveryTests: XCTestCase {
             to: agentsDir.appendingPathComponent("com.acme.one.plist")
         )
 
-        let discovery = LaunchAgentDiscovery(homeDirectory: tempHome)
+        let discovery = LaunchAgentDiscovery(homeDirectory: tempHome, systemRoots: [])
         let viaProtocol = await discovery.extensions()
         let viaUserAgents = await discovery.userAgents()
         XCTAssertEqual(viaProtocol, viaUserAgents)
+    }
+
+    /// System-wide launch agents and daemons under `/Library/LaunchAgents`
+    /// and `/Library/LaunchDaemons` are surfaced alongside the user's, so
+    /// the "Login Items & Launch Agents" section doesn't miss common
+    /// third-party background items.
+    func test_launchAgents_surfacesSystemAgentsAndDaemons() async throws {
+        let userDir = tempHome
+            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+        let sysAgents = tempSystem.appendingPathComponent("LaunchAgents", isDirectory: true)
+        let sysDaemons = tempSystem.appendingPathComponent("LaunchDaemons", isDirectory: true)
+        for dir in [userDir, sysAgents, sysDaemons] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        try writePlist(
+            ["Label": "com.user.agent"],
+            to: userDir.appendingPathComponent("com.user.agent.plist")
+        )
+        try writePlist(
+            ["Label": "com.system.agent"],
+            to: sysAgents.appendingPathComponent("com.system.agent.plist")
+        )
+        try writePlist(
+            ["Label": "com.system.daemon", "Disabled": true],
+            to: sysDaemons.appendingPathComponent("com.system.daemon.plist")
+        )
+
+        let discovery = LaunchAgentDiscovery(
+            homeDirectory: tempHome,
+            systemRoots: [sysAgents, sysDaemons]
+        )
+        let byName = Dictionary(
+            uniqueKeysWithValues: await discovery.userAgents().map { ($0.name, $0) }
+        )
+
+        XCTAssertEqual(
+            Set(byName.keys),
+            ["com.user.agent", "com.system.agent", "com.system.daemon"]
+        )
+        XCTAssertEqual(byName["com.system.agent"]?.type, .loginItemFromApp)
+        XCTAssertEqual(byName["com.system.daemon"]?.isEnabled, false)
+        XCTAssertEqual(
+            byName["com.system.agent"]?.path.lastPathComponent,
+            "com.system.agent.plist"
+        )
+        XCTAssertEqual(
+            byName["com.system.agent"]?.path.deletingLastPathComponent().lastPathComponent,
+            "LaunchAgents"
+        )
     }
 
     // MARK: - Mail plugins

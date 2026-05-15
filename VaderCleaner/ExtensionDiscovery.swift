@@ -368,49 +368,62 @@ struct InternetPluginDiscovery: ExtensionDiscovering {
 /// items registered by other apps.
 struct LaunchAgentDiscovery: ExtensionDiscovering {
 
-    private let agentsDirectory: URL
+    private let roots: [URL]
     private let fileManager: FileManager
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        systemRoots: [URL] = [
+            URL(fileURLWithPath: "/Library/LaunchAgents", isDirectory: true),
+            URL(fileURLWithPath: "/Library/LaunchDaemons", isDirectory: true)
+        ],
         fileManager: FileManager = .default
     ) {
-        self.agentsDirectory = homeDirectory
-            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+        self.roots = [
+            homeDirectory.appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+        ] + systemRoots
         self.fileManager = fileManager
     }
 
-    /// Every `*.plist` under `~/Library/LaunchAgents`. `name` comes from the
-    /// `Label` key (falling back to the filename); `isEnabled` is the
-    /// inverse of the `Disabled` key — launchd's authoritative source.
+    /// Every `*.plist` under the user's `~/Library/LaunchAgents` plus the
+    /// system `/Library/LaunchAgents` and `/Library/LaunchDaemons` roots,
+    /// deduped by path. `name` comes from the `Label` key (falling back to
+    /// the filename); `isEnabled` is the inverse of the `Disabled` key —
+    /// launchd's authoritative source. The system roots are removable: the
+    /// privileged helper's allowlist permits direct-child plists under both,
+    /// and `requiresHelper` routes those paths through it.
     func userAgents() async -> [ExtensionItem] {
-        let dir = agentsDirectory
+        let roots = roots
         let fileManager = fileManager
         return await Task.detached(priority: .userInitiated) {
-            guard fileManager.fileExists(atPath: dir.path) else { return [] }
-            let entries = (try? fileManager.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            )) ?? []
+            var seen = Set<String>()
             var items: [ExtensionItem] = []
-            for entry in entries where entry.pathExtension.lowercased() == "plist" {
-                let plist = (try? Data(contentsOf: entry)).flatMap {
-                    try? PropertyListSerialization.propertyList(
-                        from: $0, options: [], format: nil
-                    ) as? [String: Any]
-                } ?? [:]
-                let label = (plist["Label"] as? String).flatMap {
-                    $0.isEmpty ? nil : $0
+            for dir in roots {
+                guard fileManager.fileExists(atPath: dir.path) else { continue }
+                let entries = (try? fileManager.contentsOfDirectory(
+                    at: dir, includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )) ?? []
+                for entry in entries where entry.pathExtension.lowercased() == "plist" {
+                    guard seen.insert(entry.path).inserted else { continue }
+                    let plist = (try? Data(contentsOf: entry)).flatMap {
+                        try? PropertyListSerialization.propertyList(
+                            from: $0, options: [], format: nil
+                        ) as? [String: Any]
+                    } ?? [:]
+                    let label = (plist["Label"] as? String).flatMap {
+                        $0.isEmpty ? nil : $0
+                    }
+                    let disabled = (plist["Disabled"] as? Bool) ?? false
+                    items.append(ExtensionItem(
+                        name: label ?? entry.deletingPathExtension().lastPathComponent,
+                        path: entry,
+                        bundleID: nil,
+                        type: .loginItemFromApp,
+                        isEnabled: !disabled,
+                        size: ExtensionArtifactSizer.size(at: entry, fileManager: fileManager)
+                    ))
                 }
-                let disabled = (plist["Disabled"] as? Bool) ?? false
-                items.append(ExtensionItem(
-                    name: label ?? entry.deletingPathExtension().lastPathComponent,
-                    path: entry,
-                    bundleID: nil,
-                    type: .loginItemFromApp,
-                    isEnabled: !disabled,
-                    size: ExtensionArtifactSizer.size(at: entry, fileManager: fileManager)
-                ))
             }
             return items.sorted {
                 $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
