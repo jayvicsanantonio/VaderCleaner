@@ -197,6 +197,16 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 || attributeDict["deltaFrom"] != nil {
                 return
             }
+            // Skip enclosures explicitly tagged for another platform.
+            // Sparkle treats a missing `sparkle:os` as macOS; an explicit
+            // value other than macos/osx (e.g. "windows") means this
+            // enclosure isn't a macOS build, so accepting its URL could
+            // hand the user a Windows installer.
+            if let os = (attributeDict["sparkle:os"] ?? attributeDict["os"])?
+                .lowercased(),
+               os != "macos", os != "osx", os != "mac" {
+                return
+            }
             // The enclosure attributes are where Sparkle places the
             // version in most modern feeds; prefer them over any
             // item-level seed but keep the seed as a fallback.

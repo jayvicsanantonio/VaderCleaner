@@ -109,6 +109,13 @@ private struct AppUpdaterListState: View {
     let onUpdate: (UpdateInfo) -> Void
     let onUpdateAll: () -> Void
 
+    /// Above this many pending updates, "Update All" asks for
+    /// confirmation first — each entry opens an App Store page or a
+    /// browser download, and firing a dozen-plus external actions at
+    /// once with no warning is a jarring experience.
+    private static let bulkConfirmationThreshold = 10
+    @State private var showBulkConfirmation = false
+
     var body: some View {
         VStack(spacing: 0) {
             List {
@@ -127,7 +134,7 @@ private struct AppUpdaterListState: View {
                 Button(String(
                     localized: "Update All",
                     comment: "Footer button on the App Updater that opens every available update."
-                ), action: onUpdateAll)
+                ), action: updateAllTapped)
                     .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
@@ -135,6 +142,39 @@ private struct AppUpdaterListState: View {
             }
             .padding(16)
         }
+        .alert(
+            String(
+                localized: "Open all updates?",
+                comment: "Title of the confirmation shown before opening many updates at once."
+            ),
+            isPresented: $showBulkConfirmation
+        ) {
+            Button(String(localized: "Cancel"), role: .cancel) { }
+            Button(String(
+                localized: "Open All",
+                comment: "Confirm button on the App Updater bulk-update confirmation."
+            )) {
+                onUpdateAll()
+            }
+        } message: {
+            Text(bulkConfirmationMessage)
+        }
+    }
+
+    private func updateAllTapped() {
+        if updates.count > Self.bulkConfirmationThreshold {
+            showBulkConfirmation = true
+        } else {
+            onUpdateAll()
+        }
+    }
+
+    private var bulkConfirmationMessage: String {
+        let format = String(
+            localized: "This opens %lld update pages or downloads at once.",
+            comment: "Body of the App Updater bulk-update confirmation."
+        )
+        return String.localizedStringWithFormat(format, Int64(updates.count))
     }
 
     private var updatesCountText: String {

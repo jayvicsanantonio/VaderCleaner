@@ -254,6 +254,38 @@ final class SparkleUpdateCheckerTests: XCTestCase {
                        URL(string: "https://example.com/Helio-3.0.0.dmg"))
     }
 
+    /// Cross-platform feeds tag enclosures with `sparkle:os`. An
+    /// enclosure marked for a non-macOS platform must be skipped so the
+    /// updater falls back to the newest macOS build instead of offering
+    /// a Windows installer.
+    func test_parseAppcast_skipsNonMacOSEnclosures() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <enclosure url="https://example.com/Helio-3.0.0.exe"
+                         sparkle:os="windows"
+                         sparkle:shortVersionString="3.0.0" sparkle:version="3000" />
+            </item>
+            <item>
+              <enclosure url="https://example.com/Helio-2.0.0.dmg"
+                         sparkle:os="macos"
+                         sparkle:shortVersionString="2.0.0" sparkle:version="2000" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let item = DefaultSparkleUpdateChecker.parseAppcast(
+            xml: xml,
+            currentSystemVersion: "14.5.0"
+        )
+        XCTAssertEqual(item?.shortVersion, "2.0.0")
+        XCTAssertEqual(item?.downloadURL,
+                       URL(string: "https://example.com/Helio-2.0.0.dmg"))
+    }
+
     // MARK: - fetchAppcast
 
     /// `fetchAppcast` runs feed bytes through the injected HTTP fetcher
