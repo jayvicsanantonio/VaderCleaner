@@ -1,0 +1,71 @@
+// VersionComparatorTests.swift
+// Tests semantic version comparison helpers used by the App Updater to decide whether a remotely-discovered version is newer than the locally-installed one.
+
+import XCTest
+@testable import VaderCleaner
+
+final class VersionComparatorTests: XCTestCase {
+
+    // MARK: - isNewer
+
+    func test_isNewer_returnsTrueForPatchBump() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "1.0.1", than: "1.0.0"))
+    }
+
+    func test_isNewer_returnsTrueForMinorBump() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "1.1.0", than: "1.0.9"))
+    }
+
+    func test_isNewer_returnsTrueForMajorBump() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "2.0.0", than: "1.99.99"))
+    }
+
+    func test_isNewer_returnsFalseForSameVersion() {
+        XCTAssertFalse(VersionComparator.isNewer(version: "1.2.3", than: "1.2.3"))
+    }
+
+    func test_isNewer_returnsFalseForOlderVersion() {
+        XCTAssertFalse(VersionComparator.isNewer(version: "1.0.0", than: "1.0.1"))
+    }
+
+    /// "1.0" should compare equal to "1.0.0" — the shorter version pads with
+    /// implicit zero components.
+    func test_isNewer_padsShorterVersionWithZeros() {
+        XCTAssertFalse(VersionComparator.isNewer(version: "1.0", than: "1.0.0"))
+        XCTAssertFalse(VersionComparator.isNewer(version: "1.0.0", than: "1.0"))
+    }
+
+    /// A longer version with a non-zero extra component must compare newer.
+    func test_isNewer_treatsExtraNonZeroComponentAsNewer() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "1.0.0.1", than: "1.0.0"))
+    }
+
+    /// Build suffixes ("1.2.3-beta", "1.2.3+456") are tolerated — we strip
+    /// non-digit trailing characters from each numeric component so the
+    /// numeric prefix governs the comparison.
+    func test_isNewer_tolerantOfNonDigitSuffixes() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "1.2.4-beta", than: "1.2.3"))
+        XCTAssertFalse(VersionComparator.isNewer(version: "1.2.3-beta", than: "1.2.3"))
+    }
+
+    /// Sparkle feeds (and some Mac apps) tag releases as "v1.2.3". The
+    /// leading "v" must be skipped so the numeric components still compare
+    /// — otherwise every component parses to 0 and a real update looks
+    /// identical to the installed build.
+    func test_isNewer_skipsLeadingVPrefix() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "v1.2.4", than: "v1.2.3"))
+        XCTAssertTrue(VersionComparator.isNewer(version: "v2.0.0", than: "1.9.9"))
+        XCTAssertFalse(VersionComparator.isNewer(version: "v1.0.0", than: "1.0.0"))
+    }
+
+    /// Numeric components larger than `UInt64.max` would crash a naive
+    /// parse; `leadingNumber` returns `UInt64(digits) ?? 0`, so overflow
+    /// is treated as 0 (the version compares as equal-or-older) without
+    /// crashing.
+    func test_isNewer_doesNotCrashOnHugeComponents() {
+        XCTAssertNoThrow(VersionComparator.isNewer(
+            version: "99999999999999999999.0",
+            than: "1.0"
+        ))
+    }
+}
