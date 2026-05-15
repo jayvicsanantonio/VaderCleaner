@@ -109,8 +109,16 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
     private var currentShortVersion: String?
     private var currentVersion: String?
     private var currentMinimumSystemVersion: String?
-    private var minimumSystemVersionBuffer: String?
     private var inItem = false
+    /// True while inside a `<sparkle:deltas>` block. Delta enclosures are
+    /// binary patches keyed to a specific installed build and are useless
+    /// as a user-facing download, so we ignore everything nested there.
+    private var inDeltas = false
+    /// Local name of the element whose text we're currently accumulating
+    /// (`minimumSystemVersion`, `shortVersionString`, or `version`), or
+    /// nil when not inside one of those.
+    private var bufferingElement: String?
+    private var textBuffer = ""
 
     func bestItem(currentSystemVersion: String) -> SparkleAppcastItem? {
         let compatible = collected.filter { entry in
@@ -149,6 +157,7 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         let local = localName(for: elementName)
         if local == "item" {
             inItem = true
+            inDeltas = false
             currentEnclosureURL = nil
             currentMinimumSystemVersion = nil
             // Seed from any version attributes carried on the `<item>`
@@ -162,14 +171,32 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 ?? attributeDict["version"]
             return
         }
-        if inItem, local == "minimumSystemVersion" {
-            // `<sparkle:minimumSystemVersion>` carries its value as
-            // element text, so start buffering character data until the
-            // matching end tag.
-            minimumSystemVersionBuffer = ""
+        guard inItem else { return }
+        if local == "deltas" {
+            inDeltas = true
             return
         }
-        if inItem, local == "enclosure" {
+        if !inDeltas,
+           local == "minimumSystemVersion"
+            || local == "shortVersionString"
+            || local == "version" {
+            // These can appear as child elements carrying their value as
+            // text (Sparkle's element form) rather than as enclosure
+            // attributes — buffer the character data until the end tag.
+            bufferingElement = local
+            textBuffer = ""
+            return
+        }
+        if local == "enclosure" {
+            // Skip delta enclosures: those nested in `<sparkle:deltas>`
+            // and any carrying `sparkle:deltaFrom`. They're patches Sparkle
+            // applies to one specific installed build — opening one as a
+            // manual download gives the user a broken link.
+            if inDeltas
+                || attributeDict["sparkle:deltaFrom"] != nil
+                || attributeDict["deltaFrom"] != nil {
+                return
+            }
             // The enclosure attributes are where Sparkle places the
             // version in most modern feeds; prefer them over any
             // item-level seed but keep the seed as a fallback.
@@ -194,16 +221,34 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         let local = localName(for: elementName)
-        if local == "minimumSystemVersion", let buffer = minimumSystemVersionBuffer {
-            let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-            currentMinimumSystemVersion = trimmed.isEmpty ? nil : trimmed
-            minimumSystemVersionBuffer = nil
+        if local == "deltas" {
+            inDeltas = false
+            return
+        }
+        if let buffering = bufferingElement, local == buffering {
+            let trimmed = textBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = trimmed.isEmpty ? nil : trimmed
+            switch buffering {
+            case "minimumSystemVersion":
+                currentMinimumSystemVersion = value
+            case "shortVersionString":
+                // Element form is the lowest-precedence source — only use
+                // it when neither an item nor enclosure attribute set it.
+                if currentShortVersion == nil { currentShortVersion = value }
+            case "version":
+                if currentVersion == nil { currentVersion = value }
+            default:
+                break
+            }
+            bufferingElement = nil
+            textBuffer = ""
             return
         }
         guard local == "item", inItem else {
             return
         }
         inItem = false
+        inDeltas = false
         // Only emit items that actually point at something the user can
         // download — a release-notes-only item isn't an update.
         guard let downloadURL = currentEnclosureURL else { return }
@@ -220,10 +265,10 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        // Only accumulate while inside a `<sparkle:minimumSystemVersion>`
-        // element — we don't care about any other text nodes.
-        if minimumSystemVersionBuffer != nil {
-            minimumSystemVersionBuffer?.append(string)
+        // Only accumulate while inside one of the buffered version
+        // elements — we don't care about any other text nodes.
+        if bufferingElement != nil {
+            textBuffer.append(string)
         }
     }
 

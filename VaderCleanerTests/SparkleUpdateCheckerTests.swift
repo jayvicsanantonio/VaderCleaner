@@ -197,6 +197,63 @@ final class SparkleUpdateCheckerTests: XCTestCase {
         XCTAssertEqual(item?.shortVersion, "5.0.0")
     }
 
+    /// Some feeds publish version metadata as child *elements*
+    /// (`<sparkle:version>` / `<sparkle:shortVersionString>`) with the
+    /// enclosure carrying only the download URL. Those must still surface
+    /// rather than being dropped for an empty version.
+    func test_parseAppcast_readsElementFormVersionMetadata() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <sparkle:version>1248</sparkle:version>
+              <sparkle:shortVersionString>1.5.1</sparkle:shortVersionString>
+              <enclosure url="https://example.com/Helio-1.5.1.dmg" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let item = DefaultSparkleUpdateChecker.parseAppcast(
+            xml: xml,
+            currentSystemVersion: "14.5.0"
+        )
+        XCTAssertEqual(item?.shortVersion, "1.5.1")
+        XCTAssertEqual(item?.version, "1248")
+        XCTAssertEqual(item?.downloadURL,
+                       URL(string: "https://example.com/Helio-1.5.1.dmg"))
+    }
+
+    /// Delta updates appear as a nested `<sparkle:deltas>` block of
+    /// patch enclosures after the full enclosure. The parser must keep
+    /// the full archive URL and never let a `.delta` patch overwrite it.
+    func test_parseAppcast_ignoresDeltaEnclosures() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <enclosure url="https://example.com/Helio-3.0.0.dmg"
+                         sparkle:shortVersionString="3.0.0" sparkle:version="3000" />
+              <sparkle:deltas>
+                <enclosure url="https://example.com/Helio-2.9.0-3.0.0.delta"
+                           sparkle:deltaFrom="2900"
+                           sparkle:shortVersionString="3.0.0" sparkle:version="3000" />
+              </sparkle:deltas>
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let item = DefaultSparkleUpdateChecker.parseAppcast(
+            xml: xml,
+            currentSystemVersion: "14.5.0"
+        )
+        XCTAssertEqual(item?.downloadURL,
+                       URL(string: "https://example.com/Helio-3.0.0.dmg"))
+    }
+
     // MARK: - fetchAppcast
 
     /// `fetchAppcast` runs feed bytes through the injected HTTP fetcher
