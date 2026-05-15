@@ -152,6 +152,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
         let info = UpdateInfo(
             appName: "Helio",
             bundleID: "com.acme.helio",
+            bundleURL: URL(fileURLWithPath: "/Applications/Helio.app"),
             installedVersion: "1.0",
             latestVersion: "2.0",
             source: .appStore,

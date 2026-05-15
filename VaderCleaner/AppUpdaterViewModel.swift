@@ -180,6 +180,7 @@ final class AppUpdaterViewModel: ObservableObject {
         return UpdateInfo(
             appName: app.name,
             bundleID: app.bundleID,
+            bundleURL: app.bundleURL,
             installedVersion: installed,
             latestVersion: lookup.version,
             source: .appStore,
@@ -199,6 +200,7 @@ final class AppUpdaterViewModel: ObservableObject {
         return UpdateInfo(
             appName: app.name,
             bundleID: app.bundleID,
+            bundleURL: app.bundleURL,
             installedVersion: installed,
             latestVersion: item.shortVersion,
             source: .sparkle,

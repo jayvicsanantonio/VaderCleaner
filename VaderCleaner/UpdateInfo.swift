@@ -13,17 +13,22 @@ enum UpdateSource: String, Hashable, Sendable {
 
 /// A single update available for an installed app.
 ///
-/// `id` is keyed off the bundle ID rather than the version pair so SwiftUI
-/// lists stay stable across successive "Check for Updates" passes — the
-/// version strings will flip from one check to the next, but the row
-/// identity should not.
+/// `id` keys off the installed bundle's path rather than the bundle ID or
+/// the version pair. Versions flip between successive "Check for Updates"
+/// passes, so the row identity must not depend on them — but the bundle
+/// ID alone isn't unique either: the same app can be installed in two
+/// locations (e.g. `/Applications` and `~/Applications`), which `AppInfo`
+/// explicitly supports by keying *its* id off `bundleURL.path`. Mirroring
+/// that here keeps each installed copy a distinct SwiftUI row instead of
+/// colliding into one identity and dropping/reusing the wrong row.
 struct UpdateInfo: Identifiable, Hashable, Sendable {
     let appName: String
     let bundleID: String
+    let bundleURL: URL
     let installedVersion: String
     let latestVersion: String
     let source: UpdateSource
     let updateURL: URL
 
-    var id: String { bundleID }
+    var id: String { bundleURL.path }
 }
