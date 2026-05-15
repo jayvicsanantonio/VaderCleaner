@@ -138,8 +138,14 @@ private struct AppUpdaterListState: View {
     }
 
     private var updatesCountText: String {
+        if updates.count == 1 {
+            return String(
+                localized: "1 update available",
+                comment: "Footer label on the App Updater when exactly one update is pending."
+            )
+        }
         let format = String(
-            localized: "%lld available",
+            localized: "%lld updates available",
             comment: "Footer label on the App Updater showing how many updates are pending."
         )
         return String.localizedStringWithFormat(format, Int64(updates.count))

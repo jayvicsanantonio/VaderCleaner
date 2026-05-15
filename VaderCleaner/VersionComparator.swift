@@ -34,14 +34,27 @@ enum VersionComparator {
         return .orderedSame
     }
 
-    /// Extracts the leading numeric prefix from `token`. "12-beta" → 12.
-    /// "beta" → 0. Values that overflow `UInt64` fall back to 0 so we never
+    /// Extracts the numeric value of `token`, skipping any leading
+    /// non-digit characters first. "v12" → 12, "12-beta" → 12, "beta" → 0.
+    /// The leading-skip matters because Sparkle feeds (and some Mac apps)
+    /// commonly tag releases as "v1.2.3"; without it every component would
+    /// parse to 0 and a real update would look identical to the installed
+    /// build. Values that overflow `UInt64` fall back to 0 so we never
     /// trap on malformed input — the caller treats those as equal-or-older.
     private static func leadingNumber(in token: String) -> UInt64 {
         var digits = ""
+        var seenDigit = false
         for character in token {
-            guard character.isASCII, character.isNumber else { break }
-            digits.append(character)
+            let isDigit = character.isASCII && character.isNumber
+            if isDigit {
+                digits.append(character)
+                seenDigit = true
+            } else if seenDigit {
+                // Stop at the first non-digit *after* the numeric run so
+                // "1-beta" stays 1 rather than swallowing later digits.
+                break
+            }
+            // Leading non-digits (the "v" in "v1.2") are skipped.
         }
         return UInt64(digits) ?? 0
     }

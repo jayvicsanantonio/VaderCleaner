@@ -43,11 +43,24 @@ struct DefaultAppStoreUpdateChecker: AppStoreUpdateChecking, Sendable {
         }
         // `URLQueryItem` percent-encodes the value, so a bundle ID
         // containing `+` (rare but legal) round-trips correctly through
-        // the query string.
-        components.queryItems = [URLQueryItem(name: "bundleId", value: bundleID)]
+        // the query string. `entity=macSoftware` constrains the lookup to
+        // Mac App Store titles — a bundle ID can in principle match an
+        // iOS app with the same identifier, and we only ever want the
+        // macOS build's version here.
+        components.queryItems = [
+            URLQueryItem(name: "bundleId", value: bundleID),
+            URLQueryItem(name: "entity", value: "macSoftware")
+        ]
         guard let url = components.url else { return nil }
 
-        let (data, _) = try await httpFetcher.data(from: url)
+        let (data, response) = try await httpFetcher.data(from: url)
+        // A non-200 (rate limiting, 5xx, an HTML error page) would only
+        // surface as an opaque JSON decoding failure further down. Treat
+        // it the same as "no result" — the caller already tolerates a
+        // nil lookup as "no update info available".
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            return nil
+        }
         let payload = try JSONDecoder().decode(LookupResponse.self, from: data)
         guard let first = payload.results.first,
               let storeURL = URL(string: first.trackViewUrl) else {

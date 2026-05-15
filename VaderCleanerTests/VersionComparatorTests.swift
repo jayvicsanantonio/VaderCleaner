@@ -48,6 +48,16 @@ final class VersionComparatorTests: XCTestCase {
         XCTAssertFalse(VersionComparator.isNewer(version: "1.2.3-beta", than: "1.2.3"))
     }
 
+    /// Sparkle feeds (and some Mac apps) tag releases as "v1.2.3". The
+    /// leading "v" must be skipped so the numeric components still compare
+    /// — otherwise every component parses to 0 and a real update looks
+    /// identical to the installed build.
+    func test_isNewer_skipsLeadingVPrefix() {
+        XCTAssertTrue(VersionComparator.isNewer(version: "v1.2.4", than: "v1.2.3"))
+        XCTAssertTrue(VersionComparator.isNewer(version: "v2.0.0", than: "1.9.9"))
+        XCTAssertFalse(VersionComparator.isNewer(version: "v1.0.0", than: "1.0.0"))
+    }
+
     /// Numeric components larger than `Int.max` would crash a naive Int
     /// parse; the comparator falls back to lexicographic compare in that case
     /// without crashing.

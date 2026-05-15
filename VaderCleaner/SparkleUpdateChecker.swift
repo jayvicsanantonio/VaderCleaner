@@ -63,7 +63,13 @@ struct DefaultSparkleUpdateChecker: SparkleUpdateChecking, Sendable {
     }
 
     func fetchAppcast(feedURL: URL) async throws -> SparkleAppcastItem? {
-        let (data, _) = try await httpFetcher.data(from: feedURL)
+        let (data, response) = try await httpFetcher.data(from: feedURL)
+        // Only parse a successful response — a 404/5xx body is usually an
+        // HTML error page that would either parse to nothing or, worse,
+        // yield a bogus item. Treat it as "no appcast available".
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            return nil
+        }
         return Self.parseAppcast(xml: data)
     }
 
@@ -92,9 +98,20 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
 
     func bestItem() -> SparkleAppcastItem? {
         return items.max { lhs, rhs in
-            let lhsVer = lhs.shortVersion
-            let rhsVer = rhs.shortVersion
-            return VersionComparator.compare(lhsVer, rhsVer) == .orderedAscending
+            let shortComparison = VersionComparator.compare(
+                lhs.shortVersion,
+                rhs.shortVersion
+            )
+            // When two items advertise the same marketing version, fall
+            // back to the build (`sparkle:version`) so a same-short-string
+            // hotfix isn't passed over for an older artifact.
+            if shortComparison == .orderedSame {
+                return VersionComparator.compare(
+                    lhs.version ?? "0",
+                    rhs.version ?? "0"
+                ) == .orderedAscending
+            }
+            return shortComparison == .orderedAscending
         }
     }
 
@@ -109,25 +126,31 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         if local == "item" {
             inItem = true
             currentEnclosureURL = nil
-            currentShortVersion = nil
-            currentVersion = nil
+            // Seed from any version attributes carried on the `<item>`
+            // itself — older feeds place `sparkle:shortVersionString` /
+            // `sparkle:version` here rather than on the enclosure. The
+            // enclosure handler below still overrides these when the
+            // (dominant) enclosure-attribute form is present.
+            currentShortVersion = attributeDict["sparkle:shortVersionString"]
+                ?? attributeDict["shortVersionString"]
+            currentVersion = attributeDict["sparkle:version"]
+                ?? attributeDict["version"]
             return
         }
         if inItem, local == "enclosure" {
-            // Pull shortVersionString / version from the enclosure
-            // attributes — that's where Sparkle places them in most feeds.
-            // Some older feeds put `sparkle:shortVersionString` on the
-            // `<item>` itself, but the enclosure variant is dominant.
+            // The enclosure attributes are where Sparkle places the
+            // version in most modern feeds; prefer them over any
+            // item-level seed but keep the seed as a fallback.
             if let urlString = attributeDict["url"], let url = URL(string: urlString) {
                 currentEnclosureURL = url
             }
-            if currentShortVersion == nil {
-                currentShortVersion = attributeDict["sparkle:shortVersionString"]
-                    ?? attributeDict["shortVersionString"]
+            if let short = attributeDict["sparkle:shortVersionString"]
+                ?? attributeDict["shortVersionString"] {
+                currentShortVersion = short
             }
-            if currentVersion == nil {
-                currentVersion = attributeDict["sparkle:version"]
-                    ?? attributeDict["version"]
+            if let version = attributeDict["sparkle:version"]
+                ?? attributeDict["version"] {
+                currentVersion = version
             }
         }
     }

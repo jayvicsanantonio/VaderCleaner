@@ -94,11 +94,60 @@ final class SparkleUpdateCheckerTests: XCTestCase {
         XCTAssertNil(DefaultSparkleUpdateChecker.parseAppcast(xml: xml))
     }
 
-    // MARK: - fetchUpdate
+    /// When two items share the same `shortVersionString`, the one with
+    /// the newer `sparkle:version` (build) must win so a same-marketing-
+    /// version hotfix isn't passed over for an older artifact.
+    func test_parseAppcast_tieBreaksOnBuildVersion() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <enclosure url="https://example.com/Helio-2.0.0-100.dmg"
+                         sparkle:version="100"
+                         sparkle:shortVersionString="2.0.0" />
+            </item>
+            <item>
+              <enclosure url="https://example.com/Helio-2.0.0-105.dmg"
+                         sparkle:version="105"
+                         sparkle:shortVersionString="2.0.0" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
 
-    /// `fetchUpdate` runs feed bytes through the injected HTTP fetcher and
-    /// returns the newest item — no live network access.
-    func test_fetchUpdate_routesThroughInjectedFetcher() async throws {
+        let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml)
+        XCTAssertEqual(item?.version, "105")
+        XCTAssertEqual(item?.downloadURL,
+                       URL(string: "https://example.com/Helio-2.0.0-105.dmg"))
+    }
+
+    /// Older feeds carry `sparkle:shortVersionString` / `sparkle:version`
+    /// on the `<item>` element itself rather than the enclosure. The
+    /// parser must still surface those rather than dropping the item.
+    func test_parseAppcast_readsVersionAttributesOnItemElement() throws {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item sparkle:shortVersionString="4.2.0" sparkle:version="4200">
+              <enclosure url="https://example.com/Helio-4.2.0.dmg" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml)
+        XCTAssertEqual(item?.shortVersion, "4.2.0")
+        XCTAssertEqual(item?.downloadURL,
+                       URL(string: "https://example.com/Helio-4.2.0.dmg"))
+    }
+
+    // MARK: - fetchAppcast
+
+    /// `fetchAppcast` runs feed bytes through the injected HTTP fetcher
+    /// and returns the newest item — no live network access.
+    func test_fetchAppcast_routesThroughInjectedFetcher() async throws {
         let xml = """
         <?xml version="1.0"?>
         <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -115,6 +164,22 @@ final class SparkleUpdateCheckerTests: XCTestCase {
         let checker = DefaultSparkleUpdateChecker(httpFetcher: stub)
         let item = try await checker.fetchAppcast(feedURL: URL(string: "https://example.com/appcast.xml")!)
         XCTAssertEqual(item?.shortVersion, "3.0.0")
+    }
+
+    /// A non-200 feed response (404/5xx/HTML error page) yields `nil`
+    /// rather than attempting to parse an error body into a bogus item.
+    func test_fetchAppcast_nonOKStatusReturnsNil() async throws {
+        let stub = StubHTTPFetcher()
+        await stub.set(
+            response: Data("<html>not found</html>".utf8),
+            for: URL(string: "https://example.com/appcast.xml")!,
+            statusCode: 404
+        )
+        let checker = DefaultSparkleUpdateChecker(httpFetcher: stub)
+        let item = try await checker.fetchAppcast(
+            feedURL: URL(string: "https://example.com/appcast.xml")!
+        )
+        XCTAssertNil(item)
     }
 
     // MARK: - Helpers

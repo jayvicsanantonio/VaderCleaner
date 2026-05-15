@@ -25,7 +25,7 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
         let fetcher = StubHTTPFetcher()
         await fetcher.set(
             response: payload,
-            for: URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio")!
+            for: URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio&entity=macSoftware")!
         )
         let checker = DefaultAppStoreUpdateChecker(httpFetcher: fetcher)
         let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
@@ -41,21 +41,36 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
         let fetcher = StubHTTPFetcher()
         await fetcher.set(
             response: payload,
-            for: URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio")!
+            for: URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio&entity=macSoftware")!
         )
         let checker = DefaultAppStoreUpdateChecker(httpFetcher: fetcher)
         let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
         XCTAssertNil(lookup)
     }
 
-    /// The bundle ID is sent as a query item — verifies the URL layout
-    /// the iTunes Search API expects (`?bundleId=<id>`). Bundle IDs in
-    /// practice are reverse-DNS strings and don't carry characters that
-    /// need percent-encoding, so we don't add a heavier escape pass on
-    /// top of `URLQueryItem`.
+    /// A non-200 response (rate limiting, 5xx, HTML error page) returns
+    /// `nil` instead of surfacing as an opaque JSON decode failure.
+    func test_latestVersion_nonOKStatusReturnsNil() async throws {
+        let fetcher = StubHTTPFetcher()
+        await fetcher.set(
+            response: Data("Too Many Requests".utf8),
+            for: URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio&entity=macSoftware")!,
+            statusCode: 429
+        )
+        let checker = DefaultAppStoreUpdateChecker(httpFetcher: fetcher)
+        let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
+        XCTAssertNil(lookup)
+    }
+
+    /// The lookup URL carries both `bundleId` and `entity=macSoftware`,
+    /// the latter constraining results to Mac App Store titles so a
+    /// same-bundle-ID iOS app can't shadow the macOS version. Bundle IDs
+    /// in practice are reverse-DNS strings and don't carry characters
+    /// that need percent-encoding, so we don't add a heavier escape pass
+    /// on top of `URLQueryItem`.
     func test_latestVersion_buildsExpectedQueryURL() async throws {
         let fetcher = StubHTTPFetcher()
-        let expected = URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio")!
+        let expected = URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio&entity=macSoftware")!
         await fetcher.set(
             response: #"{"resultCount":0,"results":[]}"#.data(using: .utf8)!,
             for: expected
