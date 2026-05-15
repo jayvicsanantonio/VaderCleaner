@@ -2,7 +2,6 @@
 // The five Extensions Manager discovery types — Safari, browser, Mail-plugin, internet-plug-in, and launch-agent scanners — plus the shared protocol and sizing helper they emit ExtensionItems through.
 
 import Foundation
-import os.log
 
 /// Test seam between `ExtensionsManagerViewModel` and the real on-disk
 /// extension locations. Each concrete discoverer scans one surface and
@@ -59,11 +58,6 @@ enum ExtensionArtifactSizer {
     }
 }
 
-private let extensionDiscoveryLog = Logger(
-    subsystem: "com.personal.VaderCleaner",
-    category: "ExtensionDiscovery"
-)
-
 // MARK: - Safari
 
 /// Scans the legacy `~/Library/Safari/Extensions/` directory.
@@ -111,9 +105,10 @@ struct SafariExtensionDiscovery: ExtensionDiscovering {
                     size: ExtensionArtifactSizer.size(at: entry, fileManager: fileManager)
                 ))
             }
-            return items.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
+            // Not sorted here: ExtensionsManagerViewModel.groupedByType
+            // sorts each bucket by name before display, so ordering the
+            // raw discovery output would be redundant work.
+            return items
         }.value
     }
 }
@@ -160,9 +155,10 @@ struct BrowserExtensionDiscovery: ExtensionDiscovering {
                 in: support.appendingPathComponent("Firefox/Profiles", isDirectory: true),
                 fileManager: fileManager
             ))
-            return items.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
+            // Not sorted here: ExtensionsManagerViewModel.groupedByType
+            // sorts each bucket by name before display, so ordering the
+            // raw discovery output would be redundant work.
+            return items
         }.value
     }
 
@@ -321,9 +317,9 @@ struct MailPluginDiscovery: ExtensionDiscovering {
                 ))
             }
         }
-        return items.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        // Not sorted here: ExtensionsManagerViewModel.groupedByType sorts
+        // each bucket by name before display.
+        return items
     }
 }
 
@@ -425,9 +421,10 @@ struct LaunchAgentDiscovery: ExtensionDiscovering {
                     ))
                 }
             }
-            return items.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
+            // Not sorted here: ExtensionsManagerViewModel.groupedByType
+            // sorts each bucket by name before display, so ordering the
+            // raw discovery output would be redundant work.
+            return items
         }.value
     }
 

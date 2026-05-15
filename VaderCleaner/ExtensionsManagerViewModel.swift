@@ -136,10 +136,9 @@ extension ExtensionsManagerViewModel {
                 async let mail     = MailPluginDiscovery().extensions()
                 async let internet = InternetPluginDiscovery().extensions()
                 async let agents   = LaunchAgentDiscovery().extensions()
-                let merged = await safari + browser + mail + internet + agents
-                return merged.sorted {
-                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                }
+                // Not sorted here: `groupedByType` sorts each bucket by
+                // name before the data reaches the UI.
+                return await safari + browser + mail + internet + agents
             },
             remove: { item in
                 try await Self.removeItem(item)
