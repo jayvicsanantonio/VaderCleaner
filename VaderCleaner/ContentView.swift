@@ -14,6 +14,7 @@ struct ContentView: View {
     private let spaceLensViewModel: DiskScannerViewModel
     private let privacyViewModel: PrivacyViewModel
     private let appUninstallerViewModel: AppUninstallerViewModel
+    private let appUpdaterViewModel: AppUpdaterViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
@@ -26,13 +27,15 @@ struct ContentView: View {
         largeOldFilesViewModel: LargeOldFilesViewModel,
         spaceLensViewModel: DiskScannerViewModel,
         privacyViewModel: PrivacyViewModel,
-        appUninstallerViewModel: AppUninstallerViewModel
+        appUninstallerViewModel: AppUninstallerViewModel,
+        appUpdaterViewModel: AppUpdaterViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
         self.largeOldFilesViewModel = largeOldFilesViewModel
         self.spaceLensViewModel = spaceLensViewModel
         self.privacyViewModel = privacyViewModel
         self.appUninstallerViewModel = appUninstallerViewModel
+        self.appUpdaterViewModel = appUpdaterViewModel
     }
 
     var body: some View {
@@ -102,6 +105,8 @@ struct ContentView: View {
             PrivacyView(viewModel: privacyViewModel)
         case .appUninstaller:
             AppUninstallerView(viewModel: appUninstallerViewModel)
+        case .appUpdater:
+            AppUpdaterView(viewModel: appUpdaterViewModel)
         default:
             PlaceholderDetailView(section: section)
         }
@@ -150,7 +155,8 @@ private struct PlaceholderDetailView: View {
         largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
         spaceLensViewModel: DiskScannerViewModel.live(),
         privacyViewModel: PrivacyViewModel.live(),
-        appUninstallerViewModel: AppUninstallerViewModel.live()
+        appUninstallerViewModel: AppUninstallerViewModel.live(),
+        appUpdaterViewModel: AppUpdaterViewModel.live()
     )
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
