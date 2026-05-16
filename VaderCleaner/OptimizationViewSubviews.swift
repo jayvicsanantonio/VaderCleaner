@@ -144,6 +144,7 @@ struct OptimizationLaunchAgentsSection: View {
                 ForEach(agents) { agent in
                     OptimizationLaunchAgentRow(
                         agent: agent,
+                        identifier: identifier,
                         onDisable: { onDisable(agent) },
                         onRemove: { onRemove(agent) }
                     )
@@ -157,6 +158,7 @@ struct OptimizationLaunchAgentsSection: View {
 
 struct OptimizationLaunchAgentRow: View {
     let agent: LaunchAgent
+    let identifier: String
     let onDisable: () -> Void
     let onRemove: () -> Void
 
@@ -208,7 +210,7 @@ struct OptimizationLaunchAgentRow: View {
                         comment: "Tooltip explaining why Disable is unavailable for system launch agents."
                     )
                   : "")
-            .accessibilityIdentifier("optimization.disable.\(agent.path.lastPathComponent)")
+            .accessibilityIdentifier("\(identifier).disable.\(agent.path.lastPathComponent)")
 
             Button(role: .destructive, action: onRemove) {
                 Text(String(
@@ -217,7 +219,7 @@ struct OptimizationLaunchAgentRow: View {
                 ))
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("optimization.remove.\(agent.path.lastPathComponent)")
+            .accessibilityIdentifier("\(identifier).remove.\(agent.path.lastPathComponent)")
         }
         .padding(.vertical, 4)
     }

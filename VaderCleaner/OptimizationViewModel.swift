@@ -25,8 +25,8 @@ final class OptimizationViewModel: ObservableObject {
     typealias LoadLoginItems = () async -> [LoginItem]
     typealias LoadAgents = () async -> [LaunchAgent]
     typealias ReadMemory = @MainActor () -> MemoryStats
-    typealias SetLoginItemEnabled = (Bool, LoginItem) throws -> Void
-    typealias DisableAgent = (LaunchAgent) throws -> Void
+    typealias SetLoginItemEnabled = (Bool, LoginItem) async throws -> Void
+    typealias DisableAgent = (LaunchAgent) async throws -> Void
     typealias RemoveAgent = (LaunchAgent) async throws -> Void
     typealias FlushRAM = () async throws -> Void
     typealias RunMaintenance = () async throws -> String
@@ -148,7 +148,7 @@ final class OptimizationViewModel: ObservableObject {
     func setLoginItem(_ item: LoginItem, enabled: Bool) async {
         phase = .working
         do {
-            try setLoginItemEnabled(enabled, item)
+            try await setLoginItemEnabled(enabled, item)
             loginItems = await loadLoginItems()
             phase = .ready
         } catch {
@@ -164,7 +164,7 @@ final class OptimizationViewModel: ObservableObject {
     func disable(_ agent: LaunchAgent) async {
         phase = .working
         do {
-            try disableAgent(agent)
+            try await disableAgent(agent)
             async let user = loadUserAgents()
             async let system = loadSystemAgents()
             let (reloadedUser, reloadedSystem) = await (user, system)
@@ -241,10 +241,20 @@ extension OptimizationViewModel {
                 systemStats.refresh()
                 return systemStats.ramUsage
             },
+            // Offloaded like the discovery loaders: SMAppService
+            // register/unregister and `launchctl unload` both block the
+            // calling thread, so running them inline would stall the
+            // main-actor view-model if launchd is slow.
             setLoginItemEnabled: { enabled, item in
-                try loginManager.setEnabled(enabled, for: item)
+                try await Task.detached(priority: .userInitiated) {
+                    try loginManager.setEnabled(enabled, for: item)
+                }.value
             },
-            disableAgent: { try agentManager.disable($0) },
+            disableAgent: { agent in
+                try await Task.detached(priority: .userInitiated) {
+                    try agentManager.disable(agent)
+                }.value
+            },
             removeAgent: { try await agentManager.remove($0) },
             flushRAM: { try await ram.flush() },
             runMaintenance: { try await maintenance.run() }
