@@ -101,7 +101,19 @@ final class SmartScanViewModel: ObservableObject {
     /// `.failed` if the junk scan throws). The ClamAV install check is read
     /// once up front so the result can record whether the malware scan was
     /// actually performed.
+    ///
+    /// Re-entrant calls while a scan or clean is already in flight are
+    /// ignored, so a double-tap (or a programmatic caller) can't leave two
+    /// scans racing the `phase` updates. The guard is read synchronously
+    /// before the first `await`, so it is reliable under `@MainActor`.
     func scan() async {
+        switch phase {
+        case .scanning, .cleaning:
+            return
+        case .idle, .results, .done, .failed:
+            break
+        }
+
         phase = .scanning(phase: String(
             localized: "Scanning for junk, malware, and optimization opportunities…",
             comment: "Progress label shown while the Smart Scan runs all sub-scans."

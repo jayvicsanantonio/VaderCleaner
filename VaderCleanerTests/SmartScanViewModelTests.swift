@@ -147,6 +147,31 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(result.optimizationItems, [])
     }
 
+    func test_scan_ignoresReentryWhileAScanIsInFlight() async {
+        var junkInvocations = 0
+        var resume: CheckedContinuation<Void, Never>?
+        let vm = makeViewModel(
+            junkScanner: {
+                junkInvocations += 1
+                await withCheckedContinuation { resume = $0 }
+                return ScanResult(items: [])
+            }
+        )
+
+        let inFlight = Task { await vm.scan() }
+        // Yield until the first scan has entered the scanner and suspended.
+        while resume == nil { await Task.yield() }
+
+        // A second scan() while one is in flight must be a no-op.
+        await vm.scan()
+        XCTAssertEqual(junkInvocations, 1,
+                       "A re-entrant scan() while a scan is in flight must be ignored")
+
+        resume?.resume()
+        await inFlight.value
+        XCTAssertEqual(junkInvocations, 1)
+    }
+
     // MARK: - Clean: delegation
 
     func test_clean_delegatesToJunkCleanerAndThreatRemover() async {
