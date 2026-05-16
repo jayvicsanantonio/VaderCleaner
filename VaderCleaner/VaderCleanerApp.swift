@@ -35,6 +35,7 @@ struct VaderCleanerApp: App {
     @StateObject private var extensionsManagerViewModel: ExtensionsManagerViewModel
     @StateObject private var optimizationViewModel: OptimizationViewModel
     @StateObject private var malwareViewModel: MalwareViewModel
+    @StateObject private var smartScanViewModel: SmartScanViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
     // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
     // notification dispatcher (Prompt 11) all subscribe via
@@ -105,6 +106,13 @@ struct VaderCleanerApp: App {
                 preferences: prefs
             )
         )
+        // Smart Scan orchestrates the System Junk, Malware, and Optimization
+        // collaborators behind one flow. It captures the same exclusions store
+        // the standalone junk scanner uses and snapshots it per scan, so an
+        // exclusion added in Preferences takes effect on the next Smart Scan.
+        _smartScanViewModel = StateObject(
+            wrappedValue: SmartScanViewModel.live(exclusions: exclusions)
+        )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
         // strongly via `dispatcher`, and ContentView drives the permission
@@ -158,7 +166,8 @@ struct VaderCleanerApp: App {
                 appUpdaterViewModel: appUpdaterViewModel,
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 optimizationViewModel: optimizationViewModel,
-                malwareViewModel: malwareViewModel
+                malwareViewModel: malwareViewModel,
+                smartScanViewModel: smartScanViewModel
             )
                 .environmentObject(appState)
                 .environmentObject(onboardingViewModel)
