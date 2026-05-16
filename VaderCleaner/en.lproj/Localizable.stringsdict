@@ -18,5 +18,37 @@
             <string>%d items</string>
         </dict>
     </dict>
+    <key>%d threats found</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@threats@ found</string>
+        <key>threats</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d threat</string>
+            <key>other</key>
+            <string>%d threats</string>
+        </dict>
+    </dict>
+    <key>Removed %d threats</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>Removed %#@threats@</string>
+        <key>threats</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d threat</string>
+            <key>other</key>
+            <string>%d threats</string>
+        </dict>
+    </dict>
 </dict>
 </plist>

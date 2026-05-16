@@ -44,7 +44,7 @@
 
 - [x] **Prompt 22** — Optimization feature (login items, launch agents, RAM flush, maintenance scripts)
 - [x] **Prompt 23** — ClamAV integration (detection, DB update, scanning, output parsing)
-- [ ] **Prompt 24** — Malware Removal UI (scan → results → remove flow)
+- [x] **Prompt 24** — Malware Removal UI (scan → results → remove flow)
 
 ## Phase 5 — Integration & Polish
 

@@ -34,6 +34,7 @@ struct VaderCleanerApp: App {
     @StateObject private var appUpdaterViewModel: AppUpdaterViewModel
     @StateObject private var extensionsManagerViewModel: ExtensionsManagerViewModel
     @StateObject private var optimizationViewModel: OptimizationViewModel
+    @StateObject private var malwareViewModel: MalwareViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
     // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
     // notification dispatcher (Prompt 11) all subscribe via
@@ -90,6 +91,20 @@ struct VaderCleanerApp: App {
             wrappedValue: OptimizationViewModel.live(systemStats: stats)
         )
         _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(service: stats))
+        // One NotificationManager for the whole app. Its init registers
+        // itself as the `UNUserNotificationCenter` delegate (a weak property);
+        // a second instance would silently steal that registration, so the
+        // threshold monitor and the Malware feature share this one.
+        let notificationManager = NotificationManager()
+        // Wired after `stats` so manual malware scans surface a detection
+        // banner through the same dispatcher the threshold monitor uses, and
+        // honour the same `notifyMalwareFound` preference.
+        _malwareViewModel = StateObject(
+            wrappedValue: MalwareViewModel.live(
+                dispatcher: notificationManager,
+                preferences: prefs
+            )
+        )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
         // strongly via `dispatcher`, and ContentView drives the permission
@@ -100,7 +115,7 @@ struct VaderCleanerApp: App {
             wrappedValue: NotificationThresholdMonitor(
                 stats: stats,
                 preferences: prefs,
-                dispatcher: NotificationManager()
+                dispatcher: notificationManager
             )
         )
     }
@@ -142,7 +157,8 @@ struct VaderCleanerApp: App {
                 appUninstallerViewModel: appUninstallerViewModel,
                 appUpdaterViewModel: appUpdaterViewModel,
                 extensionsManagerViewModel: extensionsManagerViewModel,
-                optimizationViewModel: optimizationViewModel
+                optimizationViewModel: optimizationViewModel,
+                malwareViewModel: malwareViewModel
             )
                 .environmentObject(appState)
                 .environmentObject(onboardingViewModel)
