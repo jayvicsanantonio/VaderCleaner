@@ -90,12 +90,17 @@ struct LaunchAgentManager {
             guard fileManager.fileExists(atPath: dir.path) else { continue }
             let entries = (try? fileManager.contentsOfDirectory(
                 at: dir,
-                includingPropertiesForKeys: nil,
+                includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
             )) ?? []
 
             for entry in entries where entry.pathExtension.lowercased() == "plist" {
-                guard seen.insert(entry.path).inserted else { continue }
+                // A directory named `*.plist` is not a launch agent; only
+                // regular files carry a launchd job definition.
+                let isRegularFile = (try? entry.resourceValues(
+                    forKeys: [.isRegularFileKey]
+                ))?.isRegularFile ?? false
+                guard isRegularFile, seen.insert(entry.path).inserted else { continue }
                 let plist = (try? Data(contentsOf: entry)).flatMap {
                     try? PropertyListSerialization.propertyList(
                         from: $0, options: [], format: nil
@@ -217,7 +222,9 @@ struct LaunchAgentManager {
         process.arguments = ["list"]
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        // Discard stderr rather than wiring an unread Pipe — an unread pipe
+        // whose buffer fills would deadlock `launchctl`.
+        process.standardError = FileHandle.nullDevice
         do {
             try process.run()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -235,16 +242,25 @@ struct LaunchAgentManager {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
+        // stdout is unused; discard it. stderr is read *before*
+        // `waitUntilExit()` so a chatty failure can't deadlock the process
+        // on a full pipe buffer, and is surfaced in the thrown error.
+        let errorPipe = Pipe()
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errorPipe
         try process.run()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         if process.terminationStatus != 0 {
+            let stderr = String(data: errorData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let description = stderr.isEmpty
+                ? "launchctl \(arguments.joined(separator: " ")) exited with status \(process.terminationStatus)"
+                : stderr
             throw NSError(
                 domain: "com.personal.VaderCleaner.LaunchAgentManager",
                 code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey:
-                    "launchctl \(arguments.joined(separator: " ")) exited with status \(process.terminationStatus)"]
+                userInfo: [NSLocalizedDescriptionKey: description]
             )
         }
     }
