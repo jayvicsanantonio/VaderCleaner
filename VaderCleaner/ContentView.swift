@@ -18,6 +18,7 @@ struct ContentView: View {
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
     private let optimizationViewModel: OptimizationViewModel
     private let malwareViewModel: MalwareViewModel
+    private let smartScanViewModel: SmartScanViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
@@ -34,7 +35,8 @@ struct ContentView: View {
         appUpdaterViewModel: AppUpdaterViewModel,
         extensionsManagerViewModel: ExtensionsManagerViewModel,
         optimizationViewModel: OptimizationViewModel,
-        malwareViewModel: MalwareViewModel
+        malwareViewModel: MalwareViewModel,
+        smartScanViewModel: SmartScanViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
         self.largeOldFilesViewModel = largeOldFilesViewModel
@@ -45,6 +47,7 @@ struct ContentView: View {
         self.extensionsManagerViewModel = extensionsManagerViewModel
         self.optimizationViewModel = optimizationViewModel
         self.malwareViewModel = malwareViewModel
+        self.smartScanViewModel = smartScanViewModel
     }
 
     var body: some View {
@@ -96,12 +99,17 @@ struct ContentView: View {
         await notificationMonitor.requestPermission()
     }
 
-    /// Routes the selected sidebar section to its detail view. Sections without
-    /// a real implementation yet fall back to `PlaceholderDetailView`; Health
-    /// Monitor (Prompt 9) is the first real wiring.
+    /// Routes the selected sidebar section to its detail view. The switch is
+    /// exhaustive over `NavigationSection` so adding a section is a compile-time
+    /// prompt to wire its view here.
     @ViewBuilder
     private func detailView(for section: NavigationSection) -> some View {
         switch section {
+        case .smartScan:
+            SmartScanView(
+                viewModel: smartScanViewModel,
+                onReviewOptimization: { selectedSection = .optimization }
+            )
         case .healthMonitor:
             HealthMonitorView(service: systemStats)
         case .systemJunk:
@@ -122,8 +130,6 @@ struct ContentView: View {
             OptimizationView(viewModel: optimizationViewModel)
         case .malwareRemoval:
             MalwareView(viewModel: malwareViewModel)
-        default:
-            PlaceholderDetailView(section: section)
         }
     }
 
@@ -138,26 +144,6 @@ struct ContentView: View {
                 if newValue == false { onboarding.dismiss() }
             }
         )
-    }
-}
-
-private struct PlaceholderDetailView: View {
-    let section: NavigationSection
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: section.icon)
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text(section.title)
-                .font(.title2)
-                .fontWeight(.semibold)
-            Text("Coming Soon")
-                .font(.body)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(section.title)
     }
 }
 
@@ -178,7 +164,8 @@ private struct PlaceholderDetailView: View {
         malwareViewModel: MalwareViewModel.live(
             dispatcher: notificationManager,
             preferences: prefs
-        )
+        ),
+        smartScanViewModel: SmartScanViewModel.live(exclusions: exclusions)
     )
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
