@@ -117,6 +117,28 @@ struct DiskScanner: DiskScanning {
             ? nil
             : PathExclusionMatcher.makeCanonicalPathMapper(for: resolvedRoot)
 
+        // The scan root itself can be on the exclusions list (e.g. the
+        // user excluded their home folder and Space Lens defaults to it).
+        // The child-loop filter only sees descendants, so without this
+        // check the whole excluded root would still be walked and
+        // reported. Mirrors `FileScanner`'s root-level skip; here we hand
+        // back an empty tree (rather than emit nothing) because the VM
+        // needs a `DiskNode` to land in `.ready`.
+        if let pathMapper,
+           PathExclusionMatcher.isExcluded(
+            path: pathMapper.canonicalRootPath,
+            by: canonicalExclusions
+           ) {
+            return DiskNode(
+                url: root,
+                name: root.lastPathComponent,
+                size: 0,
+                isDirectory: true,
+                children: [],
+                isAccessible: true
+            )
+        }
+
         // Validate the root up front. Inside `buildNode` we `try?`
         // metadata reads so a single broken descendant doesn't abort
         // the walk — but at the root, the same forgiveness silently
@@ -209,7 +231,15 @@ struct DiskScanner: DiskScanning {
         }
 
         if resourceValues?.isPackage == true {
-            let result = try await PackageDirectorySizer.recursiveSizeResult(of: url) {
+            // Thread exclusions into the package rollup so an excluded
+            // path *inside* a `.app`/other bundle doesn't get counted
+            // toward the package's (and every ancestor's) reported size.
+            // `PackageDirectorySizer` builds its own root-relative mapper
+            // from `url`, so the canonical exclusions match there too.
+            let result = try await PackageDirectorySizer.recursiveSizeResult(
+                of: url,
+                excluding: canonicalExclusions
+            ) {
                 counter.value += 1
                 progress(counter.value)
             }

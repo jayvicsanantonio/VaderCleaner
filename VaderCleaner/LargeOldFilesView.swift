@@ -152,4 +152,5 @@ private struct PendingDeletion: Identifiable {
         deleter: { _ in [] }
     ))
     .frame(width: 800, height: 520)
+    .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }

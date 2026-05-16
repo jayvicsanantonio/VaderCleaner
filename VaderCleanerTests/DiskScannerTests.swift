@@ -343,4 +343,51 @@ final class DiskScannerTests: XCTestCase {
             "Excluded bytes (64 + 128) must not roll into the parent total"
         )
     }
+
+    /// When the scan root *itself* is on the exclusions list (e.g. the
+    /// user excluded their home folder and Space Lens defaults to it),
+    /// the whole tree must be empty rather than walked. The child-loop
+    /// filter only sees descendants, so this is exercised by the
+    /// dedicated root-level check.
+    func test_scan_returnsEmptyTreeWhenRootItselfExcluded() async throws {
+        try TestHelpers.createDummyFile(named: "a.bin", size: 100, in: tempRoot)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [tempRoot],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(root.size, 0, "An excluded root must report zero bytes")
+        XCTAssertTrue(root.children.isEmpty, "An excluded root must have no children")
+    }
+
+    /// A package is rolled up as a single leaf; an excluded path *inside*
+    /// the package must still be subtracted from that rollup, otherwise
+    /// the excluded bytes silently re-enter via the package total and
+    /// every ancestor's size.
+    func test_scan_excludesPathsInsidePackageFromRollup() async throws {
+        let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        let excludedInside = contents.appendingPathComponent("excluded", isDirectory: true)
+        try FileManager.default.createDirectory(at: excludedInside, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: excludedInside)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [excludedInside],
+            progress: { _ in }
+        )
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Photos.app" })
+        XCTAssertEqual(
+            packageNode.size,
+            32,
+            "Excluded 64 bytes inside the package must not count toward its rollup"
+        )
+        XCTAssertEqual(root.size, 32)
+    }
 }

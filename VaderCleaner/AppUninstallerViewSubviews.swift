@@ -59,7 +59,10 @@ struct AppUninstallerListPane: View {
                             .tag(Optional(app.id))
                             .accessibilityIdentifier("appUninstaller.row.\(app.bundleID)")
                             .contextMenu {
-                                Button("Add to Exclusions") {
+                                Button(String(
+                                    localized: "Add to Exclusions",
+                                    comment: "Context menu item that adds the selected app to the scan-exclusions list."
+                                )) {
                                     onAddToExclusions(app)
                                 }
                             }

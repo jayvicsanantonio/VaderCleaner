@@ -191,11 +191,23 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
             // per-path symlink resolution `canonicalize` does is cheap —
             // unlike the bulk scanners, which project through a root mapper
             // to avoid a syscall per enumerated file.
+            //
+            // A candidate is dropped when it is itself excluded *or* when
+            // an excluded path lives inside it. The uninstaller recycles
+            // each candidate as one unit, so emitting a parent directory
+            // that contains an excluded descendant would Trash the
+            // excluded subtree along with it. Erring toward "leave the
+            // parent alone" is the safe choice — it never deletes data
+            // the user told us to keep.
             if !canonicalExclusions.isEmpty {
                 results.removeAll { file in
-                    PathExclusionMatcher.isExcluded(
-                        path: PathExclusionMatcher.canonicalize(file.url),
+                    let canonicalPath = PathExclusionMatcher.canonicalize(file.url)
+                    return PathExclusionMatcher.isExcluded(
+                        path: canonicalPath,
                         by: canonicalExclusions
+                    ) || PathExclusionMatcher.containsExcludedDescendant(
+                        of: canonicalPath,
+                        in: canonicalExclusions
                     )
                 }
             }

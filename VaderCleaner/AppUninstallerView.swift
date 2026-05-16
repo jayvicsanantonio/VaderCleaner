@@ -144,4 +144,5 @@ struct AppUninstallerView: View {
         recycle: { _, _ in 0 }
     ))
     .frame(width: 900, height: 600)
+    .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }

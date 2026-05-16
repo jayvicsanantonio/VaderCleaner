@@ -250,7 +250,10 @@ struct LargeOldFilesRowNameCell: View {
             Button("Show in Finder") {
                 onShowInFinder(file)
             }
-            Button("Add to Exclusions") {
+            Button(String(
+                localized: "Add to Exclusions",
+                comment: "Context menu item that adds the selected file to the scan-exclusions list."
+            )) {
                 onAddToExclusions(file)
             }
             Divider()
