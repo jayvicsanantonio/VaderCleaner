@@ -33,6 +33,7 @@ struct VaderCleanerApp: App {
     @StateObject private var appUninstallerViewModel: AppUninstallerViewModel
     @StateObject private var appUpdaterViewModel: AppUpdaterViewModel
     @StateObject private var extensionsManagerViewModel: ExtensionsManagerViewModel
+    @StateObject private var optimizationViewModel: OptimizationViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
     // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
     // notification dispatcher (Prompt 11) all subscribe via
@@ -83,6 +84,11 @@ struct VaderCleanerApp: App {
         // service the Health Monitor consumes.
         let stats = SystemStatsService()
         _systemStats = StateObject(wrappedValue: stats)
+        // Wired after `stats` so the Optimization RAM figures come from the
+        // same polling service the Health Monitor and menu bar consume.
+        _optimizationViewModel = StateObject(
+            wrappedValue: OptimizationViewModel.live(systemStats: stats)
+        )
         _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(service: stats))
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
@@ -135,7 +141,8 @@ struct VaderCleanerApp: App {
                 privacyViewModel: privacyViewModel,
                 appUninstallerViewModel: appUninstallerViewModel,
                 appUpdaterViewModel: appUpdaterViewModel,
-                extensionsManagerViewModel: extensionsManagerViewModel
+                extensionsManagerViewModel: extensionsManagerViewModel,
+                optimizationViewModel: optimizationViewModel
             )
                 .environmentObject(appState)
                 .environmentObject(onboardingViewModel)

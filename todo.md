@@ -42,7 +42,7 @@
 
 ## Phase 4 — Optimization & Security
 
-- [ ] **Prompt 22** — Optimization feature (login items, launch agents, RAM flush, maintenance scripts)
+- [x] **Prompt 22** — Optimization feature (login items, launch agents, RAM flush, maintenance scripts)
 - [ ] **Prompt 23** — ClamAV integration (detection, DB update, scanning, output parsing)
 - [ ] **Prompt 24** — Malware Removal UI (scan → results → remove flow)
 
