@@ -9,7 +9,7 @@ import os.log
 /// than through a fake. Listed so future features (Smart Scan, etc.) can
 /// substitute their own walker if needed.
 protocol DiskScanning {
-    func scan(root: URL, progress: @escaping (Int) -> Void) async throws -> DiskNode
+    func scan(root: URL, excluding: [URL], progress: @escaping (Int) -> Void) async throws -> DiskNode
 }
 
 /// Conditions under which a scan can't run at all, as distinct from a
@@ -89,7 +89,11 @@ struct DiskScanner: DiskScanning {
         var value: Int = 0
     }
 
-    func scan(root: URL, progress: @escaping (Int) -> Void) async throws -> DiskNode {
+    func scan(
+        root: URL,
+        excluding: [URL] = [],
+        progress: @escaping (Int) -> Void
+    ) async throws -> DiskNode {
         // Resolve symlinks at the root only. macOS exposes `/tmp`,
         // `/var`, and `/etc` as symlinks to `/private/...`; if the user
         // picks one as a Space Lens root, the symlink-skip branch
@@ -101,6 +105,39 @@ struct DiskScanner: DiskScanning {
         // *original* URL so the user sees the path they actually
         // selected.
         let resolvedRoot = root.resolvingSymlinksInPath()
+
+        // Exclusions are matched on canonical paths. The mapper projects
+        // each enumerated URL onto the same canonical form the user's
+        // stored exclusions use (see `FileScanner` for the shared
+        // semantics) without a per-entry symlink-resolution syscall.
+        // `nil` when there are no exclusions so the common case pays
+        // nothing.
+        let canonicalExclusions = excluding.map(PathExclusionMatcher.canonicalize)
+        let pathMapper = canonicalExclusions.isEmpty
+            ? nil
+            : PathExclusionMatcher.makeCanonicalPathMapper(for: resolvedRoot)
+
+        // The scan root itself can be on the exclusions list (e.g. the
+        // user excluded their home folder and Space Lens defaults to it).
+        // The child-loop filter only sees descendants, so without this
+        // check the whole excluded root would still be walked and
+        // reported. Mirrors `FileScanner`'s root-level skip; here we hand
+        // back an empty tree (rather than emit nothing) because the VM
+        // needs a `DiskNode` to land in `.ready`.
+        if let pathMapper,
+           PathExclusionMatcher.isExcluded(
+            path: pathMapper.canonicalRootPath,
+            by: canonicalExclusions
+           ) {
+            return DiskNode(
+                url: root,
+                name: root.lastPathComponent,
+                size: 0,
+                isDirectory: true,
+                children: [],
+                isAccessible: true
+            )
+        }
 
         // Validate the root up front. Inside `buildNode` we `try?`
         // metadata reads so a single broken descendant doesn't abort
@@ -119,6 +156,8 @@ struct DiskScanner: DiskScanning {
             at: resolvedRoot,
             counter: counter,
             progress: progress,
+            canonicalExclusions: canonicalExclusions,
+            pathMapper: pathMapper,
             isRoot: true
         )
     }
@@ -148,6 +187,8 @@ struct DiskScanner: DiskScanning {
         at url: URL,
         counter: FileCounter,
         progress: @escaping (Int) -> Void,
+        canonicalExclusions: [String],
+        pathMapper: PathExclusionMatcher.CanonicalPathMapper?,
         isRoot: Bool = false
     ) async throws -> DiskNode {
         try Task.checkCancellation()
@@ -190,7 +231,15 @@ struct DiskScanner: DiskScanning {
         }
 
         if resourceValues?.isPackage == true {
-            let result = try await PackageDirectorySizer.recursiveSizeResult(of: url) {
+            // Thread exclusions into the package rollup so an excluded
+            // path *inside* a `.app`/other bundle doesn't get counted
+            // toward the package's (and every ancestor's) reported size.
+            // `PackageDirectorySizer` builds its own root-relative mapper
+            // from `url`, so the canonical exclusions match there too.
+            let result = try await PackageDirectorySizer.recursiveSizeResult(
+                of: url,
+                excluding: canonicalExclusions
+            ) {
                 counter.value += 1
                 progress(counter.value)
             }
@@ -252,7 +301,24 @@ struct DiskScanner: DiskScanning {
                 // policy note.
                 continue
             }
-            let child = try await buildNode(at: entry, counter: counter, progress: progress)
+            // A path the user excluded is dropped from the tree entirely:
+            // not added as a child and not rolled into this directory's
+            // size. Space Lens answers "where are my bytes" — an excluded
+            // subtree the user asked us to ignore must not skew its
+            // ancestors' reported totals.
+            if let pathMapper {
+                let canonicalPath = pathMapper.canonicalPath(for: entry)
+                if PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
+                    continue
+                }
+            }
+            let child = try await buildNode(
+                at: entry,
+                counter: counter,
+                progress: progress,
+                canonicalExclusions: canonicalExclusions,
+                pathMapper: pathMapper
+            )
             rolledUpSize += child.size
             children.append(child)
         }

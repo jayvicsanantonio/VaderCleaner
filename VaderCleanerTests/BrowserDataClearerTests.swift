@@ -106,6 +106,44 @@ final class BrowserDataClearerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: cacheDir.path))
     }
 
+    /// **Deliberate inversion of plan.md Prompt 26 — see issue #38 / #75.**
+    ///
+    /// Privacy is a targeted "clear my browser data" action, not a broad
+    /// safe-defaults sweep. Applying the user's general exclusions list
+    /// here would silently leave behind data the user explicitly asked to
+    /// clear. So `BrowserDataClearer` intentionally does **not** consult
+    /// `ExclusionsStore`: a path being on the exclusions list must not stop
+    /// it from being cleared. This test locks that contract in so a future
+    /// change can't re-wire exclusions into Privacy without consciously
+    /// deleting this assertion.
+    @MainActor
+    func test_clear_ignoresExclusionsByDesign() async throws {
+        let history = try TestHelpers.createDummyFile(
+            named: "History.db",
+            size: 100,
+            in: tempRoot
+        )
+
+        // Put the very path we're about to clear on the exclusions list.
+        // Isolated suite so the test never touches the user's real
+        // UserDefaults.
+        let suiteName = "BrowserDataClearerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let exclusions = ExclusionsStore(defaults: defaults)
+        exclusions.add(path: history.path)
+
+        let provider = StubProvider(paths: [.history: [history]])
+        let clearer = BrowserDataClearer(pathProvider: provider)
+
+        try await clearer.clear(category: .history, browser: .chrome)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: history.path),
+            "Privacy must clear data even when its path is excluded — exclusions are intentionally not consulted here (issue #38)"
+        )
+    }
+
     /// `clear` must tolerate missing paths so a partially-populated browser
     /// (e.g. cookies file exists but cache dir doesn't) doesn't raise an
     /// error mid-clear and leave the user staring at a misleading "couldn't

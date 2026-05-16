@@ -11,6 +11,7 @@ struct LargeOldFilesView: View {
     @ObservedObject private var viewModel: LargeOldFilesViewModel
     @StateObject private var fileIconCache = FileIconCache()
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
+    @EnvironmentObject private var exclusions: ExclusionsStore
 
     /// Drives the "Are you sure?" alert before destructive actions. Held on
     /// the view rather than the VM so the confirmation copy can reference
@@ -70,7 +71,8 @@ struct LargeOldFilesView: View {
                 onRescan: startScan,
                 onDeleteSelected: requestDeletionForSelection,
                 onShowInFinder: LargeOldFilesActions.showInFinder,
-                onDeleteFile: requestDeletionForSingle
+                onDeleteFile: requestDeletionForSingle,
+                onAddToExclusions: { exclusions.add(path: $0.url.path) }
             )
         case .empty:
             LargeOldFilesEmptyState(onScanAgain: viewModel.scanAgain)
@@ -150,4 +152,5 @@ private struct PendingDeletion: Identifiable {
         deleter: { _ in [] }
     ))
     .frame(width: 800, height: 520)
+    .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }

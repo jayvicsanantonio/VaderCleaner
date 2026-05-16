@@ -11,6 +11,7 @@ struct AppUninstallerView: View {
 
     @ObservedObject private var viewModel: AppUninstallerViewModel
     @StateObject private var iconCache: AppIconCache
+    @EnvironmentObject private var exclusions: ExclusionsStore
     @State private var showUninstallConfirmation = false
 
     init(viewModel: AppUninstallerViewModel, iconCache: AppIconCache = AppIconCache()) {
@@ -90,6 +91,7 @@ struct AppUninstallerView: View {
                     }
                 ),
                 onSelect: viewModel.select,
+                onAddToExclusions: { exclusions.add(path: $0.bundleURL.path) },
                 iconCache: iconCache
             )
             .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
@@ -142,4 +144,5 @@ struct AppUninstallerView: View {
         recycle: { _, _ in 0 }
     ))
     .frame(width: 900, height: 600)
+    .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }

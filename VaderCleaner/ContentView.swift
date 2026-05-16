@@ -155,9 +155,9 @@ struct ContentView: View {
     return ContentView(
         systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
         largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
-        spaceLensViewModel: DiskScannerViewModel.live(),
+        spaceLensViewModel: DiskScannerViewModel.live(exclusions: exclusions),
         privacyViewModel: PrivacyViewModel.live(),
-        appUninstallerViewModel: AppUninstallerViewModel.live(),
+        appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
         optimizationViewModel: OptimizationViewModel.live(systemStats: stats),

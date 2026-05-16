@@ -305,6 +305,77 @@ final class AssociatedFileFinderTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
+    // MARK: - Exclusions
+
+    /// A path on the user's exclusions list must never enter the
+    /// uninstall plan. Without this the uninstaller could Trash a
+    /// cache/support directory the user explicitly told the app to
+    /// leave alone (e.g. a shared model directory under
+    /// `~/Library/Application Support`).
+    func test_find_skipsExcludedPaths() async throws {
+        try makeFile(under: "Library/Caches/com.acme.helio/blob.bin", size: 64)
+        try makeFile(under: "Library/Logs/com.acme.helio/app.log", size: 32)
+        let excludedCaches = home
+            .appendingPathComponent("Library/Caches/com.acme.helio", isDirectory: true)
+
+        let finder = DefaultAssociatedFileFinder(
+            fileManager: .default,
+            homeDirectory: home,
+            systemLibraryDirectory: systemLibrary,
+            excluding: [excludedCaches]
+        )
+        let result = await finder.find(forBundleID: "com.acme.helio")
+
+        XCTAssertFalse(
+            result.contains { $0.category == .cache },
+            "Excluded cache directory must not appear in the uninstall plan"
+        )
+        XCTAssertTrue(
+            result.contains { $0.category == .logs },
+            "Non-excluded logs must still be found"
+        )
+        for file in result {
+            XCTAssertFalse(
+                file.url.path.hasPrefix(excludedCaches.path),
+                "Excluded path leaked: \(file.url.path)"
+            )
+        }
+    }
+
+    /// The uninstaller recycles each associated path as one unit. If the
+    /// user excluded something *inside* a candidate directory, emitting
+    /// the parent would Trash the excluded subtree along with it — so the
+    /// parent candidate must be suppressed entirely (the safe choice:
+    /// never delete data the user told us to keep).
+    func test_find_suppressesParentContainingExcludedDescendant() async throws {
+        try makeFile(
+            under: "Library/Application Support/com.acme.helio/keep-me/important.bin",
+            size: 64
+        )
+        try makeFile(under: "Library/Logs/com.acme.helio/app.log", size: 32)
+        let excludedDescendant = home.appendingPathComponent(
+            "Library/Application Support/com.acme.helio/keep-me",
+            isDirectory: true
+        )
+
+        let finder = DefaultAssociatedFileFinder(
+            fileManager: .default,
+            homeDirectory: home,
+            systemLibraryDirectory: systemLibrary,
+            excluding: [excludedDescendant]
+        )
+        let result = await finder.find(forBundleID: "com.acme.helio")
+
+        XCTAssertFalse(
+            result.contains { $0.category == .applicationSupport },
+            "Parent Application Support dir must be suppressed — it contains an excluded path"
+        )
+        XCTAssertTrue(
+            result.contains { $0.category == .logs },
+            "Unrelated logs must still be found"
+        )
+    }
+
     // MARK: - Ordering
 
     /// Results are stably ordered by category in declaration order, then

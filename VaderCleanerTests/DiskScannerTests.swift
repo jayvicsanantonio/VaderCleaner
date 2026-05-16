@@ -306,4 +306,88 @@ final class DiskScannerTests: XCTestCase {
             XCTAssertLessThanOrEqual(lhs, rhs, "Progress counts must never decrease")
         }
     }
+
+    // MARK: - Exclusions
+
+    /// A path the user excluded must not appear anywhere in the tree, and
+    /// its bytes must not be rolled into the parent's size. Space Lens is a
+    /// "where are my bytes" view — an excluded directory the user asked us
+    /// to ignore would otherwise still dominate the treemap and skew every
+    /// ancestor's reported size.
+    func test_scan_skipsExcludedPathsInTree() async throws {
+        let kept = tempRoot.appendingPathComponent("kept", isDirectory: true)
+        let excluded = tempRoot.appendingPathComponent("excluded", isDirectory: true)
+        let excludedSub = excluded.appendingPathComponent("sub", isDirectory: true)
+        try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: excludedSub, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: kept)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: excluded)
+        try TestHelpers.createDummyFile(named: "deep.bin", size: 128, in: excludedSub)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [excluded],
+            progress: { _ in }
+        )
+
+        XCTAssertNil(
+            root.children.first { $0.name == "excluded" },
+            "Excluded directory must not appear in the tree"
+        )
+        let keptNode = try XCTUnwrap(root.children.first { $0.name == "kept" })
+        XCTAssertEqual(keptNode.size, 32)
+        XCTAssertEqual(
+            root.size,
+            32,
+            "Excluded bytes (64 + 128) must not roll into the parent total"
+        )
+    }
+
+    /// When the scan root *itself* is on the exclusions list (e.g. the
+    /// user excluded their home folder and Space Lens defaults to it),
+    /// the whole tree must be empty rather than walked. The child-loop
+    /// filter only sees descendants, so this is exercised by the
+    /// dedicated root-level check.
+    func test_scan_returnsEmptyTreeWhenRootItselfExcluded() async throws {
+        try TestHelpers.createDummyFile(named: "a.bin", size: 100, in: tempRoot)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [tempRoot],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(root.size, 0, "An excluded root must report zero bytes")
+        XCTAssertTrue(root.children.isEmpty, "An excluded root must have no children")
+    }
+
+    /// A package is rolled up as a single leaf; an excluded path *inside*
+    /// the package must still be subtracted from that rollup, otherwise
+    /// the excluded bytes silently re-enter via the package total and
+    /// every ancestor's size.
+    func test_scan_excludesPathsInsidePackageFromRollup() async throws {
+        let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        let excludedInside = contents.appendingPathComponent("excluded", isDirectory: true)
+        try FileManager.default.createDirectory(at: excludedInside, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: excludedInside)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [excludedInside],
+            progress: { _ in }
+        )
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Photos.app" })
+        XCTAssertEqual(
+            packageNode.size,
+            32,
+            "Excluded 64 bytes inside the package must not count toward its rollup"
+        )
+        XCTAssertEqual(root.size, 32)
+    }
 }

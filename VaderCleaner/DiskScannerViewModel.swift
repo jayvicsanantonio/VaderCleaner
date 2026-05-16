@@ -350,11 +350,18 @@ extension DiskScannerViewModel.Phase: Equatable {
 extension DiskScannerViewModel {
 
     /// Build a view-model wired to the real `DiskScanner`. Mirrors the
-    /// `LargeOldFilesViewModel.live(...)` pattern.
+    /// `LargeOldFilesViewModel.live(...)` pattern — the exclusions snapshot
+    /// is captured per scan so a freshly-added Preferences exclusion takes
+    /// effect on the very next scan.
     @MainActor
-    static func live() -> DiskScannerViewModel {
-        DiskScannerViewModel(scanner: { url, progress in
-            try await DiskScanner().scan(root: url, progress: progress)
+    static func live(exclusions: ExclusionsStore) -> DiskScannerViewModel {
+        DiskScannerViewModel(scanner: { [weak exclusions] url, progress in
+            let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+            return try await DiskScanner().scan(
+                root: url,
+                excluding: excluded,
+                progress: progress
+            )
         })
     }
 }
