@@ -29,7 +29,13 @@ struct HelperDeletionPolicy {
         allowedDescendantRoots: [
             URL(fileURLWithPath: "/Library/Caches", isDirectory: true),
             URL(fileURLWithPath: "/Library/Logs", isDirectory: true),
-            URL(fileURLWithPath: "/private/var/folders", isDirectory: true)
+            URL(fileURLWithPath: "/private/var/folders", isDirectory: true),
+            // System-wide Mail plugins and internet plug-ins removed by the
+            // Extensions Manager. Narrowly scoped to these two product
+            // directories — the helper still refuses anything else under
+            // /Library.
+            URL(fileURLWithPath: "/Library/Mail/Bundles", isDirectory: true),
+            URL(fileURLWithPath: "/Library/Internet Plug-Ins", isDirectory: true)
         ],
         allowedLaunchPlistRoots: [
             URL(fileURLWithPath: "/Library/LaunchAgents", isDirectory: true),
