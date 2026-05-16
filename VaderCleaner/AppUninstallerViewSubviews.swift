@@ -37,6 +37,7 @@ struct AppUninstallerListPane: View {
     @Binding var searchQuery: String
     @Binding var includesSystemApps: Bool
     let onSelect: (AppInfo.ID?) -> Void
+    let onAddToExclusions: (AppInfo) -> Void
     @ObservedObject var iconCache: AppIconCache
 
     var body: some View {
@@ -57,6 +58,11 @@ struct AppUninstallerListPane: View {
                                               iconCache: iconCache)
                             .tag(Optional(app.id))
                             .accessibilityIdentifier("appUninstaller.row.\(app.bundleID)")
+                            .contextMenu {
+                                Button("Add to Exclusions") {
+                                    onAddToExclusions(app)
+                                }
+                            }
                     }
                 }
                 .listStyle(.sidebar)

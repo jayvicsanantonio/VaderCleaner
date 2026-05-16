@@ -26,23 +26,32 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
     private let fileManager: FileManager
     private let homeDirectory: URL
     private let systemLibraryDirectory: URL
+    /// Canonicalised user exclusions. Any candidate whose canonical path
+    /// equals or sits beneath one of these is dropped from the result so
+    /// the uninstaller never Trashes a path the user told the app to
+    /// leave alone. Injected (like `homeDirectory`) so the production
+    /// wiring can snapshot the live `ExclusionsStore` per uninstall.
+    private let canonicalExclusions: [String]
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "AssociatedFileFinder")
 
     init(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        systemLibraryDirectory: URL = URL(fileURLWithPath: "/Library", isDirectory: true)
+        systemLibraryDirectory: URL = URL(fileURLWithPath: "/Library", isDirectory: true),
+        excluding: [URL] = []
     ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory
         self.systemLibraryDirectory = systemLibraryDirectory
+        self.canonicalExclusions = excluding.map(PathExclusionMatcher.canonicalize)
     }
 
     func find(forBundleID bundleID: String) async -> [AssociatedFile] {
         let fileManager = fileManager
         let userLibrary = homeDirectory.appendingPathComponent("Library", isDirectory: true)
         let systemLibrary = systemLibraryDirectory
+        let canonicalExclusions = canonicalExclusions
 
         return await Task.detached(priority: .userInitiated) {
             var results: [AssociatedFile] = []
@@ -176,6 +185,20 @@ struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
                 category: .launchDaemons,
                 fileManager: fileManager
             ))
+
+            // Drop anything the user excluded. The candidate count here is
+            // small (a handful of fixed locations per bundle ID), so the
+            // per-path symlink resolution `canonicalize` does is cheap —
+            // unlike the bulk scanners, which project through a root mapper
+            // to avoid a syscall per enumerated file.
+            if !canonicalExclusions.isEmpty {
+                results.removeAll { file in
+                    PathExclusionMatcher.isExcluded(
+                        path: PathExclusionMatcher.canonicalize(file.url),
+                        by: canonicalExclusions
+                    )
+                }
+            }
 
             // Stable order: category (in declaration order), then URL path —
             // makes the rendered list deterministic across runs and makes

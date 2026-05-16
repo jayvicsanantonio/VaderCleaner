@@ -305,6 +305,43 @@ final class AssociatedFileFinderTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
+    // MARK: - Exclusions
+
+    /// A path on the user's exclusions list must never enter the
+    /// uninstall plan. Without this the uninstaller could Trash a
+    /// cache/support directory the user explicitly told the app to
+    /// leave alone (e.g. a shared model directory under
+    /// `~/Library/Application Support`).
+    func test_find_skipsExcludedPaths() async throws {
+        try makeFile(under: "Library/Caches/com.acme.helio/blob.bin", size: 64)
+        try makeFile(under: "Library/Logs/com.acme.helio/app.log", size: 32)
+        let excludedCaches = home
+            .appendingPathComponent("Library/Caches/com.acme.helio", isDirectory: true)
+
+        let finder = DefaultAssociatedFileFinder(
+            fileManager: .default,
+            homeDirectory: home,
+            systemLibraryDirectory: systemLibrary,
+            excluding: [excludedCaches]
+        )
+        let result = await finder.find(forBundleID: "com.acme.helio")
+
+        XCTAssertFalse(
+            result.contains { $0.category == .cache },
+            "Excluded cache directory must not appear in the uninstall plan"
+        )
+        XCTAssertTrue(
+            result.contains { $0.category == .logs },
+            "Non-excluded logs must still be found"
+        )
+        for file in result {
+            XCTAssertFalse(
+                file.url.path.hasPrefix(excludedCaches.path),
+                "Excluded path leaked: \(file.url.path)"
+            )
+        }
+    }
+
     // MARK: - Ordering
 
     /// Results are stably ordered by category in declaration order, then

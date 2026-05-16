@@ -306,4 +306,41 @@ final class DiskScannerTests: XCTestCase {
             XCTAssertLessThanOrEqual(lhs, rhs, "Progress counts must never decrease")
         }
     }
+
+    // MARK: - Exclusions
+
+    /// A path the user excluded must not appear anywhere in the tree, and
+    /// its bytes must not be rolled into the parent's size. Space Lens is a
+    /// "where are my bytes" view — an excluded directory the user asked us
+    /// to ignore would otherwise still dominate the treemap and skew every
+    /// ancestor's reported size.
+    func test_scan_skipsExcludedPathsInTree() async throws {
+        let kept = tempRoot.appendingPathComponent("kept", isDirectory: true)
+        let excluded = tempRoot.appendingPathComponent("excluded", isDirectory: true)
+        let excludedSub = excluded.appendingPathComponent("sub", isDirectory: true)
+        try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: excludedSub, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: kept)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: excluded)
+        try TestHelpers.createDummyFile(named: "deep.bin", size: 128, in: excludedSub)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [excluded],
+            progress: { _ in }
+        )
+
+        XCTAssertNil(
+            root.children.first { $0.name == "excluded" },
+            "Excluded directory must not appear in the tree"
+        )
+        let keptNode = try XCTUnwrap(root.children.first { $0.name == "kept" })
+        XCTAssertEqual(keptNode.size, 32)
+        XCTAssertEqual(
+            root.size,
+            32,
+            "Excluded bytes (64 + 128) must not roll into the parent total"
+        )
+    }
 }

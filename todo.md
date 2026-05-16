@@ -49,5 +49,5 @@
 ## Phase 5 — Integration & Polish
 
 - [x] **Prompt 25** — Smart Scan (orchestrates junk + malware + optimization)
-- [ ] **Prompt 26** — Exclusions wired to all scanners
+- [x] **Prompt 26** — Exclusions wired to all scanners
 - [ ] **Prompt 27** — Final polish, error handling, E2E tests, app icon, About window

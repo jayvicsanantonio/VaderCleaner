@@ -98,6 +98,7 @@ struct LargeOldFilesResultsContent: View {
     let onDeleteSelected: () -> Void
     let onShowInFinder: (ScannedFile) -> Void
     let onDeleteFile: (ScannedFile) -> Void
+    let onAddToExclusions: (ScannedFile) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,7 +109,8 @@ struct LargeOldFilesResultsContent: View {
                 isSelected: isSelected,
                 onToggleSelection: onToggleSelection,
                 onShowInFinder: onShowInFinder,
-                onDeleteFile: onDeleteFile
+                onDeleteFile: onDeleteFile,
+                onAddToExclusions: onAddToExclusions
             )
             Divider()
             LargeOldFilesFooter(
@@ -132,6 +134,7 @@ struct LargeOldFilesTable: View {
     let onToggleSelection: (ScannedFile) -> Void
     let onShowInFinder: (ScannedFile) -> Void
     let onDeleteFile: (ScannedFile) -> Void
+    let onAddToExclusions: (ScannedFile) -> Void
 
     var body: some View {
         Table(files) {
@@ -155,7 +158,8 @@ struct LargeOldFilesTable: View {
                     file: file,
                     fileIconCache: fileIconCache,
                     onShowInFinder: onShowInFinder,
-                    onDelete: onDeleteFile
+                    onDelete: onDeleteFile,
+                    onAddToExclusions: onAddToExclusions
                 )
             }
 
@@ -231,6 +235,7 @@ struct LargeOldFilesRowNameCell: View {
     @ObservedObject var fileIconCache: FileIconCache
     let onShowInFinder: (ScannedFile) -> Void
     let onDelete: (ScannedFile) -> Void
+    let onAddToExclusions: (ScannedFile) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -244,6 +249,9 @@ struct LargeOldFilesRowNameCell: View {
         .contextMenu {
             Button("Show in Finder") {
                 onShowInFinder(file)
+            }
+            Button("Add to Exclusions") {
+                onAddToExclusions(file)
             }
             Divider()
             Button("Delete", role: .destructive) {

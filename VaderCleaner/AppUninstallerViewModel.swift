@@ -307,16 +307,23 @@ extension AppUninstallerViewModel {
 
     /// Build a view-model wired to the real `DefaultAppDiscovery`,
     /// `DefaultAssociatedFileFinder`, and `NSWorkspace.recycle(...)`.
+    /// The exclusions snapshot is captured per lookup (a fresh
+    /// `DefaultAssociatedFileFinder` is cheap — it only stores config)
+    /// so a freshly-added Preferences exclusion takes effect on the next
+    /// app selection.
     @MainActor
-    static func live() -> AppUninstallerViewModel {
+    static func live(exclusions: ExclusionsStore) -> AppUninstallerViewModel {
         let discovery = DefaultAppDiscovery()
-        let finder = DefaultAssociatedFileFinder()
         return AppUninstallerViewModel(
             discover: { includingSystemApps in
                 try await discovery.installedApps(includingSystemApps: includingSystemApps)
             },
-            findFiles: { bundleID in
-                await finder.find(forBundleID: bundleID)
+            findFiles: { [weak exclusions] bundleID in
+                let excluded = await MainActor.run {
+                    (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+                }
+                let finder = DefaultAssociatedFileFinder(excluding: excluded)
+                return await finder.find(forBundleID: bundleID)
             },
             measureSize: { url in
                 await discovery.bundleSize(at: url)

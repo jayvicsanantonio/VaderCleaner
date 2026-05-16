@@ -73,9 +73,13 @@ struct VaderCleanerApp: App {
         _largeOldFilesViewModel = StateObject(
             wrappedValue: LargeOldFilesViewModel.live(exclusions: exclusions)
         )
-        _spaceLensViewModel = StateObject(wrappedValue: DiskScannerViewModel.live())
+        _spaceLensViewModel = StateObject(
+            wrappedValue: DiskScannerViewModel.live(exclusions: exclusions)
+        )
         _privacyViewModel = StateObject(wrappedValue: PrivacyViewModel.live())
-        _appUninstallerViewModel = StateObject(wrappedValue: AppUninstallerViewModel.live())
+        _appUninstallerViewModel = StateObject(
+            wrappedValue: AppUninstallerViewModel.live(exclusions: exclusions)
+        )
         _appUpdaterViewModel = StateObject(wrappedValue: AppUpdaterViewModel.live())
         _extensionsManagerViewModel = StateObject(wrappedValue: ExtensionsManagerViewModel.live())
         // Construct the polling service and the menu bar view-model in the
