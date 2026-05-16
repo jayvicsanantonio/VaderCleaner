@@ -114,6 +114,10 @@ struct LaunchAgentManager {
                     // differ from the plist `Disabled` key — an agent may be
                     // loaded transiently without being enabled on disk — but
                     // loaded status is what reflects the running system.
+                    // Authoritative for user agents only: `launchctl list`
+                    // runs in the user's bootstrap and cannot enumerate
+                    // system daemons, so this is best-effort for `.system`
+                    // and the UI must not present it as a definitive badge.
                     isEnabled: loaded.contains(label),
                     domain: domain
                 ))

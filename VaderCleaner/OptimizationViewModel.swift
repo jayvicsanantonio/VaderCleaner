@@ -234,7 +234,13 @@ extension OptimizationViewModel {
                     agentManager.systemAgents()
                 }.value
             },
-            readMemory: { systemStats.ramUsage },
+            // Force a synchronous re-read rather than returning the last
+            // polled value: after a `purge` the 2 s poll would otherwise
+            // report pre-flush usage until the next tick.
+            readMemory: {
+                systemStats.refresh()
+                return systemStats.ramUsage
+            },
             setLoginItemEnabled: { enabled, item in
                 try loginManager.setEnabled(enabled, for: item)
             },

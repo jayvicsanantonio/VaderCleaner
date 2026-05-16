@@ -38,6 +38,32 @@ final class MaintenanceScriptRunnerTests: XCTestCase {
             // Expected.
         }
     }
+
+    /// The reply block is dropped (mirrors a dropped NSXPCConnection); the
+    /// connection-level error handler must still resolve the await so the
+    /// once-only continuation guarantee holds here as it does in RAMManager.
+    func test_run_resolvesViaConnectionErrorHandlerWhenReplyDropped() async {
+        struct Dropped: Error {}
+        let runner = MaintenanceScriptRunner(helperProvider: { errorHandler in
+            DispatchQueue.global().async { errorHandler(Dropped()) }
+            return DroppingMaintenanceHelper()
+        })
+
+        do {
+            _ = try await runner.run()
+            XCTFail("Expected run() to surface the connection error")
+        } catch {
+            // Expected — did not hang.
+        }
+    }
+}
+
+private final class DroppingMaintenanceHelper: NSObject, VaderCleanerHelperProtocol {
+    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
+    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
+    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
+    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
+    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
 }
 
 private final class SpyMaintenanceHelper: NSObject, VaderCleanerHelperProtocol {

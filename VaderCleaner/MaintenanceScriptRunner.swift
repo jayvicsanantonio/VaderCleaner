@@ -51,7 +51,7 @@ struct MaintenanceScriptRunner {
             throw error
         }
         return String(
-            localized: "Ran maintenance scripts: periodic daily weekly monthly. Detailed output is written to /var/log/daily.out, weekly.out, and monthly.out.",
+            localized: "Ran maintenance scripts: periodic daily weekly monthly. Detailed output is written to /var/log/daily.out, /var/log/weekly.out, and /var/log/monthly.out.",
             comment: "Result line shown after the system maintenance scripts complete."
         )
     }

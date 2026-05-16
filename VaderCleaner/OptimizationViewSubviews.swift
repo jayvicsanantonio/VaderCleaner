@@ -167,10 +167,14 @@ struct OptimizationLaunchAgentRow: View {
                     Text(agent.label)
                         .font(.body)
                         .lineLimit(1)
-                    if !agent.isEnabled {
+                    // `launchctl list` runs in the user bootstrap and cannot
+                    // see system daemons, so a "Not loaded" badge there would
+                    // be a false negative. Only user agents have an
+                    // authoritative loaded status to badge.
+                    if !agent.isEnabled && agent.domain == .user {
                         Text(String(
                             localized: "Not loaded",
-                            comment: "Badge shown next to a launch agent that launchctl does not list as loaded."
+                            comment: "Badge shown next to a user launch agent that launchctl does not list as loaded."
                         ))
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 5)
