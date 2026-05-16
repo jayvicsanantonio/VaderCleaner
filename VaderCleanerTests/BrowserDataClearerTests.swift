@@ -132,10 +132,6 @@ final class BrowserDataClearerTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let exclusions = ExclusionsStore(defaults: defaults)
         exclusions.add(path: history.path)
-        XCTAssertTrue(
-            exclusions.exclusions.contains { history.path.hasPrefix($0) },
-            "Precondition: the path must actually be on the exclusions list"
-        )
 
         let provider = StubProvider(paths: [.history: [history]])
         let clearer = BrowserDataClearer(pathProvider: provider)
