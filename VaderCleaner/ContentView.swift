@@ -17,6 +17,7 @@ struct ContentView: View {
     private let appUpdaterViewModel: AppUpdaterViewModel
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
     private let optimizationViewModel: OptimizationViewModel
+    private let malwareViewModel: MalwareViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
@@ -32,7 +33,8 @@ struct ContentView: View {
         appUninstallerViewModel: AppUninstallerViewModel,
         appUpdaterViewModel: AppUpdaterViewModel,
         extensionsManagerViewModel: ExtensionsManagerViewModel,
-        optimizationViewModel: OptimizationViewModel
+        optimizationViewModel: OptimizationViewModel,
+        malwareViewModel: MalwareViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
         self.largeOldFilesViewModel = largeOldFilesViewModel
@@ -42,6 +44,7 @@ struct ContentView: View {
         self.appUpdaterViewModel = appUpdaterViewModel
         self.extensionsManagerViewModel = extensionsManagerViewModel
         self.optimizationViewModel = optimizationViewModel
+        self.malwareViewModel = malwareViewModel
     }
 
     var body: some View {
@@ -117,6 +120,8 @@ struct ContentView: View {
             ExtensionsManagerView(viewModel: extensionsManagerViewModel)
         case .optimization:
             OptimizationView(viewModel: optimizationViewModel)
+        case .malwareRemoval:
+            MalwareView(viewModel: malwareViewModel)
         default:
             PlaceholderDetailView(section: section)
         }
@@ -160,6 +165,7 @@ private struct PlaceholderDetailView: View {
     let stats = SystemStatsService(autostart: false)
     let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "preview")!)
     let exclusions = ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!)
+    let notificationManager = NotificationManager()
     return ContentView(
         systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
         largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
@@ -168,7 +174,11 @@ private struct PlaceholderDetailView: View {
         appUninstallerViewModel: AppUninstallerViewModel.live(),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
-        optimizationViewModel: OptimizationViewModel.live(systemStats: stats)
+        optimizationViewModel: OptimizationViewModel.live(systemStats: stats),
+        malwareViewModel: MalwareViewModel.live(
+            dispatcher: notificationManager,
+            preferences: prefs
+        )
     )
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
@@ -176,6 +186,6 @@ private struct PlaceholderDetailView: View {
         .environmentObject(NotificationThresholdMonitor(
             stats: stats,
             preferences: prefs,
-            dispatcher: NotificationManager()
+            dispatcher: notificationManager
         ))
 }
