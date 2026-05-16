@@ -16,6 +16,7 @@ struct ContentView: View {
     private let appUninstallerViewModel: AppUninstallerViewModel
     private let appUpdaterViewModel: AppUpdaterViewModel
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
+    private let optimizationViewModel: OptimizationViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
@@ -30,7 +31,8 @@ struct ContentView: View {
         privacyViewModel: PrivacyViewModel,
         appUninstallerViewModel: AppUninstallerViewModel,
         appUpdaterViewModel: AppUpdaterViewModel,
-        extensionsManagerViewModel: ExtensionsManagerViewModel
+        extensionsManagerViewModel: ExtensionsManagerViewModel,
+        optimizationViewModel: OptimizationViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
         self.largeOldFilesViewModel = largeOldFilesViewModel
@@ -39,6 +41,7 @@ struct ContentView: View {
         self.appUninstallerViewModel = appUninstallerViewModel
         self.appUpdaterViewModel = appUpdaterViewModel
         self.extensionsManagerViewModel = extensionsManagerViewModel
+        self.optimizationViewModel = optimizationViewModel
     }
 
     var body: some View {
@@ -112,6 +115,8 @@ struct ContentView: View {
             AppUpdaterView(viewModel: appUpdaterViewModel)
         case .extensions:
             ExtensionsManagerView(viewModel: extensionsManagerViewModel)
+        case .optimization:
+            OptimizationView(viewModel: optimizationViewModel)
         default:
             PlaceholderDetailView(section: section)
         }
@@ -162,7 +167,8 @@ private struct PlaceholderDetailView: View {
         privacyViewModel: PrivacyViewModel.live(),
         appUninstallerViewModel: AppUninstallerViewModel.live(),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
-        extensionsManagerViewModel: ExtensionsManagerViewModel.live()
+        extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
+        optimizationViewModel: OptimizationViewModel.live(systemStats: stats)
     )
         .environmentObject(AppState(checker: { true }))
         .environmentObject(PermissionOnboardingViewModel())
