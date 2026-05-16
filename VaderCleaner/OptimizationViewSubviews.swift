@@ -193,7 +193,17 @@ struct OptimizationLaunchAgentRow: View {
                 ))
             }
             .buttonStyle(.bordered)
-            .disabled(!agent.isEnabled)
+            // System daemons live in launchd's privileged domain; `launchctl
+            // unload` from the user session can't touch them, so the control
+            // is offered only for user agents. Removal still works for system
+            // agents (it routes through the privileged helper).
+            .disabled(!agent.isEnabled || agent.domain == .system)
+            .help(agent.domain == .system
+                  ? String(
+                        localized: "System agents can't be unloaded from here. Use Remove to delete the plist.",
+                        comment: "Tooltip explaining why Disable is unavailable for system launch agents."
+                    )
+                  : "")
             .accessibilityIdentifier("optimization.disable.\(agent.path.lastPathComponent)")
 
             Button(role: .destructive, action: onRemove) {
