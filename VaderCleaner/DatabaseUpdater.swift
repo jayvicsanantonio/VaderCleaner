@@ -20,14 +20,12 @@ struct DatabaseUpdater {
         _ onLine: @escaping (String) -> Void
     ) async throws -> Int32
 
-    /// The signature files freshclam maintains. `.cvd` and `.cld` are the
-    /// two on-disk forms of each database; only one of the pair exists at
-    /// a time, so all candidates are probed.
-    private static let signatureFileNames = [
-        "main.cvd", "main.cld",
-        "daily.cvd", "daily.cld",
-        "bytecode.cvd", "bytecode.cld"
-    ]
+    /// The two on-disk forms of a ClamAV signature database. `freshclam`
+    /// keeps `main`, `daily`, and `bytecode` plus optional extras
+    /// (`safebrowsing`, third-party feeds), so the directory is scanned by
+    /// extension rather than against a fixed filename list — a hardcoded
+    /// list would miss extra databases and report a stale last-update time.
+    private static let signatureExtensions: Set<String> = ["cvd", "cld"]
 
     private let databaseDirectories: [URL]
     private let freshclamPaths: [URL]
@@ -61,10 +59,15 @@ struct DatabaseUpdater {
     func lastUpdateDate() -> Date? {
         var newest: Date?
         for directory in databaseDirectories {
-            for name in Self.signatureFileNames {
-                let path = directory.appendingPathComponent(name).path
+            let entries = (try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            for entry in entries
+            where Self.signatureExtensions.contains(entry.pathExtension.lowercased()) {
                 guard
-                    let attributes = try? fileManager.attributesOfItem(atPath: path),
+                    let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
                     let modified = attributes[.modificationDate] as? Date
                 else { continue }
                 if newest == nil || modified > newest! {

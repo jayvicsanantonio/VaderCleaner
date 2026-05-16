@@ -42,6 +42,18 @@ final class DatabaseUpdaterTests: XCTestCase {
         XCTAssertNil(updater.lastUpdateDate())
     }
 
+    func test_lastUpdateDate_considersNonStandardSignatureDatabases() throws {
+        // freshclam also maintains optional databases (e.g. safebrowsing,
+        // third-party feeds) — a fixed filename list would miss these and
+        // report a stale timestamp.
+        let recent = Date(timeIntervalSince1970: 1_700_000_000)
+        try writeSignatureFile(named: "main.cvd", modified: Date(timeIntervalSince1970: 1_600_000_000))
+        try writeSignatureFile(named: "safebrowsing.cld", modified: recent)
+
+        let date = try XCTUnwrap(makeUpdater().lastUpdateDate())
+        XCTAssertEqual(date.timeIntervalSince1970, recent.timeIntervalSince1970, accuracy: 1.0)
+    }
+
     // MARK: - update
 
     func test_update_invokesFreshclamRunnerAndForwardsProgress() async throws {

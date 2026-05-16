@@ -47,6 +47,19 @@ final class ClamAVOutputParserTests: XCTestCase {
         XCTAssertEqual(threats[0].threatName, "Eicar-Test-Signature")
     }
 
+    func test_parseLine_returnsThreatForFoundLineAndNilOtherwise() {
+        let threat = ClamAVOutputParser.parseLine(
+            "/Users/x/evil.bin: Eicar-Test-Signature FOUND"
+        )
+        XCTAssertEqual(threat?.filePath, URL(fileURLWithPath: "/Users/x/evil.bin"))
+        XCTAssertEqual(threat?.threatName, "Eicar-Test-Signature")
+
+        XCTAssertNil(ClamAVOutputParser.parseLine("/Users/x/a.txt: OK"))
+        XCTAssertNil(ClamAVOutputParser.parseLine("/var/db/x: Access denied ERROR"))
+        XCTAssertNil(ClamAVOutputParser.parseLine("Scanning /Users/x"))
+        XCTAssertNil(ClamAVOutputParser.parseLine(""))
+    }
+
     func test_parse_ignoresErrorAndSummaryLines() {
         let output = """
         /private/var/db/locked.db: Access denied ERROR

@@ -22,26 +22,32 @@ enum ClamAVOutputParser {
     private static let separator = ": "
 
     static func parse(_ output: String) -> [MalwareThreat] {
-        var threats: [MalwareThreat] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasSuffix(foundSuffix) else { continue }
+        output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { parseLine(String($0)) }
+    }
 
-            let body = String(line.dropLast(foundSuffix.count))
-            guard let separatorRange = body.range(of: separator, options: .backwards) else {
-                continue
-            }
+    /// Parses a single `clamscan` line, returning a threat only for an
+    /// infected (`… FOUND`) verdict. `OK`, `ERROR`, summary, and progress
+    /// lines yield `nil`. Used by the scanner to parse output as it streams
+    /// rather than buffering the whole run.
+    static func parseLine(_ rawLine: String) -> MalwareThreat? {
+        let line = rawLine.trimmingCharacters(in: .whitespaces)
+        guard line.hasSuffix(foundSuffix) else { return nil }
 
-            let path = String(body[..<separatorRange.lowerBound])
-            let threatName = String(body[separatorRange.upperBound...])
-                .trimmingCharacters(in: .whitespaces)
-            guard !path.isEmpty, !threatName.isEmpty else { continue }
-
-            threats.append(MalwareThreat(
-                filePath: URL(fileURLWithPath: path),
-                threatName: threatName
-            ))
+        let body = String(line.dropLast(foundSuffix.count))
+        guard let separatorRange = body.range(of: separator, options: .backwards) else {
+            return nil
         }
-        return threats
+
+        let path = String(body[..<separatorRange.lowerBound])
+        let threatName = String(body[separatorRange.upperBound...])
+            .trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty, !threatName.isEmpty else { return nil }
+
+        return MalwareThreat(
+            filePath: URL(fileURLWithPath: path),
+            threatName: threatName
+        )
     }
 }

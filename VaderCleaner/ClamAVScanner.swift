@@ -55,9 +55,11 @@ struct ClamAVScanner {
         let arguments = ["--recursive", "--infected", "--no-summary"]
             + paths.map(\.path)
 
-        let collector = LineCollector()
+        let collector = ThreatCollector()
         let status = try await runner(binary, arguments) { line in
-            collector.append(line)
+            if let threat = ClamAVOutputParser.parseLine(line) {
+                collector.append(threat)
+            }
             progress(line)
         }
 
@@ -74,7 +76,7 @@ struct ClamAVScanner {
             )
         }
 
-        return ClamAVOutputParser.parse(collector.joined())
+        return collector.snapshot()
     }
 
     // MARK: - Production collaborator
@@ -88,23 +90,23 @@ struct ClamAVScanner {
     }
 }
 
-/// Thread-safe accumulator for the scan's stdout lines. `ProcessLineStreamer`
-/// invokes the line callback from its background read loop, so the buffer is
-/// guarded the same way as `SystemJunkDeleter`'s once-only resumer.
-private final class LineCollector: @unchecked Sendable {
+/// Thread-safe accumulator for threats parsed as the scan streams.
+/// `ProcessLineStreamer` invokes the line callback from its background read
+/// loop, so the buffer is guarded the same way as `SystemJunkDeleter`'s
+/// once-only resumer.
+private final class ThreatCollector: @unchecked Sendable {
     private let lock = NSLock()
-    private var lines: [String] = []
+    private var threats: [MalwareThreat] = []
 
-    func append(_ line: String) {
+    func append(_ threat: MalwareThreat) {
         lock.lock()
-        lines.append(line)
+        threats.append(threat)
         lock.unlock()
     }
 
-    func joined() -> String {
+    func snapshot() -> [MalwareThreat] {
         lock.lock()
-        let snapshot = lines
-        lock.unlock()
-        return snapshot.joined(separator: "\n")
+        defer { lock.unlock() }
+        return threats
     }
 }
