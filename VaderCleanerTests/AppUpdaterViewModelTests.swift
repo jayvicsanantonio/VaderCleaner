@@ -45,26 +45,26 @@ final class AppUpdaterViewModelTests: XCTestCase {
             checkAppStore: { bundleID in
                 switch bundleID {
                 case "com.acme.helio":
-                    return AppStoreLookup(
+                    return .lookup(AppStoreLookup(
                         version: "5.4.1",
                         appStoreURL: URL(string: "https://apps.apple.com/app/id123")!
-                    )
+                    ))
                 case "com.unrelated.solar":
-                    return AppStoreLookup(
+                    return .lookup(AppStoreLookup(
                         version: "2.0.0",
                         appStoreURL: URL(string: "https://apps.apple.com/app/id999")!
-                    )
+                    ))
                 default:
-                    return nil
+                    return .noResult
                 }
             },
             checkSparkle: { app in
-                guard app.bundleID == "com.acme.mango" else { return nil }
-                return SparkleAppcastItem(
+                guard app.bundleID == "com.acme.mango" else { return .noResult }
+                return .item(SparkleAppcastItem(
                     shortVersion: "2.0.0",
                     version: "2000",
                     downloadURL: URL(string: "https://example.com/mango-2.dmg")!
-                )
+                ))
             }
         )
 
@@ -96,10 +96,10 @@ final class AppUpdaterViewModelTests: XCTestCase {
         let vm = makeViewModel(
             discover: { _ in [app] },
             checkAppStore: { _ in
-                AppStoreLookup(
+                .lookup(AppStoreLookup(
                     version: "1.0.0",
                     appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
-                )
+                ))
             }
         )
         await vm.checkForUpdates()
@@ -114,8 +114,8 @@ final class AppUpdaterViewModelTests: XCTestCase {
         let sparkleCalls = ActorBox(0)
         let vm = makeViewModel(
             discover: { _ in [] },
-            checkAppStore: { _ in await appStoreCalls.increment(); return nil },
-            checkSparkle: { _ in await sparkleCalls.increment(); return nil }
+            checkAppStore: { _ in await appStoreCalls.increment(); return .noResult },
+            checkSparkle: { _ in await sparkleCalls.increment(); return .noResult }
         )
         await vm.checkForUpdates()
         XCTAssertEqual(vm.phase, .ready)
@@ -153,6 +153,119 @@ final class AppUpdaterViewModelTests: XCTestCase {
         )
     }
 
+    /// Genuine offline: every feed we contacted was unreachable and not
+    /// one came back with an answer. The whole check must surface the
+    /// actionable network copy instead of the misleading "all apps are
+    /// up to date" empty-but-`.ready` state.
+    func test_checkForUpdates_allFeedsUnreachable_failsWithNetworkCopy() async {
+        let masApp = makeApp(
+            name: "Helio",
+            bundleID: "com.acme.helio",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let sparkleApp = makeApp(
+            name: "Mango",
+            bundleID: "com.acme.mango",
+            version: "1.0.0",
+            isAppStore: false
+        )
+        let vm = makeViewModel(
+            discover: { _ in [masApp, sparkleApp] },
+            checkAppStore: { _ in .unreachable },
+            checkSparkle: { _ in .unreachable }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(
+            vm.phase,
+            .failed(message: "Could not check for updates. Check your internet connection.")
+        )
+        XCTAssertTrue(vm.availableUpdates.isEmpty)
+    }
+
+    /// Partial degradation (Prompt 20) must survive: one unreachable
+    /// feed alongside reachable ones still lands `.ready` showing the
+    /// updates we could find — the dead feed is silently dropped, never
+    /// promoted to a whole-check network error.
+    func test_checkForUpdates_oneFeedUnreachableOthersReachable_staysReadyWithReachableUpdate() async {
+        let downApp = makeApp(
+            name: "Aria",
+            bundleID: "com.acme.aria",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let liveApp = makeApp(
+            name: "Bolt",
+            bundleID: "com.acme.bolt",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let vm = makeViewModel(
+            discover: { _ in [downApp, liveApp] },
+            checkAppStore: { bundleID in
+                guard bundleID == "com.acme.bolt" else { return .unreachable }
+                return .lookup(AppStoreLookup(
+                    version: "2.0.0",
+                    appStoreURL: URL(string: "https://apps.apple.com/app/id2")!
+                ))
+            }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertEqual(vm.availableUpdates.map(\.bundleID), ["com.acme.bolt"])
+        XCTAssertEqual(vm.availableUpdates.first?.latestVersion, "2.0.0")
+    }
+
+    /// A non-network per-app failure (e.g. a decode error the live
+    /// closure swallows as `.noResult`) is a *reached* feed — the server
+    /// answered — so an all-`.noResult` pass with no updates stays
+    /// `.ready`, not the offline copy. Guards the network detection
+    /// against over-triggering.
+    func test_checkForUpdates_nonNetworkFailuresStayReady() async {
+        let app = makeApp(
+            name: "Helio",
+            bundleID: "com.acme.helio",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            checkAppStore: { _ in .noResult }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertTrue(vm.availableUpdates.isEmpty)
+    }
+
+    /// Online but unremarkable: one feed responded with "nothing newer"
+    /// while another happened to be unreachable, and there are no
+    /// updates to show. Because at least one feed answered, this is the
+    /// genuine "all apps are up to date" state, not offline — the lone
+    /// flaky feed must not flip the whole check to the network error.
+    func test_checkForUpdates_someReachableNoUpdatesWithFlakyFeed_staysReady() async {
+        let reachedApp = makeApp(
+            name: "Aria",
+            bundleID: "com.acme.aria",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let flakyApp = makeApp(
+            name: "Bolt",
+            bundleID: "com.acme.bolt",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let vm = makeViewModel(
+            discover: { _ in [reachedApp, flakyApp] },
+            checkAppStore: { bundleID in
+                bundleID == "com.acme.aria" ? .noResult : .unreachable
+            }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertTrue(vm.availableUpdates.isEmpty)
+    }
+
     // MARK: - Update routing
 
     /// `update(_:)` opens the update URL via the injected opener. The
@@ -188,10 +301,10 @@ final class AppUpdaterViewModelTests: XCTestCase {
         let vm = makeViewModel(
             discover: { _ in [app] },
             checkAppStore: { _ in
-                AppStoreLookup(
+                .lookup(AppStoreLookup(
                     version: "2.0.0",
                     appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
-                )
+                ))
             },
             opener: { url in await opened.set(opened.value + [url]) }
         )
@@ -205,8 +318,8 @@ final class AppUpdaterViewModelTests: XCTestCase {
 
     private func makeViewModel(
         discover: @escaping AppUpdaterViewModel.Discover = { _ in [] },
-        checkAppStore: @escaping AppUpdaterViewModel.CheckAppStore = { _ in nil },
-        checkSparkle: @escaping AppUpdaterViewModel.CheckSparkle = { _ in nil },
+        checkAppStore: @escaping AppUpdaterViewModel.CheckAppStore = { _ in .noResult },
+        checkSparkle: @escaping AppUpdaterViewModel.CheckSparkle = { _ in .noResult },
         opener: @escaping AppUpdaterViewModel.Opener = { _ in }
     ) -> AppUpdaterViewModel {
         AppUpdaterViewModel(
