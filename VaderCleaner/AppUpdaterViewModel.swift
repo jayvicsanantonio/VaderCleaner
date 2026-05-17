@@ -5,22 +5,16 @@ import AppKit
 import Foundation
 import os.log
 
-/// Outcome of a single App Store update lookup. `.unreachable` is the
+/// Outcome of a single update-feed lookup. `.unreachable` is the
 /// signal Prompt 20's swallow contract was missing: it lets the
 /// view-model tell "this feed was down" apart from "this app has no
 /// update", so a genuinely offline check can surface the network copy
-/// while a single dead feed still never blanks the whole list.
-enum AppStoreCheckResult: Sendable {
-    case lookup(AppStoreLookup)
-    case noResult
-    case unreachable
-}
-
-/// Sparkle counterpart of `AppStoreCheckResult`. Same three-way split:
-/// an appcast item, a reached feed with nothing to offer, or a feed we
-/// could not reach because the network was down.
-enum SparkleCheckResult: Sendable {
-    case item(SparkleAppcastItem)
+/// while a single dead feed still never blanks the whole list. Generic
+/// over the payload so the App Store and Sparkle channels share one
+/// three-way shape (a result, a reached feed with nothing to offer, or
+/// an unreachable feed) instead of two near-identical enums.
+enum CheckResult<Payload: Sendable>: Sendable {
+    case found(Payload)
     case noResult
     case unreachable
 }
@@ -42,8 +36,8 @@ final class AppUpdaterViewModel: ObservableObject {
     }
 
     typealias Discover       = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
-    typealias CheckAppStore  = @Sendable (_ bundleID: String) async -> AppStoreCheckResult
-    typealias CheckSparkle   = @Sendable (_ app: AppInfo) async -> SparkleCheckResult
+    typealias CheckAppStore  = @Sendable (_ bundleID: String) async -> CheckResult<AppStoreLookup>
+    typealias CheckSparkle   = @Sendable (_ app: AppInfo) async -> CheckResult<SparkleAppcastItem>
     typealias Opener         = @Sendable (_ url: URL) async -> Void
 
     @Published private(set) var phase: Phase = .idle
@@ -241,7 +235,7 @@ final class AppUpdaterViewModel: ObservableObject {
             return .unreachable
         case .noResult:
             return .noUpdate
-        case .lookup(let value):
+        case .found(let value):
             lookup = value
         }
         let installed = app.version ?? "0"
@@ -269,7 +263,7 @@ final class AppUpdaterViewModel: ObservableObject {
             return .unreachable
         case .noResult:
             return .noUpdate
-        case .item(let value):
+        case .found(let value):
             item = value
         }
         let installed = app.version ?? "0"
@@ -307,7 +301,7 @@ extension AppUpdaterViewModel {
             checkAppStore: { bundleID in
                 do {
                     if let lookup = try await appStore.latestVersion(forBundleID: bundleID) {
-                        return .lookup(lookup)
+                        return .found(lookup)
                     }
                     return .noResult
                 } catch {
@@ -323,7 +317,7 @@ extension AppUpdaterViewModel {
                 guard let feedURL = sparkle.feedURL(for: app) else { return .noResult }
                 do {
                     if let item = try await sparkle.fetchAppcast(feedURL: feedURL) {
-                        return .item(item)
+                        return .found(item)
                     }
                     return .noResult
                 } catch {

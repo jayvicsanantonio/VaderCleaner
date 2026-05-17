@@ -45,12 +45,12 @@ final class AppUpdaterViewModelTests: XCTestCase {
             checkAppStore: { bundleID in
                 switch bundleID {
                 case "com.acme.helio":
-                    return .lookup(AppStoreLookup(
+                    return .found(AppStoreLookup(
                         version: "5.4.1",
                         appStoreURL: URL(string: "https://apps.apple.com/app/id123")!
                     ))
                 case "com.unrelated.solar":
-                    return .lookup(AppStoreLookup(
+                    return .found(AppStoreLookup(
                         version: "2.0.0",
                         appStoreURL: URL(string: "https://apps.apple.com/app/id999")!
                     ))
@@ -60,7 +60,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
             },
             checkSparkle: { app in
                 guard app.bundleID == "com.acme.mango" else { return .noResult }
-                return .item(SparkleAppcastItem(
+                return .found(SparkleAppcastItem(
                     shortVersion: "2.0.0",
                     version: "2000",
                     downloadURL: URL(string: "https://example.com/mango-2.dmg")!
@@ -96,7 +96,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
         let vm = makeViewModel(
             discover: { _ in [app] },
             checkAppStore: { _ in
-                .lookup(AppStoreLookup(
+                .found(AppStoreLookup(
                     version: "1.0.0",
                     appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
                 ))
@@ -204,7 +204,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
             discover: { _ in [downApp, liveApp] },
             checkAppStore: { bundleID in
                 guard bundleID == "com.acme.bolt" else { return .unreachable }
-                return .lookup(AppStoreLookup(
+                return .found(AppStoreLookup(
                     version: "2.0.0",
                     appStoreURL: URL(string: "https://apps.apple.com/app/id2")!
                 ))
@@ -301,7 +301,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
         let vm = makeViewModel(
             discover: { _ in [app] },
             checkAppStore: { _ in
-                .lookup(AppStoreLookup(
+                .found(AppStoreLookup(
                     version: "2.0.0",
                     appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
                 ))
