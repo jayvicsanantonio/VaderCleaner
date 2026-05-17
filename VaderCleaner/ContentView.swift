@@ -53,10 +53,17 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(NavigationSection.allCases, selection: $selectedSection) { section in
-                Label(section.title, systemImage: section.icon)
+                // Icon-only rail: the name is carried by the hover tooltip and
+                // the accessibility label, so selection and keyboard
+                // navigation still work while the sidebar stays slim.
+                Image(systemName: section.icon)
+                    .font(.title3)
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .help(section.title)
+                    .accessibilityLabel(section.title)
                     .tag(section)
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 56, ideal: 64, max: 72)
             // Let the branded gradient show through the sidebar so it reads as
             // a translucent panel rather than an opaque list.
             .scrollContentBackground(.hidden)
