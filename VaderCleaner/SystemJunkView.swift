@@ -17,6 +17,7 @@ import SwiftUI
 struct SystemJunkView: View {
 
     @ObservedObject private var viewModel: SystemJunkViewModel
+    @EnvironmentObject private var appState: AppState
 
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
@@ -57,6 +58,9 @@ struct SystemJunkView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
+            if !appState.hasFullDiskAccess {
+                FullDiskAccessPromptCard(onRecheck: { appState.refresh() })
+            }
             Button("Scan") {
                 Task { await viewModel.scan() }
             }
@@ -225,4 +229,5 @@ private struct CategoryRow: View {
         deleter: { _ in 0 }
     ))
     .frame(width: 700, height: 480)
+    .environmentObject(AppState(checker: { true }))
 }

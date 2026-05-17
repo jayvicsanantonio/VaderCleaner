@@ -159,6 +159,28 @@ struct VaderCleanerApp: App {
         }
     }
 
+    /// Shows the standard macOS About panel. Version and build are read
+    /// automatically from the bundle's `CFBundleShortVersionString` /
+    /// `CFBundleVersion`; we only supply the credits line so the panel
+    /// isn't blank. Activating first guarantees the panel comes forward
+    /// even when invoked while the app has no key window.
+    @MainActor
+    private static func showAboutPanel() {
+        let credits = NSAttributedString(
+            string: "A native macOS cleaner: junk, large files, malware, privacy, and system health.",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        )
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .credits: credits,
+            NSApplication.AboutPanelOptionKey(rawValue: "Copyright"):
+                "© 2026 Jayvic San Antonio",
+        ])
+    }
+
     var body: some Scene {
         Window("VaderCleaner", id: Self.mainWindowID) {
             ContentView(
@@ -179,6 +201,15 @@ struct VaderCleanerApp: App {
                 .environmentObject(exclusions)
                 .environmentObject(systemStats)
                 .environmentObject(notificationMonitor)
+        }
+        .commands {
+            // Replace SwiftUI's default "About VaderCleaner" item so the
+            // panel carries our copyright credits instead of an empty one.
+            CommandGroup(replacing: .appInfo) {
+                Button("About VaderCleaner") {
+                    VaderCleanerApp.showAboutPanel()
+                }
+            }
         }
 
         // Each SwiftUI scene gets its own environment, so PreferencesView gets

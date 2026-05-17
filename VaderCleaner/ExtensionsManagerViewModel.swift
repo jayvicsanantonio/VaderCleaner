@@ -103,7 +103,10 @@ final class ExtensionsManagerViewModel: ObservableObject {
         } catch {
             // Privacy: removal errors may include user-specific paths.
             log.error("Extension removal failed: \(String(describing: error), privacy: .private)")
-            phase = .failed(stage: .removing, message: error.localizedDescription)
+            phase = .failed(
+                stage: .removing,
+                message: HelperConnectionError.userFacingMessage(for: error)
+            )
         }
     }
 
@@ -182,11 +185,7 @@ extension ExtensionsManagerViewModel {
                 resumer.resume(with: connectionError)
             }
             guard let helper else {
-                resumer.resume(with: NSError(
-                    domain: "com.personal.VaderCleaner.ExtensionsManager",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Helper unavailable"]
-                ))
+                resumer.resume(with: HelperConnectionError.unavailable)
                 return
             }
             body(helper) { replyError in
