@@ -213,6 +213,7 @@ private struct SmartScanMetricCard: View {
                 .font(.system(size: 30, weight: .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+                .contentTransition(.numericText())
             HStack(alignment: .bottom) {
                 Text(caption)
                     .font(.callout)
@@ -234,6 +235,30 @@ private struct SmartScanMetricCard: View {
     }
 }
 
+/// One-shot entrance for the dashboard tiles: each fades and rises into place
+/// with a per-index delay so the grid assembles in a quick cascade rather than
+/// popping in all at once.
+private struct StaggeredEntrance: ViewModifier {
+    let index: Int
+    let appeared: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .animation(
+                .smooth(duration: 0.4).delay(Double(index) * 0.08),
+                value: appeared
+            )
+    }
+}
+
+private extension View {
+    func staggeredEntrance(index: Int, appeared: Bool) -> some View {
+        modifier(StaggeredEntrance(index: index, appeared: appeared))
+    }
+}
+
 /// The Smart Scan results dashboard: a "Start Over" bar, a metric-card grid,
 /// and one circular CTA that runs the clean. Mirrors the reference's task
 /// dashboard. There are deliberately no per-card checkboxes — the underlying
@@ -249,6 +274,10 @@ struct SmartScanResultsState: View {
     let onStartOver: () -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]
+
+    /// Drives the one-shot staggered entrance of the metric tiles when the
+    /// dashboard first appears.
+    @State private var appeared = false
 
     /// The circular CTA only appears when the clean would actually do
     /// something — junk to delete or threats to remove. Optimization is
@@ -287,14 +316,15 @@ struct SmartScanResultsState: View {
                     // refract consistently as the grid reflows on resize.
                     GlassEffectContainer(spacing: 16) {
                         LazyVGrid(columns: columns, spacing: 16) {
-                            junkCard
-                            malwareCard
-                            optimizationCard
+                            junkCard.staggeredEntrance(index: 0, appeared: appeared)
+                            malwareCard.staggeredEntrance(index: 1, appeared: appeared)
+                            optimizationCard.staggeredEntrance(index: 2, appeared: appeared)
                         }
                     }
                 }
                 .padding(24)
             }
+            .onAppear { appeared = true }
 
             if hasCleanableWork {
                 CircularActionButton(

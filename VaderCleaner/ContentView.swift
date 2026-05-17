@@ -58,6 +58,13 @@ struct ContentView: View {
                 // navigation still work while the sidebar stays slim.
                 Image(systemName: section.icon)
                     .font(.title3)
+                    // The selected glyph springs slightly larger so navigating
+                    // the rail feels responsive even without text labels.
+                    .scaleEffect(selectedSection == section ? 1.16 : 1.0)
+                    .animation(
+                        .spring(response: 0.3, dampingFraction: 0.7),
+                        value: selectedSection
+                    )
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .help(section.title)
                     .accessibilityLabel(section.title)
