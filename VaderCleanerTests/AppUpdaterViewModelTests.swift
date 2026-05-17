@@ -266,6 +266,58 @@ final class AppUpdaterViewModelTests: XCTestCase {
         XCTAssertTrue(vm.availableUpdates.isEmpty)
     }
 
+    /// The regression that motivated the `.skipped` case: a real Mac
+    /// always has non-updatable apps (no `SUFeedURL`). Offline, the
+    /// App Store feed is `.unreachable` and the non-Sparkle app is
+    /// `.skipped`. A skipped check made no network request, so it must
+    /// NOT count as "reachable" — otherwise it masks the offline state
+    /// and the user sees "all up to date" while disconnected.
+    func test_checkForUpdates_skippedAppsDoNotMaskOffline_failsWithNetworkCopy() async {
+        let masApp = makeApp(
+            name: "Helio",
+            bundleID: "com.acme.helio",
+            version: "1.0.0",
+            isAppStore: true
+        )
+        let nonSparkleApp = makeApp(
+            name: "Plain",
+            bundleID: "com.acme.plain",
+            version: "1.0.0",
+            isAppStore: false
+        )
+        let vm = makeViewModel(
+            discover: { _ in [masApp, nonSparkleApp] },
+            checkAppStore: { _ in .unreachable },
+            checkSparkle: { _ in .skipped }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(
+            vm.phase,
+            .failed(message: "Could not check for updates. Check your internet connection.")
+        )
+        XCTAssertTrue(vm.availableUpdates.isEmpty)
+    }
+
+    /// No app on the machine supports update checks (every check is
+    /// `.skipped`) — no network request was ever made, so this is not
+    /// an offline state. It stays `.ready` with an empty list rather
+    /// than falsely claiming the network is down.
+    func test_checkForUpdates_allSkipped_staysReady() async {
+        let nonSparkleApp = makeApp(
+            name: "Plain",
+            bundleID: "com.acme.plain",
+            version: "1.0.0",
+            isAppStore: false
+        )
+        let vm = makeViewModel(
+            discover: { _ in [nonSparkleApp] },
+            checkSparkle: { _ in .skipped }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertTrue(vm.availableUpdates.isEmpty)
+    }
+
     // MARK: - Update routing
 
     /// `update(_:)` opens the update URL via the injected opener. The

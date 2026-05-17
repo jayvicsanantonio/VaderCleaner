@@ -11,12 +11,20 @@ import os.log
 /// update", so a genuinely offline check can surface the network copy
 /// while a single dead feed still never blanks the whole list. Generic
 /// over the payload so the App Store and Sparkle channels share one
-/// three-way shape (a result, a reached feed with nothing to offer, or
-/// an unreachable feed) instead of two near-identical enums.
+/// shape instead of near-identical enums.
+///
+/// `.noResult` means a network round-trip completed but carried nothing
+/// actionable (no MAS entry, nothing newer, or a swallowed non-network
+/// failure) — proof the network is up. `.skipped` means no request was
+/// ever made (e.g. the app carries no `SUFeedURL`), so it must stay
+/// neutral in the offline decision: counting a skipped app as "reached"
+/// would mask a genuinely offline machine the moment one non-updatable
+/// app is installed — which is essentially always.
 enum CheckResult<Payload: Sendable>: Sendable {
     case found(Payload)
     case noResult
     case unreachable
+    case skipped
 }
 
 /// Drives the App Updater feature view (check → ready → update).
@@ -133,6 +141,10 @@ final class AppUpdaterViewModel: ObservableObject {
                     anyReachable = true
                 case .unreachable:
                     anyUnreachable = true
+                case .skipped:
+                    // No request was made — neither evidence the
+                    // network is up nor that it is down.
+                    break
                 }
             }
 
@@ -197,12 +209,15 @@ final class AppUpdaterViewModel: ObservableObject {
     /// feed was reached but there is nothing newer to offer (including a
     /// swallowed non-network failure — the server answered, so the
     /// network is fine). `.unreachable` means the feed could not be
-    /// reached at all. The aggregator in `checkForUpdates()` uses the
-    /// reachable/unreachable split to tell "up to date" from "offline".
+    /// reached at all. `.skipped` means no request was attempted (no
+    /// feed configured). The aggregator in `checkForUpdates()` uses the
+    /// reachable/unreachable split to tell "up to date" from "offline",
+    /// and keeps `.skipped` out of that split entirely.
     private enum AppCheckOutcome {
         case update(UpdateInfo)
         case noUpdate
         case unreachable
+        case skipped
     }
 
     /// Dispatches a single app to the correct update channel. Factored
@@ -234,6 +249,8 @@ final class AppUpdaterViewModel: ObservableObject {
             return .unreachable
         case .noResult:
             return .noUpdate
+        case .skipped:
+            return .skipped
         case .found(let lookup):
             let installed = app.version ?? "0"
             guard VersionComparator.isNewer(version: lookup.version, than: installed) else {
@@ -260,6 +277,8 @@ final class AppUpdaterViewModel: ObservableObject {
             return .unreachable
         case .noResult:
             return .noUpdate
+        case .skipped:
+            return .skipped
         case .found(let item):
             let installed = app.version ?? "0"
             guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else {
@@ -310,7 +329,7 @@ extension AppUpdaterViewModel {
                 }
             },
             checkSparkle: { app in
-                guard let feedURL = sparkle.feedURL(for: app) else { return .noResult }
+                guard let feedURL = sparkle.feedURL(for: app) else { return .skipped }
                 do {
                     if let item = try await sparkle.fetchAppcast(feedURL: feedURL) {
                         return .found(item)
