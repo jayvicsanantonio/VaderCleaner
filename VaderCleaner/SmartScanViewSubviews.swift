@@ -21,18 +21,26 @@ private let smartScanByteFormatter: ByteCountFormatter = {
 struct SmartScanIdleState: View {
     let onScan: () -> Void
 
+    @State private var breathing = false
+
     var body: some View {
         VStack(spacing: 16) {
             Spacer(minLength: 0)
 
             // The app icon is VaderCleaner's own artwork, so it doubles as the
             // hero render; the crimson bloom behind it ties it to the backdrop.
+            // A slow scale breath keeps the welcome screen feeling alive while
+            // it waits for the user to start a scan.
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 168, height: 168)
                 .shadow(color: Color.vaderCrimson.opacity(0.45), radius: 32)
+                .scaleEffect(breathing ? 1.03 : 1.0)
+                .animation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true),
+                           value: breathing)
+                .onAppear { breathing = true }
 
             Text(String(
                 localized: "Welcome to VaderCleaner",
@@ -76,6 +84,9 @@ private struct CircularActionButton: View {
     let accessibilityIdentifier: String
     let action: () -> Void
 
+    @State private var hovering = false
+    @State private var pulsing = false
+
     var body: some View {
         Button(action: action) {
             Text(title)
@@ -83,14 +94,36 @@ private struct CircularActionButton: View {
                 .foregroundStyle(.white)
                 .frame(width: 108, height: 108)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableCircleButtonStyle())
         .glassEffect(
             .regular.tint(Color.vaderCrimson).interactive(),
             in: .circle
         )
-        .shadow(color: Color.vaderCrimson.opacity(0.5), radius: 22, y: 8)
+        // Ambient glow that breathes so the primary action keeps drawing the
+        // eye even when the rest of the screen is still.
+        .shadow(
+            color: Color.vaderCrimson.opacity(pulsing ? 0.65 : 0.4),
+            radius: pulsing ? 30 : 18,
+            y: 8
+        )
+        .scaleEffect(hovering ? 1.06 : 1.0)
+        .animation(.spring(response: 0.32, dampingFraction: 0.6), value: hovering)
+        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: pulsing)
+        .onHover { hovering = $0 }
+        .onAppear { pulsing = true }
         .keyboardShortcut(.defaultAction)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+/// Press feedback for the circular CTAs — a quick spring scale-down while
+/// pressed so the button feels physical rather than flat.
+private struct PressableCircleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.55),
+                       value: configuration.isPressed)
     }
 }
 

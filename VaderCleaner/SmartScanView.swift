@@ -29,7 +29,25 @@ struct SmartScanView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(phaseTransitionID)
+            .transition(.opacity)
+            .animation(.smooth(duration: 0.35), value: phaseTransitionID)
             .navigationTitle(NavigationSection.smartScan.title)
+    }
+
+    /// Stable per-phase token so moving between scan phases crossfades
+    /// instead of hard-cutting. Distinct phases map to distinct strings;
+    /// associated values are intentionally ignored — only the phase identity
+    /// drives the transition.
+    private var phaseTransitionID: String {
+        switch viewModel.phase {
+        case .idle:     return "idle"
+        case .scanning: return "scanning"
+        case .results:  return "results"
+        case .cleaning: return "cleaning"
+        case .done:     return "done"
+        case .failed:   return "failed"
+        }
     }
 
     @ViewBuilder
