@@ -30,6 +30,10 @@ struct VaderBackground: View {
             )
             RadialGradient(
                 colors: [Color.vaderCrimson.opacity(0.34), .clear],
+                // y is biased just below the vertical centre (rather than 0.5)
+                // so the brightest part of the bloom falls under the hero
+                // icon/title cluster on the welcome screen, not the empty
+                // middle of the window.
                 center: UnitPoint(x: 0.5, y: 0.58),
                 startRadius: 0,
                 endRadius: 620

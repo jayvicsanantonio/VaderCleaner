@@ -30,6 +30,7 @@ struct SmartScanIdleState: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
                 .frame(width: 168, height: 168)
                 .shadow(color: Color.vaderCrimson.opacity(0.45), radius: 32)
 
