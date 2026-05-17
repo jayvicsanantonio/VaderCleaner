@@ -20,6 +20,15 @@ enum AppUpdaterError: LocalizedError {
         }
     }
 
+    /// True when `error` is a URL-loading failure — a `URLError` or its
+    /// bridged `NSURLErrorDomain` `NSError` form (offline, DNS, host
+    /// unreachable, timeout). The single source of truth for "this
+    /// failure means we could not reach the network", shared by the
+    /// per-feed offline-detection path and `userFacingMessage`.
+    static func isNetworkError(_ error: Error) -> Bool {
+        error is URLError || (error as NSError).domain == NSURLErrorDomain
+    }
+
     /// Maps an arbitrary error raised while checking for updates to the
     /// string the UI should display. URL-loading failures (offline, DNS,
     /// host unreachable, timeout — in both `URLError` and bridged
@@ -30,10 +39,7 @@ enum AppUpdaterError: LocalizedError {
         if error is AppUpdaterError {
             return networkMessage
         }
-        if error is URLError {
-            return networkMessage
-        }
-        if (error as NSError).domain == NSURLErrorDomain {
+        if isNetworkError(error) {
             return networkMessage
         }
         return error.localizedDescription

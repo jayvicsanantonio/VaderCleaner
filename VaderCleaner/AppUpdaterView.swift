@@ -299,8 +299,8 @@ private struct AppUpdaterFailedState: View {
 #Preview {
     AppUpdaterView(viewModel: AppUpdaterViewModel(
         discover: { _ in [] },
-        checkAppStore: { _ in nil },
-        checkSparkle: { _ in nil },
+        checkAppStore: { _ in .noResult },
+        checkSparkle: { _ in .noResult },
         opener: { _ in }
     ))
     .frame(width: 900, height: 600)

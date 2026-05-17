@@ -5,6 +5,28 @@ import AppKit
 import Foundation
 import os.log
 
+/// Outcome of a single update-feed lookup. `.unreachable` is the
+/// signal Prompt 20's swallow contract was missing: it lets the
+/// view-model tell "this feed was down" apart from "this app has no
+/// update", so a genuinely offline check can surface the network copy
+/// while a single dead feed still never blanks the whole list. Generic
+/// over the payload so the App Store and Sparkle channels share one
+/// shape instead of near-identical enums.
+///
+/// `.noResult` means a network round-trip completed but carried nothing
+/// actionable (no MAS entry, nothing newer, or a swallowed non-network
+/// failure) — proof the network is up. `.skipped` means no request was
+/// ever made (e.g. the app carries no `SUFeedURL`), so it must stay
+/// neutral in the offline decision: counting a skipped app as "reached"
+/// would mask a genuinely offline machine the moment one non-updatable
+/// app is installed — which is essentially always.
+enum CheckResult<Payload: Sendable>: Sendable {
+    case found(Payload)
+    case noResult
+    case unreachable
+    case skipped
+}
+
 /// Drives the App Updater feature view (check → ready → update).
 ///
 /// All collaborators are injected as closures so unit tests can drive
@@ -22,8 +44,8 @@ final class AppUpdaterViewModel: ObservableObject {
     }
 
     typealias Discover       = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
-    typealias CheckAppStore  = @Sendable (_ bundleID: String) async -> AppStoreLookup?
-    typealias CheckSparkle   = @Sendable (_ app: AppInfo) async -> SparkleAppcastItem?
+    typealias CheckAppStore  = @Sendable (_ bundleID: String) async -> CheckResult<AppStoreLookup>
+    typealias CheckSparkle   = @Sendable (_ app: AppInfo) async -> CheckResult<SparkleAppcastItem>
     typealias Opener         = @Sendable (_ url: URL) async -> Void
 
     @Published private(set) var phase: Phase = .idle
@@ -70,7 +92,7 @@ final class AppUpdaterViewModel: ObservableObject {
             // makes the data flow obvious.
             let appStoreCheck = self.checkAppStore
             let sparkleCheck = self.checkSparkle
-            let updates = await withTaskGroup(of: UpdateInfo?.self) { group -> [UpdateInfo] in
+            let outcomes = await withTaskGroup(of: AppCheckOutcome.self) { group -> [AppCheckOutcome] in
                 // Bounded concurrency: a machine with hundreds of installed
                 // apps would otherwise fire hundreds of simultaneous HTTPS
                 // requests at the iTunes Search API and assorted Sparkle
@@ -88,9 +110,9 @@ final class AppUpdaterViewModel: ObservableObject {
                     }
                     nextIndex += 1
                 }
-                var results: [UpdateInfo] = []
-                while let item = await group.next() {
-                    if let item { results.append(item) }
+                var results: [AppCheckOutcome] = []
+                while let outcome = await group.next() {
+                    results.append(outcome)
                     if nextIndex < apps.count {
                         let app = apps[nextIndex]
                         group.addTask {
@@ -106,12 +128,46 @@ final class AppUpdaterViewModel: ObservableObject {
                 return results
             }
             guard self.checkGeneration == generation else { return }
+
+            var updates: [UpdateInfo] = []
+            var anyReachable = false
+            var anyUnreachable = false
+            for outcome in outcomes {
+                switch outcome {
+                case .update(let info):
+                    updates.append(info)
+                    anyReachable = true
+                case .noUpdate:
+                    anyReachable = true
+                case .unreachable:
+                    anyUnreachable = true
+                case .skipped:
+                    // No request was made — neither evidence the
+                    // network is up nor that it is down.
+                    break
+                }
+            }
+
             // Sort case-insensitively by app name so the list order is
             // deterministic between successive checks.
             self.availableUpdates = updates.sorted {
                 $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
             }
-            self.phase = .ready
+
+            // Offline only when *every* feed we contacted was
+            // unreachable and not one came back with an answer. If even
+            // one feed responded — or we found updates — the network is
+            // up and Prompt 20's partial degradation stands: show what
+            // we have rather than a network error.
+            if updates.isEmpty, !anyReachable, anyUnreachable {
+                self.phase = .failed(
+                    message: AppUpdaterError.userFacingMessage(
+                        for: AppUpdaterError.networkUnavailable
+                    )
+                )
+            } else {
+                self.phase = .ready
+            }
         } catch {
             // Privacy: errors may include user-specific paths.
             log.error("App Updater discovery failed: \(String(describing: error), privacy: .private)")
@@ -149,6 +205,21 @@ final class AppUpdaterViewModel: ObservableObject {
         return checkGeneration
     }
 
+    /// Per-app result after version comparison. `.noUpdate` means the
+    /// feed was reached but there is nothing newer to offer (including a
+    /// swallowed non-network failure — the server answered, so the
+    /// network is fine). `.unreachable` means the feed could not be
+    /// reached at all. `.skipped` means no request was attempted (no
+    /// feed configured). The aggregator in `checkForUpdates()` uses the
+    /// reachable/unreachable split to tell "up to date" from "offline",
+    /// and keeps `.skipped` out of that split entirely.
+    private enum AppCheckOutcome {
+        case update(UpdateInfo)
+        case noUpdate
+        case unreachable
+        case skipped
+    }
+
     /// Dispatches a single app to the correct update channel. Factored
     /// out of `checkForUpdates()` so the bounded-concurrency window can
     /// schedule the same task body in two places without duplication.
@@ -156,7 +227,7 @@ final class AppUpdaterViewModel: ObservableObject {
         app: AppInfo,
         appStoreCheck: CheckAppStore,
         sparkleCheck: CheckSparkle
-    ) async -> UpdateInfo? {
+    ) async -> AppCheckOutcome {
         if app.isAppStore {
             return await checkAppStoreUpdate(app: app, check: appStoreCheck)
         } else {
@@ -166,46 +237,63 @@ final class AppUpdaterViewModel: ObservableObject {
 
     /// Runs the App Store lookup and folds the result into an
     /// `UpdateInfo` if (and only if) the remote version is newer than
-    /// the installed one. A network failure inside the lookup returns
-    /// `nil` — one slow checker must not blank the whole update list.
+    /// the installed one. An unreachable feed reports `.unreachable` so
+    /// the aggregator can distinguish offline from up-to-date; one slow
+    /// checker still must not blank the whole update list.
     private static func checkAppStoreUpdate(
         app: AppInfo,
         check: CheckAppStore
-    ) async -> UpdateInfo? {
-        guard let lookup = await check(app.bundleID) else { return nil }
-        let installed = app.version ?? "0"
-        guard VersionComparator.isNewer(version: lookup.version, than: installed) else {
-            return nil
+    ) async -> AppCheckOutcome {
+        switch await check(app.bundleID) {
+        case .unreachable:
+            return .unreachable
+        case .noResult:
+            return .noUpdate
+        case .skipped:
+            return .skipped
+        case .found(let lookup):
+            let installed = app.version ?? "0"
+            guard VersionComparator.isNewer(version: lookup.version, than: installed) else {
+                return .noUpdate
+            }
+            return .update(UpdateInfo(
+                appName: app.name,
+                bundleID: app.bundleID,
+                bundleURL: app.bundleURL,
+                installedVersion: installed,
+                latestVersion: lookup.version,
+                source: .appStore,
+                updateURL: lookup.appStoreURL
+            ))
         }
-        return UpdateInfo(
-            appName: app.name,
-            bundleID: app.bundleID,
-            bundleURL: app.bundleURL,
-            installedVersion: installed,
-            latestVersion: lookup.version,
-            source: .appStore,
-            updateURL: lookup.appStoreURL
-        )
     }
 
     private static func checkSparkleUpdate(
         app: AppInfo,
         check: CheckSparkle
-    ) async -> UpdateInfo? {
-        guard let item = await check(app) else { return nil }
-        let installed = app.version ?? "0"
-        guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else {
-            return nil
+    ) async -> AppCheckOutcome {
+        switch await check(app) {
+        case .unreachable:
+            return .unreachable
+        case .noResult:
+            return .noUpdate
+        case .skipped:
+            return .skipped
+        case .found(let item):
+            let installed = app.version ?? "0"
+            guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else {
+                return .noUpdate
+            }
+            return .update(UpdateInfo(
+                appName: app.name,
+                bundleID: app.bundleID,
+                bundleURL: app.bundleURL,
+                installedVersion: installed,
+                latestVersion: item.shortVersion,
+                source: .sparkle,
+                updateURL: item.downloadURL
+            ))
         }
-        return UpdateInfo(
-            appName: app.name,
-            bundleID: app.bundleID,
-            bundleURL: app.bundleURL,
-            installedVersion: installed,
-            latestVersion: item.shortVersion,
-            source: .sparkle,
-            updateURL: item.downloadURL
-        )
     }
 }
 
@@ -227,17 +315,28 @@ extension AppUpdaterViewModel {
             },
             checkAppStore: { bundleID in
                 do {
-                    return try await appStore.latestVersion(forBundleID: bundleID)
+                    if let lookup = try await appStore.latestVersion(forBundleID: bundleID) {
+                        return .found(lookup)
+                    }
+                    return .noResult
                 } catch {
-                    return nil
+                    // Re-surface only loss of connectivity. Every other
+                    // failure (a decode error, a malformed response)
+                    // stays swallowed as `.noResult` so one bad app can
+                    // never blank the list — Prompt 20's partial-
+                    // degradation contract is preserved, not reversed.
+                    return AppUpdaterError.isNetworkError(error) ? .unreachable : .noResult
                 }
             },
             checkSparkle: { app in
-                guard let feedURL = sparkle.feedURL(for: app) else { return nil }
+                guard let feedURL = sparkle.feedURL(for: app) else { return .skipped }
                 do {
-                    return try await sparkle.fetchAppcast(feedURL: feedURL)
+                    if let item = try await sparkle.fetchAppcast(feedURL: feedURL) {
+                        return .found(item)
+                    }
+                    return .noResult
                 } catch {
-                    return nil
+                    return AppUpdaterError.isNetworkError(error) ? .unreachable : .noResult
                 }
             },
             opener: { url in
