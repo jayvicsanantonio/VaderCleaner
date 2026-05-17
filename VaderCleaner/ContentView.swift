@@ -160,7 +160,7 @@ struct ContentView: View {
         appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
-        optimizationViewModel: OptimizationViewModel.live(systemStats: stats),
+        optimizationViewModel: OptimizationViewModel.live(systemStats: stats, preferences: prefs),
         malwareViewModel: MalwareViewModel.live(
             dispatcher: notificationManager,
             preferences: prefs

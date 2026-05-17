@@ -2,6 +2,7 @@
 // Drives the OptimizationViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/remove — through injected fakes.
 
 import XCTest
+import Combine
 @testable import VaderCleaner
 
 @MainActor
@@ -130,6 +131,122 @@ final class OptimizationViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: - Launch-at-login cross-update (issue #65)
+
+    /// An external change to the launch-at-login preference (the
+    /// Preferences toggle) must reload the Optimization login-items row
+    /// so the two surfaces never disagree within a session.
+    func test_externalLaunchAtLoginChange_reloadsLoginItems() async {
+        let subject = PassthroughSubject<Void, Never>()
+        var loadCount = 0
+        let vm = makeViewModel(
+            loadLoginItems: {
+                loadCount += 1
+                // First load (refresh) reports disabled; after the
+                // external change the backing state reads enabled.
+                return [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loadCount > 1)]
+            },
+            launchAtLoginChanges: subject.eraseToAnyPublisher()
+        )
+        await vm.refresh()
+        XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
+
+        let reloaded = expectation(description: "login items reloaded")
+        var cancellable: AnyCancellable? = vm.$loginItems
+            .dropFirst()
+            .sink { items in
+                if items.first?.isEnabled == true { reloaded.fulfill() }
+            }
+        subject.send(())
+        await fulfillment(of: [reloaded], timeout: 2)
+        cancellable?.cancel()
+        cancellable = nil
+
+        XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
+    }
+
+    /// With no publisher injected (the unit-test / preview default),
+    /// nothing subscribes and the row only changes on explicit
+    /// refresh/toggle — the prior behavior is preserved.
+    func test_noLaunchAtLoginPublisher_rowOnlyChangesOnExplicitReload() async {
+        var loadCount = 0
+        let vm = makeViewModel(
+            loadLoginItems: {
+                loadCount += 1
+                return [LoginItem(id: "host", name: "VaderCleaner", isEnabled: true)]
+            }
+        )
+        await vm.refresh()
+        XCTAssertEqual(loadCount, 1)
+        // No publisher → no spontaneous reload path exists.
+        XCTAssertEqual(vm.loginItems.map(\.name), ["VaderCleaner"])
+    }
+
+    /// End-to-end with a real `PreferencesStore`: a Preferences-side
+    /// toggle reaches the Optimization row, an Optimization-side toggle
+    /// writes back through `PreferencesStore`, and the SMAppService
+    /// handler runs exactly once per change — no duplicated write path.
+    /// Also pins the `@Published` willSet/didSet ordering: the row is
+    /// reloaded *after* the handler has applied the new state.
+    func test_integration_optimizationAndPreferencesStayInSync() async {
+        let suiteName = "VaderCleanerTests.Issue65.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: "preferences.launchAtLogin")
+
+        // Stand-in for SMAppService: the handler is the only thing that
+        // mutates `loginEnabled`, exactly like the production single
+        // write path through PreferencesStore.didSet.
+        var loginEnabled = false
+        var handlerCalls = 0
+        let prefs = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { enabled in
+                handlerCalls += 1
+                loginEnabled = enabled
+            }
+        )
+        // init's reconcile pushes the persisted value once; reset so the
+        // assertions below count only user-driven toggles.
+        handlerCalls = 0
+
+        let vm = makeViewModel(
+            loadLoginItems: {
+                [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled)]
+            },
+            setLoginItemEnabled: { enabled, _ in prefs.launchAtLogin = enabled },
+            launchAtLoginChanges: prefs.$launchAtLogin
+                .dropFirst()
+                .map { _ in () }
+                .eraseToAnyPublisher()
+        )
+        await vm.refresh()
+        XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
+
+        // Preferences → Optimization.
+        let synced = expectation(description: "optimization reflects preferences toggle")
+        var cancellable: AnyCancellable? = vm.$loginItems
+            .dropFirst()
+            .sink { items in
+                if items.first?.isEnabled == true { synced.fulfill() }
+            }
+        prefs.launchAtLogin = true
+        await fulfillment(of: [synced], timeout: 2)
+        cancellable?.cancel()
+        cancellable = nil
+        XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
+        XCTAssertEqual(handlerCalls, 1, "exactly one SMAppService write via the single path")
+
+        // Optimization → Preferences.
+        await vm.setLoginItem(
+            LoginItem(id: "host", name: "VaderCleaner", isEnabled: true),
+            enabled: false
+        )
+        XCTAssertFalse(prefs.launchAtLogin, "Optimization toggle writes through PreferencesStore")
+        XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
+        XCTAssertEqual(handlerCalls, 2, "no duplicated write path")
+    }
+
     // MARK: - Agent disable / remove
 
     func test_disableAgent_invokesCollaboratorAndReloads() async {
@@ -201,7 +318,8 @@ final class OptimizationViewModelTests: XCTestCase {
         disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
         removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
         flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
-        runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" }
+        runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" },
+        launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
     ) -> OptimizationViewModel {
         OptimizationViewModel(
             loadLoginItems: loadLoginItems,
@@ -212,7 +330,8 @@ final class OptimizationViewModelTests: XCTestCase {
             disableAgent: disableAgent,
             removeAgent: removeAgent,
             flushRAM: flushRAM,
-            runMaintenance: runMaintenance
+            runMaintenance: runMaintenance,
+            launchAtLoginChanges: launchAtLoginChanges
         )
     }
 

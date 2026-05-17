@@ -93,7 +93,7 @@ struct VaderCleanerApp: App {
         // Wired after `stats` so the Optimization RAM figures come from the
         // same polling service the Health Monitor and menu bar consume.
         _optimizationViewModel = StateObject(
-            wrappedValue: OptimizationViewModel.live(systemStats: stats)
+            wrappedValue: OptimizationViewModel.live(systemStats: stats, preferences: prefs)
         )
         _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(service: stats))
         // One NotificationManager for the whole app. Its init registers
