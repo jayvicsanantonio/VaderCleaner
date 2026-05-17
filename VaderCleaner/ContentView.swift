@@ -143,7 +143,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    Color.clear
                         .glassEffect(
                             .regular.tint(Color.vaderCrimson),
                             in: .rect(cornerRadius: 12)
