@@ -102,25 +102,31 @@ struct ContentView: View {
     }
 
     /// The navigation rail: one button per section with a soft glass
-    /// selection pill that glides between rows. Arrow-key navigation between
+    /// selection pill that marks the active row. Arrow-key navigation between
     /// rows is intentionally not reimplemented (it was a `List` affordance);
     /// the rows are focusable buttons, so Tab / Space / Return and VoiceOver
     /// still work.
     private var rail: some View {
-        ScrollView {
-            VStack(spacing: 4) {
-                ForEach(NavigationSection.allCases) { section in
-                    railRow(section)
-                }
+        VStack(spacing: 4) {
+            ForEach(NavigationSection.allCases) { section in
+                railRow(section)
             }
-            .padding(.horizontal, 10)
-            // The content extends under the hidden title bar, so inset the
-            // first row clear of the window's traffic-light controls.
-            .padding(.top, 44)
-            .padding(.bottom, 16)
-            .animation(.spring(response: 0.35, dampingFraction: 0.8),
-                       value: selectedSection)
         }
+        .padding(.horizontal, 10)
+        // The content extends under the hidden title bar, so inset the
+        // first row clear of the window's traffic-light controls.
+        .padding(.top, 44)
+        .padding(.bottom, 16)
+        // Fill the column and top-align. All eleven rows fit within the
+        // window's minimum height, so the rail is intentionally not wrapped
+        // in a ScrollView — it never scrolls.
+        .frame(maxHeight: .infinity, alignment: .top)
+        // Anchor the rail to the true window top. Detail screens declare
+        // different toolbars, which changes the window's top safe-area inset;
+        // without this the rail would ride that inset and shift vertically
+        // between sections. The `.padding(.top, 44)` above clears the
+        // traffic-light controls measured from this fixed top.
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     private func railRow(_ section: NavigationSection) -> some View {
@@ -154,6 +160,10 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Suppress the macOS keyboard focus ring. Without this the first
+        // focusable row wears the system's blue halo on launch; the crimson
+        // selection pill is the rail's own state indicator.
+        .focusEffectDisabled()
         .accessibilityIdentifier(section.accessibilityIdentifier)
         .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
