@@ -24,12 +24,17 @@ struct HealthMonitorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    batteryCard
-                    smartCard
-                    ramCard
-                    cpuCard
-                    diskCard
+                // Group the tiles in one container so adjacent glass cards
+                // sample each other and refract consistently as the grid
+                // reflows on resize.
+                GlassEffectContainer(spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        batteryCard
+                        smartCard
+                        ramCard
+                        cpuCard
+                        diskCard
+                    }
                 }
                 Divider()
                 fileVaultRow
@@ -186,14 +191,7 @@ private struct HealthCard<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
-        )
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 }
 

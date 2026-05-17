@@ -57,10 +57,18 @@ struct ContentView: View {
                     .tag(section)
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            // Let the branded gradient show through the sidebar so it reads as
+            // a translucent panel rather than an opaque list.
+            .scrollContentBackground(.hidden)
         } detail: {
             detailView(for: selectedSection ?? .smartScan)
         }
         .frame(minWidth: 900, minHeight: 600)
+        // Branded shell: gradient backdrop, crimson tint, forced dark
+        // appearance. The toolbar background is hidden so the floating glass
+        // toolbar items sit directly over the gradient instead of on a band.
+        .vaderShell()
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .sheet(isPresented: shouldShowOnboarding) {
             PermissionOnboardingView()
                 .environmentObject(appState)

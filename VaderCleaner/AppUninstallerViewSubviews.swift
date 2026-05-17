@@ -69,6 +69,7 @@ struct AppUninstallerListPane: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
             }
             Divider()
             Toggle(isOn: $includesSystemApps) {
@@ -101,8 +102,7 @@ struct AppUninstallerSearchField: View {
                 .accessibilityIdentifier("appUninstaller.search")
         }
         .padding(6)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 6))
     }
 }
 
@@ -315,6 +315,7 @@ struct AppUninstallerAssociatedFilesList: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
     }
 }
 

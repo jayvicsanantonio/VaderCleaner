@@ -34,7 +34,7 @@ struct PermissionOnboardingView: View {
             }
             .font(.callout)
             .padding()
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .glassEffect(.regular, in: .rect(cornerRadius: 8))
 
             HStack(spacing: 12) {
                 Button("Continue Without Access") {

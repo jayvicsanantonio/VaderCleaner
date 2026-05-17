@@ -107,6 +107,7 @@ struct SystemJunkView: View {
                 .accessibilityIdentifier("system-junk.row.\(category.rawValue)")
             }
         }
+        .scrollContentBackground(.hidden)
     }
 
     private var previewFooter: some View {

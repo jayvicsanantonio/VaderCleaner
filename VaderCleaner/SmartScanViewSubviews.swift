@@ -2,6 +2,7 @@
 // Dedicated subviews for the Smart Scan screen — idle, progress, the three-card results summary, done, and failed states.
 
 import SwiftUI
+import AppKit
 
 // MARK: - Shared byte formatting
 
@@ -21,38 +22,66 @@ struct SmartScanIdleState: View {
     let onScan: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
+        VStack(spacing: 16) {
+            Spacer(minLength: 0)
+
+            // The app icon is VaderCleaner's own artwork, so it doubles as the
+            // hero render; the crimson bloom behind it ties it to the backdrop.
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 168, height: 168)
+                .shadow(color: Color.vaderCrimson.opacity(0.45), radius: 32)
+
             Text(String(
-                localized: "Smart Scan",
-                comment: "Title on the idle Smart Scan screen."
+                localized: "Welcome to VaderCleaner",
+                comment: "Hero title on the idle Smart Scan welcome screen."
             ))
-                .font(.title.weight(.semibold))
+                .font(.system(size: 34, weight: .semibold))
+
             Text(String(
-                localized: "Scans for junk, malware, and optimization opportunities.",
-                comment: "Subtitle on the idle Smart Scan screen."
+                localized: "Start with a quick and extensive scan of your Mac.",
+                comment: "Subtitle on the idle Smart Scan welcome screen."
             ))
-                .font(.callout)
+                .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
 
-            Button(action: onScan) {
-                Text(String(
-                    localized: "Scan",
-                    comment: "Primary button that starts the Smart Scan."
-                ))
-                .frame(minWidth: 120)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("smartScan.scan")
+            Spacer(minLength: 0)
+
+            CircularScanButton(action: onScan)
+                .padding(.bottom, 36)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+}
+
+/// The hero call to action — a crimson interactive-glass disc echoing the
+/// reference's circular Scan button. Interactive glass gives it the system
+/// press-scale and shimmer; the crimson tint marks it as the primary action.
+private struct CircularScanButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(String(
+                localized: "Scan",
+                comment: "Primary button that starts the Smart Scan."
+            ))
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 108, height: 108)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(
+            .regular.tint(Color.vaderCrimson).interactive(),
+            in: .circle
+        )
+        .shadow(color: Color.vaderCrimson.opacity(0.5), radius: 22, y: 8)
+        .keyboardShortcut(.defaultAction)
+        .accessibilityIdentifier("smartScan.scan")
     }
 }
 
@@ -151,7 +180,7 @@ private struct SmartScanCard: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 }
 
@@ -169,9 +198,15 @@ struct SmartScanResultsState: View {
                 .font(.title2.weight(.semibold))
                 .accessibilityIdentifier("smartScan.resultsHeading")
 
-            junkCard
-            malwareCard
-            optimizationCard
+            // One container so the three summary cards sample each other's
+            // glass and refract consistently rather than as isolated surfaces.
+            GlassEffectContainer(spacing: 16) {
+                VStack(spacing: 16) {
+                    junkCard
+                    malwareCard
+                    optimizationCard
+                }
+            }
 
             Spacer(minLength: 0)
         }

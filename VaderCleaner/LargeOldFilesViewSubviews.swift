@@ -196,6 +196,7 @@ struct LargeOldFilesTable: View {
             }
         }
         .accessibilityIdentifier("large-old.table")
+        .scrollContentBackground(.hidden)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Picker(String(

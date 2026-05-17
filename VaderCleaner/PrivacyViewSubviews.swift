@@ -100,6 +100,7 @@ struct PrivacyPreviewContent: View {
                         .font(.callout.weight(.semibold))
                 }
             }
+            .scrollContentBackground(.hidden)
             Divider()
             PrivacyPreviewFooter(
                 totalSelectedSize: totalSelectedSize,
