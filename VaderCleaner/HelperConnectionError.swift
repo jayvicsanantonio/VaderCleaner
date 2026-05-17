@@ -42,12 +42,6 @@ enum HelperConnectionError: LocalizedError {
             return message
         }
 
-        // Defensive: any code path still constructing the old
-        // "Helper unavailable" sentinel normalizes to the same copy.
-        if nsError.localizedDescription == "Helper unavailable" {
-            return message
-        }
-
         return error.localizedDescription
     }
 }

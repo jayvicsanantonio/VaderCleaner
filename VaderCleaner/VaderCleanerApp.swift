@@ -161,24 +161,27 @@ struct VaderCleanerApp: App {
 
     /// Shows the standard macOS About panel. Version and build are read
     /// automatically from the bundle's `CFBundleShortVersionString` /
-    /// `CFBundleVersion`; we only supply the credits line so the panel
-    /// isn't blank. Activating first guarantees the panel comes forward
-    /// even when invoked while the app has no key window.
+    /// `CFBundleVersion`; we supply the credits so the panel isn't blank.
+    /// The copyright line is folded into `credits` rather than passed via
+    /// the `Copyright` option key — that key is only honoured on macOS 15+
+    /// and the app deploys back to macOS 14, where it would be silently
+    /// dropped. Activating first guarantees the panel comes forward even
+    /// when invoked while the app has no key window.
     @MainActor
     private static func showAboutPanel() {
         let credits = NSAttributedString(
-            string: "A native macOS cleaner: junk, large files, malware, privacy, and system health.",
+            string: """
+            A native macOS cleaner: junk, large files, malware, privacy, and system health.
+
+            © 2026 Jayvic San Antonio
+            """,
             attributes: [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]
         )
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .credits: credits,
-            NSApplication.AboutPanelOptionKey(rawValue: "Copyright"):
-                "© 2026 Jayvic San Antonio",
-        ])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 
     var body: some Scene {

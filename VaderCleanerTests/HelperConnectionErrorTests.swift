@@ -42,20 +42,6 @@ final class HelperConnectionErrorTests: XCTestCase {
         }
     }
 
-    /// Defensive: any path still constructing the legacy "Helper unavailable"
-    /// sentinel must also normalize to the prescribed copy.
-    func test_userFacingMessage_forLegacySentinel_isPrescribedCopy() {
-        let legacy = NSError(
-            domain: "com.personal.VaderCleaner.SystemJunkDeleter",
-            code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "Helper unavailable"]
-        )
-        XCTAssertEqual(
-            HelperConnectionError.userFacingMessage(for: legacy),
-            expectedCopy
-        )
-    }
-
     /// Unrelated errors must pass through their own localized description so
     /// a locked-file or permission failure still tells the user what happened.
     func test_userFacingMessage_forUnrelatedError_passesThroughDescription() {

@@ -49,7 +49,7 @@ struct FullDiskAccessPromptCard: View {
         }
         .padding(12)
         .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-        .frame(maxWidth: 460)
+        .frame(maxWidth: 420)
         .accessibilityIdentifier("fda.inlinePrompt")
     }
 }

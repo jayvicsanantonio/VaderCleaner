@@ -35,11 +35,7 @@ struct MaintenanceScriptRunner {
                 resumer.resume(with: connectionError)
             }
             guard let helper else {
-                resumer.resume(with: NSError(
-                    domain: "com.personal.VaderCleaner.MaintenanceScriptRunner",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Helper unavailable"]
-                ))
+                resumer.resume(with: HelperConnectionError.unavailable)
                 return
             }
             helper.runMaintenanceScripts { replyError in

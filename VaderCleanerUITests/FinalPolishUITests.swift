@@ -104,14 +104,14 @@ final class FinalPolishUITests: XCTestCase {
         scan.click()
 
         // Prefer a terminal state; allow a generous window for the walk.
-        let table = app.descendants(matching: .any)["large-old.table"]
-        let emptyTitle = app.staticTexts["large-old.emptyTitle"]
-        let errorMessage = app.staticTexts["large-old.errorMessage"]
-        let reachedTerminal = table.waitForExistence(timeout: 120)
-            || emptyTitle.exists
-            || errorMessage.exists
-
-        if reachedTerminal {
+        // One combined query so an early empty/failed state short-circuits
+        // instead of blocking the full timeout waiting only for the table.
+        let terminal = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier IN {'large-old.table', 'large-old.emptyTitle', 'large-old.errorMessage'}"
+            ))
+            .firstMatch
+        if terminal.waitForExistence(timeout: 120) {
             return
         }
 
@@ -195,21 +195,40 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5),
                       "Expected the show-in-menu-bar toggle")
 
-        let before = (toggle.value as? Int) ?? -1
+        // A macOS Switch reports its state via `value` as a Bool-tagged
+        // NSNumber — `as? Int` and `as? String` both fail on it, so
+        // normalize through every shape XCUIElement.value can take.
+        func isOn() -> Bool {
+            switch toggle.value {
+            case let n as NSNumber: return n.boolValue
+            case let b as Bool:     return b
+            case let s as String:   return s == "1"
+            case let i as Int:      return i == 1
+            default:                return false
+            }
+        }
+
+        let before = isOn()
         toggle.click()
 
-        // XCUIElement.value reflects the new state once the click is
-        // processed.
-        let flipped = NSPredicate(format: "value != %d", before)
-        expectation(for: flipped, evaluatedWith: toggle)
-        waitForExpectations(timeout: 5)
+        // Re-read `value` on each poll via a block predicate (the element
+        // arg is ignored) so we observe the post-click state.
+        let flippedPoll = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in isOn() != before },
+            object: nil
+        )
+        flippedPoll.expectationDescription = "toggle flipped"
+        wait(for: [flippedPoll], timeout: 5)
 
         // Restore the original value so the test leaves no persisted side
         // effect — `showMenuBar` is written through to real UserDefaults.
         toggle.click()
-        let restored = NSPredicate(format: "value == %d", before)
-        expectation(for: restored, evaluatedWith: toggle)
-        waitForExpectations(timeout: 5)
+        let restoredPoll = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in isOn() == before },
+            object: nil
+        )
+        restoredPoll.expectationDescription = "toggle restored"
+        wait(for: [restoredPoll], timeout: 5)
     }
 
     // MARK: - Helpers
