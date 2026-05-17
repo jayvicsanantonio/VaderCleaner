@@ -141,11 +141,7 @@ struct SystemJunkDeleter {
                 resumer.resume(with: connectionError)
             }
             guard let helper else {
-                resumer.resume(with: NSError(
-                    domain: "com.personal.VaderCleaner.SystemJunkDeleter",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Helper unavailable"]
-                ))
+                resumer.resume(with: HelperConnectionError.unavailable)
                 return
             }
             helper.deleteFiles(paths) { replyError in

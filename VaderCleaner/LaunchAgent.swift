@@ -165,11 +165,7 @@ struct LaunchAgentManager {
                 resumer.resume(with: connectionError)
             }
             guard let helper else {
-                resumer.resume(with: NSError(
-                    domain: "com.personal.VaderCleaner.LaunchAgentManager",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Helper unavailable"]
-                ))
+                resumer.resume(with: HelperConnectionError.unavailable)
                 return
             }
             helper.removeLaunchAgent(path: path) { replyError in

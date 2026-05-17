@@ -122,7 +122,7 @@ final class OptimizationViewModel: ObservableObject {
             phase = .ready
         } catch {
             log.error("RAM flush failed: \(error.localizedDescription, privacy: .public)")
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
 
@@ -137,7 +137,7 @@ final class OptimizationViewModel: ObservableObject {
             phase = .ready
         } catch {
             log.error("Maintenance scripts failed: \(error.localizedDescription, privacy: .public)")
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
 
@@ -153,7 +153,7 @@ final class OptimizationViewModel: ObservableObject {
             phase = .ready
         } catch {
             log.error("Login-item toggle failed: \(error.localizedDescription, privacy: .public)")
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
 
@@ -173,7 +173,7 @@ final class OptimizationViewModel: ObservableObject {
             phase = .ready
         } catch {
             log.error("Agent disable failed: \(error.localizedDescription, privacy: .public)")
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
 
@@ -188,7 +188,7 @@ final class OptimizationViewModel: ObservableObject {
             phase = .ready
         } catch {
             log.error("Agent removal failed: \(error.localizedDescription, privacy: .public)")
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
 

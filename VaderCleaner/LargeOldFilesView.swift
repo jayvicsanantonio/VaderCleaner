@@ -12,6 +12,7 @@ struct LargeOldFilesView: View {
     @StateObject private var fileIconCache = FileIconCache()
     @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
     @EnvironmentObject private var exclusions: ExclusionsStore
+    @EnvironmentObject private var appState: AppState
 
     /// Drives the "Are you sure?" alert before destructive actions. Held on
     /// the view rather than the VM so the confirmation copy can reference
@@ -56,7 +57,12 @@ struct LargeOldFilesView: View {
     private var content: some View {
         switch viewModel.phase {
         case .idle:
-            LargeOldFilesIdleState(onScan: startScan)
+            VStack(spacing: 16) {
+                if !appState.hasFullDiskAccess {
+                    FullDiskAccessPromptCard(onRecheck: { appState.refresh() })
+                }
+                LargeOldFilesIdleState(onScan: startScan)
+            }
         case .scanning:
             LargeOldFilesProgressState(label: "Scanning…", identifier: "large-old.scanning")
         case .results:
@@ -153,4 +159,5 @@ private struct PendingDeletion: Identifiable {
     ))
     .frame(width: 800, height: 520)
     .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
+    .environmentObject(AppState(checker: { true }))
 }

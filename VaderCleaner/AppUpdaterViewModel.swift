@@ -117,7 +117,7 @@ final class AppUpdaterViewModel: ObservableObject {
             log.error("App Updater discovery failed: \(String(describing: error), privacy: .private)")
             guard self.checkGeneration == generation else { return }
             self.availableUpdates = []
-            self.phase = .failed(message: error.localizedDescription)
+            self.phase = .failed(message: AppUpdaterError.userFacingMessage(for: error))
         }
     }
 

@@ -50,4 +50,4 @@
 
 - [x] **Prompt 25** — Smart Scan (orchestrates junk + malware + optimization)
 - [x] **Prompt 26** — Exclusions wired to all scanners
-- [ ] **Prompt 27** — Final polish, error handling, E2E tests, app icon, About window
+- [x] **Prompt 27** — Final polish, error handling, E2E tests, app icon, About window

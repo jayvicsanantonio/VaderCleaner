@@ -9,6 +9,7 @@ import SwiftUI
 struct PrivacyView: View {
 
     @ObservedObject private var viewModel: PrivacyViewModel
+    @EnvironmentObject private var appState: AppState
     @State private var showClearConfirmation = false
 
     init(viewModel: PrivacyViewModel) {
@@ -33,7 +34,12 @@ struct PrivacyView: View {
     private var content: some View {
         switch viewModel.phase {
         case .idle:
-            PrivacyIdleState(onScan: startPreview)
+            VStack(spacing: 16) {
+                if !appState.hasFullDiskAccess {
+                    FullDiskAccessPromptCard(onRecheck: { appState.refresh() })
+                }
+                PrivacyIdleState(onScan: startPreview)
+            }
         case .scanning:
             PrivacyProgressState(label: "Scanning…", identifier: "privacy.scanning")
         case .preview:
@@ -94,4 +100,5 @@ struct PrivacyView: View {
         clearRecentFiles: { }
     ))
     .frame(width: 700, height: 480)
+    .environmentObject(AppState(checker: { true }))
 }

@@ -140,6 +140,19 @@ final class AppUpdaterViewModelTests: XCTestCase {
         }
     }
 
+    /// An offline check surfaces the actionable network copy, not
+    /// Foundation's terser URLError description.
+    func test_checkForUpdates_networkFailureSurfacesNetworkCopy() async {
+        let vm = makeViewModel(
+            discover: { _ in throw URLError(.notConnectedToInternet) }
+        )
+        await vm.checkForUpdates()
+        XCTAssertEqual(
+            vm.phase,
+            .failed(message: "Could not check for updates. Check your internet connection.")
+        )
+    }
+
     // MARK: - Update routing
 
     /// `update(_:)` opens the update URL via the injected opener. The

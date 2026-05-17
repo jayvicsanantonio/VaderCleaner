@@ -170,6 +170,7 @@ private struct MenuBarTab: View {
         Form {
             Section {
                 Toggle("Show VaderCleaner in the menu bar", isOn: $preferences.showMenuBar)
+                    .accessibilityIdentifier("preferences.showMenuBar")
             } footer: {
                 Text("When disabled, the VaderCleaner icon and live stats are hidden from the menu bar.")
                     .font(.caption)
