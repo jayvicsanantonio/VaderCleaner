@@ -11,8 +11,9 @@ final class FinalPolishUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    /// The eleven sidebar row identifiers, in `NavigationSection` order. The
-    /// rail is icon-only so rows expose no visible text; these mirror
+    /// The eleven sidebar row identifiers, in `NavigationSection` order. Rows
+    /// are located by identifier rather than visible label so the locators
+    /// survive rail restyles; these mirror
     /// `NavigationSection.accessibilityIdentifier`. Hard-coded because the
     /// UI-test bundle runs out-of-process and cannot import the app enum;
     /// `NavigationSectionTests` pins the enum side, this pins the rendered side.
@@ -48,7 +49,7 @@ final class FinalPolishUITests: XCTestCase {
         dismissOnboardingIfNeeded()
 
         for identifier in sectionIdentifiers {
-            let row = app.outlines.descendants(matching: .any)[identifier].firstMatch
+            let row = app.buttons[identifier].firstMatch
             XCTAssertTrue(
                 row.waitForExistence(timeout: 5),
                 "Expected sidebar to list the \"\(identifier)\" section"
@@ -64,7 +65,7 @@ final class FinalPolishUITests: XCTestCase {
     func test_navigateToHealthMonitor_showsAtLeastThreeStatCards() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.outlines.descendants(matching: .any)["sidebar.healthMonitor"].firstMatch
+        let row = app.buttons["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "Expected Health Monitor row in sidebar")
         row.click()
@@ -94,7 +95,7 @@ final class FinalPolishUITests: XCTestCase {
     func test_largeOldFiles_scan_reachesRecognizableState() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.outlines.descendants(matching: .any)["sidebar.largeOldFiles"].firstMatch
+        let row = app.buttons["sidebar.largeOldFiles"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "Expected Large & Old Files row in sidebar")
         row.click()
@@ -133,7 +134,7 @@ final class FinalPolishUITests: XCTestCase {
     func test_navigateToAppUninstaller_listLoadsWithAtLeastFiveApps() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.outlines.descendants(matching: .any)["sidebar.appUninstaller"].firstMatch
+        let row = app.buttons["sidebar.appUninstaller"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "Expected App Uninstaller row in sidebar")
         row.click()

@@ -20,6 +20,8 @@ struct ContentView: View {
     private let malwareViewModel: MalwareViewModel
     private let smartScanViewModel: SmartScanViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
+    /// Namespace for the sliding selection pill in the custom rail.
+    @Namespace private var pillNamespace
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
     /// dismissal in the same cycle) would request authorization twice — the
@@ -52,31 +54,12 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // A transparent List rather than a NavigationSplitView sidebar:
-            // the rail and the detail share one continuous gradient with no
-            // system sidebar material and no column divider between them.
-            // Keeping a List preserves selection, keyboard navigation, and
-            // assistive-technology semantics for free.
-            List(NavigationSection.allCases, selection: $selectedSection) { section in
-                Label {
-                    Text(section.title)
-                } icon: {
-                    Image(systemName: section.icon)
-                }
-                .font(.title3)
-                // The selected row springs subtly on top of the list's own
-                // selection highlight so navigating feels responsive.
-                .scaleEffect(selectedSection == section ? 1.04 : 1.0)
-                .animation(
-                    .spring(response: 0.3, dampingFraction: 0.7),
-                    value: selectedSection
-                )
-                .accessibilityIdentifier(section.accessibilityIdentifier)
-                .tag(section)
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .frame(width: 230)
+            // A custom rail of buttons (not a List) so selection can be a soft
+            // inset glass pill with generous spacing instead of the system's
+            // full-bleed selection bar. The rail and detail share one
+            // continuous gradient — no sidebar material, no divider.
+            rail
+                .frame(width: 240)
 
             // Hosts `.navigationTitle` / `.toolbar` for the detail screens
             // without reintroducing a split divider.
@@ -116,6 +99,64 @@ struct ContentView: View {
         .onDisappear {
             spaceLensViewModel.cancelScan()
         }
+    }
+
+    /// The navigation rail: one button per section with a soft glass
+    /// selection pill that glides between rows. Arrow-key navigation between
+    /// rows is intentionally not reimplemented (it was a `List` affordance);
+    /// the rows are focusable buttons, so Tab / Space / Return and VoiceOver
+    /// still work.
+    private var rail: some View {
+        ScrollView {
+            VStack(spacing: 4) {
+                ForEach(NavigationSection.allCases) { section in
+                    railRow(section)
+                }
+            }
+            .padding(.horizontal, 10)
+            // The content extends under the hidden title bar, so inset the
+            // first row clear of the window's traffic-light controls.
+            .padding(.top, 44)
+            .padding(.bottom, 16)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8),
+                       value: selectedSection)
+        }
+    }
+
+    private func railRow(_ section: NavigationSection) -> some View {
+        let isSelected = selectedSection == section
+        return Button {
+            selectedSection = section
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: section.icon)
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.title3)
+                    .frame(width: 26)
+                Text(section.title)
+                    .font(.body)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.62))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .glassEffect(
+                            .regular.tint(Color.vaderCrimson),
+                            in: .rect(cornerRadius: 12)
+                        )
+                        .matchedGeometryEffect(id: "selectionPill", in: pillNamespace)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(section.accessibilityIdentifier)
+        .accessibilityLabel(section.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     /// Idempotent permission-request driver. Fires the system prompt at most
