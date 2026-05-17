@@ -125,6 +125,7 @@ private struct AppUpdaterListState: View {
                 }
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
             Divider()
             HStack(spacing: 12) {
                 Text(updatesCountText)

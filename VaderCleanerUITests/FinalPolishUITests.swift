@@ -11,22 +11,24 @@ final class FinalPolishUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    /// The eleven sidebar titles, in `NavigationSection` order. Hard-coded
-    /// because the UI-test bundle runs out-of-process and cannot import the
-    /// app's `NavigationSection` enum; `NavigationSectionTests` pins the enum
-    /// side, this pins the rendered side.
-    private let sectionTitles = [
-        "Smart Scan",
-        "System Junk",
-        "Large & Old Files",
-        "Space Lens",
-        "Malware Removal",
-        "Privacy",
-        "Extensions",
-        "App Uninstaller",
-        "App Updater",
-        "Optimization",
-        "Health Monitor",
+    /// The eleven sidebar row identifiers, in `NavigationSection` order. Rows
+    /// are located by identifier rather than visible label so the locators
+    /// survive rail restyles; these mirror
+    /// `NavigationSection.accessibilityIdentifier`. Hard-coded because the
+    /// UI-test bundle runs out-of-process and cannot import the app enum;
+    /// `NavigationSectionTests` pins the enum side, this pins the rendered side.
+    private let sectionIdentifiers = [
+        "sidebar.smartScan",
+        "sidebar.systemJunk",
+        "sidebar.largeOldFiles",
+        "sidebar.spaceLens",
+        "sidebar.malwareRemoval",
+        "sidebar.privacy",
+        "sidebar.extensions",
+        "sidebar.appUninstaller",
+        "sidebar.appUpdater",
+        "sidebar.optimization",
+        "sidebar.healthMonitor",
     ]
 
     override func setUpWithError() throws {
@@ -46,11 +48,11 @@ final class FinalPolishUITests: XCTestCase {
     func test_launch_sidebarShowsAllElevenSections() throws {
         dismissOnboardingIfNeeded()
 
-        for title in sectionTitles {
-            let row = app.outlines.staticTexts[title].firstMatch
+        for identifier in sectionIdentifiers {
+            let row = app.buttons[identifier].firstMatch
             XCTAssertTrue(
                 row.waitForExistence(timeout: 5),
-                "Expected sidebar to list the \"\(title)\" section"
+                "Expected sidebar to list the \"\(identifier)\" section"
             )
         }
     }
@@ -63,7 +65,7 @@ final class FinalPolishUITests: XCTestCase {
     func test_navigateToHealthMonitor_showsAtLeastThreeStatCards() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.outlines.staticTexts["Health Monitor"].firstMatch
+        let row = app.buttons["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "Expected Health Monitor row in sidebar")
         row.click()
@@ -93,7 +95,7 @@ final class FinalPolishUITests: XCTestCase {
     func test_largeOldFiles_scan_reachesRecognizableState() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.outlines.staticTexts["Large & Old Files"].firstMatch
+        let row = app.buttons["sidebar.largeOldFiles"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "Expected Large & Old Files row in sidebar")
         row.click()
@@ -132,7 +134,7 @@ final class FinalPolishUITests: XCTestCase {
     func test_navigateToAppUninstaller_listLoadsWithAtLeastFiveApps() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.outlines.staticTexts["App Uninstaller"].firstMatch
+        let row = app.buttons["sidebar.appUninstaller"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "Expected App Uninstaller row in sidebar")
         row.click()

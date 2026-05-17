@@ -73,6 +73,7 @@ struct ExtensionsManagerList: View {
             }
         }
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
     }
 }
 
