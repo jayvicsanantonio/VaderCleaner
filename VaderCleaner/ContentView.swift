@@ -51,32 +51,38 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
+            // A transparent List rather than a NavigationSplitView sidebar:
+            // the rail and the detail share one continuous gradient with no
+            // system sidebar material and no column divider between them.
+            // Keeping a List preserves selection, keyboard navigation, and
+            // assistive-technology semantics for free.
             List(NavigationSection.allCases, selection: $selectedSection) { section in
-                // Icon-only rail: the name is carried by the hover tooltip and
-                // the accessibility label, so selection and keyboard
-                // navigation still work while the sidebar stays slim.
-                Image(systemName: section.icon)
-                    .font(.title3)
-                    // The selected glyph springs slightly larger so navigating
-                    // the rail feels responsive even without text labels.
-                    .scaleEffect(selectedSection == section ? 1.16 : 1.0)
-                    .animation(
-                        .spring(response: 0.3, dampingFraction: 0.7),
-                        value: selectedSection
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 28)
-                    .help(section.title)
-                    .accessibilityLabel(section.title)
-                    .accessibilityIdentifier(section.accessibilityIdentifier)
-                    .tag(section)
+                Label {
+                    Text(section.title)
+                } icon: {
+                    Image(systemName: section.icon)
+                }
+                .font(.title3)
+                // The selected row springs subtly on top of the list's own
+                // selection highlight so navigating feels responsive.
+                .scaleEffect(selectedSection == section ? 1.04 : 1.0)
+                .animation(
+                    .spring(response: 0.3, dampingFraction: 0.7),
+                    value: selectedSection
+                )
+                .accessibilityIdentifier(section.accessibilityIdentifier)
+                .tag(section)
             }
-            .navigationSplitViewColumnWidth(min: 56, ideal: 64, max: 72)
-            // Let the branded gradient show through the sidebar so it reads as
-            // a translucent panel rather than an opaque list.
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
-        } detail: {
-            detailView(for: selectedSection ?? .smartScan)
+            .frame(width: 230)
+
+            // Hosts `.navigationTitle` / `.toolbar` for the detail screens
+            // without reintroducing a split divider.
+            NavigationStack {
+                detailView(for: selectedSection ?? .smartScan)
+            }
         }
         .frame(minWidth: 900, minHeight: 600)
         // Branded shell: gradient backdrop, crimson tint, forced dark
