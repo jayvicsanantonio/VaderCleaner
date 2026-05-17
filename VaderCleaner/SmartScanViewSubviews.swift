@@ -51,29 +51,37 @@ struct SmartScanIdleState: View {
 
             Spacer(minLength: 0)
 
-            CircularScanButton(action: onScan)
-                .padding(.bottom, 36)
+            CircularActionButton(
+                title: String(
+                    localized: "Scan",
+                    comment: "Primary button that starts the Smart Scan."
+                ),
+                accessibilityIdentifier: "smartScan.scan",
+                action: onScan
+            )
+            .padding(.bottom, 36)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
 }
 
-/// The hero call to action — a crimson interactive-glass disc echoing the
-/// reference's circular Scan button. Interactive glass gives it the system
-/// press-scale and shimmer; the crimson tint marks it as the primary action.
-private struct CircularScanButton: View {
+/// The hero / dashboard call to action — a crimson interactive-glass disc
+/// echoing the reference's circular button. Interactive glass gives it the
+/// system press-scale and shimmer; the crimson tint marks it as the primary
+/// action. Shared by the welcome screen ("Scan") and the results dashboard
+/// ("Clean") so the two CTAs stay visually identical.
+private struct CircularActionButton: View {
+    let title: String
+    let accessibilityIdentifier: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(String(
-                localized: "Scan",
-                comment: "Primary button that starts the Smart Scan."
-            ))
-            .font(.title3.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: 108, height: 108)
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 108, height: 108)
         }
         .buttonStyle(.plain)
         .glassEffect(
@@ -82,7 +90,7 @@ private struct CircularScanButton: View {
         )
         .shadow(color: Color.vaderCrimson.opacity(0.5), radius: 22, y: 8)
         .keyboardShortcut(.defaultAction)
-        .accessibilityIdentifier("smartScan.scan")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -144,171 +152,216 @@ struct SmartScanFailedState: View {
 
 // MARK: - Results
 
-/// One module summary card. `action` is optional — the Malware card hides its
-/// button when ClamAV is absent or nothing was found, and the cards are purely
-/// informational in that case.
-private struct SmartScanCard: View {
+/// One dashboard tile: category icon + title, a large metric number, a
+/// caption, and an optional "Review" button that drills into that section.
+/// The tiles never perform work themselves — the single circular CTA does —
+/// so there are no per-card action buttons, only navigation.
+private struct SmartScanMetricCard: View {
     let icon: String
     let tint: Color
     let title: String
-    let detail: String
-    var actionTitle: String?
-    var actionIdentifier: String?
-    var isDestructive: Bool = false
-    var action: (() -> Void)?
+    let metric: String
+    let caption: String
+    var reviewIdentifier: String?
+    var onReview: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 28))
-                .foregroundStyle(tint)
-                .frame(width: 36)
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(tint)
                 Text(title)
                     .font(.headline)
-                Text(detail)
+                Spacer()
+            }
+            Spacer(minLength: 8)
+            Text(metric)
+                .font(.system(size: 30, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            HStack(alignment: .bottom) {
+                Text(caption)
                     .font(.callout)
                     .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let actionTitle, let actionIdentifier, let action {
-                Button(role: isDestructive ? .destructive : nil, action: action) {
-                    Text(actionTitle)
+                Spacer()
+                if let reviewIdentifier, let onReview {
+                    Button(String(
+                        localized: "Review",
+                        comment: "Per-card button on the Smart Scan dashboard that opens that section."
+                    ), action: onReview)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier(reviewIdentifier)
                 }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier(actionIdentifier)
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 }
 
+/// The Smart Scan results dashboard: a "Start Over" bar, a metric-card grid,
+/// and one circular CTA that runs the clean. Mirrors the reference's task
+/// dashboard. There are deliberately no per-card checkboxes — the underlying
+/// model has no selective-clean concept, and a checkbox that doesn't gate
+/// anything would be misleading. Each card's "Review" drills into its full
+/// section instead; the circular "Clean" performs the junk + threats pass.
 struct SmartScanResultsState: View {
     let result: SmartScanResult
     let onClean: () -> Void
-    let onReview: () -> Void
+    let onReviewSystemJunk: () -> Void
+    let onReviewMalware: () -> Void
+    let onReviewOptimization: () -> Void
+    let onStartOver: () -> Void
+
+    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]
+
+    /// The circular CTA only appears when the clean would actually do
+    /// something — junk to delete or threats to remove. Optimization is
+    /// review-only and never contributes cleanable work.
+    private var hasCleanableWork: Bool {
+        result.totalJunkBytes > 0 || !result.threats.isEmpty
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(String(
-                localized: "Scan complete",
-                comment: "Heading on the Smart Scan results screen."
-            ))
-                .font(.title2.weight(.semibold))
-                .accessibilityIdentifier("smartScan.resultsHeading")
-
-            // One container so the three summary cards sample each other's
-            // glass and refract consistently rather than as isolated surfaces.
-            GlassEffectContainer(spacing: 16) {
-                VStack(spacing: 16) {
-                    junkCard
-                    malwareCard
-                    optimizationCard
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: onStartOver) {
+                    Label(String(
+                        localized: "Start Over",
+                        comment: "Button on the Smart Scan dashboard that resets to the welcome screen."
+                    ), systemImage: "chevron.left")
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("smartScan.startOver")
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text(String(
+                        localized: "Your scan is ready. Here's what we found:",
+                        comment: "Heading on the Smart Scan results dashboard."
+                    ))
+                        .font(.title3.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("smartScan.resultsHeading")
+
+                    // One container so the tiles sample each other's glass and
+                    // refract consistently as the grid reflows on resize.
+                    GlassEffectContainer(spacing: 16) {
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            junkCard
+                            malwareCard
+                            optimizationCard
+                        }
+                    }
+                }
+                .padding(24)
             }
 
-            Spacer(minLength: 0)
+            if hasCleanableWork {
+                CircularActionButton(
+                    title: String(
+                        localized: "Clean",
+                        comment: "Circular button on the Smart Scan dashboard that cleans junk and removes threats."
+                    ),
+                    accessibilityIdentifier: "smartScan.clean",
+                    action: onClean
+                )
+                .padding(.bottom, 28)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var junkCard: some View {
-        let hasJunk = result.totalJunkBytes > 0
-        return SmartScanCard(
+        SmartScanMetricCard(
             icon: "trash.fill",
             tint: .blue,
             title: String(
                 localized: "System Junk",
                 comment: "Smart Scan card title for the System Junk module."
             ),
-            detail: result.junkResult.formattedTotalSize,
-            actionTitle: hasJunk ? String(
-                localized: "Clean",
-                comment: "Button on the Smart Scan junk card that removes the scanned junk."
-            ) : nil,
-            actionIdentifier: "smartScan.clean",
-            action: hasJunk ? onClean : nil
+            metric: result.junkResult.formattedTotalSize,
+            caption: String(
+                localized: "to clean",
+                comment: "Caption under the System Junk metric on the Smart Scan dashboard."
+            ),
+            reviewIdentifier: "smartScan.reviewJunk",
+            onReview: onReviewSystemJunk
         )
     }
 
     @ViewBuilder
     private var malwareCard: some View {
         if !result.clamAVAvailable {
-            SmartScanCard(
+            SmartScanMetricCard(
                 icon: "shield.slash.fill",
                 tint: .secondary,
                 title: String(
                     localized: "Malware",
                     comment: "Smart Scan card title for the Malware module."
                 ),
-                detail: String(
-                    localized: "ClamAV is not installed — malware was not scanned.",
-                    comment: "Smart Scan malware card detail when ClamAV is absent."
+                metric: "—",
+                caption: String(
+                    localized: "ClamAV not installed",
+                    comment: "Caption on the Smart Scan malware card when ClamAV is absent."
                 )
             )
         } else if result.threats.isEmpty {
-            SmartScanCard(
+            SmartScanMetricCard(
                 icon: "checkmark.shield.fill",
                 tint: .green,
                 title: String(
                     localized: "Malware",
                     comment: "Smart Scan card title for the Malware module."
                 ),
-                detail: String(
-                    localized: "No threats found.",
-                    comment: "Smart Scan malware card detail when the scan was clean."
-                )
+                metric: "0",
+                caption: String(
+                    localized: "threats found",
+                    comment: "Caption on the Smart Scan malware card after a clean scan."
+                ),
+                reviewIdentifier: "smartScan.reviewMalware",
+                onReview: onReviewMalware
             )
         } else {
-            SmartScanCard(
+            SmartScanMetricCard(
                 icon: "exclamationmark.shield.fill",
                 tint: .red,
                 title: String(
                     localized: "Malware",
                     comment: "Smart Scan card title for the Malware module."
                 ),
-                detail: String.localizedStringWithFormat(
-                    String(
-                        localized: "%d threats found",
-                        comment: "Smart Scan malware card detail; %d is a count. Pluralized via Localizable.stringsdict."
-                    ),
-                    result.threats.count
+                metric: "\(result.threats.count)",
+                caption: String(
+                    localized: "threats to remove",
+                    comment: "Caption on the Smart Scan malware card when threats were found."
                 ),
-                actionTitle: String(
-                    localized: "Remove",
-                    comment: "Button on the Smart Scan malware card that removes detected threats."
-                ),
-                actionIdentifier: "smartScan.remove",
-                isDestructive: true,
-                action: onClean
+                reviewIdentifier: "smartScan.reviewMalware",
+                onReview: onReviewMalware
             )
         }
     }
 
     private var optimizationCard: some View {
-        SmartScanCard(
+        SmartScanMetricCard(
             icon: "slider.horizontal.3",
             tint: .orange,
             title: String(
                 localized: "Optimization",
                 comment: "Smart Scan card title for the Optimization module."
             ),
-            detail: String.localizedStringWithFormat(
-                String(
-                    localized: "%d login items",
-                    comment: "Smart Scan optimization card detail; %d is a count. Pluralized via Localizable.stringsdict."
-                ),
-                result.optimizationItems.count
+            metric: "\(result.optimizationItems.count)",
+            caption: String(
+                localized: "login items to review",
+                comment: "Caption under the Optimization metric on the Smart Scan dashboard."
             ),
-            actionTitle: String(
-                localized: "Review",
-                comment: "Button on the Smart Scan optimization card that opens the full Optimization screen."
-            ),
-            actionIdentifier: "smartScan.review",
-            action: onReview
+            reviewIdentifier: "smartScan.review",
+            onReview: onReviewOptimization
         )
     }
 }

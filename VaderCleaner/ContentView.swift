@@ -124,6 +124,8 @@ struct ContentView: View {
         case .smartScan:
             SmartScanView(
                 viewModel: smartScanViewModel,
+                onReviewSystemJunk: { selectedSection = .systemJunk },
+                onReviewMalware: { selectedSection = .malwareRemoval },
                 onReviewOptimization: { selectedSection = .optimization }
             )
         case .healthMonitor:

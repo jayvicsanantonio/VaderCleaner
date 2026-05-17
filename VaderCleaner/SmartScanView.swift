@@ -5,18 +5,24 @@ import SwiftUI
 
 /// Detail view shown when the user selects "Smart Scan" in the sidebar (the
 /// default landing section). Drives `SmartScanViewModel`'s state machine and
-/// routes the Optimization card's "Review" action back to the sidebar via
-/// `onReviewOptimization` so the user lands on the full Optimization screen.
+/// routes each dashboard card's "Review" action back to the sidebar via the
+/// per-section callbacks so the user lands on that section's full screen.
 struct SmartScanView: View {
 
     @ObservedObject private var viewModel: SmartScanViewModel
+    private let onReviewSystemJunk: () -> Void
+    private let onReviewMalware: () -> Void
     private let onReviewOptimization: () -> Void
 
     init(
         viewModel: SmartScanViewModel,
+        onReviewSystemJunk: @escaping () -> Void,
+        onReviewMalware: @escaping () -> Void,
         onReviewOptimization: @escaping () -> Void
     ) {
         self.viewModel = viewModel
+        self.onReviewSystemJunk = onReviewSystemJunk
+        self.onReviewMalware = onReviewMalware
         self.onReviewOptimization = onReviewOptimization
     }
 
@@ -40,7 +46,10 @@ struct SmartScanView: View {
             SmartScanResultsState(
                 result: result,
                 onClean: { Task { await viewModel.clean() } },
-                onReview: onReviewOptimization
+                onReviewSystemJunk: onReviewSystemJunk,
+                onReviewMalware: onReviewMalware,
+                onReviewOptimization: onReviewOptimization,
+                onStartOver: { viewModel.reset() }
             )
         case .cleaning:
             SmartScanProgressState(
@@ -91,7 +100,12 @@ struct SmartScanView: View {
         junkCleaner: { _ in 1_500_000_000 },
         threatRemover: { _ in [] }
     )
-    return SmartScanView(viewModel: vm, onReviewOptimization: {})
+    return SmartScanView(
+        viewModel: vm,
+        onReviewSystemJunk: {},
+        onReviewMalware: {},
+        onReviewOptimization: {}
+    )
         .frame(width: 900, height: 600)
         .task { await vm.scan() }
 }
