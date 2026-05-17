@@ -231,7 +231,9 @@ private struct SmartScanMetricCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        // 12 matches HealthCard so the two dashboard card surfaces share one
+        // corner radius.
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 }
 
@@ -400,10 +402,15 @@ struct SmartScanResultsState: View {
                     comment: "Smart Scan card title for the Malware module."
                 ),
                 metric: "\(result.threats.count)",
-                caption: String(
-                    localized: "threats to remove",
-                    comment: "Caption on the Smart Scan malware card when threats were found."
-                ),
+                caption: result.threats.count == 1
+                    ? String(
+                        localized: "threat to remove",
+                        comment: "Singular caption on the Smart Scan malware card when exactly one threat was found."
+                    )
+                    : String(
+                        localized: "threats to remove",
+                        comment: "Plural caption on the Smart Scan malware card when threats were found."
+                    ),
                 reviewIdentifier: "smartScan.reviewMalware",
                 onReview: onReviewMalware
             )
@@ -419,10 +426,15 @@ struct SmartScanResultsState: View {
                 comment: "Smart Scan card title for the Optimization module."
             ),
             metric: "\(result.optimizationItems.count)",
-            caption: String(
-                localized: "login items to review",
-                comment: "Caption under the Optimization metric on the Smart Scan dashboard."
-            ),
+            caption: result.optimizationItems.count == 1
+                ? String(
+                    localized: "login item to review",
+                    comment: "Singular caption under the Optimization metric when exactly one login item was found."
+                )
+                : String(
+                    localized: "login items to review",
+                    comment: "Plural caption under the Optimization metric on the Smart Scan dashboard."
+                ),
             reviewIdentifier: "smartScan.review",
             onReview: onReviewOptimization
         )
