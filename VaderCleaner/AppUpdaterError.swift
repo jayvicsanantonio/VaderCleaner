@@ -26,13 +26,7 @@ enum AppUpdaterError: LocalizedError {
     /// failure means we could not reach the network", shared by the
     /// per-feed offline-detection path and `userFacingMessage`.
     static func isNetworkError(_ error: Error) -> Bool {
-        if error is URLError {
-            return true
-        }
-        if (error as NSError).domain == NSURLErrorDomain {
-            return true
-        }
-        return false
+        error is URLError || (error as NSError).domain == NSURLErrorDomain
     }
 
     /// Maps an arbitrary error raised while checking for updates to the

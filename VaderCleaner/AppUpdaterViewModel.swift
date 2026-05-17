@@ -229,56 +229,52 @@ final class AppUpdaterViewModel: ObservableObject {
         app: AppInfo,
         check: CheckAppStore
     ) async -> AppCheckOutcome {
-        let lookup: AppStoreLookup
         switch await check(app.bundleID) {
         case .unreachable:
             return .unreachable
         case .noResult:
             return .noUpdate
-        case .found(let value):
-            lookup = value
+        case .found(let lookup):
+            let installed = app.version ?? "0"
+            guard VersionComparator.isNewer(version: lookup.version, than: installed) else {
+                return .noUpdate
+            }
+            return .update(UpdateInfo(
+                appName: app.name,
+                bundleID: app.bundleID,
+                bundleURL: app.bundleURL,
+                installedVersion: installed,
+                latestVersion: lookup.version,
+                source: .appStore,
+                updateURL: lookup.appStoreURL
+            ))
         }
-        let installed = app.version ?? "0"
-        guard VersionComparator.isNewer(version: lookup.version, than: installed) else {
-            return .noUpdate
-        }
-        return .update(UpdateInfo(
-            appName: app.name,
-            bundleID: app.bundleID,
-            bundleURL: app.bundleURL,
-            installedVersion: installed,
-            latestVersion: lookup.version,
-            source: .appStore,
-            updateURL: lookup.appStoreURL
-        ))
     }
 
     private static func checkSparkleUpdate(
         app: AppInfo,
         check: CheckSparkle
     ) async -> AppCheckOutcome {
-        let item: SparkleAppcastItem
         switch await check(app) {
         case .unreachable:
             return .unreachable
         case .noResult:
             return .noUpdate
-        case .found(let value):
-            item = value
+        case .found(let item):
+            let installed = app.version ?? "0"
+            guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else {
+                return .noUpdate
+            }
+            return .update(UpdateInfo(
+                appName: app.name,
+                bundleID: app.bundleID,
+                bundleURL: app.bundleURL,
+                installedVersion: installed,
+                latestVersion: item.shortVersion,
+                source: .sparkle,
+                updateURL: item.downloadURL
+            ))
         }
-        let installed = app.version ?? "0"
-        guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else {
-            return .noUpdate
-        }
-        return .update(UpdateInfo(
-            appName: app.name,
-            bundleID: app.bundleID,
-            bundleURL: app.bundleURL,
-            installedVersion: installed,
-            latestVersion: item.shortVersion,
-            source: .sparkle,
-            updateURL: item.downloadURL
-        ))
     }
 }
 
