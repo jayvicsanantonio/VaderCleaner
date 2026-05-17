@@ -107,20 +107,24 @@ struct ContentView: View {
     /// the rows are focusable buttons, so Tab / Space / Return and VoiceOver
     /// still work.
     private var rail: some View {
-        VStack(spacing: 4) {
-            ForEach(NavigationSection.allCases) { section in
-                railRow(section)
+        ScrollView {
+            VStack(spacing: 4) {
+                ForEach(NavigationSection.allCases) { section in
+                    railRow(section)
+                }
             }
+            .padding(.horizontal, 10)
+            // The content extends under the hidden title bar, so inset the
+            // first row clear of the window's traffic-light controls.
+            .padding(.top, 44)
+            .padding(.bottom, 16)
         }
-        .padding(.horizontal, 10)
-        // The content extends under the hidden title bar, so inset the
-        // first row clear of the window's traffic-light controls.
-        .padding(.top, 44)
-        .padding(.bottom, 16)
-        // Fill the column and top-align. All eleven rows fit within the
-        // window's minimum height, so the rail is intentionally not wrapped
-        // in a ScrollView — it never scrolls.
-        .frame(maxHeight: .infinity, alignment: .top)
+        // No scroll indicator: all eleven rows fit within the window's
+        // minimum height at default text sizes, so the rail reads as a
+        // static list with no visible scrolling. The ScrollView is retained
+        // only so the bottom rows stay reachable when a larger Dynamic Type
+        // size overflows the column.
+        .scrollIndicators(.hidden)
         // Anchor the rail to the true window top. Detail screens declare
         // different toolbars, which changes the window's top safe-area inset;
         // without this the rail would ride that inset and shift vertically
