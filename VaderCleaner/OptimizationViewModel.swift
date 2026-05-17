@@ -1,6 +1,7 @@
 // OptimizationViewModel.swift
 // State machine behind the Optimization view — loads login items + launch agents + RAM, and drives RAM flush, maintenance scripts, login-item toggle, and agent disable/remove through injected collaborators.
 
+import Combine
 import Foundation
 import os.log
 
@@ -57,6 +58,8 @@ final class OptimizationViewModel: ObservableObject {
     /// view-models.
     private var loadGeneration = 0
 
+    private var cancellables = Set<AnyCancellable>()
+
     init(
         loadLoginItems: @escaping LoadLoginItems,
         loadUserAgents: @escaping LoadAgents,
@@ -66,7 +69,8 @@ final class OptimizationViewModel: ObservableObject {
         disableAgent: @escaping DisableAgent,
         removeAgent: @escaping RemoveAgent,
         flushRAM: @escaping FlushRAM,
-        runMaintenance: @escaping RunMaintenance
+        runMaintenance: @escaping RunMaintenance,
+        launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
     ) {
         self.loadLoginItems = loadLoginItems
         self.loadUserAgents = loadUserAgents
@@ -77,6 +81,26 @@ final class OptimizationViewModel: ObservableObject {
         self.removeAgent = removeAgent
         self.flushRAMAction = flushRAM
         self.runMaintenance = runMaintenance
+
+        // The host app's launch-at-login state has a second entry point:
+        // the Preferences "Launch at Login" toggle, which mutates
+        // `PreferencesStore.launchAtLogin`. When it changes from there,
+        // reload our row so the two surfaces never disagree in-session
+        // (issue #65). The `.receive(on:)` hop is load-bearing, not
+        // cosmetic: `@Published` fires its publisher in `willSet`, before
+        // `PreferencesStore`'s `didSet` has applied the change to
+        // `SMAppService`. Re-reading the live login-item status
+        // synchronously here would observe the *old* status; deferring to
+        // the next runloop pass guarantees the reload runs after `didSet`.
+        if let launchAtLoginChanges {
+            launchAtLoginChanges
+                .receive(on: RunLoop.main)
+                .sink { [weak self] in
+                    guard let self else { return }
+                    Task { await self.reloadLoginItemsAfterExternalChange() }
+                }
+                .store(in: &cancellables)
+        }
     }
 
     // MARK: - Loading
@@ -157,6 +181,19 @@ final class OptimizationViewModel: ObservableObject {
         }
     }
 
+    /// Reloads only the login-items row after the launch-at-login
+    /// preference was changed elsewhere (the Preferences toggle). Unlike
+    /// `refresh()` this does not touch `phase` — it is a background
+    /// reconciliation, not a user-initiated load — and is gated on
+    /// `loadGeneration` so a stale reload can't clobber a fresh
+    /// `refresh()` that started while this was in flight.
+    private func reloadLoginItemsAfterExternalChange() async {
+        let generation = loadGeneration
+        let reloaded = await loadLoginItems()
+        guard loadGeneration == generation else { return }
+        loginItems = reloaded
+    }
+
     // MARK: - Launch agents
 
     /// Unloads an agent from launchd, then reloads both agent lists so the
@@ -216,7 +253,10 @@ extension OptimizationViewModel {
     /// figures are read from the shared `SystemStatsService` so the
     /// Optimization view and the Health Monitor never disagree.
     @MainActor
-    static func live(systemStats: SystemStatsService) -> OptimizationViewModel {
+    static func live(
+        systemStats: SystemStatsService,
+        preferences: PreferencesStore
+    ) -> OptimizationViewModel {
         let loginManager = LoginItemsManager.live()
         let agentManager = LaunchAgentManager()
         let ram = RAMManager()
@@ -241,14 +281,17 @@ extension OptimizationViewModel {
                 systemStats.refresh()
                 return systemStats.ramUsage
             },
-            // Offloaded like the discovery loaders: SMAppService
-            // register/unregister and `launchctl unload` both block the
-            // calling thread, so running them inline would stall the
-            // main-actor view-model if launchd is slow.
-            setLoginItemEnabled: { enabled, item in
-                try await Task.detached(priority: .userInitiated) {
-                    try loginManager.setEnabled(enabled, for: item)
-                }.value
+            // The host app is the only login item this section manages,
+            // and it is the very thing the Preferences "Launch at Login"
+            // toggle controls. Route the write through `PreferencesStore`
+            // rather than calling `LoginItemManager` again here, so there
+            // is exactly one path that touches SMAppService, persists the
+            // preference, and reports failures (issue #65). The reload
+            // after this closure returns then reflects the new state, and
+            // the Preferences toggle — bound to the same published value —
+            // updates in lockstep.
+            setLoginItemEnabled: { enabled, _ in
+                preferences.launchAtLogin = enabled
             },
             disableAgent: { agent in
                 try await Task.detached(priority: .userInitiated) {
@@ -257,7 +300,13 @@ extension OptimizationViewModel {
             },
             removeAgent: { try await agentManager.remove($0) },
             flushRAM: { try await ram.flush() },
-            runMaintenance: { try await maintenance.run() }
+            runMaintenance: { try await maintenance.run() },
+            // Reflect a Preferences-side toggle in this view's row. See
+            // the `init` comment for why ordering matters here.
+            launchAtLoginChanges: preferences.$launchAtLogin
+                .dropFirst()
+                .map { _ in () }
+                .eraseToAnyPublisher()
         )
     }
 }
