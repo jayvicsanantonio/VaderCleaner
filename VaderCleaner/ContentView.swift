@@ -61,6 +61,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .help(section.title)
                     .accessibilityLabel(section.title)
+                    .accessibilityIdentifier(section.accessibilityIdentifier)
                     .tag(section)
             }
             .navigationSplitViewColumnWidth(min: 56, ideal: 64, max: 72)

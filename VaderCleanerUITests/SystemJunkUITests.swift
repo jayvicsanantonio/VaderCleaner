@@ -34,9 +34,9 @@ final class SystemJunkUITests: XCTestCase {
         // reachable. The button label comes from `PermissionOnboardingView`.
         dismissOnboardingIfNeeded()
 
-        // The sidebar is a single-selection List; clicking the row whose
-        // label text matches the section title selects it.
-        let sidebarRow = app.outlines.staticTexts["System Junk"].firstMatch
+        // The sidebar is an icon-only rail; rows expose no visible text, so
+        // select by the stable accessibility identifier.
+        let sidebarRow = app.outlines.descendants(matching: .any)["sidebar.systemJunk"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
                       "Expected System Junk row in sidebar")
         sidebarRow.click()
@@ -65,7 +65,7 @@ final class SystemJunkUITests: XCTestCase {
     func test_systemJunkPreviewPersistsAcrossSidebarNavigation() throws {
         dismissOnboardingIfNeeded()
 
-        let sidebarRow = app.outlines.staticTexts["System Junk"].firstMatch
+        let sidebarRow = app.outlines.descendants(matching: .any)["sidebar.systemJunk"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
                       "Expected System Junk row in sidebar")
         sidebarRow.click()
@@ -82,7 +82,7 @@ final class SystemJunkUITests: XCTestCase {
         XCTAssertTrue(appeared,
                       "Expected to land on the preview state after a Scan")
 
-        let smartScanRow = app.outlines.staticTexts["Smart Scan"].firstMatch
+        let smartScanRow = app.outlines.descendants(matching: .any)["sidebar.smartScan"].firstMatch
         XCTAssertTrue(smartScanRow.waitForExistence(timeout: 5),
                       "Expected Smart Scan row in sidebar")
         smartScanRow.click()

@@ -42,12 +42,14 @@ final class SmartScanUITests: XCTestCase {
 
         // Navigate away and back to prove the sidebar → view wiring works
         // regardless of the default selection.
-        let otherRow = app.outlines.staticTexts["Health Monitor"].firstMatch
+        // The sidebar is an icon-only rail, so rows expose no visible text —
+        // locate them by their stable accessibility identifier instead.
+        let otherRow = app.outlines.descendants(matching: .any)["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(otherRow.waitForExistence(timeout: 5),
                       "Expected Health Monitor row in sidebar")
         otherRow.click()
 
-        let smartScanRow = app.outlines.staticTexts["Smart Scan"].firstMatch
+        let smartScanRow = app.outlines.descendants(matching: .any)["sidebar.smartScan"].firstMatch
         XCTAssertTrue(smartScanRow.waitForExistence(timeout: 5),
                       "Expected Smart Scan row in sidebar")
         smartScanRow.click()

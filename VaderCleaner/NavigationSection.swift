@@ -34,6 +34,26 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         }
     }
 
+    /// Stable automation identifier for this section's sidebar row. The rail
+    /// renders icons only, so UI tests and assistive technology can't rely on
+    /// a visible text label — they target this identifier instead. Pinned by
+    /// `NavigationSectionTests` so the contract can't drift.
+    var accessibilityIdentifier: String {
+        switch self {
+        case .smartScan:       return "sidebar.smartScan"
+        case .systemJunk:      return "sidebar.systemJunk"
+        case .largeOldFiles:   return "sidebar.largeOldFiles"
+        case .spaceLens:       return "sidebar.spaceLens"
+        case .malwareRemoval:  return "sidebar.malwareRemoval"
+        case .privacy:         return "sidebar.privacy"
+        case .extensions:      return "sidebar.extensions"
+        case .appUninstaller:  return "sidebar.appUninstaller"
+        case .appUpdater:      return "sidebar.appUpdater"
+        case .optimization:    return "sidebar.optimization"
+        case .healthMonitor:   return "sidebar.healthMonitor"
+        }
+    }
+
     var icon: String {
         switch self {
         case .smartScan:       return "sparkles"

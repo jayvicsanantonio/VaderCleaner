@@ -24,6 +24,34 @@ final class NavigationSectionTests: XCTestCase {
         }
     }
 
+    func test_accessibilityIdentifiers_areStableAndPinned() {
+        let expected: [NavigationSection: String] = [
+            .smartScan: "sidebar.smartScan",
+            .systemJunk: "sidebar.systemJunk",
+            .largeOldFiles: "sidebar.largeOldFiles",
+            .spaceLens: "sidebar.spaceLens",
+            .malwareRemoval: "sidebar.malwareRemoval",
+            .privacy: "sidebar.privacy",
+            .extensions: "sidebar.extensions",
+            .appUninstaller: "sidebar.appUninstaller",
+            .appUpdater: "sidebar.appUpdater",
+            .optimization: "sidebar.optimization",
+            .healthMonitor: "sidebar.healthMonitor",
+        ]
+        for section in NavigationSection.allCases {
+            XCTAssertEqual(
+                section.accessibilityIdentifier,
+                expected[section],
+                "Sidebar identifier for \(section) drifted — update the UI-test locators too"
+            )
+        }
+    }
+
+    func test_accessibilityIdentifiers_areUnique() {
+        let ids = NavigationSection.allCases.map(\.accessibilityIdentifier)
+        XCTAssertEqual(Set(ids).count, ids.count, "Sidebar identifiers must be unique")
+    }
+
     func test_eachSection_hasValidSFSymbol() throws {
         guard #available(macOS 14.0, *) else {
             throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")

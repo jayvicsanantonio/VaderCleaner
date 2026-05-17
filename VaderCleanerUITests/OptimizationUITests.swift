@@ -27,7 +27,7 @@ final class OptimizationUITests: XCTestCase {
     func test_navigateToOptimization_revealsToolbarAndContent() throws {
         dismissOnboardingIfNeeded()
 
-        let sidebarRow = app.outlines.staticTexts["Optimization"].firstMatch
+        let sidebarRow = app.outlines.descendants(matching: .any)["sidebar.optimization"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
                       "Expected Optimization row in sidebar")
         sidebarRow.click()

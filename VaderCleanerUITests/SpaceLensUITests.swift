@@ -31,7 +31,7 @@ final class SpaceLensUITests: XCTestCase {
     func test_navigateToSpaceLens_revealsScanningOrTreemap() throws {
         dismissOnboardingIfNeeded()
 
-        let sidebarRow = app.outlines.staticTexts["Space Lens"].firstMatch
+        let sidebarRow = app.outlines.descendants(matching: .any)["sidebar.spaceLens"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
                       "Expected Space Lens row in sidebar")
         sidebarRow.click()
