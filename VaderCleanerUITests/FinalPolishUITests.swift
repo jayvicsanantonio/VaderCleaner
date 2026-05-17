@@ -74,15 +74,19 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertTrue(updaterRow.waitForExistence(timeout: 5),
                       "Expected App Updater row in sidebar")
         updaterRow.click()
-        // Let the detail swap and any layout settle before measuring.
-        XCTAssertTrue(anchor.waitForExistence(timeout: 5))
+        // Wait until the clicked row reports selection before measuring. The
+        // anchor row exists regardless of selection, so waiting on it would
+        // return immediately and could sample Y mid-transition; the
+        // `.isSelected` trait only flips once the navigation has taken
+        // effect and the rail re-rendered.
+        waitUntilSelected(updaterRow)
         let yShortDetail = anchor.frame.origin.y
 
         let uninstallerRow = app.buttons["sidebar.appUninstaller"].firstMatch
         XCTAssertTrue(uninstallerRow.waitForExistence(timeout: 5),
                       "Expected App Uninstaller row in sidebar")
         uninstallerRow.click()
-        XCTAssertTrue(anchor.waitForExistence(timeout: 5))
+        waitUntilSelected(uninstallerRow)
         let yTallDetail = anchor.frame.origin.y
 
         XCTAssertEqual(
@@ -270,6 +274,25 @@ final class FinalPolishUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Block until a sidebar row carries the `.isSelected` accessibility
+    /// trait (set by `railRow` via `.accessibilityAddTraits`). This proves
+    /// the navigation actually took effect and the rail re-rendered, which
+    /// `waitForExistence` on an always-present row cannot.
+    private func waitUntilSelected(_ element: XCUIElement,
+                                   file: StaticString = #filePath,
+                                   line: UInt = #line) {
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isSelected == true"),
+            object: element
+        )
+        selected.expectationDescription = "sidebar row became selected"
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [selected], timeout: 5), .completed,
+            "Expected the clicked sidebar row to report selection",
+            file: file, line: line
+        )
+    }
 
     private func dismissOnboardingIfNeeded() {
         let continueWithout = app.buttons["Continue Without Access"]
