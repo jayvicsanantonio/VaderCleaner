@@ -41,10 +41,15 @@ final class SystemJunkUITests: XCTestCase {
                       "Expected System Junk row in sidebar")
         sidebarRow.click()
 
-        // Idle state should expose the Scan button by accessibility identifier.
-        let scanButton = app.buttons["system-junk.scan"]
+        // Scannable sections land on the unified intro screen first.
+        let intro = app.descendants(matching: .any)["section.intro"]
+        XCTAssertTrue(intro.waitForExistence(timeout: 5),
+                      "Expected the unified intro screen for System Junk")
+
+        // The scan trigger is now the single shell-level floating button.
+        let scanButton = app.buttons["section.systemJunk.scan"]
         XCTAssertTrue(scanButton.waitForExistence(timeout: 5),
-                      "Expected Scan button in System Junk idle state")
+                      "Expected the floating Scan button on the System Junk intro")
         scanButton.click()
 
         // The scan completes once we land on either the preview footer
@@ -70,9 +75,9 @@ final class SystemJunkUITests: XCTestCase {
                       "Expected System Junk row in sidebar")
         sidebarRow.click()
 
-        let scanButton = app.buttons["system-junk.scan"]
+        let scanButton = app.buttons["section.systemJunk.scan"]
         XCTAssertTrue(scanButton.waitForExistence(timeout: 5),
-                      "Expected Scan button in System Junk idle state")
+                      "Expected the floating Scan button on the System Junk intro")
         scanButton.click()
 
         let totalSelected = app.staticTexts["system-junk.totalSelected"]
@@ -93,8 +98,8 @@ final class SystemJunkUITests: XCTestCase {
             || cleanButton.waitForExistence(timeout: 1)
         XCTAssertTrue(previewStillVisible,
                       "Expected System Junk preview state to persist after sidebar navigation")
-        XCTAssertFalse(app.buttons["system-junk.scan"].exists,
-                       "Expected System Junk not to reset to idle after sidebar navigation")
+        XCTAssertFalse(app.buttons["section.systemJunk.scan"].exists,
+                       "Expected System Junk not to reset to its intro after sidebar navigation")
     }
 
     // MARK: - Helpers

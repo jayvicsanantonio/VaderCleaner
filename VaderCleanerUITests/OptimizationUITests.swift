@@ -1,5 +1,5 @@
 // OptimizationUITests.swift
-// End-to-end UI test for Optimization — navigates to the section and asserts the view renders (toolbar + a ready-state section) so the sidebar → view-model → view wiring is exercised against the real app process.
+// End-to-end UI test for Optimization — navigates to the section, taps the floating Scan on the unified intro, and asserts the view renders (toolbar + a ready-state section) so the sidebar → view-model → view wiring is exercised against the real app process.
 
 import XCTest
 
@@ -24,13 +24,23 @@ final class OptimizationUITests: XCTestCase {
         app = nil
     }
 
-    func test_navigateToOptimization_revealsToolbarAndContent() throws {
+    func test_navigateToOptimization_scan_revealsToolbarAndContent() throws {
         dismissOnboardingIfNeeded()
 
         let sidebarRow = app.buttons["sidebar.optimization"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
                       "Expected Optimization row in sidebar")
         sidebarRow.click()
+
+        // Optimization lands on the unified intro first; tapping the floating
+        // Scan kicks off the load that previously ran automatically on appear.
+        let intro = app.descendants(matching: .any)["section.intro"]
+        XCTAssertTrue(intro.waitForExistence(timeout: 5),
+                      "Expected the unified intro screen for Optimization")
+        let floatingScan = app.buttons["section.optimization.scan"]
+        XCTAssertTrue(floatingScan.waitForExistence(timeout: 5),
+                      "Expected the floating Scan button on the Optimization intro")
+        floatingScan.click()
 
         // The refresh toolbar button is present whenever the view renders,
         // independent of phase — strongest "view did not crash" signal.

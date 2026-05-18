@@ -140,9 +140,14 @@ final class FinalPolishUITests: XCTestCase {
                       "Expected Large & Old Files row in sidebar")
         row.click()
 
-        let scan = app.buttons["large-old.scan"]
+        // Scannable sections land on the unified intro first; the scan trigger
+        // is the single shell-level floating button.
+        let intro = app.descendants(matching: .any)["section.intro"]
+        XCTAssertTrue(intro.waitForExistence(timeout: 5),
+                      "Expected the unified intro screen for Large & Old Files")
+        let scan = app.buttons["section.largeOldFiles.scan"]
         XCTAssertTrue(scan.waitForExistence(timeout: 5),
-                      "Expected Scan button in Large & Old Files idle state")
+                      "Expected the floating Scan button on the Large & Old Files intro")
         scan.click()
 
         // Prefer a terminal state; allow a generous window for the walk.

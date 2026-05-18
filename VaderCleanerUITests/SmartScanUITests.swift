@@ -1,5 +1,5 @@
 // SmartScanUITests.swift
-// End-to-end UI test for Smart Scan — asserts the default landing section renders its idle Scan screen, exercising the App → ContentView → SmartScanView wiring against the real app process.
+// End-to-end UI test for Smart Scan — asserts the default landing section renders the unified intro screen and its floating Scan button, exercising the App → ContentView → SectionIntroView wiring against the real app process.
 
 import XCTest
 
@@ -25,19 +25,24 @@ final class SmartScanUITests: XCTestCase {
         app = nil
     }
 
-    func test_smartScanIsDefaultLanding_revealsIdleScanScreen() throws {
+    func test_smartScanIsDefaultLanding_revealsIntroScreen() throws {
         dismissOnboardingIfNeeded()
 
-        // Smart Scan is the default selected section, so its idle Scan button
-        // should be present without any navigation.
-        let scanButton = app.buttons["smartScan.scan"]
+        // Smart Scan is the default selected section, so the unified intro and
+        // its floating Scan button should be present without any navigation.
+        let intro = app.descendants(matching: .any)["section.intro"]
         XCTAssertTrue(
-            scanButton.waitForExistence(timeout: 10),
-            "Expected the Smart Scan idle screen to be the default landing view"
+            intro.waitForExistence(timeout: 10),
+            "Expected the Smart Scan intro screen to be the default landing view"
+        )
+        let scanButton = app.buttons["section.smartScan.scan"]
+        XCTAssertTrue(
+            scanButton.waitForExistence(timeout: 5),
+            "Expected the floating Scan button on the Smart Scan intro"
         )
     }
 
-    func test_navigateToSmartScan_revealsIdleScanScreen() throws {
+    func test_navigateToSmartScan_revealsIntroScreen() throws {
         dismissOnboardingIfNeeded()
 
         // Navigate away and back to prove the sidebar → view wiring works
@@ -54,10 +59,15 @@ final class SmartScanUITests: XCTestCase {
                       "Expected Smart Scan row in sidebar")
         smartScanRow.click()
 
-        let scanButton = app.buttons["smartScan.scan"]
+        let intro = app.descendants(matching: .any)["section.intro"]
         XCTAssertTrue(
-            scanButton.waitForExistence(timeout: 10),
-            "Expected Smart Scan to render its idle Scan screen"
+            intro.waitForExistence(timeout: 10),
+            "Expected Smart Scan to render its intro screen"
+        )
+        let scanButton = app.buttons["section.smartScan.scan"]
+        XCTAssertTrue(
+            scanButton.waitForExistence(timeout: 5),
+            "Expected the floating Scan button on the Smart Scan intro"
         )
     }
 
