@@ -11,7 +11,12 @@ import SwiftUI
 /// the window edge.
 struct SectionIntroView: View {
     let presentation: SectionPresentation
-    let title: String
+    let section: NavigationSection
+
+    /// Localized section title for display. A computed accessor so the
+    /// rendered heading tracks the UI language while the identifiers below
+    /// stay fixed regardless of locale.
+    var title: String { section.title }
 
     // MARK: Accessibility identifiers
 
@@ -20,13 +25,12 @@ struct SectionIntroView: View {
     var rootAccessibilityIdentifier: String { "section.intro" }
 
     /// Per-section identifier so a test/automation can assert *which* section's
-    /// intro is on screen. Derived from the English `title` (the prompt's
-    /// "derive from title" option) — stable as long as the English titles are;
-    /// Step 6 call sites pass `NavigationSection.title`. Not localized on
-    /// purpose: an accessibility *identifier* must not move with the UI
-    /// language.
+    /// intro is on screen. Derived from the `NavigationSection` case name —
+    /// not the localized title — so the identifier is identical in every
+    /// locale. An accessibility *identifier* must not move with the UI
+    /// language or UI automation breaks when the app is run translated.
     var sectionAccessibilityIdentifier: String {
-        "section.intro.\(titleSlug)"
+        "section.intro.\(sectionSlug)"
     }
 
     /// Stable identifier for the descriptive feature row at `index`.
@@ -37,14 +41,15 @@ struct SectionIntroView: View {
     /// Number of descriptive rows this intro renders.
     var featureCount: Int { presentation.features.count }
 
-    /// Lowercased, letters/digits-only reduction of the title, e.g.
-    /// "Large & Old Files" → "largeoldfiles".
-    private var titleSlug: String {
-        String(title.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+    /// Locale-independent slug from the enum case name, e.g.
+    /// `.largeOldFiles` → "largeoldfiles".
+    private var sectionSlug: String {
+        String(describing: section).lowercased()
     }
 
     // MARK: Body
 
+    /// Hero + text laid side by side on wide panes, stacked when narrow.
     var body: some View {
         // Wide layout (hero beside the text) is preferred; ViewThatFits drops
         // to the stacked layout when the detail pane is too narrow for both
@@ -68,6 +73,8 @@ struct SectionIntroView: View {
 
     // MARK: Hero
 
+    /// Designer art when supplied, otherwise the accent-tinted SF Symbol,
+    /// behind the shared accent bloom. Decorative — hidden from accessibility.
     @ViewBuilder
     private var hero: some View {
         Group {
@@ -95,6 +102,8 @@ struct SectionIntroView: View {
 
     // MARK: Text + features
 
+    /// Title, tagline, and the descriptive feature rows, grouped under the
+    /// per-section accessibility identifier.
     private var textColumn: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {

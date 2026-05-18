@@ -9,9 +9,10 @@ import SwiftUI
 final class SectionIntroViewTests: XCTestCase {
 
     /// The six scannable sections, each paired with the per-section
-    /// accessibility-id slug it must derive from its English title. Hardcoded
-    /// (not re-derived through the view's own slug helper) so a regression in
-    /// that helper fails this test loudly instead of silently agreeing.
+    /// accessibility-id slug it must derive from its `NavigationSection` case
+    /// name (locale-independent). Hardcoded — not re-derived through the
+    /// view's own slug helper — so a regression in that helper fails this
+    /// test loudly instead of silently agreeing.
     private let expectedSlugs: [NavigationSection: String] = [
         .smartScan: "smartscan",
         .systemJunk: "systemjunk",
@@ -27,7 +28,7 @@ final class SectionIntroViewTests: XCTestCase {
                 SectionPresentation.for(section),
                 "Scannable section \(section) must have a presentation"
             )
-            let view = SectionIntroView(presentation: presentation, title: section.title)
+            let view = SectionIntroView(presentation: presentation, section: section)
 
             XCTAssertEqual(
                 view.title,
@@ -45,7 +46,7 @@ final class SectionIntroViewTests: XCTestCase {
     func test_rootAccessibilityIdentifierIsStable() throws {
         for section in NavigationSection.allCases where section.isScannable {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, title: section.title)
+            let view = SectionIntroView(presentation: presentation, section: section)
 
             XCTAssertEqual(
                 view.rootAccessibilityIdentifier,
@@ -58,7 +59,7 @@ final class SectionIntroViewTests: XCTestCase {
     func test_perSectionAccessibilityIdentifierMatchesExpectedSlug() throws {
         for section in NavigationSection.allCases where section.isScannable {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, title: section.title)
+            let view = SectionIntroView(presentation: presentation, section: section)
             let expectedSlug = try XCTUnwrap(
                 expectedSlugs[section],
                 "Missing expected slug for \(section) — update the test map"
@@ -75,7 +76,7 @@ final class SectionIntroViewTests: XCTestCase {
     func test_featureCountMatchesPresentation() throws {
         for section in NavigationSection.allCases where section.isScannable {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, title: section.title)
+            let view = SectionIntroView(presentation: presentation, section: section)
 
             XCTAssertEqual(
                 view.featureCount,
@@ -93,7 +94,7 @@ final class SectionIntroViewTests: XCTestCase {
     func test_eachFeatureExposesItsIndexedAccessibilityIdentifier() throws {
         for section in NavigationSection.allCases where section.isScannable {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, title: section.title)
+            let view = SectionIntroView(presentation: presentation, section: section)
 
             for index in 0..<view.featureCount {
                 XCTAssertEqual(
