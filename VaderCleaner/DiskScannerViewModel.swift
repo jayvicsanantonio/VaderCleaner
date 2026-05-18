@@ -365,3 +365,28 @@ extension DiskScannerViewModel {
         })
     }
 }
+
+// MARK: - ScanCoordinating
+
+extension DiskScannerViewModel: ScanCoordinating {
+
+    /// Projects the rich `Phase` onto the three coarse phases ContentView
+    /// switches on. `.ready`/`.error` both want the section's own detail UI
+    /// (the treemap or the error state), whose internal switch handles each.
+    var scanPresentation: ScanPresentation {
+        switch phase {
+        case .idle:
+            return .intro
+        case .scanning:
+            return .working
+        case .ready, .error:
+            return .results
+        }
+    }
+
+    func beginScan() {
+        // Space Lens needs a root URL its peers don't; the user's home
+        // directory is the default Space Lens root for the unified flow.
+        Task { await startScan(root: FileManager.default.homeDirectoryForCurrentUser) }
+    }
+}

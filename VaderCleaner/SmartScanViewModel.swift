@@ -232,3 +232,26 @@ extension SmartScanViewModel {
         )
     }
 }
+
+// MARK: - ScanCoordinating
+
+extension SmartScanViewModel: ScanCoordinating {
+
+    /// Projects the rich `Phase` onto the three coarse phases ContentView
+    /// switches on. `.results`/`.cleaning`/`.done`/`.failed` all want the
+    /// section's own detail UI, whose internal switch renders the specifics.
+    var scanPresentation: ScanPresentation {
+        switch phase {
+        case .idle:
+            return .intro
+        case .scanning:
+            return .working
+        case .results, .cleaning, .done, .failed:
+            return .results
+        }
+    }
+
+    func beginScan() {
+        Task { await scan() }
+    }
+}

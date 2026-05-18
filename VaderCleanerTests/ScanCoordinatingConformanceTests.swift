@@ -1,0 +1,659 @@
+// ScanCoordinatingConformanceTests.swift
+// Pins the full Phase→ScanPresentation mapping (every rich case) and the beginScan() entrypoint for all six scannable view models conforming to ScanCoordinating.
+
+import XCTest
+import Combine
+@testable import VaderCleaner
+
+/// Each scannable view model keeps its own rich `Phase` enum; this suite
+/// verifies the coarse `ScanPresentation` projection ContentView relies on for
+/// *every* phase the spec calls out (transient ones caught by freezing an
+/// injected closure mid-flight), plus that `beginScan()` always pulls a
+/// freshly-constructed (`.idle`) view model out of `.intro`.
+@MainActor
+final class ScanCoordinatingConformanceTests: XCTestCase {
+
+    // MARK: - Test infrastructure
+
+    /// Freezes an injected scan/load/clean closure mid-flight so a test can
+    /// observe a transient projection. The closure `await`s `wait()`; because
+    /// every view model is `@MainActor` the suspension yields the main actor
+    /// back to the test, which polls for the expected phase, then calls
+    /// `open()` to let the closure (and the operation) finish. `opened` makes
+    /// the `wait()`-then-`open()` and `open()`-then-`wait()` orders both safe.
+    @MainActor
+    private final class ScanGate {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var opened = false
+
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+
+        func open() {
+            opened = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    /// Polls `predicate` between `Task.yield()`s until it holds, failing the
+    /// test if it never does. Used instead of a fixed sleep because the phase
+    /// hop we are waiting on is an in-memory main-actor write, not wall-clock
+    /// work — yielding lets the operation's task advance with no arbitrary
+    /// delay.
+    private func yieldUntil(
+        _ predicate: () -> Bool,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<2000 {
+            if predicate() { return }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for: \(message)", file: file, line: line)
+    }
+
+    private func makeFile(
+        name: String,
+        category: ScanCategory = .userCache
+    ) -> ScannedFile {
+        ScannedFile(
+            url: URL(fileURLWithPath: "/tmp/scan-coordinating/\(name)"),
+            size: 100,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: category
+        )
+    }
+
+    private struct Boom: Error {}
+
+    /// Counts how many times an injected entrypoint closure ran. A
+    /// `@MainActor` reference type (not a captured `var`) so the increment
+    /// stays warning-free under the VMs' main-actor isolation.
+    @MainActor
+    private final class CallCounter {
+        private(set) var count = 0
+        func bump() { count += 1 }
+    }
+
+    // MARK: - SmartScanViewModel
+    // Mapping: .idle→.intro; .scanning→.working; .results/.cleaning/.done/.failed→.results.
+
+    func test_smartScan_idleMapsToIntro() {
+        XCTAssertEqual(makeSmartScan().scanPresentation, .intro)
+    }
+
+    func test_smartScan_scanningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeSmartScan(junkScanner: {
+            await gate.wait()
+            return ScanResult(items: [])
+        })
+
+        let task = Task { await vm.scan() }
+        await yieldUntil({ vm.scanPresentation == .working }, ".scanning → .working")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_smartScan_resultsMapsToResults() async {
+        let vm = makeSmartScan()
+        await vm.scan()
+        if case .results = vm.phase {} else { XCTFail("expected .results, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_smartScan_cleaningMapsToResults() async {
+        let gate = ScanGate()
+        let vm = makeSmartScan(junkCleaner: { _ in
+            await gate.wait()
+            return 0
+        })
+        await vm.scan() // → .results, the only phase clean() acts from.
+
+        let task = Task { await vm.clean() }
+        await yieldUntil({ vm.phase == .cleaning }, ".cleaning")
+        XCTAssertEqual(vm.scanPresentation, .results)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_smartScan_doneMapsToResults() async {
+        let vm = makeSmartScan()
+        await vm.scan()
+        await vm.clean()
+        if case .done = vm.phase {} else { XCTFail("expected .done, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_smartScan_failedMapsToResults() async {
+        let vm = makeSmartScan(junkScanner: { throw Boom() })
+        await vm.scan()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_smartScan_beginScanLeavesIntro() async {
+        let vm = makeSmartScan()
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    // MARK: - SystemJunkViewModel
+    // Mapping: .idle→.intro; .scanning/.cleaning→.working; .preview/.complete/.failed→.results.
+
+    func test_systemJunk_idleMapsToIntro() {
+        XCTAssertEqual(makeSystemJunk().scanPresentation, .intro)
+    }
+
+    func test_systemJunk_scanningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeSystemJunk(scanner: {
+            await gate.wait()
+            return ScanResult(items: [])
+        })
+
+        let task = Task { await vm.scan() }
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_systemJunk_previewMapsToResults() async {
+        let vm = makeSystemJunk(scanner: { ScanResult(items: [self.makeFile(name: "a")]) })
+        await vm.scan()
+        if case .preview = vm.phase {} else { XCTFail("expected .preview, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_systemJunk_cleaningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeSystemJunk(
+            scanner: { ScanResult(items: [self.makeFile(name: "a")]) },
+            deleter: { _ in
+                await gate.wait()
+                return 100
+            }
+        )
+        await vm.scan() // → .preview with one checked category, so clean() runs.
+
+        let task = Task { await vm.clean() }
+        await yieldUntil({ vm.phase == .cleaning }, ".cleaning")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_systemJunk_completeMapsToResults() async {
+        let vm = makeSystemJunk(
+            scanner: { ScanResult(items: [self.makeFile(name: "a")]) },
+            deleter: { _ in 100 }
+        )
+        await vm.scan()
+        await vm.clean()
+        if case .complete = vm.phase {} else { XCTFail("expected .complete, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_systemJunk_failedMapsToResults() async {
+        let vm = makeSystemJunk(scanner: { throw Boom() })
+        await vm.scan()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_systemJunk_beginScanLeavesIntro() async {
+        let vm = makeSystemJunk()
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_systemJunk_beginScanIgnoresReentrantCallWhileScanning() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makeSystemJunk(scanner: {
+            counter.bump()
+            await gate.wait()
+            return ScanResult(items: [])
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        vm.beginScan() // re-entrant while scanning: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "scanner invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .scanning }, "scan settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
+    }
+
+    // MARK: - LargeOldFilesViewModel
+    // Mapping: .idle→.intro; .scanning→.working; .results/.empty/.failed→.results.
+
+    func test_largeOldFiles_idleMapsToIntro() {
+        XCTAssertEqual(makeLargeOldFiles().scanPresentation, .intro)
+    }
+
+    func test_largeOldFiles_scanningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeLargeOldFiles(scanner: {
+            await gate.wait()
+            return []
+        })
+
+        let task = Task { await vm.scan() }
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_largeOldFiles_resultsMapsToResults() async {
+        let vm = makeLargeOldFiles(scanner: { [self.makeFile(name: "big", category: .largeFile)] })
+        await vm.scan()
+        if case .results = vm.phase {} else { XCTFail("expected .results, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_largeOldFiles_emptyMapsToResults() async {
+        let vm = makeLargeOldFiles(scanner: { [] })
+        await vm.scan()
+        XCTAssertEqual(vm.phase, .empty)
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_largeOldFiles_failedMapsToResults() async {
+        let vm = makeLargeOldFiles(scanner: { throw Boom() })
+        await vm.scan()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_largeOldFiles_beginScanLeavesIntro() async {
+        let vm = makeLargeOldFiles()
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_largeOldFiles_beginScanIgnoresReentrantCallWhileScanning() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makeLargeOldFiles(scanner: {
+            counter.bump()
+            await gate.wait()
+            return []
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        vm.beginScan() // re-entrant while scanning: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "scanner invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .scanning }, "scan settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
+    }
+
+    // MARK: - DiskScannerViewModel (Space Lens)
+    // Mapping: .idle→.intro; .scanning→.working; .ready/.error→.results.
+
+    private func diskNode() -> DiskNode {
+        DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root"),
+            name: "root",
+            size: 1,
+            isDirectory: true,
+            children: []
+        )
+    }
+
+    func test_diskScanner_idleMapsToIntro() {
+        let vm = DiskScannerViewModel(scanner: { _, _ in self.diskNode() })
+        XCTAssertEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_diskScanner_scanningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = DiskScannerViewModel(scanner: { _, _ in
+            await gate.wait()
+            return self.diskNode()
+        })
+
+        let task = Task {
+            await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        }
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_diskScanner_readyMapsToResults() async {
+        let node = diskNode()
+        let vm = DiskScannerViewModel(scanner: { _, _ in node })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        XCTAssertEqual(vm.phase, .ready(node))
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_diskScanner_errorMapsToResults() async {
+        struct ScanFailure: LocalizedError { var errorDescription: String? { "boom" } }
+        let vm = DiskScannerViewModel(scanner: { _, _ in throw ScanFailure() })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        XCTAssertEqual(vm.phase, .error("boom"))
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_diskScanner_beginScanLeavesIntro() async {
+        // `beginScan()` defaults the root to the user's home directory; the
+        // injected scanner short-circuits the walk so no real disk is read.
+        let vm = DiskScannerViewModel(scanner: { _, _ in self.diskNode() })
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    // MARK: - MalwareViewModel
+    // Mapping: .idle→.intro; .checkingClamAV/.updatingDatabase/.scanning/.removing→.working;
+    //          .needsInstall/.results/.clean/.done/.failed→.results.
+
+    private let threat = MalwareThreat(
+        filePath: URL(fileURLWithPath: "/Users/me/Downloads/evil.bin"),
+        threatName: "Eicar-Test-Signature"
+    )
+
+    func test_malware_idleMapsToIntro() {
+        XCTAssertEqual(makeMalware().scanPresentation, .intro)
+    }
+
+    /// `.checkingClamAV` is set and left within a single synchronous run
+    /// (`checkInstalled` is a sync closure and nothing suspends before the
+    /// phase advances), so it is not transiently observable through any
+    /// injected seam without modifying VM logic. Its `.working` mapping is
+    /// instead guaranteed at compile time by the extension's exhaustive,
+    /// `default`-free switch and is identical to the other `.working` cases
+    /// exercised below.
+    func test_malware_updatingDatabaseMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeMalware(
+            checkInstalled: { true },
+            databaseLastUpdated: { nil }, // nil ⇒ stale ⇒ the .updatingDatabase path
+            updateDatabase: { _ in await gate.wait() }
+        )
+
+        let task = Task { await vm.scan() }
+        await yieldUntil({
+            if case .updatingDatabase = vm.phase { return true } else { return false }
+        }, ".updatingDatabase")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_malware_scanningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeMalware(
+            checkInstalled: { true },
+            databaseLastUpdated: { Date() },
+            scan: { _ in
+                await gate.wait()
+                return []
+            }
+        )
+
+        let task = Task { await vm.scan() }
+        await yieldUntil({
+            if case .scanning = vm.phase { return true } else { return false }
+        }, ".scanning")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_malware_removingMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeMalware(
+            scan: { _ in [self.threat] },
+            removeThreats: { _ in
+                await gate.wait()
+                return [] // no failures ⇒ .done
+            }
+        )
+        await vm.scan() // → .results([threat])
+
+        let task = Task { await vm.removeThreats() }
+        await yieldUntil({ vm.phase == .removing }, ".removing")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_malware_needsInstallMapsToResults() async {
+        // Maps to `.results` (not `.intro`) on purpose: MalwareView renders
+        // its own ClamAV install onboarding for this state.
+        let vm = makeMalware(checkInstalled: { false })
+        await vm.scan()
+        XCTAssertEqual(vm.phase, .needsInstall)
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_malware_resultsMapsToResults() async {
+        let vm = makeMalware(scan: { _ in [self.threat] })
+        await vm.scan()
+        if case .results = vm.phase {} else { XCTFail("expected .results, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_malware_cleanMapsToResults() async {
+        let vm = makeMalware(scan: { _ in [] })
+        await vm.scan()
+        XCTAssertEqual(vm.phase, .clean)
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_malware_doneMapsToResults() async {
+        let vm = makeMalware(scan: { _ in [self.threat] }, removeThreats: { _ in [] })
+        await vm.scan()
+        await vm.removeThreats()
+        if case .done = vm.phase {} else { XCTFail("expected .done, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_malware_failedMapsToResults() async {
+        let vm = makeMalware(
+            databaseLastUpdated: { Date() },
+            scan: { _ in throw Boom() }
+        )
+        await vm.scan()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_malware_beginScanLeavesIntro() async {
+        let vm = makeMalware(checkInstalled: { true }, databaseLastUpdated: { Date() })
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    // MARK: - OptimizationViewModel
+    // Mapping: .idle→.intro; .loading→.working; .ready/.working/.failed→.results.
+
+    func test_optimization_idleMapsToIntro() {
+        XCTAssertEqual(makeOptimization().scanPresentation, .intro)
+    }
+
+    func test_optimization_loadingMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makeOptimization(loadLoginItems: {
+            await gate.wait()
+            return []
+        })
+
+        let task = Task { await vm.refresh() }
+        await yieldUntil({ vm.phase == .loading }, ".loading")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_optimization_readyMapsToResults() async {
+        let vm = makeOptimization()
+        await vm.refresh()
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    /// `Phase.working` (an in-progress *action*, e.g. a RAM flush) projects to
+    /// `ScanPresentation.results`, not `.working` — the name collision is the
+    /// whole reason this case is pinned: the section's own detail UI stays on
+    /// screen for action progress rather than reverting to the generic intro.
+    func test_optimization_workingPhaseMapsToResults() async {
+        let gate = ScanGate()
+        let vm = makeOptimization(flushRAM: { await gate.wait() })
+
+        let task = Task { await vm.flushRAM() }
+        await yieldUntil({ vm.phase == .working }, "Phase.working")
+        XCTAssertEqual(vm.scanPresentation, .results)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_optimization_failedMapsToResults() async {
+        let vm = makeOptimization(flushRAM: { throw Boom() })
+        await vm.flushRAM()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_optimization_beginScanLeavesIntro() async {
+        let vm = makeOptimization()
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_optimization_beginScanIgnoresReentrantCallWhileLoading() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makeOptimization(loadLoginItems: {
+            counter.bump()
+            await gate.wait()
+            return []
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .loading }, ".loading")
+        vm.beginScan() // re-entrant while loading: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "loader invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .loading }, "load settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second load")
+    }
+
+    // MARK: - Construction helpers
+    //
+    // One per view model, mirroring the defaults each VM's own
+    // *ViewModelTests use so a test only overrides the closure it exercises.
+
+    private func makeSmartScan(
+        junkScanner: @escaping SmartScanViewModel.JunkScanner = { ScanResult(items: []) },
+        malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
+        malwareScanner: @escaping SmartScanViewModel.MalwareScanner = { [] },
+        loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
+        junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
+        threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] }
+    ) -> SmartScanViewModel {
+        SmartScanViewModel(
+            junkScanner: junkScanner,
+            malwareInstalled: malwareInstalled,
+            malwareScanner: malwareScanner,
+            loginItemsLoader: loginItemsLoader,
+            junkCleaner: junkCleaner,
+            threatRemover: threatRemover
+        )
+    }
+
+    private func makeSystemJunk(
+        scanner: @escaping SystemJunkViewModel.Scanner = { ScanResult(items: []) },
+        deleter: @escaping SystemJunkViewModel.Deleter = { _ in 0 }
+    ) -> SystemJunkViewModel {
+        SystemJunkViewModel(scanner: scanner, deleter: deleter)
+    }
+
+    private func makeLargeOldFiles(
+        scanner: @escaping () async throws -> [ScannedFile] = { [] },
+        deleter: @escaping ([URL]) async -> Set<URL> = { Set($0) }
+    ) -> LargeOldFilesViewModel {
+        LargeOldFilesViewModel(scanner: scanner, deleter: deleter)
+    }
+
+    private func makeMalware(
+        checkInstalled: @escaping MalwareViewModel.CheckInstalled = { true },
+        databaseLastUpdated: @escaping MalwareViewModel.DatabaseLastUpdated = { Date() },
+        updateDatabase: @escaping MalwareViewModel.UpdateDatabase = { _ in },
+        scan: @escaping MalwareViewModel.Scan = { _ in [] },
+        removeThreats: @escaping MalwareViewModel.RemoveThreats = { _ in [] },
+        notify: @escaping MalwareViewModel.Notify = { _ in },
+        shouldNotify: @escaping MalwareViewModel.ShouldNotify = { true }
+    ) -> MalwareViewModel {
+        MalwareViewModel(
+            checkInstalled: checkInstalled,
+            databaseLastUpdated: databaseLastUpdated,
+            updateDatabase: updateDatabase,
+            scan: scan,
+            removeThreats: removeThreats,
+            notify: notify,
+            shouldNotify: shouldNotify
+        )
+    }
+
+    private func makeOptimization(
+        loadLoginItems: @escaping OptimizationViewModel.LoadLoginItems = { [] },
+        loadUserAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
+        loadSystemAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
+        readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
+        setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
+        disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
+        removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
+        flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
+        runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" }
+    ) -> OptimizationViewModel {
+        OptimizationViewModel(
+            loadLoginItems: loadLoginItems,
+            loadUserAgents: loadUserAgents,
+            loadSystemAgents: loadSystemAgents,
+            readMemory: readMemory,
+            setLoginItemEnabled: setLoginItemEnabled,
+            disableAgent: disableAgent,
+            removeAgent: removeAgent,
+            flushRAM: flushRAM,
+            runMaintenance: runMaintenance,
+            launchAtLoginChanges: nil
+        )
+    }
+}
