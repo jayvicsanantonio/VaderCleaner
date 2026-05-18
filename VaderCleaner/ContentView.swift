@@ -28,6 +28,10 @@ struct ContentView: View {
     /// system caches the answer so the second prompt is a no-op, but it's
     /// cleaner to issue exactly one.
     @State private var didRequestNotificationPermission = false
+    /// Fixed width of the navigation rail. Shared by the rail's own frame and
+    /// the floating Scan overlay so the disc centers over the detail content
+    /// area (not the full window) without the two drifting apart.
+    private let railWidth: CGFloat = 240
     init(
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
@@ -59,13 +63,25 @@ struct ContentView: View {
             // full-bleed selection bar. The rail and detail share one
             // continuous gradient — no sidebar material, no divider.
             rail
-                .frame(width: 240)
+                .frame(width: railWidth)
 
             // Hosts `.navigationTitle` / `.toolbar` for the detail screens
             // without reintroducing a split divider.
             NavigationStack {
                 detailView(for: selectedSection ?? .smartScan)
             }
+        }
+        // The Scan CTA floats over the window's bottom edge. It is attached to
+        // the OUTER HStack — outside the NavigationStack — so the detail
+        // screens' toolbars and safe-area insets can't clip it. The leading
+        // inset equal to the rail width re-centers the disc over the detail
+        // content area rather than the full window, and the negative bottom
+        // padding lets the disc and its glow bleed past the edge while its
+        // center stays inside the window so it remains hittable.
+        .overlay(alignment: .bottom) {
+            floatingScan(for: selectedSection ?? .smartScan)
+                .padding(.leading, railWidth)
+                .padding(.bottom, -24)
         }
         .frame(minWidth: 900, minHeight: 600)
         // Branded shell: gradient backdrop, crimson tint, forced dark
@@ -190,20 +206,28 @@ struct ContentView: View {
     private func detailView(for section: NavigationSection) -> some View {
         switch section {
         case .smartScan:
-            SmartScanView(
-                viewModel: smartScanViewModel,
-                onReviewSystemJunk: { selectedSection = .systemJunk },
-                onReviewMalware: { selectedSection = .malwareRemoval },
-                onReviewOptimization: { selectedSection = .optimization }
-            )
+            ScannableSectionContent(coordinator: smartScanViewModel, section: section) {
+                SmartScanView(
+                    viewModel: smartScanViewModel,
+                    onReviewSystemJunk: { selectedSection = .systemJunk },
+                    onReviewMalware: { selectedSection = .malwareRemoval },
+                    onReviewOptimization: { selectedSection = .optimization }
+                )
+            }
         case .healthMonitor:
             HealthMonitorView(service: systemStats)
         case .systemJunk:
-            SystemJunkView(viewModel: systemJunkViewModel)
+            ScannableSectionContent(coordinator: systemJunkViewModel, section: section) {
+                SystemJunkView(viewModel: systemJunkViewModel)
+            }
         case .largeOldFiles:
-            LargeOldFilesView(viewModel: largeOldFilesViewModel)
+            ScannableSectionContent(coordinator: largeOldFilesViewModel, section: section) {
+                LargeOldFilesView(viewModel: largeOldFilesViewModel)
+            }
         case .spaceLens:
-            SpaceLensView(viewModel: spaceLensViewModel)
+            ScannableSectionContent(coordinator: spaceLensViewModel, section: section) {
+                SpaceLensView(viewModel: spaceLensViewModel)
+            }
         case .privacy:
             PrivacyView(viewModel: privacyViewModel)
         case .appUninstaller:
@@ -213,9 +237,39 @@ struct ContentView: View {
         case .extensions:
             ExtensionsManagerView(viewModel: extensionsManagerViewModel)
         case .optimization:
-            OptimizationView(viewModel: optimizationViewModel)
+            ScannableSectionContent(coordinator: optimizationViewModel, section: section) {
+                OptimizationView(viewModel: optimizationViewModel)
+            }
         case .malwareRemoval:
-            MalwareView(viewModel: malwareViewModel)
+            ScannableSectionContent(coordinator: malwareViewModel, section: section) {
+                MalwareView(viewModel: malwareViewModel)
+            }
+        }
+    }
+
+    /// The shell-level floating Scan button for the selected section. Renders
+    /// only for scannable sections and — via `FloatingScanOverlay`'s
+    /// observation of the coordinator — only while that section is at its
+    /// `.intro` phase; everything else collapses to nothing so the disc
+    /// disappears the instant a scan starts. The switch is exhaustive so a new
+    /// section is a compile-time prompt to classify it here.
+    @ViewBuilder
+    private func floatingScan(for section: NavigationSection) -> some View {
+        switch section {
+        case .smartScan:
+            FloatingScanOverlay(coordinator: smartScanViewModel, section: section)
+        case .systemJunk:
+            FloatingScanOverlay(coordinator: systemJunkViewModel, section: section)
+        case .largeOldFiles:
+            FloatingScanOverlay(coordinator: largeOldFilesViewModel, section: section)
+        case .spaceLens:
+            FloatingScanOverlay(coordinator: spaceLensViewModel, section: section)
+        case .optimization:
+            FloatingScanOverlay(coordinator: optimizationViewModel, section: section)
+        case .malwareRemoval:
+            FloatingScanOverlay(coordinator: malwareViewModel, section: section)
+        case .privacy, .extensions, .appUninstaller, .appUpdater, .healthMonitor:
+            EmptyView()
         }
     }
 
@@ -230,6 +284,51 @@ struct ContentView: View {
                 if newValue == false { onboarding.dismiss() }
             }
         )
+    }
+}
+
+/// Gates a scannable section between the unified `SectionIntroView` and its
+/// own detail view. The coordinator is held as `@ObservedObject` here — not in
+/// ContentView, where the view models are plain `let`s — so the swap is
+/// reactive: tapping the floating Scan flips `scanPresentation` off `.intro`
+/// and this view rebuilds into the detail view. The detail closure is not
+/// evaluated while at `.intro`, so the section's auto-load `.task`/`.onAppear`
+/// stays gated behind Scan rather than firing under the intro.
+private struct ScannableSectionContent<Coordinator: ScanCoordinating, Detail: View>: View {
+    @ObservedObject var coordinator: Coordinator
+    let section: NavigationSection
+    @ViewBuilder let detail: () -> Detail
+
+    var body: some View {
+        if coordinator.scanPresentation == .intro,
+           let presentation = SectionPresentation.for(section) {
+            SectionIntroView(presentation: presentation, section: section)
+        } else {
+            // `.working`/`.results`, or the defensive case of a scannable
+            // section with no presentation metadata: the section's own
+            // detail view is the source of truth for every non-intro phase.
+            detail()
+        }
+    }
+}
+
+/// The shell-level floating Scan button for one scannable section. Observes
+/// the coordinator so the disc is shown only while the section is at `.intro`
+/// and vanishes the moment a scan starts. Accent-tinted per section; the
+/// window's crimson shell is unchanged.
+private struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
+    @ObservedObject var coordinator: Coordinator
+    let section: NavigationSection
+
+    var body: some View {
+        if coordinator.scanPresentation == .intro {
+            FloatingScanButton(
+                title: String(localized: "Scan", comment: "Floating scan button title."),
+                accent: SectionPresentation.for(section)?.accent ?? .vaderCrimson,
+                accessibilityIdentifier: section.scanAccessibilityIdentifier,
+                action: { coordinator.beginScan() }
+            )
+        }
     }
 }
 

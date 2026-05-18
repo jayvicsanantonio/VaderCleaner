@@ -1,5 +1,5 @@
 // SpaceLensUITests.swift
-// End-to-end UI test for Space Lens — navigates to the section and waits for either the in-progress scan or the post-scan treemap, asserting that the wiring between sidebar selection, view-model, and view reaches the user's home directory.
+// End-to-end UI test for Space Lens — navigates to the section, taps the floating Scan on the unified intro, and waits for either the in-progress scan or the post-scan treemap, asserting that the wiring between sidebar selection, view-model, and view reaches the user's home directory.
 
 import XCTest
 
@@ -28,7 +28,7 @@ final class SpaceLensUITests: XCTestCase {
     /// directory, the error banner). Any of these is evidence that the
     /// view-model is alive and the scan kicked off — anything else is a
     /// wiring regression.
-    func test_navigateToSpaceLens_revealsScanningOrTreemap() throws {
+    func test_navigateToSpaceLens_scan_revealsScanningOrTreemap() throws {
         dismissOnboardingIfNeeded()
 
         let sidebarRow = app.buttons["sidebar.spaceLens"].firstMatch
@@ -36,11 +36,21 @@ final class SpaceLensUITests: XCTestCase {
                       "Expected Space Lens row in sidebar")
         sidebarRow.click()
 
-        // The scan starts automatically on first appearance, so we expect either
-        // the scanning indicator or — on tiny home folders / fast machines —
-        // the treemap to land before our timeout. The error banner is
-        // accepted as well: a CI runner without home-folder access should
-        // still surface a recognizable state, not hang on a blank canvas.
+        // Space Lens lands on the unified intro first; tapping the floating
+        // Scan kicks off the walk that previously ran automatically on appear.
+        let intro = app.descendants(matching: .any)["section.intro"]
+        XCTAssertTrue(intro.waitForExistence(timeout: 5),
+                      "Expected the unified intro screen for Space Lens")
+        let floatingScan = app.buttons["section.spaceLens.scan"]
+        XCTAssertTrue(floatingScan.waitForExistence(timeout: 5),
+                      "Expected the floating Scan button on the Space Lens intro")
+        floatingScan.click()
+
+        // After Scan we expect either the scanning indicator or — on tiny home
+        // folders / fast machines — the treemap to land before our timeout.
+        // The error banner is accepted as well: a CI runner without
+        // home-folder access should still surface a recognizable state, not
+        // hang on a blank canvas.
         let appeared = waitForAnySpaceLensState(timeout: 30)
         XCTAssertTrue(appeared,
                       "Expected to land on a recognizable Space Lens state after selection")

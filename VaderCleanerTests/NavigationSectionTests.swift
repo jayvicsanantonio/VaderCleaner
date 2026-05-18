@@ -52,6 +52,34 @@ final class NavigationSectionTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count, "Sidebar identifiers must be unique")
     }
 
+    func test_scanAccessibilityIdentifiers_areStableAndPinned() {
+        let expected: [NavigationSection: String] = [
+            .smartScan: "section.smartScan.scan",
+            .systemJunk: "section.systemJunk.scan",
+            .largeOldFiles: "section.largeOldFiles.scan",
+            .spaceLens: "section.spaceLens.scan",
+            .malwareRemoval: "section.malwareRemoval.scan",
+            .privacy: "section.privacy.scan",
+            .extensions: "section.extensions.scan",
+            .appUninstaller: "section.appUninstaller.scan",
+            .appUpdater: "section.appUpdater.scan",
+            .optimization: "section.optimization.scan",
+            .healthMonitor: "section.healthMonitor.scan",
+        ]
+        for section in NavigationSection.allCases {
+            XCTAssertEqual(
+                section.scanAccessibilityIdentifier,
+                expected[section],
+                "Scan identifier for \(section) drifted — update the UI-test locators too"
+            )
+        }
+    }
+
+    func test_scanAccessibilityIdentifiers_areUnique() {
+        let ids = NavigationSection.allCases.map(\.scanAccessibilityIdentifier)
+        XCTAssertEqual(Set(ids).count, ids.count, "Scan identifiers must be unique")
+    }
+
     func test_eachSection_hasValidSFSymbol() throws {
         guard #available(macOS 14.0, *) else {
             throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")
