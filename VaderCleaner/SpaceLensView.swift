@@ -5,9 +5,10 @@ import SwiftUI
 
 /// Detail view for the Space Lens sidebar section. Owns nothing of its
 /// own — every piece of state lives on `DiskScannerViewModel`. Each
-/// `Phase` maps to a dedicated subview (idle → scan call-to-action,
-/// scanning → progress bar, ready → breadcrumb + treemap + footer,
-/// error → message + try again). The empty case is implicit: a `.ready`
+/// `Phase` maps to a dedicated subview (idle → not rendered, ContentView
+/// shows the unified intro instead, scanning → progress bar, ready →
+/// breadcrumb + treemap + footer, error → message + try again). The
+/// empty case is implicit: a `.ready`
 /// node whose subtree has no displayable children renders the empty
 /// placeholder inside the same layout, so the breadcrumb stays in
 /// reach for navigating back up.
@@ -29,7 +30,13 @@ struct SpaceLensView: View {
         Group {
             switch viewModel.phase {
             case .idle:
-                idleState
+                // Unreachable: ContentView shows the unified SectionIntroView
+                // while the coordinator reports `.intro` (which `.idle` maps
+                // to), so the detail view is never built in this phase. The
+                // arm stays only to keep the switch exhaustive over `Phase`.
+                // `idleState` itself is retained — the `.ready` branch below
+                // still falls back to it defensively when `currentNode` is nil.
+                EmptyView()
             case .scanning:
                 scanningState
             case .ready:

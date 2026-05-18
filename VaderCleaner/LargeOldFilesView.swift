@@ -57,12 +57,11 @@ struct LargeOldFilesView: View {
     private var content: some View {
         switch viewModel.phase {
         case .idle:
-            VStack(spacing: 16) {
-                if !appState.hasFullDiskAccess {
-                    FullDiskAccessPromptCard(onRecheck: { appState.refresh() })
-                }
-                LargeOldFilesIdleState(onScan: startScan)
-            }
+            // Unreachable: ContentView shows the unified SectionIntroView
+            // while the coordinator reports `.intro` (which `.idle` maps to),
+            // so the detail view is never built in this phase. The arm stays
+            // only to keep the switch exhaustive over `Phase`.
+            EmptyView()
         case .scanning:
             LargeOldFilesProgressState(label: "Scanning…", identifier: "large-old.scanning")
         case .results:

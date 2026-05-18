@@ -39,36 +39,6 @@ enum LargeOldFilesActions {
     }
 }
 
-struct LargeOldFilesIdleState: View {
-    let onScan: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-            Text(String(
-                localized: "Large & Old Files",
-                comment: "Title for the Large & Old Files scan feature."
-            ))
-                .font(.title2.weight(.semibold))
-            Text(String(
-                localized: "Scan your home folder for files larger than 50 MB or not accessed in the past six months.",
-                comment: "Description of what the Large & Old Files scan checks."
-            ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
-            Button("Scan", action: onScan)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("large-old.scan")
-        }
-        .padding()
-    }
-}
-
 struct LargeOldFilesProgressState: View {
     let label: String
     let identifier: String

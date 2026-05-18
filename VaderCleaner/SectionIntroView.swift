@@ -94,8 +94,8 @@ struct SectionIntroView: View {
                     .frame(width: 160, height: 160)
             }
         }
-        // Same soft bloom SmartScanIdleState puts behind its hero, recoloured
-        // to the section accent so the intro feels like part of one family.
+        // A soft bloom behind the hero, recoloured to the section accent so
+        // the intro feels like part of one family.
         .shadow(color: presentation.accent.opacity(0.45), radius: 32)
         .accessibilityHidden(true)
     }

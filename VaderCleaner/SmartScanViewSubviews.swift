@@ -1,8 +1,7 @@
 // SmartScanViewSubviews.swift
-// Dedicated subviews for the Smart Scan screen — idle, progress, the three-card results summary, done, and failed states.
+// Dedicated subviews for the Smart Scan screen — progress, the three-card results summary, done, and failed states.
 
 import SwiftUI
-import AppKit
 
 // MARK: - Shared byte formatting
 
@@ -15,64 +14,6 @@ private let smartScanByteFormatter: ByteCountFormatter = {
     f.countStyle = .file
     return f
 }()
-
-// MARK: - Idle
-
-struct SmartScanIdleState: View {
-    let onScan: () -> Void
-
-    @State private var breathing = false
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer(minLength: 0)
-
-            // The app icon is VaderCleaner's own artwork, so it doubles as the
-            // hero render; the crimson bloom behind it ties it to the backdrop.
-            // A slow scale breath keeps the welcome screen feeling alive while
-            // it waits for the user to start a scan.
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 168, height: 168)
-                .shadow(color: Color.vaderCrimson.opacity(0.45), radius: 32)
-                .scaleEffect(breathing ? 1.03 : 1.0)
-                .animation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true),
-                           value: breathing)
-                .onAppear { breathing = true }
-
-            Text(String(
-                localized: "Welcome to VaderCleaner",
-                comment: "Hero title on the idle Smart Scan welcome screen."
-            ))
-                .font(.system(size: 34, weight: .semibold))
-
-            Text(String(
-                localized: "Start with a quick and extensive scan of your Mac.",
-                comment: "Subtitle on the idle Smart Scan welcome screen."
-            ))
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
-
-            Spacer(minLength: 0)
-
-            FloatingScanButton(
-                title: String(
-                    localized: "Scan",
-                    comment: "Primary button that starts the Smart Scan."
-                ),
-                accessibilityIdentifier: "smartScan.scan",
-                action: onScan
-            )
-            .padding(.bottom, 36)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-    }
-}
 
 // MARK: - Progress
 
