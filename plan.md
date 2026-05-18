@@ -1012,3 +1012,117 @@ Polish:
 | 25 | Smart Scan | Integration |
 | 26 | Exclusions wired to all scanners | Integration |
 | 27 | Final polish + E2E tests | Integration |
+
+---
+
+## Phase 6 — Scan-Centric Redesign
+
+This phase is a UI redesign (not part of the original 27-prompt build above, which is complete). Goal: a consistent per-section landing screen — accent-tinted hero, title, one-line description, and a descriptive sub-feature list — plus a single persistent floating **Scan** button, for the **six scan-capable sections**: Smart Scan, System Junk, Large & Old Files, Space Lens, Malware Removal, Optimization. The other five sections (Health Monitor, Privacy, Extensions, App Uninstaller, App Updater) are unchanged.
+
+### Decisions (locked)
+
+- **Brand stays crimson.** The `.vaderShell()` window gradient is unchanged. Per-section accent color applies *only* to intro-screen elements (hero symbol, sub-feature icons, Scan button) — not the whole window.
+- **Hero baseline = SF Symbols.** Each section uses a large tinted SF Symbol as its hero now, with an optional `heroAssetName` field so designer art can swap in later with no code change.
+- **No view-model rewrites.** The six view models keep their existing `Phase` enums and scan entrypoints. A thin `ScanCoordinating` protocol is added via extensions that map each native phase to a coarse `ScanPresentation` and route `beginScan()` to the existing entrypoint (per the global CLAUDE.md "don't rewrite without permission" rule).
+- **Replace, don't overlay.** When a section's coordinator reports `.intro`, ContentView renders the generic `SectionIntroView` *instead of* that section's detail view. Detail views render only for `.working`/`.results`. This avoids double UI; Step 7 is then a pure deletion of the now-dead idle code.
+- **Smart Scan's three sub-feature rows** are its real orchestrated modules — System Junk, Malware Removal, Optimization — not invented marketing labels.
+- Every step is TDD (tests first) and ends with everything wired; no orphaned code.
+
+### Prompt 28 — Step 1/8: SectionPresentation model + isScannable ([#84](https://github.com/jayvicsanantonio/VaderCleaner/issues/84))
+
+Foundation data model, no UI. Add `NavigationSection.isScannable` (true for exactly the six scannable sections) and a `SectionPresentation` struct (hero symbol, optional asset name, accent `Color`, tagline, `[SectionFeature]`) with a `for(_:)` factory. Pin Smart Scan's features to System Junk / Malware Removal / Optimization.
+
+```text
+Building on the existing VaderCleaner codebase, add a section-presentation model. TDD: write the tests first.
+
+1. Add `var isScannable: Bool` to NavigationSection. True ONLY for: .smartScan, .systemJunk, .largeOldFiles, .spaceLens, .malwareRemoval, .optimization.
+2. Create VaderCleaner/SectionPresentation.swift with `struct SectionPresentation` (heroSymbol, heroAssetName: String?, accent: Color, tagline, features: [SectionFeature]) and `struct SectionFeature { symbol; title }`, plus `static func for(_ section: NavigationSection) -> SectionPresentation?` (nil for non-scannable).
+3. Pin per-section content (contract — tests assert it). Smart Scan features = System Junk/"trash", Malware Removal/"shield.lefthalf.filled", Optimization/"gauge.with.needle". Accents: SmartScan crimson, SystemJunk green, LargeOldFiles teal, SpaceLens indigo, Malware crimson, Optimization orange. All user-facing strings via String(localized:).
+4. Tests (VaderCleanerTests/SectionPresentationTests.swift): isScannable true for exactly the six; for(:) non-nil for the six and nil otherwise; Smart Scan features are the three modules in order; every scannable section has non-empty features with non-empty symbols/titles. Mirror NavigationSectionTests style.
+
+Add files to the Xcode project (project.yml is XcodeGen-driven). 2-line header comments. Full suite green.
+```
+
+### Prompt 29 — Step 2/8: ScanPresentation enum + ScanCoordinating protocol ([#85](https://github.com/jayvicsanantonio/VaderCleaner/issues/85))
+
+The coarse abstraction ContentView uses to choose "generic intro + Scan" vs "section's own detail view". Plain protocol, no associated types, no type erasure.
+
+```text
+Building on Step 1, add VaderCleaner/ScanCoordinating.swift:
+- enum ScanPresentation: Equatable { case intro, working, results }  (.intro → generic intro + floating Scan; .working → scan/load in progress; .results → section's own detail UI renders)
+- protocol ScanCoordinating: ObservableObject { var scanPresentation: ScanPresentation { get }; func beginScan() }  — plain protocol, no associated types.
+Tests (VaderCleanerTests/ScanCoordinatingTests.swift): a private FakeCoordinator; assert ScanPresentation Equatable; assert beginScan() flips a flag and a presentation change is observable via objectWillChange. No view model modified this step. 2-line headers; add to project; full suite green.
+```
+
+### Prompt 30 — Step 3/8: Conform the 6 view models to ScanCoordinating ([#86](https://github.com/jayvicsanantonio/VaderCleaner/issues/86))
+
+Extensions only — map each native `Phase` to `ScanPresentation`, route `beginScan()` to the existing entrypoint. Space Lens default root = home dir. Optimization `beginScan()` = its load path (semantic stretch, commented).
+
+```text
+Building on Step 2, add `extension <VM>: ScanCoordinating` for all six VMs (do not alter their methods or Phase enums):
+- SmartScan: .idle→.intro; .scanning→.working; .results/.cleaning/.done/.failed→.results; beginScan→Task{await scan()}.
+- SystemJunk: .idle→.intro; .scanning/.cleaning→.working; .preview/.complete/.failed→.results; beginScan→Task{await scan()}.
+- LargeOldFiles: .idle→.intro; .scanning→.working; .results/.empty/.failed→.results; beginScan→Task{await scan()}.
+- DiskScanner: .idle→.intro; .scanning→.working; .ready/.error→.results; beginScan→Task{await startScan(root: FileManager.default.homeDirectoryForCurrentUser)} (comment: default Space Lens root).
+- Malware: .idle→.intro; .checkingClamAV/.updatingDatabase/.scanning/.removing→.working; .needsInstall/.results/.clean/.done/.failed→.results; beginScan→Task{await scan()} (.needsInstall→.results so MalwareView shows install onboarding).
+- Optimization: .idle→.intro; .loading→.working; .ready/.working/.failed→.results; beginScan→its existing on-appear load path (comment: "scan"=="load", semantic stretch).
+Tests (VaderCleanerTests/ScanCoordinatingConformanceTests.swift): per VM, construct with injected fakes (follow each existing *ViewModelTests), drive phases, assert the coarse value at each; assert beginScan() leaves .intro. 2-line headers; add new files to project; full suite green.
+```
+
+### Prompt 31 — Step 4/8: Extract reusable FloatingScanButton ([#87](https://github.com/jayvicsanantonio/VaderCleaner/issues/87))
+
+Relocate (do not reimplement) the existing private `CircularActionButton` + `PressableCircleButtonStyle` from `SmartScanViewSubviews.swift` into a shared, accent-parameterized `FloatingScanButton`. SmartScan must look/behave identically.
+
+```text
+Building on Step 1, move CircularActionButton and PressableCircleButtonStyle out of SmartScanViewSubviews.swift into VaderCleaner/FloatingScanButton.swift as `struct FloatingScanButton: View { title; accent: Color; accessibilityIdentifier; action }`. Keep the crimson interactive-glass disc + press animation; tint from accent (default crimson). Update SmartScan call sites to use it with accent crimson and existing titles/actions — no visual/behavioral change to SmartScan. Tests (VaderCleanerTests/FloatingScanButtonTests.swift): verify the a11y id is exposed and action fires (use the repo's existing view-test approach; else a small @MainActor harness). 2-line header; add to project; SmartScan UI tests + full suite green.
+```
+
+### Prompt 32 — Step 5/8: SectionIntroView ([#88](https://github.com/jayvicsanantonio/VaderCleaner/issues/88))
+
+The reusable landing screen: accent hero + title + tagline + descriptive feature rows. No Scan button inside (ContentView owns it so it can float over the window edge).
+
+```text
+Building on Steps 1 and 4, create VaderCleaner/SectionIntroView.swift. `struct SectionIntroView: View { presentation: SectionPresentation; title: String }`: large accent-tinted hero (asset if heroAssetName else SF Symbol ~120pt) with a soft accent bloom (reuse SmartScanIdleState's bloom); large bold title; secondary tagline (max ~420 width, multiline); vertical list of feature rows (accent icon + title, no checkboxes/actions). Hero-left / text-right at wide widths, stacks when narrow. Do NOT render a Scan button. Accessibility: root id `section.intro`, per-feature id `section.intro.feature.<index>`, accessible title/tagline. Tests (VaderCleanerTests/SectionIntroViewTests.swift): for each scannable presentation, view builds, expected a11y ids present, feature count matches. 2-line header; add to project; full suite green; no other view touched.
+```
+
+### Prompt 33 — Step 6/8: Wire intro + floating Scan into ContentView ([#89](https://github.com/jayvicsanantonio/VaderCleaner/issues/89))
+
+**Everything wired end-to-end.** Replace (don't overlay): scannable section at `.intro` → `SectionIntroView`; `.working`/`.results` → existing detail view. One floating Scan overlay on the outer HStack. Migrate UI-test identifiers to `section.<id>.scan`.
+
+```text
+Building on Steps 3–5, in ContentView.swift:
+1. In detailView(for:): if section.isScannable, read its VM as ScanCoordinating. If coordinator.scanPresentation == .intro return SectionIntroView(presentation: SectionPresentation.for(section)!, title: section.title); else return the existing detail view unchanged. Non-scannable sections unchanged.
+2. Add a FloatingScanButton as `.overlay(alignment: .bottom)` on the OUTER HStack (not inside NavigationStack) with negative bottom padding (disc half outside the edge + glow, per screenshots). Show ONLY when selectedSection.isScannable AND its scanPresentation == .intro; accent = SectionPresentation.for(selectedSection)?.accent ?? .vaderCrimson; id `section.<suffix>.scan`; action = coordinator.beginScan().
+3. Detail views remain the source of truth for working/results — no duplication.
+4. Update affected UI tests: navigate → assert `section.intro` → tap `section.<id>.scan` → assert working/results UI. Repoint every old idle-scan id (system-junk.scan, large-old-files.scan, SmartScan idle scan, malware/optimization/space-lens scan triggers) to `section.<id>.scan`. Do NOT delete dead idle code yet (Step 7).
+Match ContentView style. Full unit + UI suite green.
+```
+
+### Prompt 34 — Step 7/8: Retire per-section bespoke idle states ([#90](https://github.com/jayvicsanantonio/VaderCleaner/issues/90))
+
+Pure deletion — remove the now-unreachable `.idle`/landing UI from the six scannable section views and their idle-only subviews. No behavior change.
+
+```text
+Building on Step 6, delete the now-unreachable per-section idle/landing UI: SmartScanIdleState, SystemJunkView.idleState, and the equivalent in LargeOldFilesView/SpaceLensView/MalwareView/OptimizationView. The detail view's switch should have no idle UI arm (EmptyView/no-op if the enum still has .idle, since ContentView never routes there at .intro). Do NOT change Phase enums or working/results/done/failed branches. Update/delete only tests that asserted the deleted idle UI; keep working/results coverage. Preserve still-accurate comments (repo rule). 2-line headers stay. Full unit + UI suite green, no regression vs end of Step 6.
+```
+
+### Prompt 35 — Step 8/8: Transitions, accessibility, E2E, README ([#91](https://github.com/jayvicsanantonio/VaderCleaner/issues/91))
+
+Polish and end-to-end verification.
+
+```text
+Building on Step 7: (1) crossfade intro→working→results reusing SmartScanView's phaseTransitionID/.transition(.opacity)/.animation(.smooth) pattern; floating Scan fades (not pops) when leaving .intro. (2) Accessibility: VoiceOver labels for hero/title/tagline/each feature and "Scan <Section>" on the button; Dynamic Type must scroll/stack, not clip. (3) E2E (XCUITest) for each of the six scannable sections: launch → select → assert section.intro with right title → tap section.<id>.scan → assert working then results/detail (or valid empty/needs-install for Malware); plus assert a non-scannable section (Health Monitor) has NO floating Scan and is unchanged. (4) README.md: document the unified landing + floating Scan; keep ToC anchors stable. Run full unit + UI suite; fix any flake.
+```
+
+### Phase 6 Summary
+
+| Prompt | Step | Feature | Issue |
+|--------|------|---------|-------|
+| 28 | 1/8 | SectionPresentation model + isScannable | [#84](https://github.com/jayvicsanantonio/VaderCleaner/issues/84) |
+| 29 | 2/8 | ScanPresentation + ScanCoordinating protocol | [#85](https://github.com/jayvicsanantonio/VaderCleaner/issues/85) |
+| 30 | 3/8 | Conform 6 view models (extensions) | [#86](https://github.com/jayvicsanantonio/VaderCleaner/issues/86) |
+| 31 | 4/8 | Extract FloatingScanButton | [#87](https://github.com/jayvicsanantonio/VaderCleaner/issues/87) |
+| 32 | 5/8 | SectionIntroView | [#88](https://github.com/jayvicsanantonio/VaderCleaner/issues/88) |
+| 33 | 6/8 | Wire into ContentView (everything wired) | [#89](https://github.com/jayvicsanantonio/VaderCleaner/issues/89) |
+| 34 | 7/8 | Retire bespoke idle states | [#90](https://github.com/jayvicsanantonio/VaderCleaner/issues/90) |
+| 35 | 8/8 | Transitions, a11y, E2E, README | [#91](https://github.com/jayvicsanantonio/VaderCleaner/issues/91) |

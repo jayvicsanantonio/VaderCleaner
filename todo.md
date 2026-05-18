@@ -51,3 +51,14 @@
 - [x] **Prompt 25** — Smart Scan (orchestrates junk + malware + optimization)
 - [x] **Prompt 26** — Exclusions wired to all scanners
 - [x] **Prompt 27** — Final polish, error handling, E2E tests, app icon, About window
+
+## Phase 6 — Scan-Centric Redesign
+
+- [x] **Prompt 28** — Step 1/8: SectionPresentation model + `isScannable` ([#84](https://github.com/jayvicsanantonio/VaderCleaner/issues/84))
+- [ ] **Prompt 29** — Step 2/8: ScanPresentation enum + ScanCoordinating protocol ([#85](https://github.com/jayvicsanantonio/VaderCleaner/issues/85))
+- [ ] **Prompt 30** — Step 3/8: Conform the 6 scannable view models (extensions) ([#86](https://github.com/jayvicsanantonio/VaderCleaner/issues/86))
+- [ ] **Prompt 31** — Step 4/8: Extract reusable FloatingScanButton ([#87](https://github.com/jayvicsanantonio/VaderCleaner/issues/87))
+- [ ] **Prompt 32** — Step 5/8: SectionIntroView (hero + description + sub-features) ([#88](https://github.com/jayvicsanantonio/VaderCleaner/issues/88))
+- [ ] **Prompt 33** — Step 6/8: Wire intro + floating Scan into ContentView ([#89](https://github.com/jayvicsanantonio/VaderCleaner/issues/89))
+- [ ] **Prompt 34** — Step 7/8: Retire per-section bespoke idle states ([#90](https://github.com/jayvicsanantonio/VaderCleaner/issues/90))
+- [ ] **Prompt 35** — Step 8/8: Transitions, accessibility, E2E, README ([#91](https://github.com/jayvicsanantonio/VaderCleaner/issues/91))
