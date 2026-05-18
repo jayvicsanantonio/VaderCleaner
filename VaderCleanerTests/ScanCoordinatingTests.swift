@@ -5,6 +5,7 @@ import XCTest
 import Combine
 @testable import VaderCleaner
 
+@MainActor
 final class ScanCoordinatingTests: XCTestCase {
 
     /// Minimal stand-in for the real scannable view models (which conform in a

@@ -196,3 +196,27 @@ extension SystemJunkViewModel {
         )
     }
 }
+
+// MARK: - ScanCoordinating
+
+extension SystemJunkViewModel: ScanCoordinating {
+
+    /// Projects the rich `Phase` onto the three coarse phases ContentView
+    /// switches on. `.scanning`/`.cleaning` are both "work in flight";
+    /// `.preview`/`.complete`/`.failed` all want the section's own detail UI,
+    /// whose internal switch renders the specifics.
+    var scanPresentation: ScanPresentation {
+        switch phase {
+        case .idle:
+            return .intro
+        case .scanning, .cleaning:
+            return .working
+        case .preview, .complete, .failed:
+            return .results
+        }
+    }
+
+    func beginScan() {
+        Task { await scan() }
+    }
+}

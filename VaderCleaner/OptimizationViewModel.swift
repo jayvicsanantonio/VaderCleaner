@@ -310,3 +310,31 @@ extension OptimizationViewModel {
         )
     }
 }
+
+// MARK: - ScanCoordinating
+
+extension OptimizationViewModel: ScanCoordinating {
+
+    /// Projects the rich `Phase` onto the three coarse phases ContentView
+    /// switches on. Optimization has no idle-triggered scan — `.ready` is the
+    /// loaded review surface and `.working`/`.failed` are action outcomes —
+    /// so all three collapse to `.results`, the section's own detail UI.
+    var scanPresentation: ScanPresentation {
+        switch phase {
+        case .idle:
+            return .intro
+        case .loading:
+            return .working
+        case .ready, .working, .failed:
+            return .results
+        }
+    }
+
+    func beginScan() {
+        // Semantic stretch: Optimization has no scan. "Scan" here means
+        // "load" — the same `refresh()` the view runs on appear, which
+        // populates login items / agents / memory and drives
+        // `.idle → .loading → .ready`.
+        Task { await refresh() }
+    }
+}

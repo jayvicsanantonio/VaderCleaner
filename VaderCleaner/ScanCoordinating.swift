@@ -25,6 +25,12 @@ enum ScanPresentation: Equatable {
 /// no type erasure. ContentView already holds every view model as its
 /// concrete type, so it reads `scanPresentation` and calls `beginScan()`
 /// directly.
+///
+/// `@MainActor`-isolated because every conformer is a `@MainActor` view model
+/// and the only consumer is SwiftUI (also main-actor). Without this the
+/// main-actor witnesses can't satisfy a nonisolated requirement, which the
+/// compiler flags as a potential data race.
+@MainActor
 protocol ScanCoordinating: ObservableObject {
     /// The coarse phase ContentView switches on.
     var scanPresentation: ScanPresentation { get }
