@@ -11,20 +11,20 @@ VaderCleaner is a Mac maintenance toolkit. It helps you reclaim disk space, tidy
 - [Who it's for](#who-its-for)
 - [What you need](#what-you-need)
 - [Features](#features)
-  - [Smart Scan](#-smart-scan)
-  - [System Junk](#-system-junk)
-  - [Large & Old Files](#-large--old-files)
-  - [Space Lens](#-space-lens)
-  - [Malware Removal](#-malware-removal)
-  - [Privacy](#-privacy)
-  - [Extensions](#-extensions)
-  - [App Uninstaller](#-app-uninstaller)
-  - [App Updater](#-app-updater)
-  - [Optimization](#-optimization)
-  - [Health Monitor](#-health-monitor)
-  - [Menu Bar quick view](#-menu-bar-quick-view)
-  - [Notifications](#-notifications)
-  - [Preferences](#-preferences)
+  - [Smart Scan](#smart-scan)
+  - [System Junk](#system-junk)
+  - [Large & Old Files](#large-old-files)
+  - [Space Lens](#space-lens)
+  - [Malware Removal](#malware-removal)
+  - [Privacy](#privacy)
+  - [Extensions](#extensions)
+  - [App Uninstaller](#app-uninstaller)
+  - [App Updater](#app-updater)
+  - [Optimization](#optimization)
+  - [Health Monitor](#health-monitor)
+  - [Menu Bar quick view](#menu-bar-quick-view)
+  - [Notifications](#notifications)
+  - [Preferences](#preferences)
 - [Permissions explained (in plain English)](#permissions-explained-in-plain-english)
 - [Your data & safety](#your-data--safety)
 - [For developers: running it locally](#for-developers-running-it-locally)
@@ -40,13 +40,15 @@ Anyone with a Mac that feels full, slow, or cluttered. You don't need to be tech
 
 - A Mac running **macOS 26 or later**
 - About a minute to grant **Full Disk Access** the first time (the app walks you through it — see [Permissions explained](#permissions-explained-in-plain-english))
-- *(Optional)* **ClamAV** installed if you want to use the malware scanner — see the [Malware Removal](#-malware-removal) section
+- *(Optional)* **ClamAV** installed if you want to use the malware scanner — see the [Malware Removal](#malware-removal) section
 
 ---
 
 ## Features
 
 VaderCleaner is organized into eleven tools, plus a menu bar quick view, notifications, and preferences. Pick a tool from the sidebar on the left.
+
+<a id="smart-scan"></a>
 
 ### ✨ Smart Scan
 
@@ -57,6 +59,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - You review the findings and confirm before anything is removed.
 - If the malware scanner isn't installed, Smart Scan still works — it just marks the malware result as "not checked" instead of failing.
 
+<a id="system-junk"></a>
+
 ### 🗑️ System Junk
 
 **Clears the cache, logs, and temporary files that pile up invisibly.** Apps and macOS constantly create throwaway files. Over months this can add up to many gigabytes.
@@ -65,6 +69,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Every category is pre-selected, with a size next to each — uncheck anything you'd rather keep.
 - Shows exactly how much space was freed when it's done.
 - Honors your **Exclusions** list, so folders you've marked as off-limits are never touched.
+
+<a id="large-old-files"></a>
 
 ### 📄 Large & Old Files
 
@@ -75,6 +81,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - You pick files individually — nothing is removed in bulk by accident.
 - If a file can't be deleted, it stays in the list and tells you; only the ones that succeeded are removed.
 
+<a id="space-lens"></a>
+
 ### 🔲 Space Lens
 
 **A visual map of what's using your disk.** Instead of a list, Space Lens draws your storage as a grid of tiles — bigger tile, bigger folder.
@@ -82,6 +90,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Click any tile to zoom into that folder; use the breadcrumb trail to zoom back out.
 - A progress bar shows the scan working in real time.
 - This tool is **look-only** — it never deletes anything. It's purely for understanding where your space went.
+
+<a id="malware-removal"></a>
 
 ### 🛡️ Malware Removal
 
@@ -94,6 +104,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 
 > **Note:** ClamAV is a free, separate tool that VaderCleaner uses but does not bundle. See the [developer section](#optional-enabling-the-malware-scanner-clamav) for how to install it. Without ClamAV, every other feature still works normally.
 
+<a id="privacy"></a>
+
 ### 🔒 Privacy
 
 **Wipes the trail your web browsers leave behind.** Cache, cookies, browsing history, saved form data, and more.
@@ -103,6 +115,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Optionally clears your macOS "recent items" list too.
 - Shows the size of each category before you clear it so you know what you're removing.
 
+<a id="extensions"></a>
+
 ### 🧩 Extensions
 
 **Manage the add-ons hooked into your system.** Over time you collect Safari, Mail, Quick Look, Finder, and Siri extensions you no longer use.
@@ -110,6 +124,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Discovers all of them and groups them by type.
 - Select the ones you want gone and confirm to remove them.
 - Helps cut down on background clutter and things that can slow your Mac.
+
+<a id="app-uninstaller"></a>
 
 ### ❌ App Uninstaller
 
@@ -121,6 +137,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Moves the app and its leftovers to the **Trash** (not a permanent delete), so you can recover it if you change your mind.
 - Intentionally one app at a time, to prevent bulk mistakes.
 
+<a id="app-updater"></a>
+
 ### 🔄 App Updater
 
 **Tells you which of your apps have updates available.** Keeping apps current is one of the best things you can do for security.
@@ -129,6 +147,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Shows only the apps that actually have a newer version, with the version jump (e.g. `12.6 → 12.7`).
 - Click through to update via the App Store or the app's own updater.
 - Handles being offline gracefully — it tells you it couldn't check rather than pretending everything is current.
+
+<a id="optimization"></a>
 
 ### ⚙️ Optimization
 
@@ -139,6 +159,8 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Free up inactive memory with one click.
 - Run macOS's built-in maintenance scripts (the housekeeping tasks the system normally does overnight).
 
+<a id="health-monitor"></a>
+
 ### 📊 Health Monitor
 
 **A live dashboard of your Mac's vital signs.** No buttons to press — just a clear, real-time picture.
@@ -148,9 +170,13 @@ VaderCleaner is organized into eleven tools, plus a menu bar quick view, notific
 - Color-coded (green / yellow / red) so problems are obvious at a glance.
 - Updates every couple of seconds. This screen is read-only and changes nothing on your Mac.
 
+<a id="menu-bar-quick-view"></a>
+
 ### 📌 Menu Bar quick view
 
 An optional compact readout in your menu bar showing memory and disk (and optionally CPU and battery) at all times. Click it for a popover with the current stats. Turn it on or off in **Preferences → Menu Bar**.
+
+<a id="notifications"></a>
 
 ### 🔔 Notifications
 
@@ -160,6 +186,8 @@ VaderCleaner can alert you when:
 - **Memory pressure crosses a threshold** you set.
 
 Alerts have a built-in cooldown so you're never spammed. You control all of this in **Preferences → Notifications**.
+
+<a id="preferences"></a>
 
 ### 🎛️ Preferences
 
@@ -216,7 +244,7 @@ open VaderCleaner.xcodeproj
 
 ### Project layout
 
-```
+```text
 VaderCleaner/            Main app — SwiftUI views, view models, scanners, services, models
 VaderCleanerHelper/      Privileged helper daemon (XPC) for root-level operations
 Shared/                  Code shared between app and helper (XPC protocol, deletion policy)
