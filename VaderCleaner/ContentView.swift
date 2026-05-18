@@ -28,6 +28,10 @@ struct ContentView: View {
     /// system caches the answer so the second prompt is a no-op, but it's
     /// cleaner to issue exactly one.
     @State private var didRequestNotificationPermission = false
+    /// Fixed width of the navigation rail. Shared by the rail's own frame and
+    /// the floating Scan overlay so the disc centers over the detail content
+    /// area (not the full window) without the two drifting apart.
+    private let railWidth: CGFloat = 240
     init(
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
@@ -59,7 +63,7 @@ struct ContentView: View {
             // full-bleed selection bar. The rail and detail share one
             // continuous gradient — no sidebar material, no divider.
             rail
-                .frame(width: 240)
+                .frame(width: railWidth)
 
             // Hosts `.navigationTitle` / `.toolbar` for the detail screens
             // without reintroducing a split divider.
@@ -69,11 +73,14 @@ struct ContentView: View {
         }
         // The Scan CTA floats over the window's bottom edge. It is attached to
         // the OUTER HStack — outside the NavigationStack — so the detail
-        // screens' toolbars and safe-area insets can't clip it. Negative
-        // bottom padding lets the disc and its glow bleed past the edge while
-        // the disc's center stays inside the window so it remains hittable.
+        // screens' toolbars and safe-area insets can't clip it. The leading
+        // inset equal to the rail width re-centers the disc over the detail
+        // content area rather than the full window, and the negative bottom
+        // padding lets the disc and its glow bleed past the edge while its
+        // center stays inside the window so it remains hittable.
         .overlay(alignment: .bottom) {
             floatingScan(for: selectedSection ?? .smartScan)
+                .padding(.leading, railWidth)
                 .padding(.bottom, -24)
         }
         .frame(minWidth: 900, minHeight: 600)

@@ -55,15 +55,16 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     }
 
     /// Stable automation identifier for this section's floating Scan button.
-    /// Mirrors `accessibilityIdentifier`'s suffix so the rail row and the scan
-    /// trigger for the same section share a recognizable stem
-    /// (`sidebar.systemJunk` ↔ `section.systemJunk.scan`). Derived by dropping
-    /// the `sidebar.` prefix so the two identifiers can't drift apart. Only
-    /// scannable sections render this button, but it is defined for every case
-    /// so the contract is uniform. Pinned by `NavigationSectionTests`; the
-    /// scan-centric UI tests target this identifier.
+    /// Built from the enum case name so it shares a recognizable stem with the
+    /// `accessibilityIdentifier` suffix (`sidebar.systemJunk` ↔
+    /// `section.systemJunk.scan`) without depending on that string's format.
+    /// `String(describing:)` on a no-payload case yields the case name and is
+    /// the same locale-independent source `SectionIntroView` already uses.
+    /// Only scannable sections render this button, but it is defined for every
+    /// case so the contract is uniform. Pinned by `NavigationSectionTests`;
+    /// the scan-centric UI tests target this identifier.
     var scanAccessibilityIdentifier: String {
-        "section.\(accessibilityIdentifier.dropFirst("sidebar.".count)).scan"
+        "section.\(String(describing: self)).scan"
     }
 
     var icon: String {
