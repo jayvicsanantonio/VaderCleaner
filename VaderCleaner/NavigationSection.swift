@@ -69,4 +69,20 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .healthMonitor:   return "heart.text.square"
         }
     }
+
+    /// Whether this section drives a scan/load and therefore adopts the
+    /// unified intro screen + floating Scan button. The remaining sections
+    /// (live stats and list-style management screens) keep their bespoke UI.
+    /// Exhaustive switch with no `default` so a future section is a
+    /// compile-time prompt to classify it here.
+    var isScannable: Bool {
+        switch self {
+        case .smartScan, .systemJunk, .largeOldFiles,
+             .spaceLens, .malwareRemoval, .optimization:
+            return true
+        case .privacy, .extensions, .appUninstaller,
+             .appUpdater, .healthMonitor:
+            return false
+        }
+    }
 }
