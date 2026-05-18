@@ -57,6 +57,46 @@ final class FinalPolishUITests: XCTestCase {
         }
     }
 
+    /// The rail must stay anchored: switching between a short detail screen
+    /// (App Updater, two rows) and a tall one (App Uninstaller, a search
+    /// field plus a long scrolling list) must not move the sidebar rows
+    /// vertically. Regression guard for the rail floating when the detail
+    /// column's effective height changes. The window is not resized, so the
+    /// `sidebar.smartScan` button's absolute Y must be identical in both.
+    func test_railRowPosition_isStableAcrossDetailScreens() throws {
+        dismissOnboardingIfNeeded()
+
+        let anchor = app.buttons["sidebar.smartScan"].firstMatch
+        XCTAssertTrue(anchor.waitForExistence(timeout: 5),
+                      "Expected Smart Scan row in sidebar")
+
+        let updaterRow = app.buttons["sidebar.appUpdater"].firstMatch
+        XCTAssertTrue(updaterRow.waitForExistence(timeout: 5),
+                      "Expected App Updater row in sidebar")
+        updaterRow.click()
+        // Wait until the clicked row reports selection before measuring. The
+        // anchor row exists regardless of selection, so waiting on it would
+        // return immediately and could sample Y mid-transition; the
+        // `.isSelected` trait only flips once the navigation has taken
+        // effect and the rail re-rendered.
+        waitUntilSelected(updaterRow)
+        let yShortDetail = anchor.frame.origin.y
+
+        let uninstallerRow = app.buttons["sidebar.appUninstaller"].firstMatch
+        XCTAssertTrue(uninstallerRow.waitForExistence(timeout: 5),
+                      "Expected App Uninstaller row in sidebar")
+        uninstallerRow.click()
+        waitUntilSelected(uninstallerRow)
+        let yTallDetail = anchor.frame.origin.y
+
+        XCTAssertEqual(
+            yShortDetail, yTallDetail, accuracy: 1.0,
+            "Sidebar rows must not shift vertically when the detail screen "
+            + "changes height (was \(yShortDetail) on App Updater, "
+            + "\(yTallDetail) on App Uninstaller)"
+        )
+    }
+
     // MARK: - Health Monitor
 
     /// Health Monitor must surface at least three stat cards. RAM, CPU, and
@@ -234,6 +274,25 @@ final class FinalPolishUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Block until a sidebar row carries the `.isSelected` accessibility
+    /// trait (set by `railRow` via `.accessibilityAddTraits`). This proves
+    /// the navigation actually took effect and the rail re-rendered, which
+    /// `waitForExistence` on an always-present row cannot.
+    private func waitUntilSelected(_ element: XCUIElement,
+                                   file: StaticString = #filePath,
+                                   line: UInt = #line) {
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isSelected == true"),
+            object: element
+        )
+        selected.expectationDescription = "sidebar row became selected"
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [selected], timeout: 5), .completed,
+            "Expected the clicked sidebar row to report selection",
+            file: file, line: line
+        )
+    }
 
     private func dismissOnboardingIfNeeded() {
         let continueWithout = app.buttons["Continue Without Access"]
