@@ -71,6 +71,15 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
 
     private struct Boom: Error {}
 
+    /// Counts how many times an injected entrypoint closure ran. A
+    /// `@MainActor` reference type (not a captured `var`) so the increment
+    /// stays warning-free under the VMs' main-actor isolation.
+    @MainActor
+    private final class CallCounter {
+        private(set) var count = 0
+        func bump() { count += 1 }
+    }
+
     // MARK: - SmartScanViewModel
     // Mapping: .idle→.intro; .scanning→.working; .results/.cleaning/.done/.failed→.results.
 
@@ -211,6 +220,26 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         XCTAssertNotEqual(vm.scanPresentation, .intro)
     }
 
+    func test_systemJunk_beginScanIgnoresReentrantCallWhileScanning() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makeSystemJunk(scanner: {
+            counter.bump()
+            await gate.wait()
+            return ScanResult(items: [])
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        vm.beginScan() // re-entrant while scanning: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "scanner invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .scanning }, "scan settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
+    }
+
     // MARK: - LargeOldFilesViewModel
     // Mapping: .idle→.intro; .scanning→.working; .results/.empty/.failed→.results.
 
@@ -259,6 +288,26 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         vm.beginScan()
         await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
         XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_largeOldFiles_beginScanIgnoresReentrantCallWhileScanning() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makeLargeOldFiles(scanner: {
+            counter.bump()
+            await gate.wait()
+            return []
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        vm.beginScan() // re-entrant while scanning: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "scanner invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .scanning }, "scan settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
     }
 
     // MARK: - DiskScannerViewModel (Space Lens)
@@ -504,6 +553,26 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         vm.beginScan()
         await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
         XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_optimization_beginScanIgnoresReentrantCallWhileLoading() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makeOptimization(loadLoginItems: {
+            counter.bump()
+            await gate.wait()
+            return []
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .loading }, ".loading")
+        vm.beginScan() // re-entrant while loading: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "loader invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .loading }, "load settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second load")
     }
 
     // MARK: - Construction helpers

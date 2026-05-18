@@ -217,6 +217,11 @@ extension SystemJunkViewModel: ScanCoordinating {
     }
 
     func beginScan() {
+        // `scan()` has no internal re-entrancy guard, so a double-tapped
+        // unified Scan button could race two concurrent disk walks whose
+        // `latestResult` / `checkedCategories` writes interleave. Gate on
+        // the in-flight phases, mirroring `SmartScanViewModel.scan()`.
+        guard phase != .scanning, phase != .cleaning else { return }
         Task { await scan() }
     }
 }

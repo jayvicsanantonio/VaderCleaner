@@ -315,6 +315,11 @@ extension LargeOldFilesViewModel: ScanCoordinating {
     }
 
     func beginScan() {
+        // `scan()` has no internal re-entrancy guard, so a double-tapped
+        // unified Scan button could race two concurrent disk walks whose
+        // `displayedFiles` writes interleave. Gate on the in-flight phase,
+        // mirroring `SmartScanViewModel.scan()`.
+        guard phase != .scanning else { return }
         Task { await scan() }
     }
 }
