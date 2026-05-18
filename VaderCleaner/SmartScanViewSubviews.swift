@@ -59,7 +59,7 @@ struct SmartScanIdleState: View {
 
             Spacer(minLength: 0)
 
-            CircularActionButton(
+            FloatingScanButton(
                 title: String(
                     localized: "Scan",
                     comment: "Primary button that starts the Smart Scan."
@@ -71,59 +71,6 @@ struct SmartScanIdleState: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
-    }
-}
-
-/// The hero / dashboard call to action — a crimson interactive-glass disc
-/// echoing the reference's circular button. Interactive glass gives it the
-/// system press-scale and shimmer; the crimson tint marks it as the primary
-/// action. Shared by the welcome screen ("Scan") and the results dashboard
-/// ("Clean") so the two CTAs stay visually identical.
-private struct CircularActionButton: View {
-    let title: String
-    let accessibilityIdentifier: String
-    let action: () -> Void
-
-    @State private var hovering = false
-    @State private var pulsing = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 108, height: 108)
-        }
-        .buttonStyle(PressableCircleButtonStyle())
-        .glassEffect(
-            .regular.tint(Color.vaderCrimson).interactive(),
-            in: .circle
-        )
-        // Ambient glow that breathes so the primary action keeps drawing the
-        // eye even when the rest of the screen is still.
-        .shadow(
-            color: Color.vaderCrimson.opacity(pulsing ? 0.65 : 0.4),
-            radius: pulsing ? 30 : 18,
-            y: 8
-        )
-        .scaleEffect(hovering ? 1.06 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.6), value: hovering)
-        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: pulsing)
-        .onHover { hovering = $0 }
-        .onAppear { pulsing = true }
-        .keyboardShortcut(.defaultAction)
-        .accessibilityIdentifier(accessibilityIdentifier)
-    }
-}
-
-/// Press feedback for the circular CTAs — a quick spring scale-down while
-/// pressed so the button feels physical rather than flat.
-private struct PressableCircleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.93 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.55),
-                       value: configuration.isPressed)
     }
 }
 
@@ -329,7 +276,7 @@ struct SmartScanResultsState: View {
             .onAppear { appeared = true }
 
             if hasCleanableWork {
-                CircularActionButton(
+                FloatingScanButton(
                     title: String(
                         localized: "Clean",
                         comment: "Circular button on the Smart Scan dashboard that cleans junk and removes threats."
