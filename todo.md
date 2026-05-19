@@ -61,4 +61,4 @@
 - [x] **Prompt 32** — Step 5/8: SectionIntroView (hero + description + sub-features) ([#88](https://github.com/jayvicsanantonio/VaderCleaner/issues/88))
 - [x] **Prompt 33** — Step 6/8: Wire intro + floating Scan into ContentView ([#89](https://github.com/jayvicsanantonio/VaderCleaner/issues/89))
 - [x] **Prompt 34** — Step 7/8: Retire per-section bespoke idle states ([#90](https://github.com/jayvicsanantonio/VaderCleaner/issues/90))
-- [ ] **Prompt 35** — Step 8/8: Transitions, accessibility, E2E, README ([#91](https://github.com/jayvicsanantonio/VaderCleaner/issues/91))
+- [x] **Prompt 35** — Step 8/8: Transitions, accessibility, E2E, README ([#91](https://github.com/jayvicsanantonio/VaderCleaner/issues/91))

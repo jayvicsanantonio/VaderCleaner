@@ -41,6 +41,11 @@ final class SpaceLensUITests: XCTestCase {
         let intro = app.descendants(matching: .any)["section.intro"]
         XCTAssertTrue(intro.waitForExistence(timeout: 5),
                       "Expected the unified intro screen for Space Lens")
+        // The per-section identifier proves it is *Space Lens's* intro, not
+        // merely "an intro" — the "right title" contract.
+        let spaceLensIntro = app.descendants(matching: .any)["section.intro.spacelens"]
+        XCTAssertTrue(spaceLensIntro.waitForExistence(timeout: 5),
+                      "Expected the Space Lens-specific intro identifier")
         let floatingScan = app.buttons["section.spaceLens.scan"]
         XCTAssertTrue(floatingScan.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the Space Lens intro")

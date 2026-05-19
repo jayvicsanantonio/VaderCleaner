@@ -300,6 +300,28 @@ private struct ScannableSectionContent<Coordinator: ScanCoordinating, Detail: Vi
     @ViewBuilder let detail: () -> Detail
 
     var body: some View {
+        content
+            // Reuse SmartScanView's phase-transition pattern so the
+            // intro → scan swap crossfades instead of hard-cutting.
+            .id(phaseTransitionID)
+            .transition(.opacity)
+            .animation(.smooth(duration: 0.35), value: phaseTransitionID)
+    }
+
+    /// Binary token: only the intro ↔ detail boundary crossfades. It is
+    /// deliberately *not* the full three-state `ScanPresentation` — `.working`
+    /// and `.results` both render `detail()`, so distinguishing them here
+    /// would change the view identity on the working → results boundary and
+    /// rebuild the live detail view mid-scan (re-running its `.task`/`onAppear`
+    /// and dropping in-progress state). The detail view owns its own
+    /// working → results transition; `SmartScanView` already crossfades its
+    /// internal phases with this same pattern.
+    private var phaseTransitionID: String {
+        coordinator.scanPresentation == .intro ? "intro" : "detail"
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if coordinator.scanPresentation == .intro,
            let presentation = SectionPresentation.for(section) {
             SectionIntroView(presentation: presentation, section: section)
@@ -321,14 +343,25 @@ private struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
     let section: NavigationSection
 
     var body: some View {
-        if coordinator.scanPresentation == .intro {
-            FloatingScanButton(
-                title: String(localized: "Scan", comment: "Floating scan button title."),
-                accent: SectionPresentation.for(section)?.accent ?? .vaderCrimson,
-                accessibilityIdentifier: section.scanAccessibilityIdentifier,
-                action: { coordinator.beginScan() }
-            )
+        Group {
+            if coordinator.scanPresentation == .intro {
+                FloatingScanButton(
+                    title: String(localized: "Scan", comment: "Floating scan button title."),
+                    accent: SectionPresentation.for(section)?.accent ?? .vaderCrimson,
+                    accessibilityIdentifier: section.scanAccessibilityIdentifier,
+                    accessibilityLabel: String(
+                        localized: "Scan \(section.title)",
+                        comment: "VoiceOver label for a section's floating scan button, e.g. \"Scan System Junk\"."
+                    ),
+                    action: { coordinator.beginScan() }
+                )
+                .transition(.opacity)
+            }
         }
+        // The disc fades out as the section leaves `.intro` instead of
+        // popping, staying in lock-step with the intro → detail crossfade
+        // `ScannableSectionContent` runs on the same value.
+        .animation(.smooth(duration: 0.35), value: coordinator.scanPresentation)
     }
 }
 

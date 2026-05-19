@@ -12,10 +12,19 @@ struct FloatingScanButton: View {
     let title: String
     var accent: Color = .vaderCrimson
     let accessibilityIdentifier: String
+    /// VoiceOver label. `nil` falls back to `title` so existing call sites
+    /// keep announcing "Scan"; the scan-centric shell passes
+    /// "Scan <Section>" so each section's disc is distinguishable.
+    var accessibilityLabel: String? = nil
     let action: () -> Void
 
     @State private var hovering = false
     @State private var pulsing = false
+
+    /// The label VoiceOver will announce — the caller's override, or the
+    /// visible title when none was supplied. Exposed so the contract is
+    /// unit-testable without rendering.
+    var resolvedAccessibilityLabel: String { accessibilityLabel ?? title }
 
     var body: some View {
         Button(action: action) {
@@ -43,6 +52,7 @@ struct FloatingScanButton: View {
         .onAppear { pulsing = true }
         .keyboardShortcut(.defaultAction)
         .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityLabel(resolvedAccessibilityLabel)
     }
 }
 

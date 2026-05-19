@@ -120,6 +120,35 @@ final class FinalPolishUITests: XCTestCase {
         }
     }
 
+    /// Health Monitor is a non-scannable section: it must keep its bespoke
+    /// live-stats UI and must NOT pick up the scan-centric shell — no unified
+    /// intro screen and no floating Scan button. Regression guard that the
+    /// `ScannableSectionContent` wrapper and `FloatingScanOverlay` stay gated
+    /// behind `NavigationSection.isScannable`.
+    func test_healthMonitor_isNonScannable_hasNoIntroOrScanButton() throws {
+        dismissOnboardingIfNeeded()
+
+        let row = app.buttons["sidebar.healthMonitor"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5),
+                      "Expected Health Monitor row in sidebar")
+        row.click()
+
+        // Wait for the bespoke UI to actually render before asserting
+        // absence, so we are not just sampling before the section appeared.
+        let ramCard = app.descendants(matching: .any)["health.card.ram"]
+        XCTAssertTrue(ramCard.waitForExistence(timeout: 10),
+                      "Expected Health Monitor's bespoke stat cards to render")
+
+        XCTAssertFalse(
+            app.descendants(matching: .any)["section.intro"].exists,
+            "A non-scannable section must not render the unified intro screen"
+        )
+        XCTAssertFalse(
+            app.buttons["section.healthMonitor.scan"].exists,
+            "A non-scannable section must not show a floating Scan button"
+        )
+    }
+
     // MARK: - Large & Old Files
 
     /// Sidebar → Large & Old Files → Scan must reach a recognizable state:
@@ -145,6 +174,11 @@ final class FinalPolishUITests: XCTestCase {
         let intro = app.descendants(matching: .any)["section.intro"]
         XCTAssertTrue(intro.waitForExistence(timeout: 5),
                       "Expected the unified intro screen for Large & Old Files")
+        // The per-section identifier proves it is *Large & Old Files's*
+        // intro, not merely "an intro" — the "right title" contract.
+        let largeOldIntro = app.descendants(matching: .any)["section.intro.largeoldfiles"]
+        XCTAssertTrue(largeOldIntro.waitForExistence(timeout: 5),
+                      "Expected the Large & Old Files-specific intro identifier")
         let scan = app.buttons["section.largeOldFiles.scan"]
         XCTAssertTrue(scan.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the Large & Old Files intro")

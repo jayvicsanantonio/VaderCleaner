@@ -48,6 +48,8 @@ Anyone with a Mac that feels full, slow, or cluttered. You don't need to be tech
 
 VaderCleaner is organized into eleven tools, plus a menu bar quick view, notifications, and preferences. Pick a tool from the sidebar on the left.
 
+Every tool that runs a scan — Smart Scan, System Junk, Large & Old Files, Space Lens, Malware Removal, and Optimization — opens to the same kind of landing screen: a large illustration, a one-line description of what the tool does, and a short list of what the upcoming scan will cover. Nothing runs until you press the round **Scan** button that floats at the bottom of the window. While the scan works the landing crossfades into its progress and results, and the Scan button fades away. The tools that show live information instead of scanning (Health Monitor, Privacy, Extensions, App Uninstaller, App Updater) keep their own layout and have no Scan button.
+
 <a id="smart-scan"></a>
 
 ### ✨ Smart Scan

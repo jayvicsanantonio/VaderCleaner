@@ -37,6 +37,11 @@ final class OptimizationUITests: XCTestCase {
         let intro = app.descendants(matching: .any)["section.intro"]
         XCTAssertTrue(intro.waitForExistence(timeout: 5),
                       "Expected the unified intro screen for Optimization")
+        // The per-section identifier proves it is *Optimization's* intro, not
+        // merely "an intro" — the "right title" contract.
+        let optimizationIntro = app.descendants(matching: .any)["section.intro.optimization"]
+        XCTAssertTrue(optimizationIntro.waitForExistence(timeout: 5),
+                      "Expected the Optimization-specific intro identifier")
         let floatingScan = app.buttons["section.optimization.scan"]
         XCTAssertTrue(floatingScan.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the Optimization intro")
