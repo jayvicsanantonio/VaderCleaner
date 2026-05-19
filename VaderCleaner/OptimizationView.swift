@@ -71,7 +71,13 @@ struct OptimizationView: View {
     @ViewBuilder
     private var content: some View {
         switch viewModel.phase {
-        case .idle, .loading:
+        case .idle:
+            // Unreachable: ContentView shows the unified SectionIntroView
+            // while the coordinator reports `.intro` (which `.idle` maps to),
+            // so the detail view is never built in this phase. The arm stays
+            // only to keep the switch exhaustive over `Phase`.
+            EmptyView()
+        case .loading:
             OptimizationProgressState(
                 label: String(
                     localized: "Loading optimization data…",

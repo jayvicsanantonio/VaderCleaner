@@ -54,7 +54,11 @@ struct SmartScanView: View {
     private var content: some View {
         switch viewModel.phase {
         case .idle:
-            SmartScanIdleState(onScan: { Task { await viewModel.scan() } })
+            // Unreachable: ContentView shows the unified SectionIntroView
+            // while the coordinator reports `.intro` (which `.idle` maps to),
+            // so the detail view is never built in this phase. The arm stays
+            // only to keep the switch exhaustive over `Phase`.
+            EmptyView()
         case .scanning(let phase):
             SmartScanProgressState(
                 label: phase,

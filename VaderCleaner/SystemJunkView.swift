@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Detail view shown when the user selects "System Junk" in the sidebar.
 /// Each phase of `SystemJunkViewModel.Phase` maps to a dedicated subview:
-///   - `.idle` — centered Scan call-to-action.
+///   - `.idle` — not rendered here; ContentView shows the unified intro.
 ///   - `.scanning` — progress spinner.
 ///   - `.preview` — list of categories with checkboxes plus Clean/Re-scan.
 ///   - `.cleaning` — progress spinner.
@@ -27,7 +27,11 @@ struct SystemJunkView: View {
         Group {
             switch viewModel.phase {
             case .idle:
-                idleState
+                // Unreachable: ContentView shows the unified SectionIntroView
+                // while the coordinator reports `.intro` (which `.idle` maps
+                // to), so the detail view is never built in this phase. The
+                // arm stays only to keep the switch exhaustive over `Phase`.
+                EmptyView()
             case .scanning:
                 progressState(label: "Scanning…", identifier: "system-junk.scanning")
             case .preview(let result):
@@ -45,31 +49,6 @@ struct SystemJunkView: View {
     }
 
     // MARK: - States
-
-    private var idleState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "trash")
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-            Text("System Junk")
-                .font(.title2.weight(.semibold))
-            Text("Scan caches, logs, mail attachments, iOS backups, trash, and stale language files.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-            if !appState.hasFullDiskAccess {
-                FullDiskAccessPromptCard(onRecheck: { appState.refresh() })
-            }
-            Button("Scan") {
-                Task { await viewModel.scan() }
-            }
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("system-junk.scan")
-        }
-        .padding()
-    }
 
     private func progressState(label: String, identifier: String) -> some View {
         VStack(spacing: 16) {
