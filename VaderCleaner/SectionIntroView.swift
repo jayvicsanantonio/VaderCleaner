@@ -110,11 +110,17 @@ struct SectionIntroView: View {
         // A soft bloom behind the hero, recoloured to the section accent so
         // the intro feels like part of one family.
         .shadow(color: presentation.accent.opacity(0.45), radius: 32)
-        // The art itself is decorative, but a sighted user sees a clear
-        // section identity here, so VoiceOver gets the same anchor: the
-        // section name announced as an image rather than a silent skip.
+        // The art is decorative, but a sighted user gets a clear section
+        // anchor here, so VoiceOver gets one too. The label is qualified as
+        // an "illustration" rather than the bare section name so it does not
+        // read as a verbatim duplicate of the section-title heading that
+        // follows — it announces the artwork, the heading announces the
+        // section.
         .accessibilityElement()
-        .accessibilityLabel(Text(title))
+        .accessibilityLabel(Text(String(
+            localized: "\(title) illustration",
+            comment: "VoiceOver label for a section intro's decorative hero art, e.g. \"System Junk illustration\"."
+        )))
         .accessibilityAddTraits(.isImage)
     }
 
