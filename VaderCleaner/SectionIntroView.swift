@@ -50,23 +50,36 @@ struct SectionIntroView: View {
     // MARK: Body
 
     /// Hero + text laid side by side on wide panes, stacked when narrow.
+    /// Wrapped in a `ScrollView` so the largest Dynamic Type sizes scroll
+    /// instead of clipping; the `minHeight` keyed to the available height
+    /// keeps the content vertically centered whenever it still fits, so the
+    /// landing looks unchanged at default text sizes.
     var body: some View {
-        // Wide layout (hero beside the text) is preferred; ViewThatFits drops
-        // to the stacked layout when the detail pane is too narrow for both
-        // side by side, so the screen degrades gracefully at the 900pt min
-        // window without a manual breakpoint.
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 48) {
-                hero
-                textColumn
+        GeometryReader { proxy in
+            ScrollView {
+                // Wide layout (hero beside the text) is preferred;
+                // ViewThatFits drops to the stacked layout when the detail
+                // pane is too narrow for both side by side, so the screen
+                // degrades gracefully at the 900pt min window without a
+                // manual breakpoint.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 48) {
+                        hero
+                        textColumn
+                    }
+                    VStack(spacing: 28) {
+                        hero
+                        textColumn
+                    }
+                }
+                .padding(40)
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
             }
-            VStack(spacing: 28) {
-                hero
-                textColumn
-            }
+            // No bounce when the content already fits — the intro should feel
+            // like a static landing, not a scroll surface, until Dynamic Type
+            // actually overflows it.
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
         .accessibilityIdentifier(rootAccessibilityIdentifier)
         .accessibilityElement(children: .contain)
     }
@@ -97,7 +110,12 @@ struct SectionIntroView: View {
         // A soft bloom behind the hero, recoloured to the section accent so
         // the intro feels like part of one family.
         .shadow(color: presentation.accent.opacity(0.45), radius: 32)
-        .accessibilityHidden(true)
+        // The art itself is decorative, but a sighted user sees a clear
+        // section identity here, so VoiceOver gets the same anchor: the
+        // section name announced as an image rather than a silent skip.
+        .accessibilityElement()
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(.isImage)
     }
 
     // MARK: Text + features
@@ -110,6 +128,9 @@ struct SectionIntroView: View {
                 Text(title)
                     .font(.system(size: 34, weight: .semibold))
                     .fixedSize(horizontal: false, vertical: true)
+                    // Marks the section name as a heading so VoiceOver's
+                    // rotor lets users jump straight to it.
+                    .accessibilityAddTraits(.isHeader)
 
                 Text(presentation.tagline)
                     .font(.title3)

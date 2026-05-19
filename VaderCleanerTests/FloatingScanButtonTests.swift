@@ -77,4 +77,37 @@ final class FloatingScanButtonTests: XCTestCase {
             "A caller-supplied accent must override the crimson default"
         )
     }
+
+    func test_accessibilityLabelDefaultsToTitle() {
+        // Call sites that don't pass a label keep VoiceOver announcing the
+        // visible title, so the disc still reads as "Scan" by default.
+        let button = FloatingScanButton(
+            title: "Scan",
+            accessibilityIdentifier: "section.scan",
+            action: {}
+        )
+
+        XCTAssertEqual(
+            button.resolvedAccessibilityLabel,
+            "Scan",
+            "Without an explicit label the button must fall back to its title"
+        )
+    }
+
+    func test_customAccessibilityLabelOverridesTitle() {
+        // The scan-centric shell passes "Scan <Section>" so VoiceOver
+        // distinguishes one section's disc from another.
+        let button = FloatingScanButton(
+            title: "Scan",
+            accessibilityIdentifier: "section.systemJunk.scan",
+            accessibilityLabel: "Scan System Junk",
+            action: {}
+        )
+
+        XCTAssertEqual(
+            button.resolvedAccessibilityLabel,
+            "Scan System Junk",
+            "A caller-supplied accessibility label must override the title"
+        )
+    }
 }
