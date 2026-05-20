@@ -75,13 +75,13 @@ struct ContentView: View {
         // the OUTER HStack — outside the NavigationStack — so the detail
         // screens' toolbars and safe-area insets can't clip it. The leading
         // inset equal to the rail width re-centers the disc over the detail
-        // content area rather than the full window, and the negative bottom
-        // padding lets the disc and its glow bleed past the edge while its
-        // center stays inside the window so it remains hittable.
+        // content area rather than the full window, and the bottom padding
+        // keeps the whole disc and its glow inside the window above the
+        // bottom edge.
         .overlay(alignment: .bottom) {
             floatingScan(for: selectedSection ?? .smartScan)
                 .padding(.leading, railWidth)
-                .padding(.bottom, -24)
+                .padding(.bottom, 32)
         }
         .frame(minWidth: 900, minHeight: 600)
         // Branded shell: gradient backdrop, crimson tint, forced dark
