@@ -32,6 +32,10 @@ struct ContentView: View {
     /// the floating Scan overlay so the disc centers over the detail content
     /// area (not the full window) without the two drifting apart.
     private let railWidth: CGFloat = 240
+    /// Bottom inset for the floating Scan overlay. Sized so the 108pt disc
+    /// and its breathing glow sit fully inside the window above the bottom
+    /// edge instead of being clipped by it.
+    private let floatingScanBottomPadding: CGFloat = 32
     init(
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
@@ -81,7 +85,7 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             floatingScan(for: selectedSection ?? .smartScan)
                 .padding(.leading, railWidth)
-                .padding(.bottom, 32)
+                .padding(.bottom, floatingScanBottomPadding)
         }
         .frame(minWidth: 900, minHeight: 600)
         // Branded shell: gradient backdrop, crimson tint, forced dark
