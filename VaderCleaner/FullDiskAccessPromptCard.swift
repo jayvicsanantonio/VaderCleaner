@@ -1,20 +1,27 @@
 // FullDiskAccessPromptCard.swift
-// Inline banner shown in FDA-sensitive scanner idle states when Full Disk Access is missing, so the user gets an actionable prompt instead of silently empty or incomplete scan results.
+// Inline accent-tinted reminder shown on a section's intro when Full Disk Access is missing, so the user is told up front that scans here will be incomplete and can grant access without leaving the flow.
 
 import SwiftUI
 import AppKit
 
-/// Non-blocking inline prompt rendered above a scanner's Scan call-to-action
-/// when Full Disk Access has not been granted. The app-wide onboarding sheet
-/// (`PermissionOnboardingView`) covers first run; once the user dismisses it
-/// with "Continue Without Access" this card is the persistent, per-feature
-/// reminder that scans here will be incomplete until access is granted.
+/// Non-blocking inline prompt rendered inside a scannable section's intro
+/// (and in `PrivacyView`'s idle state) when Full Disk Access has not been
+/// granted. The app-wide onboarding sheet (`PermissionOnboardingView`) covers
+/// first run; once the user dismisses it with "Continue Without Access" this
+/// card is the persistent, per-section reminder that scans here will be
+/// incomplete until access is granted.
 ///
-/// The owning view supplies only the recheck action (typically
+/// `accent` tints the lock symbol and the primary CTA so the card reads as
+/// part of the section it sits in (System Junk green, Large & Old Files teal,
+/// etc.). The owning view supplies the recheck action (typically
 /// `AppState.refresh`). Opening System Settings reuses the same deep-link as
 /// the onboarding sheet so the Full Disk Access pane URL lives in one place.
 struct FullDiskAccessPromptCard: View {
 
+    /// Section-aware tint applied to the lock symbol and the primary button.
+    /// Defaults to crimson so existing call sites (PrivacyView) stay on the
+    /// Vader palette without a code change.
+    var accent: Color = .vaderCrimson
     let onRecheck: () -> Void
 
     private func openSettings() {
@@ -25,7 +32,8 @@ struct FullDiskAccessPromptCard: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "lock.shield")
                 .font(.title2)
-                .foregroundStyle(.tint)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(accent)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Full Disk Access needed")
                     .font(.callout.weight(.semibold))
@@ -37,6 +45,7 @@ struct FullDiskAccessPromptCard: View {
                     Button("Open System Settings", action: openSettings)
                         .controlSize(.small)
                         .buttonStyle(.borderedProminent)
+                        .tint(accent)
                         .accessibilityIdentifier("fda.openSettings")
                     Button("Check Again", action: onRecheck)
                         .controlSize(.small)
@@ -49,13 +58,17 @@ struct FullDiskAccessPromptCard: View {
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 8))
+        // Soft accent halo so the card feels native to the section without
+        // overpowering the hero — sits beneath the glass so the surface still
+        // reads as a quiet reminder, not an alert.
+        .shadow(color: accent.opacity(0.25), radius: 14, y: 4)
         .frame(maxWidth: 420)
         .accessibilityIdentifier("fda.inlinePrompt")
     }
 }
 
 #Preview {
-    FullDiskAccessPromptCard(onRecheck: {})
+    FullDiskAccessPromptCard(accent: .green, onRecheck: {})
         .padding()
         .frame(width: 560)
 }

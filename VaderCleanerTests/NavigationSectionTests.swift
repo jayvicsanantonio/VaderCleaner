@@ -80,6 +80,32 @@ final class NavigationSectionTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count, "Scan identifiers must be unique")
     }
 
+    func test_requiresFullDiskAccess_isPinned() {
+        // The reminder card surfaces on a section's intro only when its scan
+        // actually needs Full Disk Access. Pinned per case so a future
+        // section can't silently slip through with the wrong default.
+        let expected: [NavigationSection: Bool] = [
+            .smartScan: true,        // composes System Junk + Malware
+            .systemJunk: true,       // /Library/Caches, /Library/Logs, mail
+            .largeOldFiles: true,    // walks ~/Library
+            .spaceLens: true,        // home directory walk
+            .malwareRemoval: true,   // ClamAV scan
+            .optimization: false,    // launchctl / login items / RAM
+            .privacy: false,
+            .extensions: false,
+            .appUninstaller: false,
+            .appUpdater: false,
+            .healthMonitor: false,
+        ]
+        for section in NavigationSection.allCases {
+            XCTAssertEqual(
+                section.requiresFullDiskAccess,
+                expected[section],
+                "requiresFullDiskAccess for \(section) drifted — reclassify here intentionally."
+            )
+        }
+    }
+
     func test_eachSection_hasValidSFSymbol() throws {
         guard #available(macOS 14.0, *) else {
             throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")

@@ -80,7 +80,11 @@ struct LargeOldFilesView: View {
                 onAddToExclusions: { exclusions.add(path: $0.url.path) }
             )
         case .empty:
-            LargeOldFilesEmptyState(onScanAgain: viewModel.scanAgain)
+            LargeOldFilesEmptyState(
+                onScanAgain: viewModel.scanAgain,
+                hasFullDiskAccess: appState.hasFullDiskAccess,
+                onRefreshAccess: { appState.refresh() }
+            )
         case .failed(let stage, let message):
             LargeOldFilesFailedState(stage: stage, message: message, onTryAgain: viewModel.scanAgain)
         }

@@ -98,4 +98,22 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
             return false
         }
     }
+
+    /// Whether this section's scan reads paths that are gated by Full Disk
+    /// Access. Drives whether the intro screen shows the inline FDA reminder
+    /// card — sections that don't touch FDA-protected paths (Optimization, the
+    /// management screens) intentionally never warn so the prompt is reserved
+    /// for cases where missing the permission really would yield empty or
+    /// incomplete results. Exhaustive switch so a future section is a
+    /// compile-time prompt to classify it here.
+    var requiresFullDiskAccess: Bool {
+        switch self {
+        case .smartScan, .systemJunk, .largeOldFiles,
+             .spaceLens, .malwareRemoval:
+            return true
+        case .optimization, .privacy, .extensions,
+             .appUninstaller, .appUpdater, .healthMonitor:
+            return false
+        }
+    }
 }
