@@ -9,11 +9,11 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case largeOldFiles
     case spaceLens
     case malwareRemoval
+    case optimization
     case privacy
     case extensions
     case appUninstaller
     case appUpdater
-    case optimization
     case healthMonitor
 
     var id: Self { self }
@@ -25,11 +25,11 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return String(localized: "Large & Old Files")
         case .spaceLens:       return String(localized: "Space Lens")
         case .malwareRemoval:  return String(localized: "Malware Removal")
+        case .optimization:    return String(localized: "Optimization")
         case .privacy:         return String(localized: "Privacy")
         case .extensions:      return String(localized: "Extensions")
         case .appUninstaller:  return String(localized: "App Uninstaller")
         case .appUpdater:      return String(localized: "App Updater")
-        case .optimization:    return String(localized: "Optimization")
         case .healthMonitor:   return String(localized: "Health Monitor")
         }
     }
@@ -45,11 +45,11 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return "sidebar.largeOldFiles"
         case .spaceLens:       return "sidebar.spaceLens"
         case .malwareRemoval:  return "sidebar.malwareRemoval"
+        case .optimization:    return "sidebar.optimization"
         case .privacy:         return "sidebar.privacy"
         case .extensions:      return "sidebar.extensions"
         case .appUninstaller:  return "sidebar.appUninstaller"
         case .appUpdater:      return "sidebar.appUpdater"
-        case .optimization:    return "sidebar.optimization"
         case .healthMonitor:   return "sidebar.healthMonitor"
         }
     }
@@ -74,11 +74,11 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return "doc.text.magnifyingglass"
         case .spaceLens:       return "square.split.2x2"
         case .malwareRemoval:  return "shield.lefthalf.filled"
+        case .optimization:    return "gauge.with.needle"
         case .privacy:         return "lock.shield"
         case .extensions:      return "puzzlepiece.extension"
         case .appUninstaller:  return "xmark.app"
         case .appUpdater:      return "arrow.triangle.2.circlepath.circle"
-        case .optimization:    return "gauge.with.needle"
         case .healthMonitor:   return "heart.text.square"
         }
     }
