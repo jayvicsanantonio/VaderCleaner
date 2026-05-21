@@ -62,11 +62,25 @@ struct SystemJunkView: View {
         .accessibilityIdentifier(identifier)
     }
 
+    @ViewBuilder
     private func previewState(result: ScanResult) -> some View {
-        VStack(spacing: 0) {
-            previewList(result: result)
-            Divider()
-            previewFooter
+        if result.items.isEmpty {
+            // A scan that found nothing collapses to the dedicated empty
+            // subview — the regular preview list + disabled Clean footer
+            // reads as "you did something wrong" when the truth is "nothing
+            // qualified." The empty subview also carries the FDA reminder
+            // for the silent-failure case.
+            SystemJunkEmptyPreviewState(
+                onScanAgain: viewModel.scanAgain,
+                hasFullDiskAccess: appState.hasFullDiskAccess,
+                onRefreshAccess: { appState.refresh() }
+            )
+        } else {
+            VStack(spacing: 0) {
+                previewList(result: result)
+                Divider()
+                previewFooter
+            }
         }
     }
 
@@ -200,6 +214,61 @@ private struct CategoryRow: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Empty-result variant of the preview state. Surfaces when a scan returns
+/// zero items — without it, the user would land on the regular preview list
+/// with a disabled Clean button, reading as "I did something wrong" when the
+/// truth is "nothing qualified or FDA blocked the reads." The inline FDA
+/// reminder card surfaces under the CTA whenever access is missing, so the
+/// silent-failure case is always explained.
+struct SystemJunkEmptyPreviewState: View {
+    let onScanAgain: () -> Void
+    /// Current Full Disk Access state. Drives whether the inline reminder
+    /// appears under the "Scan Again" CTA.
+    let hasFullDiskAccess: Bool
+    /// Re-runs the FDA check, wired to `AppState.refresh()` so the card can
+    /// fade out the moment the user grants access in System Settings.
+    let onRefreshAccess: () -> Void
+
+    /// Pure predicate so the gate is unit-testable without rendering. The
+    /// per-section "this scan needs FDA" decision lives in
+    /// `NavigationSection.requiresFullDiskAccess`; here it is unconditional
+    /// because System Junk always requires FDA to read /Library/Caches and
+    /// /Library/Logs.
+    var shouldShowFullDiskAccessReminder: Bool { !hasFullDiskAccess }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.green)
+            Text("Nothing to clean up")
+                .font(.title2.weight(.semibold))
+                .accessibilityIdentifier("system-junk.emptyTitle")
+            Text("No junk caches, logs, or mail attachments were found this time.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+            Button("Scan Again", action: onScanAgain)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("system-junk.emptyScanAgain")
+
+            if shouldShowFullDiskAccessReminder {
+                FullDiskAccessPromptCard(
+                    accent: .green,
+                    onRecheck: onRefreshAccess
+                )
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+        .animation(.smooth(duration: 0.4), value: hasFullDiskAccess)
     }
 }
 

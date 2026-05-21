@@ -267,6 +267,19 @@ struct LargeOldFilesFooter: View {
 
 struct LargeOldFilesEmptyState: View {
     let onScanAgain: () -> Void
+    /// Current Full Disk Access state. Drives whether the inline reminder
+    /// appears under the "Scan Again" CTA — without it the user can't tell
+    /// whether the empty result is genuine or just FDA-blocked.
+    let hasFullDiskAccess: Bool
+    /// Re-runs the FDA check. Wired to `AppState.refresh()` so the card can
+    /// fade out the moment the user grants access in System Settings.
+    let onRefreshAccess: () -> Void
+
+    /// Pure predicate so the gate is unit-testable without rendering. The
+    /// per-section "this scan needs FDA" decision lives in
+    /// `NavigationSection.requiresFullDiskAccess`; here it is unconditional
+    /// because Large & Old Files always requires FDA to read ~/Library.
+    var shouldShowFullDiskAccessReminder: Bool { !hasFullDiskAccess }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -285,8 +298,18 @@ struct LargeOldFilesEmptyState: View {
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("large-old.scanAgain")
+
+            if shouldShowFullDiskAccessReminder {
+                FullDiskAccessPromptCard(
+                    accent: .teal,
+                    onRecheck: onRefreshAccess
+                )
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
         .padding()
+        .animation(.smooth(duration: 0.4), value: hasFullDiskAccess)
     }
 }
 
