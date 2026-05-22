@@ -184,7 +184,35 @@ struct SectionPresentation {
                     ),
                 ]
             )
-        case .privacy, .extensions, .appUninstaller, .appUpdater, .healthMonitor:
+        case .privacy:
+            return SectionPresentation(
+                heroSymbol: "lock.shield",
+                heroAssetName: nil,
+                accent: .vaderCrimson,
+                tagline: String(
+                    localized: "Clear browsing history, cookies, and caches across your browsers.",
+                    comment: "Privacy intro tagline."
+                ),
+                features: [
+                    SectionFeature(
+                        symbol: "clock.arrow.circlepath",
+                        title: String(localized: "Browsing History", comment: "Privacy feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "arrow.down.circle",
+                        title: String(localized: "Downloads", comment: "Privacy feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "internaldrive",
+                        title: String(localized: "Cookies & Cache", comment: "Privacy feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "doc.text",
+                        title: String(localized: "Recent Items", comment: "Privacy feature row.")
+                    ),
+                ]
+            )
+        case .extensions, .appUninstaller, .appUpdater, .healthMonitor:
             return nil
         }
     }

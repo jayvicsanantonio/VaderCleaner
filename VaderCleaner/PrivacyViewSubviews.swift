@@ -12,36 +12,6 @@ enum PrivacyViewFormatting {
     }()
 }
 
-struct PrivacyIdleState: View {
-    let onScan: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lock.shield")
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-            Text(String(
-                localized: "Privacy",
-                comment: "Title for the Privacy cleanup feature."
-            ))
-                .font(.title2.weight(.semibold))
-            Text(String(
-                localized: "Clear browsing history, downloads, cookies, cache, saved form data across detected browsers, and the system Recent Items list.",
-                comment: "Description of what the Privacy cleanup feature can clear."
-            ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
-            Button("Scan", action: onScan)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("privacy.scan")
-        }
-        .padding()
-    }
-}
-
 struct PrivacyProgressState: View {
     let label: String
     let identifier: String

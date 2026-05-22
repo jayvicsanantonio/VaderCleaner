@@ -233,7 +233,9 @@ struct ContentView: View {
                 SpaceLensView(viewModel: spaceLensViewModel)
             }
         case .privacy:
-            PrivacyView(viewModel: privacyViewModel)
+            ScannableSectionContent(coordinator: privacyViewModel, section: section) {
+                PrivacyView(viewModel: privacyViewModel)
+            }
         case .appUninstaller:
             AppUninstallerView(viewModel: appUninstallerViewModel)
         case .appUpdater:
@@ -272,7 +274,9 @@ struct ContentView: View {
             FloatingScanOverlay(coordinator: optimizationViewModel, section: section)
         case .malwareRemoval:
             FloatingScanOverlay(coordinator: malwareViewModel, section: section)
-        case .privacy, .extensions, .appUninstaller, .appUpdater, .healthMonitor:
+        case .privacy:
+            FloatingScanOverlay(coordinator: privacyViewModel, section: section)
+        case .extensions, .appUninstaller, .appUpdater, .healthMonitor:
             EmptyView()
         }
     }

@@ -6,10 +6,13 @@ import SwiftUI
 /// Detail view shown when the user selects "Privacy" in the sidebar.
 /// The parent owns feature state and destructive-action coordination while
 /// dedicated subviews render each phase and preview row.
+///
+/// The `.idle` phase is not rendered here: ContentView shows the unified
+/// `SectionIntroView` plus the floating Scan button while the coordinator
+/// reports `.intro`, so the detail view is only built once a scan has started.
 struct PrivacyView: View {
 
     @ObservedObject private var viewModel: PrivacyViewModel
-    @EnvironmentObject private var appState: AppState
     @State private var showClearConfirmation = false
 
     init(viewModel: PrivacyViewModel) {
@@ -34,12 +37,11 @@ struct PrivacyView: View {
     private var content: some View {
         switch viewModel.phase {
         case .idle:
-            VStack(spacing: 16) {
-                if !appState.hasFullDiskAccess {
-                    FullDiskAccessPromptCard(onRecheck: { appState.refresh() })
-                }
-                PrivacyIdleState(onScan: startPreview)
-            }
+            // Unreachable: ContentView shows the unified SectionIntroView
+            // while the coordinator reports `.intro` (which `.idle` maps to),
+            // so the detail view is never built in this phase. The arm stays
+            // only to keep the switch exhaustive over `Phase`.
+            EmptyView()
         case .scanning:
             PrivacyProgressState(label: "Scanning…", identifier: "privacy.scanning")
         case .preview:
@@ -84,10 +86,6 @@ struct PrivacyView: View {
             localized: "This permanently removes the selected browser data. Browsers will recreate the storage on next launch but the data won't be recoverable.",
             comment: "Alert message shown when clearing selected browser data only."
         )
-    }
-
-    private func startPreview() {
-        Task { await viewModel.preview() }
     }
 }
 

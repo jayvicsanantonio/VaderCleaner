@@ -8,7 +8,7 @@ import SwiftUI
 @MainActor
 final class SectionIntroViewTests: XCTestCase {
 
-    /// The six scannable sections, each paired with the per-section
+    /// The seven scannable sections, each paired with the per-section
     /// accessibility-id slug it must derive from its `NavigationSection` case
     /// name (locale-independent). Hardcoded — not re-derived through the
     /// view's own slug helper — so a regression in that helper fails this
@@ -20,6 +20,7 @@ final class SectionIntroViewTests: XCTestCase {
         .spaceLens: "spacelens",
         .malwareRemoval: "malwareremoval",
         .optimization: "optimization",
+        .privacy: "privacy",
     ]
 
     func test_buildsFromEveryScannableSectionPresentation() throws {

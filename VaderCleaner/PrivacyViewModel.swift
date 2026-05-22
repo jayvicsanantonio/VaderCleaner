@@ -431,3 +431,34 @@ extension PrivacyViewModel {
         )
     }
 }
+
+// MARK: - ScanCoordinating
+
+extension PrivacyViewModel: ScanCoordinating {
+
+    /// Projects the rich `Phase` onto the three coarse phases ContentView
+    /// switches on. `.scanning`/`.clearing` are both "work in flight";
+    /// `.preview`/`.complete`/`.failed` all want the section's own detail UI,
+    /// whose internal switch renders the specifics.
+    var scanPresentation: ScanPresentation {
+        switch phase {
+        case .idle:
+            return .intro
+        case .scanning, .clearing:
+            return .working
+        case .preview, .complete, .failed:
+            return .results
+        }
+    }
+
+    /// Entrypoint for the unified floating Scan button. Privacy's scan is the
+    /// browser-detection + sizing pass that `preview()` runs.
+    func beginScan() {
+        // `preview()` cancels any in-flight operation before restarting, so a
+        // double-tapped Scan button wouldn't race — but gating on the
+        // work-in-flight phases keeps the behavior identical to the other
+        // scannable view models.
+        guard phase != .scanning, phase != .clearing else { return }
+        Task { await preview() }
+    }
+}
