@@ -123,7 +123,13 @@ struct ContentView: View {
                         .id(selectedSection)
                         .transition(.sectionContent(navigationDirection))
                 }
-                .animation(.smooth(duration: 0.42), value: selectedSection)
+                // The transaction has to span the full sequential transition
+                // (exit + entry delay + entry = ~1.1s). If it's shorter than
+                // the insertion's `.delay`, SwiftUI cancels the deferred entry
+                // animation and the incoming view snaps to its rest position
+                // instead of sliding in. Slightly longer than the actual
+                // total just gives a margin of safety.
+                .animation(.smooth(duration: 1.2), value: selectedSection)
             }
         }
         // The floating Scan disc lives in its own borderless child panel
