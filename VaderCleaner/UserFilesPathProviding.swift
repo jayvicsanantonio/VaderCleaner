@@ -1,5 +1,5 @@
 // UserFilesPathProviding.swift
-// Resolves the home-directory subtrees the Large & Old Files scanner walks, plus the TCC-protected media stores (Photos / Apple Music) it must skip so the scan never trips a macOS privacy prompt.
+// Resolves the home-directory subtrees the Large & Old Files scanner walks, plus the fixed-path Apple Music media folders it excludes by path so the scan never trips a macOS privacy prompt.
 
 import Foundation
 
@@ -17,12 +17,13 @@ import Foundation
 protocol UserFilesPathProviding {
     func roots() -> [URL]
 
-    /// TCC-protected media stores that sit under `roots()` and must be folded
-    /// into the scan's exclusion list. Descending into a Photos library bundle
-    /// or the Apple Music media folder triggers a macOS privacy prompt for
-    /// Photos or Music access — skipping them outright keeps the Large & Old
-    /// Files scan silent (and avoids ever offering the user's photo library
-    /// up as a deletable "large file").
+    /// The fixed-path TCC-protected media folders under `roots()` that must be
+    /// folded into the scan's exclusion list — the Apple Music media folder and
+    /// the legacy iTunes folder. These are plainly-named directories, so they
+    /// cannot be recognised by name mid-walk and must be excluded by path.
+    /// Photo-library bundles, which can live anywhere under any root, are
+    /// skipped in-walk by `FileScanner` (see
+    /// `FileScanOptions.skipsProtectedMediaStores`) rather than listed here.
     func protectedMediaStores() -> [URL]
 }
 
@@ -47,56 +48,23 @@ struct DefaultUserFilesPathProvider: UserFilesPathProviding {
             .map { homeDirectory.appendingPathComponent($0, isDirectory: true) }
     }
 
-    /// Discovers the TCC-protected media stores under the user's home.
+    /// Returns the fixed-path Apple Music media folder (`~/Music/Music`) and the
+    /// legacy iTunes folder (`~/Music/iTunes`) when they exist.
     ///
-    /// Photo libraries are found by walking `~/Pictures` recursively: a user
-    /// can rename the default library, keep several, or tuck one inside a
-    /// subfolder, so a shallow listing of fixed names would miss them. The
-    /// walk never descends *into* a bundle — that is what trips the Photos
-    /// prompt — because `.skipsPackageDescendants` skips `.photoslibrary`
-    /// packages and `Photo Booth Library` is skipped explicitly. Extension
-    /// and name matching is case-insensitive to mirror the default
-    /// case-insensitive APFS volume (and `FileScanner`'s exclusion matching).
+    /// These are plainly-named directories at known paths, so unlike
+    /// photo-library bundles they cannot be recognised by name during the walk
+    /// and must be excluded by path. They are returned only when they actually
+    /// exist so the exclusion list never carries phantom paths.
     ///
-    /// The Apple Music and legacy iTunes media folders sit at the fixed paths
-    /// `~/Music/Music` and `~/Music/iTunes`; they are returned only when they
-    /// actually exist so the exclusion list never carries phantom paths.
+    /// Photo-library bundles are deliberately *not* listed here — they can live
+    /// at any depth under any scanned root, so `FileScanner` detects and skips
+    /// them in-walk via `FileScanOptions.skipsProtectedMediaStores`.
     func protectedMediaStores() -> [URL] {
         let fileManager = FileManager.default
-        var stores: [URL] = []
-
-        let pictures = homeDirectory.appendingPathComponent("Pictures", isDirectory: true)
-        if let enumerator = fileManager.enumerator(
-            at: pictures,
-            includingPropertiesForKeys: nil,
-            options: [.skipsPackageDescendants]
-        ) {
-            for case let url as URL in enumerator {
-                // The enclosing Large & Old Files scan can be cancelled while
-                // this pre-pass runs; bail out so a cancelled scan is not held
-                // up walking ~/Pictures. A partial result is harmless — the
-                // scan that consumes it aborts at its own next checkpoint.
-                if Task.isCancelled { break }
-                if url.pathExtension.caseInsensitiveCompare("photoslibrary") == .orderedSame {
-                    stores.append(url)
-                } else if url.lastPathComponent.caseInsensitiveCompare("Photo Booth Library") == .orderedSame {
-                    stores.append(url)
-                    // Photo Booth's library is not a registered package type,
-                    // so `.skipsPackageDescendants` would not stop the walk
-                    // from descending into it — skip its contents explicitly.
-                    enumerator.skipDescendants()
-                }
-            }
-        }
-
         let music = homeDirectory.appendingPathComponent("Music", isDirectory: true)
-        for mediaFolder in ["Music", "iTunes"] {
+        return ["Music", "iTunes"].compactMap { mediaFolder in
             let url = music.appendingPathComponent(mediaFolder, isDirectory: true)
-            if fileManager.fileExists(atPath: url.path) {
-                stores.append(url)
-            }
+            return fileManager.fileExists(atPath: url.path) ? url : nil
         }
-
-        return stores
     }
 }

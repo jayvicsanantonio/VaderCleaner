@@ -32,8 +32,36 @@ struct FileScanOptions: Equatable {
 
     let packagesAsFiles: Bool
 
-    init(packagesAsFiles: Bool = false) {
+    /// When true, the walk never descends into or emits a TCC-protected
+    /// photo-library bundle (see `ProtectedMediaStoreBundle`). Reading inside
+    /// one trips a macOS Photos privacy prompt, so the Large & Old Files scan
+    /// sets this; System Junk scans (which never reach `~/Pictures`) leave it
+    /// off and keep their historical behaviour.
+    let skipsProtectedMediaStores: Bool
+
+    init(packagesAsFiles: Bool = false, skipsProtectedMediaStores: Bool = false) {
         self.packagesAsFiles = packagesAsFiles
+        self.skipsProtectedMediaStores = skipsProtectedMediaStores
+    }
+}
+
+/// Recognises the TCC-protected photo-library bundles a scan must not descend
+/// into. Reading the contents of a Photos or Photo Booth library trips a macOS
+/// Photos privacy prompt, so `FileScanner` skips these whole when
+/// `FileScanOptions.skipsProtectedMediaStores` is set.
+///
+/// The Apple Music media folder (`~/Music/Music`) is not covered here — it is a
+/// plainly-named directory at a fixed path, so callers exclude it by path
+/// instead (see `UserFilesPathProviding.protectedMediaStores()`).
+enum ProtectedMediaStoreBundle {
+    /// True when `url` names a Photos library bundle (`.photoslibrary`, any
+    /// casing) or the `Photo Booth Library` bundle. Matching is
+    /// case-insensitive to mirror the default case-insensitive APFS volume.
+    static func matches(_ url: URL) -> Bool {
+        if url.pathExtension.caseInsensitiveCompare("photoslibrary") == .orderedSame {
+            return true
+        }
+        return url.lastPathComponent.caseInsensitiveCompare("Photo Booth Library") == .orderedSame
     }
 }
 
@@ -409,6 +437,18 @@ struct FileScanner: FileScanning {
                 }
 
                 let isDirectory = resourceValues?.isDirectory == true
+
+                // Never descend into a TCC-protected photo-library bundle —
+                // reading its contents trips a macOS Photos privacy prompt.
+                // The bundle is dropped, not emitted: a photo library is not
+                // a deletable file.
+                if options.skipsProtectedMediaStores,
+                   isDirectory,
+                   ProtectedMediaStoreBundle.matches(url) {
+                    enumerator.skipDescendants()
+                    continue
+                }
+
                 if options.packagesAsFiles,
                    isDirectory,
                    resourceValues?.isPackage == true {

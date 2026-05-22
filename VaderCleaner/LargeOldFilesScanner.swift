@@ -69,15 +69,17 @@ struct LargeOldFilesScanner {
             // synthetic "unclassified" case to the public `ScanCategory` enum.
             ScanRoot(url: $0, category: .largeFile)
         }
-        // Fold the TCC-protected media stores (Photos / Apple Music) into the
-        // exclusion list so the walk never descends into them — descending
-        // would trip a macOS privacy prompt for Photos or Music access.
+        // Keep the walk out of TCC-protected media stores so it never trips a
+        // macOS Photos/Music privacy prompt. Apple Music's media folder is a
+        // plainly-named directory at a fixed path, so it is excluded by path;
+        // photo-library bundles can live anywhere, so `skipsProtectedMediaStores`
+        // has `FileScanner` recognise and skip them by name mid-walk.
         let allExclusions = excluding + pathProvider.protectedMediaStores()
         let cutoff = now().addingTimeInterval(-Self.ageThresholdSeconds)
         try await fileScanner.scan(
             roots: roots,
             excluding: allExclusions,
-            options: FileScanOptions(packagesAsFiles: true),
+            options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
             batchSize: batchSize
         ) { scannedBatch in
             let matchedBatch = scannedBatch.compactMap { Self.classify($0, cutoff: cutoff) }
