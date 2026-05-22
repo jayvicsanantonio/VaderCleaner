@@ -37,7 +37,8 @@ enum ScanDiscWindowFrame {
         railWidth: CGFloat,
         panelSize: CGFloat,
         discDiameter: CGFloat,
-        placement: Placement
+        placement: Placement,
+        screenVisibleFrame: CGRect? = nil
     ) -> CGRect {
         let detailMidX = parentFrame.minX + railWidth + (parentFrame.width - railWidth) / 2
         let originX = detailMidX - panelSize / 2
@@ -52,8 +53,39 @@ enum ScanDiscWindowFrame {
             // by `margin`.
             centerY = parentFrame.minY + margin + discDiameter / 2
         }
-        let originY = centerY - panelSize / 2
+        var originY = centerY - panelSize / 2
+
+        // Keep the disc itself fully on the visible screen: when the main
+        // window sits against the screen's bottom edge, an unclamped straddle
+        // would drop the disc's lower half behind the Dock or off-screen,
+        // hiding the primary CTA. Only the disc is held in — the transparent
+        // panel margin around it may still spill past the screen edge.
+        if let screenVisibleFrame {
+            originY = clampedOriginY(
+                originY,
+                panelSize: panelSize,
+                discDiameter: discDiameter,
+                screenVisibleFrame: screenVisibleFrame
+            )
+        }
 
         return CGRect(x: originX, y: originY, width: panelSize, height: panelSize)
+    }
+
+    /// Clamps the panel's vertical origin so the disc centered within it stays
+    /// fully inside `screenVisibleFrame`. A degenerate screen smaller than the
+    /// disc is left unclamped rather than producing an inverted range.
+    private static func clampedOriginY(
+        _ originY: CGFloat,
+        panelSize: CGFloat,
+        discDiameter: CGFloat,
+        screenVisibleFrame: CGRect
+    ) -> CGFloat {
+        // Gap between the panel's edge and the disc's edge.
+        let discInset = (panelSize - discDiameter) / 2
+        let lowerBound = screenVisibleFrame.minY - discInset
+        let upperBound = screenVisibleFrame.maxY - discDiameter - discInset
+        guard lowerBound <= upperBound else { return originY }
+        return min(max(originY, lowerBound), upperBound)
     }
 }

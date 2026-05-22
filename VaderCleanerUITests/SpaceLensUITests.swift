@@ -77,7 +77,7 @@ final class SpaceLensUITests: XCTestCase {
     /// Anyway" so the scan proceeds and the wiring under test still runs.
     private func proceedPastScanAccessPopoverIfNeeded() {
         let scanAnyway = app.buttons["fda.popover.scanAnyway"]
-        if scanAnyway.waitForExistence(timeout: 2) {
+        if scanAnyway.waitForExistence(timeout: 5) {
             scanAnyway.click()
         }
     }

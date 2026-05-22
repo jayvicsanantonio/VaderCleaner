@@ -148,7 +148,10 @@ final class ScanDiscWindowController: ObservableObject {
             railWidth: railWidth,
             panelSize: panelSize,
             discDiameter: discDiameter,
-            placement: placement
+            placement: placement,
+            // Hold the disc on the visible screen even when the window is
+            // dragged against the bottom edge.
+            screenVisibleFrame: parentWindow.screen?.visibleFrame
         )
         panel.setFrame(frame, display: true)
     }

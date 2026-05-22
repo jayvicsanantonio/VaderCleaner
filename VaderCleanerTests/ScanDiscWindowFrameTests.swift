@@ -104,4 +104,43 @@ final class ScanDiscWindowFrameTests: XCTestCase {
         XCTAssertEqual(straddle.midX, tucked.midX, accuracy: 0.001,
                        "Placement must change only the vertical position")
     }
+
+    // MARK: Screen clamping
+
+    private let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+
+    func test_straddle_clampsDiscAboveTheScreenBottom() {
+        // A window pushed against the screen's bottom edge — an unclamped
+        // straddle would drop the disc's lower half off-screen / behind the
+        // Dock. The disc must stay fully on the visible screen.
+        let lowWindow = CGRect(x: 100, y: 24, width: 1000, height: 800)
+        let frame = ScanDiscWindowFrame.panelFrame(
+            parentFrame: lowWindow,
+            railWidth: railWidth,
+            panelSize: panelSize,
+            discDiameter: discDiameter,
+            placement: .straddleBottomEdge,
+            screenVisibleFrame: screen
+        )
+        let discInset = (panelSize - discDiameter) / 2
+        let discBottom = frame.minY + discInset
+        XCTAssertGreaterThanOrEqual(discBottom, screen.minY,
+                                    "The disc must not drop below the visible screen")
+    }
+
+    func test_straddle_doesNotClampWhenWindowIsWellWithinScreen() {
+        // A normally-placed window: clamping must be a no-op so the disc still
+        // straddles the bottom edge exactly.
+        let unclamped = ScanDiscWindowFrame.panelFrame(
+            parentFrame: parent, railWidth: railWidth, panelSize: panelSize,
+            discDiameter: discDiameter, placement: .straddleBottomEdge
+        )
+        let clamped = ScanDiscWindowFrame.panelFrame(
+            parentFrame: parent, railWidth: railWidth, panelSize: panelSize,
+            discDiameter: discDiameter, placement: .straddleBottomEdge,
+            screenVisibleFrame: screen
+        )
+        XCTAssertEqual(clamped, unclamped,
+                       "A window clear of the screen edge must not be clamped")
+    }
 }

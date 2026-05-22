@@ -60,6 +60,10 @@ struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
                     ScanAccessPopover(
                         accent: accent,
                         onOpenSettings: {
+                            // Dismiss the popover before handing focus to
+                            // System Settings so no stale popover lingers when
+                            // the app comes back forward.
+                            showFullDiskAccessPrompt = false
                             NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
                         },
                         onScanAnyway: {
