@@ -104,15 +104,16 @@ struct ContentView: View {
                 // is the canonical SwiftUI pattern.
                 ZStack {
                     detailView(for: selectedSection ?? .smartScan)
-                        // Slide-and-fade the incoming detail screen: it drifts
-                        // in from above for a lower rail row and from below
-                        // for a higher one, so navigation has a sense of
-                        // direction. The outgoing screen only fades — a
-                        // transition's removal half is resolved a render
-                        // before its insertion half, so a direction-free
-                        // removal avoids the two halves disagreeing on a
-                        // change of travel direction. `selectSection` sets
-                        // `navigationDirection` before the selection commits.
+                        // Slide-and-fade the detail screen as the section
+                        // changes: the outgoing screen slides out to the edge
+                        // in the direction of travel — top for an upward
+                        // move, bottom for a downward one — and the incoming
+                        // screen enters from the opposite edge once the
+                        // outgoing has fully cleared. The two halves run
+                        // sequentially so only one section is on screen at a
+                        // time. `selectSection` updates `navigationDirection`
+                        // a tick before the selection so both halves of the
+                        // transition read the same direction.
                         .id(selectedSection)
                         .transition(.sectionContent(navigationDirection))
                 }
@@ -320,18 +321,25 @@ struct ContentView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Applies a sidebar selection, first recording which way the detail pane
-    /// should travel so its slide-and-fade transition matches the rail move.
-    /// Both `@State` writes land in one update pass, so the keyed animation
-    /// drives the transition with the direction already in place. Every
-    /// selection change — rail taps and the Smart Scan review shortcuts —
-    /// routes through here so the direction is never stale.
+    /// Applies a sidebar selection, recording which way the detail pane should
+    /// travel and then committing the new selection one runloop tick later.
+    /// The split matters: SwiftUI resolves a removal transition from the
+    /// outgoing view's *last* render, so writing both `@State` values in one
+    /// batch would leave the removal half stuck on the previous direction and
+    /// the two halves of the slide would disagree on a reversal. Updating
+    /// `navigationDirection` first lets the outgoing view re-render with the
+    /// new direction before the selection — and therefore the keyed animation
+    /// and the transition itself — commits.
     private func selectSection(_ section: NavigationSection) {
         guard section != selectedSection else { return }
-        if let current = selectedSection {
-            navigationDirection = current.transitionDirection(to: section)
+        guard let current = selectedSection else {
+            selectedSection = section
+            return
         }
-        selectedSection = section
+        navigationDirection = current.transitionDirection(to: section)
+        DispatchQueue.main.async {
+            selectedSection = section
+        }
     }
 
     /// Idempotent permission-request driver. Fires the system prompt at most
@@ -409,21 +417,28 @@ struct ContentView: View {
 }
 
 private extension AnyTransition {
-    /// Slide-and-fade for the detail pane. The incoming screen drifts into
-    /// place from above for a `.down` move and from below for an `.up` one, so
-    /// the new content visibly travels the way the rail selection moved. The
-    /// outgoing screen only fades: a transition's removal half is resolved a
-    /// render before its insertion half, so a direction-free removal stops a
-    /// change of travel direction from leaving the two halves sliding opposite
-    /// ways.
+    /// Slide-and-fade for the detail pane. The outgoing screen slides all the
+    /// way out through the edge it's heading toward — top for `.up`, bottom
+    /// for `.down` — and fades as it leaves. The incoming screen then enters
+    /// from the opposite edge after the outgoing has finished, so a single
+    /// section is on screen at a time rather than the two overlapping.
+    /// `selectSection` re-renders the outgoing view with the new direction a
+    /// tick before the selection commits so both halves agree on the edges.
     static func sectionContent(_ direction: SectionTransitionDirection) -> AnyTransition {
-        // A modest drift — the fade carries the transition, the offset only
-        // gives it a direction.
-        let distance: CGFloat = 60
-        let travel: CGFloat = direction == .down ? distance : -distance
+        // Halves run back-to-back: removal animates from 0 → exitDuration,
+        // and the insertion's `.delay` keeps the new view at its starting
+        // edge until the outgoing has fully cleared.
+        let exitDuration: Double = 0.4
+        let entryDuration: Double = 0.4
+        let removalEdge: Edge = direction == .down ? .bottom : .top
+        let insertionEdge: Edge = direction == .down ? .top : .bottom
         return .asymmetric(
-            insertion: .offset(y: -travel).combined(with: .opacity),
-            removal: .opacity
+            insertion: .move(edge: insertionEdge)
+                .combined(with: .opacity)
+                .animation(.smooth(duration: entryDuration).delay(exitDuration)),
+            removal: .move(edge: removalEdge)
+                .combined(with: .opacity)
+                .animation(.smooth(duration: exitDuration))
         )
     }
 }
