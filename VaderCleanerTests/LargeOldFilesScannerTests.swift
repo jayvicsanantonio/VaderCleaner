@@ -1,5 +1,5 @@
 // LargeOldFilesScannerTests.swift
-// Drives LargeOldFilesScanner against temp directories via an injected UserFilesPathProviding stub, covering size/age classification, the both-match tiebreak, the unknown-access-date guard, and exclusion forwarding.
+// Drives LargeOldFilesScanner against temp directories via an injected UserFilesPathProviding stub, covering size/age classification, the both-match tiebreak, the unknown-access-date guard, exclusion forwarding, and protected-media-store skipping, plus DefaultUserFilesPathProvider.protectedMediaStores discovery.
 
 import XCTest
 @testable import VaderCleaner
@@ -331,6 +331,100 @@ final class LargeOldFilesScannerTests: XCTestCase {
         XCTAssertEqual(files.first?.url.lastPathComponent, "kept-large.bin")
     }
 
+    // MARK: - Protected media stores
+
+    /// TCC-protected media stores (Photos libraries, the Apple Music media
+    /// folder) are folded into the scan's exclusion list by the scanner, so the
+    /// walk never descends into them — descending would trip a macOS privacy
+    /// prompt for Photos or Music access. A protected store must not appear in
+    /// the results even when its rolled-up size would otherwise qualify it as
+    /// a large file.
+    func test_scan_excludesProtectedMediaStores() async throws {
+        let root = try makeRoot("pictures")
+
+        let photoLibrary = root.appendingPathComponent("Photos Library.photoslibrary", isDirectory: true)
+        try FileManager.default.createDirectory(at: photoLibrary, withIntermediateDirectories: true)
+        try createSparseFile(
+            at: photoLibrary.appendingPathComponent("originals.bin"),
+            size: LargeOldFilesScanner.sizeThresholdBytes + 1
+        )
+
+        let keptLarge = try TestHelpers.createDummyFile(
+            named: "kept-large.bin",
+            size: Int(LargeOldFilesScanner.sizeThresholdBytes) + 1,
+            in: root
+        )
+        try setRecentAccessDate(at: keptLarge)
+
+        let scanner = LargeOldFilesScanner(
+            pathProvider: StubUserFilesPathProvider(
+                roots: [root],
+                protectedMediaStores: [photoLibrary]
+            ),
+            now: { self.referenceNow }
+        )
+
+        let files = try await scanner.scan(excluding: [])
+
+        XCTAssertEqual(files.count, 1, "The protected Photos library must not be emitted")
+        XCTAssertEqual(files.first?.url.lastPathComponent, "kept-large.bin")
+        XCTAssertFalse(
+            files.contains { $0.url.lastPathComponent == "Photos Library.photoslibrary" },
+            "A protected media store must never surface as a deletable large file"
+        )
+    }
+
+    // MARK: - DefaultUserFilesPathProvider protected media stores
+
+    /// `protectedMediaStores()` must surface every Photos / Photo Booth library
+    /// bundle in `~/Pictures` plus the Apple Music and legacy iTunes media
+    /// folders, while leaving ordinary `~/Pictures` subfolders alone.
+    func test_protectedMediaStores_includesPhotoLibrariesAndAppleMusicMedia() throws {
+        let pictures = tempRoot.appendingPathComponent("Pictures", isDirectory: true)
+        let music = tempRoot.appendingPathComponent("Music", isDirectory: true)
+        let photoLibrary = pictures.appendingPathComponent("Family.photoslibrary", isDirectory: true)
+        let photoBooth = pictures.appendingPathComponent("Photo Booth Library", isDirectory: true)
+        let wallpapers = pictures.appendingPathComponent("Wallpapers", isDirectory: true)
+        let appleMusic = music.appendingPathComponent("Music", isDirectory: true)
+        let iTunes = music.appendingPathComponent("iTunes", isDirectory: true)
+        for directory in [photoLibrary, photoBooth, wallpapers, appleMusic, iTunes] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let provider = DefaultUserFilesPathProvider(homeDirectory: tempRoot)
+        let stores = Set(provider.protectedMediaStores().map { $0.resolvingSymlinksInPath().path })
+
+        XCTAssertTrue(stores.contains(photoLibrary.resolvingSymlinksInPath().path))
+        XCTAssertTrue(stores.contains(photoBooth.resolvingSymlinksInPath().path))
+        XCTAssertTrue(stores.contains(appleMusic.resolvingSymlinksInPath().path))
+        XCTAssertTrue(stores.contains(iTunes.resolvingSymlinksInPath().path))
+        XCTAssertFalse(
+            stores.contains(wallpapers.resolvingSymlinksInPath().path),
+            "An ordinary ~/Pictures subfolder is not a protected media store"
+        )
+    }
+
+    /// The Apple Music and legacy iTunes folders sit at fixed paths but may not
+    /// exist; `protectedMediaStores()` returns only folders that are actually
+    /// present so the exclusion list never carries phantom paths.
+    func test_protectedMediaStores_omitsMusicFoldersThatDoNotExist() throws {
+        try FileManager.default.createDirectory(
+            at: tempRoot.appendingPathComponent("Pictures", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: tempRoot.appendingPathComponent("Music", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let provider = DefaultUserFilesPathProvider(homeDirectory: tempRoot)
+
+        XCTAssertTrue(
+            provider.protectedMediaStores().isEmpty,
+            "An empty Pictures and Music layout has no protected media stores"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeRoot(_ name: String) throws -> URL {
@@ -370,8 +464,15 @@ final class LargeOldFilesScannerTests: XCTestCase {
 /// temp directory rather than the real `~/Documents` etc.
 private struct StubUserFilesPathProvider: UserFilesPathProviding {
     private let stubbedRoots: [URL]
-    init(roots: [URL]) { self.stubbedRoots = roots }
+    private let stubbedProtectedMediaStores: [URL]
+
+    init(roots: [URL], protectedMediaStores: [URL] = []) {
+        self.stubbedRoots = roots
+        self.stubbedProtectedMediaStores = protectedMediaStores
+    }
+
     func roots() -> [URL] { stubbedRoots }
+    func protectedMediaStores() -> [URL] { stubbedProtectedMediaStores }
 }
 
 /// Lets `test_scan_skipsFilesWithUnknownAccessDateBelowSizeThreshold` synthesize

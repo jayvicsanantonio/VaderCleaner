@@ -68,10 +68,14 @@ struct LargeOldFilesScanner {
             // synthetic "unclassified" case to the public `ScanCategory` enum.
             ScanRoot(url: $0, category: .largeFile)
         }
+        // Fold the TCC-protected media stores (Photos / Apple Music) into the
+        // exclusion list so the walk never descends into them — descending
+        // would trip a macOS privacy prompt for Photos or Music access.
+        let allExclusions = excluding + pathProvider.protectedMediaStores()
         let cutoff = now().addingTimeInterval(-Self.ageThresholdSeconds)
         try await fileScanner.scan(
             roots: roots,
-            excluding: excluding,
+            excluding: allExclusions,
             options: FileScanOptions(packagesAsFiles: true),
             batchSize: batchSize
         ) { scannedBatch in

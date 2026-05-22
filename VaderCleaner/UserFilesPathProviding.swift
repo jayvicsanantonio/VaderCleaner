@@ -1,5 +1,5 @@
 // UserFilesPathProviding.swift
-// Resolves the home-directory subtrees that the Large & Old Files scanner walks, returned as plain root URLs (no category tag — the scanner classifies per-file by size/age).
+// Resolves the home-directory subtrees the Large & Old Files scanner walks, plus the TCC-protected media stores (Photos / Apple Music) it must skip so the scan never trips a macOS privacy prompt.
 
 import Foundation
 
@@ -16,6 +16,14 @@ import Foundation
 /// per-file tagging.
 protocol UserFilesPathProviding {
     func roots() -> [URL]
+
+    /// TCC-protected media stores that sit under `roots()` and must be folded
+    /// into the scan's exclusion list. Descending into a Photos library bundle
+    /// or the Apple Music media folder triggers a macOS privacy prompt for
+    /// Photos or Music access — skipping them outright keeps the Large & Old
+    /// Files scan silent (and avoids ever offering the user's photo library
+    /// up as a deletable "large file").
+    func protectedMediaStores() -> [URL]
 }
 
 /// Production implementation that returns the canonical user directories that
@@ -37,5 +45,43 @@ struct DefaultUserFilesPathProvider: UserFilesPathProviding {
     func roots() -> [URL] {
         ["Documents", "Downloads", "Desktop", "Movies", "Music", "Pictures", "Library"]
             .map { homeDirectory.appendingPathComponent($0, isDirectory: true) }
+    }
+
+    /// Discovers the TCC-protected media stores under the user's home.
+    ///
+    /// Photo libraries are found by listing `~/Pictures` — a shallow listing of
+    /// the user's own folder needs no special permission, and only descending
+    /// *into* a `.photoslibrary` / `Photo Booth Library` bundle trips the
+    /// Photos prompt. Listing catches renamed or multiple libraries that a
+    /// hard-coded default name would miss.
+    ///
+    /// The Apple Music and legacy iTunes media folders sit at the fixed paths
+    /// `~/Music/Music` and `~/Music/iTunes`; they are returned only when they
+    /// actually exist so the exclusion list never carries phantom paths.
+    func protectedMediaStores() -> [URL] {
+        let fileManager = FileManager.default
+        var stores: [URL] = []
+
+        let pictures = homeDirectory.appendingPathComponent("Pictures", isDirectory: true)
+        if let entries = try? fileManager.contentsOfDirectory(
+            at: pictures,
+            includingPropertiesForKeys: nil
+        ) {
+            for entry in entries
+            where entry.pathExtension == "photoslibrary"
+                || entry.lastPathComponent == "Photo Booth Library" {
+                stores.append(entry)
+            }
+        }
+
+        let music = homeDirectory.appendingPathComponent("Music", isDirectory: true)
+        for mediaFolder in ["Music", "iTunes"] {
+            let url = music.appendingPathComponent(mediaFolder, isDirectory: true)
+            if fileManager.fileExists(atPath: url.path) {
+                stores.append(url)
+            }
+        }
+
+        return stores
     }
 }
