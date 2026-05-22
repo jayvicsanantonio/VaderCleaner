@@ -111,8 +111,8 @@ struct ContentView: View {
                         // screen enters from the opposite edge once the
                         // outgoing has fully cleared. The two halves run
                         // sequentially so only one section is on screen at a
-                        // time. `selectSection` updates `navigationDirection`
-                        // a tick before the selection so both halves of the
+                        // time. `selectSection` writes `navigationDirection`
+                        // alongside the selection so both halves of the
                         // transition read the same direction.
                         .id(selectedSection)
                         .transition(.sectionContent(navigationDirection))
@@ -321,25 +321,20 @@ struct ContentView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Applies a sidebar selection, recording which way the detail pane should
-    /// travel and then committing the new selection one runloop tick later.
-    /// The split matters: SwiftUI resolves a removal transition from the
-    /// outgoing view's *last* render, so writing both `@State` values in one
-    /// batch would leave the removal half stuck on the previous direction and
-    /// the two halves of the slide would disagree on a reversal. Updating
-    /// `navigationDirection` first lets the outgoing view re-render with the
-    /// new direction before the selection — and therefore the keyed animation
-    /// and the transition itself — commits.
+    /// Applies a sidebar selection, recording the travel direction alongside
+    /// the new selection so both halves of the slide transition read the same
+    /// direction. The two `@State` writes commit synchronously in one render
+    /// pass — deferring the selection would let rapid taps queue intermediate
+    /// flashes through sections the user did not intend to visit, and would
+    /// also leave `navigationDirection` open to being recomputed against a
+    /// stale `selectedSection` between taps. Every selection change — rail
+    /// taps and the Smart Scan review shortcuts — routes through here.
     private func selectSection(_ section: NavigationSection) {
         guard section != selectedSection else { return }
-        guard let current = selectedSection else {
-            selectedSection = section
-            return
+        if let current = selectedSection {
+            navigationDirection = current.transitionDirection(to: section)
         }
-        navigationDirection = current.transitionDirection(to: section)
-        DispatchQueue.main.async {
-            selectedSection = section
-        }
+        selectedSection = section
     }
 
     /// Idempotent permission-request driver. Fires the system prompt at most
@@ -422,8 +417,8 @@ private extension AnyTransition {
     /// for `.down` — and fades as it leaves. The incoming screen then enters
     /// from the opposite edge after the outgoing has finished, so a single
     /// section is on screen at a time rather than the two overlapping.
-    /// `selectSection` re-renders the outgoing view with the new direction a
-    /// tick before the selection commits so both halves agree on the edges.
+    /// `selectSection` writes the direction alongside the selection so both
+    /// halves of the transition agree on the edges.
     static func sectionContent(_ direction: SectionTransitionDirection) -> AnyTransition {
         // Halves run back-to-back: removal animates from 0 → exitDuration,
         // and the insertion's `.delay` keeps the new view at its starting
