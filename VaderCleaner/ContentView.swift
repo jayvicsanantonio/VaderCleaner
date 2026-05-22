@@ -441,12 +441,19 @@ private struct ScannableSectionContent<Coordinator: ScanCoordinating, Detail: Vi
     @ViewBuilder let detail: () -> Detail
 
     var body: some View {
-        content
-            // Reuse SmartScanView's phase-transition pattern so the
-            // intro → scan swap crossfades instead of hard-cutting.
-            .id(phaseTransitionID)
-            .transition(.opacity)
-            .animation(.smooth(duration: 0.35), value: phaseTransitionID)
+        // A plain ZStack so the body's root carries no `.transition` of its
+        // own. The intro↔scan crossfade lives one level in, on `content`;
+        // keeping it off the root lets the outer section-navigation slide
+        // (applied to this view by `ContentView`) act on a clean container
+        // instead of colliding with this wrapper's own transition.
+        ZStack {
+            content
+                // Reuse SmartScanView's phase-transition pattern so the
+                // intro → scan swap crossfades instead of hard-cutting.
+                .id(phaseTransitionID)
+                .transition(.opacity)
+                .animation(.smooth(duration: 0.35), value: phaseTransitionID)
+        }
     }
 
     /// Binary token: only the intro ↔ detail boundary crossfades. It is
