@@ -106,6 +106,36 @@ final class NavigationSectionTests: XCTestCase {
         }
     }
 
+    func test_transitionDirection_toLowerRailRow_isDown() {
+        // Smart Scan sits above System Junk in the rail, so moving the
+        // selection to System Junk sends the detail content downward.
+        XCTAssertEqual(
+            NavigationSection.smartScan.transitionDirection(to: .systemJunk),
+            .down
+        )
+    }
+
+    func test_transitionDirection_toHigherRailRow_isUp() {
+        // The reverse move — back up to a higher row — travels upward.
+        XCTAssertEqual(
+            NavigationSection.systemJunk.transitionDirection(to: .smartScan),
+            .up
+        )
+    }
+
+    func test_transitionDirection_acrossMultipleRows_followsRailOrder() {
+        // Distance doesn't matter, only order: jumping from the first row to
+        // the last is still `.down`, and the return jump is `.up`.
+        XCTAssertEqual(
+            NavigationSection.smartScan.transitionDirection(to: .healthMonitor),
+            .down
+        )
+        XCTAssertEqual(
+            NavigationSection.healthMonitor.transitionDirection(to: .smartScan),
+            .up
+        )
+    }
+
     func test_eachSection_hasValidSFSymbol() throws {
         guard #available(macOS 14.0, *) else {
             throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")
