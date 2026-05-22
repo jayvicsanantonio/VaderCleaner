@@ -62,6 +62,7 @@ final class SmartScanUITests: XCTestCase {
             "Expected the floating Scan button on the Smart Scan intro"
         )
         scanButton.click()
+        proceedPastScanAccessPopoverIfNeeded()
 
         // `smartScan.scanning` is `SmartScanView`'s progress-state identifier
         // — reaching it proves intro → working. Type-agnostic query, matching
@@ -71,6 +72,31 @@ final class SmartScanUITests: XCTestCase {
         XCTAssertTrue(
             scanning.waitForExistence(timeout: 10),
             "Expected Smart Scan to enter its scanning (working) state after Scan"
+        )
+    }
+
+    /// The Scan disc is 108pt of interactive glass, but its label is only the
+    /// centered "Scan" text. Without an explicit content shape the button's
+    /// hit region collapses to the text glyphs, so clicking the glass around
+    /// the word does nothing. The button element must report (close to) the
+    /// full 108pt disc, not the ~37x20pt text bounds.
+    func test_smartScan_scanDiscIsFullyInteractive() throws {
+        dismissOnboardingIfNeeded()
+
+        let scanButton = app.buttons["section.smartScan.scan"]
+        XCTAssertTrue(
+            scanButton.waitForExistence(timeout: 10),
+            "Expected the floating Scan button on the Smart Scan intro"
+        )
+
+        let frame = scanButton.frame
+        XCTAssertGreaterThan(
+            frame.width, 100,
+            "The Scan button must span the whole disc, not just its text label"
+        )
+        XCTAssertGreaterThan(
+            frame.height, 100,
+            "The Scan button must span the whole disc, not just its text label"
         )
     }
 
@@ -109,6 +135,17 @@ final class SmartScanUITests: XCTestCase {
         let continueWithout = app.buttons["Continue Without Access"]
         if continueWithout.waitForExistence(timeout: 2) {
             continueWithout.click()
+        }
+    }
+
+    /// The floating Scan button gates FDA-sensitive sections behind an access
+    /// popover when Full Disk Access is missing — which it is on a test host
+    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
+    /// Anyway" so the scan proceeds and the wiring under test still runs.
+    private func proceedPastScanAccessPopoverIfNeeded() {
+        let scanAnyway = app.buttons["fda.popover.scanAnyway"]
+        if scanAnyway.waitForExistence(timeout: 2) {
+            scanAnyway.click()
         }
     }
 }

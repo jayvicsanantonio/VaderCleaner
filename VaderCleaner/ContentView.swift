@@ -2,6 +2,7 @@
 // Root view — NavigationSplitView with sidebar listing all 11 sections and placeholder detail views.
 
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
@@ -32,13 +33,13 @@ struct ContentView: View {
     /// cleaner to issue exactly one.
     @State private var didRequestNotificationPermission = false
     /// Fixed width of the navigation rail. Shared by the rail's own frame and
-    /// the floating Scan overlay so the disc centers over the detail content
-    /// area (not the full window) without the two drifting apart.
+    /// the Scan disc panel so the disc centers over the detail content area
+    /// (not the full window) without the two drifting apart.
     private let railWidth: CGFloat = 240
-    /// Bottom inset for the floating Scan overlay. Sized so the 108pt disc
-    /// and its breathing glow sit fully inside the window above the bottom
-    /// edge instead of being clipped by it.
-    private let floatingScanBottomPadding: CGFloat = 32
+    /// Owns the borderless child panel that hosts the floating Scan disc so it
+    /// can straddle the window's bottom edge. Created with the scannable view
+    /// models; attached once the host window resolves.
+    @StateObject private var scanDiscController: ScanDiscWindowController
     init(
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
@@ -61,6 +62,15 @@ struct ContentView: View {
         self.optimizationViewModel = optimizationViewModel
         self.malwareViewModel = malwareViewModel
         self.smartScanViewModel = smartScanViewModel
+        _scanDiscController = StateObject(wrappedValue: ScanDiscWindowController(
+            smartScanViewModel: smartScanViewModel,
+            systemJunkViewModel: systemJunkViewModel,
+            largeOldFilesViewModel: largeOldFilesViewModel,
+            spaceLensViewModel: spaceLensViewModel,
+            optimizationViewModel: optimizationViewModel,
+            malwareViewModel: malwareViewModel,
+            privacyViewModel: privacyViewModel
+        ))
     }
 
     /// Colour identity of the section currently on screen. Drives the window
@@ -90,21 +100,27 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
-        // The Scan CTA floats over the window's bottom edge. It is attached to
-        // the OUTER HStack — outside the NavigationStack — so the detail
-        // screens' toolbars and safe-area insets can't clip it. The leading
-        // inset equal to the rail width re-centers the disc over the detail
-        // content area rather than the full window, and the bottom padding
-        // keeps the whole disc and its glow inside the window above the
-        // bottom edge.
-        .overlay(alignment: .bottom) {
-            floatingScan(for: selectedSection ?? .smartScan)
-                .padding(.leading, railWidth)
-                .padding(.bottom, floatingScanBottomPadding)
+        // The floating Scan disc lives in its own borderless child panel
+        // (`ScanDiscWindowController`) so it can straddle the window's bottom
+        // edge — a plain overlay cannot, because a window clips its content.
+        // Resolve the host window, then hand it to the controller.
+        .background(
+            WindowAccessor { window in
+                scanDiscController.attach(
+                    to: window,
+                    railWidth: railWidth,
+                    appState: appState
+                )
+            }
+        )
+        // Mirror the sidebar selection onto the disc panel so it shows the
+        // matching section's disc.
+        .onChange(of: selectedSection) { _, newValue in
+            scanDiscController.section = newValue ?? .smartScan
         }
         // One ambient animation drives every section-change motion in lock
-        // step: the rail's selection pill slides, the detail screen
-        // crossfades, and the floating Scan disc recolours.
+        // step: the rail's selection pill slides and the detail screen
+        // crossfades.
         .animation(.smooth(duration: 0.42), value: selectedSection)
         // The side-by-side section intro needs a pane wide enough for the
         // hero, the gap, and the text column; a 1000pt minimum keeps that
@@ -345,34 +361,6 @@ struct ContentView: View {
         }
     }
 
-    /// The shell-level floating Scan button for the selected section. Renders
-    /// only for scannable sections and — via `FloatingScanOverlay`'s
-    /// observation of the coordinator — only while that section is at its
-    /// `.intro` phase; everything else collapses to nothing so the disc
-    /// disappears the instant a scan starts. The switch is exhaustive so a new
-    /// section is a compile-time prompt to classify it here.
-    @ViewBuilder
-    private func floatingScan(for section: NavigationSection) -> some View {
-        switch section {
-        case .smartScan:
-            FloatingScanOverlay(coordinator: smartScanViewModel, section: section)
-        case .systemJunk:
-            FloatingScanOverlay(coordinator: systemJunkViewModel, section: section)
-        case .largeOldFiles:
-            FloatingScanOverlay(coordinator: largeOldFilesViewModel, section: section)
-        case .spaceLens:
-            FloatingScanOverlay(coordinator: spaceLensViewModel, section: section)
-        case .optimization:
-            FloatingScanOverlay(coordinator: optimizationViewModel, section: section)
-        case .malwareRemoval:
-            FloatingScanOverlay(coordinator: malwareViewModel, section: section)
-        case .privacy:
-            FloatingScanOverlay(coordinator: privacyViewModel, section: section)
-        case .extensions, .appUninstaller, .appUpdater, .healthMonitor:
-            EmptyView()
-        }
-    }
-
     /// Shown until either FDA is granted (which the foreground refresh will detect)
     /// or the user dismisses for the session — either via the explicit "Continue
     /// Without Access" button or via Esc / programmatic sheet dismissal, both of
@@ -434,34 +422,26 @@ private struct ScannableSectionContent<Coordinator: ScanCoordinating, Detail: Vi
     }
 }
 
-/// The shell-level floating Scan button for one scannable section. Observes
-/// the coordinator so the disc is shown only while the section is at `.intro`
-/// and vanishes the moment a scan starts. Accent-tinted per section; the
-/// window's crimson shell is unchanged.
-private struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
-    @ObservedObject var coordinator: Coordinator
-    let section: NavigationSection
+/// Resolves the `NSWindow` hosting a SwiftUI view. SwiftUI exposes no direct
+/// handle to its window, so this zero-size representable reads `view.window`
+/// once the view joins the hierarchy and hands it to `onResolve`. `onResolve`
+/// can be called more than once — across a window close/reopen, or on a later
+/// layout pass — so callers must treat it as idempotent.
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow) -> Void
 
-    var body: some View {
-        Group {
-            if coordinator.scanPresentation == .intro {
-                FloatingScanButton(
-                    title: String(localized: "Scan", comment: "Floating scan button title."),
-                    accent: SectionPresentation.for(section)?.accent ?? .vaderCrimson,
-                    accessibilityIdentifier: section.scanAccessibilityIdentifier,
-                    accessibilityLabel: String(
-                        localized: "Scan \(section.title)",
-                        comment: "VoiceOver label for a section's floating scan button, e.g. \"Scan System Junk\"."
-                    ),
-                    action: { coordinator.beginScan() }
-                )
-                .transition(.opacity)
-            }
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        // `view.window` is nil until the view joins the hierarchy; resolve on
+        // the next runloop tick, once it has a window.
+        DispatchQueue.main.async {
+            if let window = view.window { onResolve(window) }
         }
-        // The disc fades out as the section leaves `.intro` instead of
-        // popping, staying in lock-step with the intro → detail crossfade
-        // `ScannableSectionContent` runs on the same value.
-        .animation(.smooth(duration: 0.35), value: coordinator.scanPresentation)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let window = nsView.window { onResolve(window) }
     }
 }
 

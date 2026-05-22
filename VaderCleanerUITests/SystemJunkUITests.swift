@@ -56,6 +56,7 @@ final class SystemJunkUITests: XCTestCase {
         XCTAssertTrue(scanButton.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the System Junk intro")
         scanButton.click()
+        proceedPastScanAccessPopoverIfNeeded()
 
         // The scan completes once we land on the preview footer (Total
         // selected label / Clean button), or — if no junk files were found —
@@ -115,6 +116,7 @@ final class SystemJunkUITests: XCTestCase {
         XCTAssertTrue(scanButton.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the System Junk intro")
         scanButton.click()
+        proceedPastScanAccessPopoverIfNeeded()
 
         // The section has left `.intro` once it shows any non-intro state:
         // the in-progress scanning indicator, or the preview footer (which
@@ -157,6 +159,17 @@ final class SystemJunkUITests: XCTestCase {
         let continueWithout = app.buttons["Continue Without Access"]
         if continueWithout.waitForExistence(timeout: 2) {
             continueWithout.click()
+        }
+    }
+
+    /// The floating Scan button gates FDA-sensitive sections behind an access
+    /// popover when Full Disk Access is missing — which it is on a test host
+    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
+    /// Anyway" so the scan proceeds and the wiring under test still runs.
+    private func proceedPastScanAccessPopoverIfNeeded() {
+        let scanAnyway = app.buttons["fda.popover.scanAnyway"]
+        if scanAnyway.waitForExistence(timeout: 2) {
+            scanAnyway.click()
         }
     }
 }

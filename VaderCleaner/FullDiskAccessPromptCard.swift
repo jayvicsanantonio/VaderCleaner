@@ -1,15 +1,16 @@
 // FullDiskAccessPromptCard.swift
-// Inline accent-tinted reminder shown on a section's intro when Full Disk Access is missing, so the user is told up front that scans here will be incomplete and can grant access without leaving the flow.
+// Inline accent-tinted reminder shown in a scannable section's empty/clean detail state when Full Disk Access is missing, so a user who scanned without access sees why the result looks like "nothing found" and can grant access without leaving the flow.
 
 import SwiftUI
 import AppKit
 
-/// Non-blocking inline prompt rendered inside a scannable section's intro
-/// (and in `PrivacyView`'s idle state) when Full Disk Access has not been
-/// granted. The app-wide onboarding sheet (`PermissionOnboardingView`) covers
-/// first run; once the user dismisses it with "Continue Without Access" this
-/// card is the persistent, per-section reminder that scans here will be
-/// incomplete until access is granted.
+/// Non-blocking inline prompt rendered in a scannable section's empty or clean
+/// detail state (System Junk, Large & Old Files, Malware Removal) when Full
+/// Disk Access has not been granted. The app-wide onboarding sheet
+/// (`PermissionOnboardingView`) covers first run, and the floating Scan button
+/// raises a `ScanAccessPopover` at the point of action; this card is the
+/// post-scan explanation — it tells a user who scanned anyway why an empty
+/// result may just be missing permission, and lets them fix it and re-scan.
 ///
 /// `accent` tints the lock symbol and the primary CTA so the card reads as
 /// part of the section it sits in (System Junk green, Large & Old Files teal,

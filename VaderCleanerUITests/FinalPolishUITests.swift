@@ -183,6 +183,7 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertTrue(scan.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the Large & Old Files intro")
         scan.click()
+        proceedPastScanAccessPopoverIfNeeded()
 
         // Prefer a terminal state; allow a generous window for the walk.
         // One combined query so an early empty/failed state short-circuits
@@ -337,6 +338,17 @@ final class FinalPolishUITests: XCTestCase {
         let continueWithout = app.buttons["Continue Without Access"]
         if continueWithout.waitForExistence(timeout: 2) {
             continueWithout.click()
+        }
+    }
+
+    /// The floating Scan button gates FDA-sensitive sections behind an access
+    /// popover when Full Disk Access is missing — which it is on a test host
+    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
+    /// Anyway" so the scan proceeds and the wiring under test still runs.
+    private func proceedPastScanAccessPopoverIfNeeded() {
+        let scanAnyway = app.buttons["fda.popover.scanAnyway"]
+        if scanAnyway.waitForExistence(timeout: 2) {
+            scanAnyway.click()
         }
     }
 
