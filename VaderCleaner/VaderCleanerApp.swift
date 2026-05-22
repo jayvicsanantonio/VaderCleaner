@@ -205,6 +205,14 @@ struct VaderCleanerApp: App {
                 .environmentObject(systemStats)
                 .environmentObject(notificationMonitor)
         }
+        // Hide the title bar so no section title is drawn beside the traffic
+        // lights; the controls float over the section's gradient and each
+        // screen reads as one continuous surface.
+        .windowStyle(.hiddenTitleBar)
+        // Open wide and tall enough for the side-by-side section intro (hero
+        // beside the text) to show on first launch, with the vertically
+        // centred cluster sitting clear of the floating Scan disc.
+        .defaultSize(width: 1200, height: 800)
         .commands {
             // Replace SwiftUI's default "About VaderCleaner" item so the
             // panel carries our copyright credits instead of an empty one.

@@ -19,6 +19,10 @@ struct SectionIntroView: View {
     /// uncluttered landing without a relaunch.
     @EnvironmentObject private var appState: AppState
 
+    /// Drives the hero's slow vertical drift. Flipped true on appear so the
+    /// repeating float animation has a value to oscillate between.
+    @State private var heroFloating = false
+
     /// Localized section title for display. A computed accessor so the
     /// rendered heading tracks the UI language while the identifiers below
     /// stay fixed regardless of locale.
@@ -63,37 +67,20 @@ struct SectionIntroView: View {
 
     // MARK: Body
 
-    /// Hero + text laid side by side on wide panes, stacked when narrow.
-    /// Wrapped in a `ScrollView` so the largest Dynamic Type sizes scroll
-    /// instead of clipping; the `minHeight` keyed to the available height
-    /// keeps the content vertically centered whenever it still fits, so the
-    /// landing looks unchanged at default text sizes.
+    /// Hero and text laid side by side, centred in the pane above the floating
+    /// Scan disc. No `ScrollView`: the landing is a single static composition,
+    /// kept compact so it fits without scrolling, and the bottom inset reserves
+    /// a clear band for the Scan disc so the two never collide.
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                // Wide layout (hero beside the text) is preferred;
-                // ViewThatFits drops to the stacked layout when the detail
-                // pane is too narrow for both side by side, so the screen
-                // degrades gracefully at the 900pt min window without a
-                // manual breakpoint.
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .center, spacing: 48) {
-                        hero
-                        textColumn
-                    }
-                    VStack(spacing: 28) {
-                        hero
-                        textColumn
-                    }
-                }
-                .padding(40)
-                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
-            }
-            // No bounce when the content already fits — the intro should feel
-            // like a static landing, not a scroll surface, until Dynamic Type
-            // actually overflows it.
-            .scrollBounceBehavior(.basedOnSize)
+        HStack(alignment: .center, spacing: 44) {
+            hero
+            textColumn
         }
+        .padding(.horizontal, 44)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Reserve the bottom band for the floating Scan disc, so the centred
+        // cluster sits clear of it and the landing never needs to scroll.
+        .padding(.bottom, 168)
         .accessibilityIdentifier(rootAccessibilityIdentifier)
         .accessibilityElement(children: .contain)
     }
@@ -101,10 +88,18 @@ struct SectionIntroView: View {
     // MARK: Hero
 
     /// Designer art when supplied, otherwise the accent-tinted SF Symbol,
-    /// behind the shared accent bloom. Decorative — hidden from accessibility.
+    /// over a soft accent orb. Slowly drifts so it floats like the reference's
+    /// lit 3D illustration. Decorative — hidden from accessibility.
     @ViewBuilder
     private var hero: some View {
-        Group {
+        ZStack {
+            // A blurred accent orb behind the artwork so the hero glows from
+            // within rather than reading as a flat icon.
+            Circle()
+                .fill(presentation.accent.opacity(0.42))
+                .frame(width: 132, height: 132)
+                .blur(radius: 50)
+
             if let asset = presentation.heroAssetName, !asset.isEmpty {
                 // Designer-supplied art is pre-coloured, so it is not accent
                 // tinted — only the bloom carries the accent.
@@ -112,18 +107,25 @@ struct SectionIntroView: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 160, height: 160)
+                    .frame(width: 168, height: 168)
             } else {
                 Image(systemName: presentation.heroSymbol)
-                    .font(.system(size: 120))
+                    .font(.system(size: 108, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(presentation.accent)
-                    .frame(width: 160, height: 160)
             }
         }
+        .frame(width: 200, height: 200)
         // A soft bloom behind the hero, recoloured to the section accent so
         // the intro feels like part of one family.
-        .shadow(color: presentation.accent.opacity(0.45), radius: 32)
+        .shadow(color: presentation.accent.opacity(0.30), radius: 22)
+        // A slow vertical drift so the hero gently floats in place.
+        .offset(y: heroFloating ? -7 : 5)
+        .animation(
+            .easeInOut(duration: 3.6).repeatForever(autoreverses: true),
+            value: heroFloating
+        )
+        .onAppear { heroFloating = true }
         // The art is decorative, but a sighted user gets a clear section
         // anchor here, so VoiceOver gets one too. The label is qualified as
         // an "illustration" rather than the bare section name so it does not
@@ -143,21 +145,22 @@ struct SectionIntroView: View {
     /// Title, tagline, the inline FDA reminder (when needed), and the
     /// descriptive feature rows, grouped under the per-section identifier.
     private var textColumn: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title)
-                    .font(.system(size: 34, weight: .semibold))
+                    .font(.system(size: 40, weight: .regular))
                     .fixedSize(horizontal: false, vertical: true)
                     // Marks the section name as a heading so VoiceOver's
                     // rotor lets users jump straight to it.
                     .accessibilityAddTraits(.isHeader)
 
                 Text(presentation.tagline)
-                    .font(.title3)
+                    .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 420, alignment: .leading)
+                    .frame(maxWidth: 360, alignment: .leading)
             }
 
             // Inline reminder, sized to align with the tagline column. Sits
@@ -185,6 +188,7 @@ struct SectionIntroView: View {
                 }
             }
         }
+        .frame(maxWidth: 380, alignment: .leading)
         .animation(.smooth(duration: 0.4), value: appState.hasFullDiskAccess)
         // Combine the title + tagline + rows under the per-section id without
         // hiding the rows: .contain keeps each row independently queryable by
@@ -193,17 +197,31 @@ struct SectionIntroView: View {
         .accessibilityIdentifier(sectionAccessibilityIdentifier)
     }
 
-    /// One descriptive row: accent icon + label. Purely informational — no
+    /// One descriptive row: an accent badge + label. Purely informational — no
     /// checkbox, no action (matches the reference design).
     private func featureRow(_ feature: SectionFeature, index: Int) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: feature.symbol)
-                .font(.title3)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(presentation.accent)
-                .frame(width: 28, alignment: .center)
+        HStack(spacing: 13) {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            presentation.accent,
+                            presentation.accent.opacity(0.72),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 36, height: 36)
+                .overlay {
+                    Image(systemName: feature.symbol)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+                .shadow(color: presentation.accent.opacity(0.4), radius: 7, y: 3)
             Text(feature.title)
-                .font(.body)
+                .font(.system(size: 15, weight: .regular))
+            Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(featureAccessibilityIdentifier(at: index))

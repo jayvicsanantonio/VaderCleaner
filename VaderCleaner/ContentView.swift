@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Namespace for the sliding selection pill in the custom rail.
     @Namespace private var pillNamespace
+    /// The section the pointer is currently over, if any. Drives the rail's
+    /// hover highlight — a quieter pill than the selection's.
+    @State private var hoveredSection: NavigationSection?
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
     /// dismissal in the same cycle) would request authorization twice — the
@@ -60,6 +63,13 @@ struct ContentView: View {
         self.smartScanViewModel = smartScanViewModel
     }
 
+    /// Colour identity of the section currently on screen. Drives the window
+    /// backdrop and the control tint; falls back to Smart Scan's theme before
+    /// a selection exists.
+    private var theme: SectionTheme {
+        (selectedSection ?? .smartScan).theme
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // A custom rail of buttons (not a List) so selection can be a soft
@@ -73,6 +83,11 @@ struct ContentView: View {
             // without reintroducing a split divider.
             NavigationStack {
                 detailView(for: selectedSection ?? .smartScan)
+                    // Crossfade the whole detail screen as the section
+                    // changes, so navigation reads as a soft dissolve in step
+                    // with the backdrop recolour rather than a hard cut.
+                    .id(selectedSection)
+                    .transition(.opacity)
             }
         }
         // The Scan CTA floats over the window's bottom edge. It is attached to
@@ -87,11 +102,25 @@ struct ContentView: View {
                 .padding(.leading, railWidth)
                 .padding(.bottom, floatingScanBottomPadding)
         }
-        .frame(minWidth: 900, minHeight: 600)
-        // Branded shell: gradient backdrop, crimson tint, forced dark
-        // appearance. The toolbar background is hidden so the floating glass
-        // toolbar items sit directly over the gradient instead of on a band.
-        .vaderShell()
+        // One ambient animation drives every section-change motion in lock
+        // step: the rail's selection pill slides, the detail screen
+        // crossfades, and the floating Scan disc recolours.
+        .animation(.smooth(duration: 0.42), value: selectedSection)
+        // The side-by-side section intro needs a pane wide enough for the
+        // hero, the gap, and the text column; a 1000pt minimum keeps that
+        // fixed layout from clipping at the smallest allowed window width.
+        .frame(minWidth: 1000, minHeight: 600)
+        // Per-section gradient backdrop, keyed to the selection and crossfaded
+        // on change so moving between sections recolours the whole window. The
+        // toolbar background is hidden so the floating glass toolbar items sit
+        // directly over the gradient instead of on a band.
+        .background {
+            VaderBackground(theme: theme)
+                .id(selectedSection)
+                .transition(.opacity)
+                .animation(.smooth(duration: 0.55), value: selectedSection)
+        }
+        .vaderShell(accent: theme.accent)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .sheet(isPresented: shouldShowOnboarding) {
             PermissionOnboardingView()
@@ -128,22 +157,24 @@ struct ContentView: View {
     /// still work.
     private var rail: some View {
         ScrollView {
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 ForEach(NavigationSection.allCases) { section in
                     railRow(section)
                 }
             }
             .padding(.horizontal, 10)
             // The content extends under the hidden title bar, so inset the
-            // first row clear of the window's traffic-light controls.
-            .padding(.top, 44)
-            .padding(.bottom, 16)
+            // first row clear of the window's traffic-light controls. The top
+            // and bottom insets, the row gap, and the row height are tuned
+            // together so all eleven rows fit a default-height window without
+            // scrolling.
+            .padding(.top, 58)
+            .padding(.bottom, 12)
         }
-        // No scroll indicator: all eleven rows fit within the window's
-        // minimum height at default text sizes, so the rail reads as a
-        // static list with no visible scrolling. The ScrollView is retained
-        // only so the bottom rows stay reachable when a larger Dynamic Type
-        // size overflows the column.
+        // No scroll indicator: at a typical window height the eleven rows sit
+        // statically with no visible scrolling. The ScrollView is retained so
+        // the bottom rows stay reachable when a short window or a larger
+        // Dynamic Type size overflows the column.
         .scrollIndicators(.hidden)
         // Anchor the rail to the true window top. Detail screens declare
         // different toolbars, which changes the window's top safe-area inset;
@@ -155,6 +186,7 @@ struct ContentView: View {
 
     private func railRow(_ section: NavigationSection) -> some View {
         let isSelected = selectedSection == section
+        let isHovering = hoveredSection == section
         return Button {
             selectedSection = section
         } label: {
@@ -162,32 +194,92 @@ struct ContentView: View {
                 Image(systemName: section.icon)
                     .symbolRenderingMode(.hierarchical)
                     .font(.title3)
+                    // The icon stays neutral — matching the inactive label —
+                    // until the row is active or hovered, when it lights up in
+                    // the section's accent.
+                    .foregroundStyle(
+                        isSelected || isHovering
+                            ? section.theme.accent
+                            : Color.white.opacity(0.62)
+                    )
                     .frame(width: 26)
                 Text(section.title)
                     .font(.body)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.62))
+            .foregroundStyle(isSelected || isHovering ? Color.white : Color.white.opacity(0.62))
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
             .background {
                 if isSelected {
-                    Color.clear
-                        .glassEffect(
-                            .regular.tint(Color.vaderCrimson),
-                            in: .rect(cornerRadius: 12)
+                    // A translucent pill — the dark page shows through, lifted
+                    // by a soft horizontal sheen that is brightest at the left
+                    // and right edges and dims behind the label in the centre.
+                    // No accent tint: a saturated glass fill reads as a solid
+                    // button, not the see-through surface the reference uses.
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(0.22),
+                                    .white.opacity(0.07),
+                                    .white.opacity(0.22),
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
                         )
+                        .overlay {
+                            // A hairline rim in the section's accent, brightest
+                            // along the leading edge and fading across to the
+                            // trailing edge, so the active pill reads as a lit,
+                            // colour-keyed glass surface.
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [
+                                            section.theme.accent.opacity(0.85),
+                                            section.theme.accent.opacity(0.25),
+                                        ],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        }
                         .matchedGeometryEffect(id: "selectionPill", in: pillNamespace)
+                } else if isHovering {
+                    // Hover highlight — a quieter pill than the selection: a
+                    // fainter flat fill and a dim hairline border, no top-lit
+                    // sheen, so the hover and active states stay clearly
+                    // distinct.
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
+                        }
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // Suppress the macOS keyboard focus ring. Without this the first
-        // focusable row wears the system's blue halo on launch; the crimson
-        // selection pill is the rail's own state indicator.
+        // focusable row wears the system's blue halo on launch; the rail's
+        // selection pill is its own state indicator.
         .focusEffectDisabled()
+        // Track the pointer so the row can show its hover highlight. Clearing
+        // only when *this* section is the one being left avoids a stale value
+        // when the pointer crosses straight from one row to the next.
+        .onHover { hovering in
+            if hovering {
+                hoveredSection = section
+            } else if hoveredSection == section {
+                hoveredSection = nil
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: isHovering)
         .accessibilityIdentifier(section.accessibilityIdentifier)
         .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

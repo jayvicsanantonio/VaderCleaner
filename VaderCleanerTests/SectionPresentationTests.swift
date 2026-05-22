@@ -95,16 +95,17 @@ final class SectionPresentationTests: XCTestCase {
         }
     }
 
-    /// Every scannable section's intro accent must be the single Vader crimson —
-    /// the app's one brand accent. A section added with a stray accent (or an
-    /// existing one drifting back to a per-section color) fails loudly here.
-    func test_everyScannablePresentationAccent_isVaderCrimson() throws {
+    /// Every scannable section's intro accent must mirror its
+    /// `NavigationSection.theme` accent, so the hero, feature badges, and
+    /// floating Scan disc match the per-section window backdrop. A section that
+    /// hardcodes a stray accent instead of its theme fails loudly here.
+    func test_everyScannablePresentationAccent_matchesSectionTheme() throws {
         for section in scannableSections {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
             XCTAssertEqual(
                 presentation.accent,
-                .vaderCrimson,
-                "Section \(section) must use the unified crimson accent"
+                section.theme.accent,
+                "Section \(section)'s presentation accent must mirror its theme accent"
             )
         }
     }
