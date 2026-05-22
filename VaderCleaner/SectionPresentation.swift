@@ -11,9 +11,9 @@ struct SectionFeature: Equatable {
     let title: String
 }
 
-/// The visual identity for a scannable section's intro screen. The window's
-/// crimson `vaderShell()` is unchanged — `accent` tints only the hero,
-/// sub-feature icons, and (in a later step) the floating Scan button.
+/// The content for a scannable section's intro screen. The section's colour
+/// identity lives in `NavigationSection.theme`; `accent` mirrors that hue so
+/// the hero, feature badges, and floating Scan disc match the window backdrop.
 struct SectionPresentation {
     /// SF Symbol used as the hero when no bespoke art is supplied.
     let heroSymbol: String
@@ -21,7 +21,8 @@ struct SectionPresentation {
     /// back to `heroSymbol`; wired now so art can land later with no code
     /// change.
     let heroAssetName: String?
-    /// Accent applied to intro elements only — not the window gradient.
+    /// The section's vivid hue — mirrors `NavigationSection.theme.accent` so
+    /// the intro elements match the window backdrop.
     let accent: Color
     /// One-line description shown under the section title.
     let tagline: String
@@ -40,7 +41,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "sparkles",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "Quick maintenance that takes care of the essentials.",
                     comment: "Smart Scan intro tagline."
@@ -64,7 +65,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "trash",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "Clean your system to reclaim space and boost performance.",
                     comment: "System Junk intro tagline."
@@ -92,7 +93,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "doc.text.magnifyingglass",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "Find big and forgotten files taking up space.",
                     comment: "Large & Old Files intro tagline."
@@ -116,7 +117,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "square.split.2x2",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "See what's using your storage with an interactive map.",
                     comment: "Space Lens intro tagline."
@@ -136,7 +137,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "shield.lefthalf.filled",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "Check your Mac for threats and vulnerabilities.",
                     comment: "Malware Removal intro tagline."
@@ -160,7 +161,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "gauge.with.needle",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
                     comment: "Optimization intro tagline."
@@ -188,7 +189,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "lock.shield",
                 heroAssetName: nil,
-                accent: .vaderCrimson,
+                accent: section.theme.accent,
                 tagline: String(
                     localized: "Clear browsing history, cookies, and caches across your browsers.",
                     comment: "Privacy intro tagline."
