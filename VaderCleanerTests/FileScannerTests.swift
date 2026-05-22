@@ -403,4 +403,96 @@ final class FileScannerTests: XCTestCase {
         XCTAssertEqual(files.count, 1)
         XCTAssertEqual(files.first?.size, 1_234)
     }
+
+    // MARK: - Protected media stores
+
+    /// `ProtectedMediaStoreBundle.matches` recognises Photos and Photo Booth
+    /// library bundles by extension / name, case-insensitively (the default
+    /// APFS volume is case-insensitive), and rejects everything else.
+    func test_protectedMediaStoreBundle_matchesPhotoAndPhotoBoothLibrariesCaseInsensitively() {
+        let matching = [
+            "/Users/x/Pictures/Photos Library.photoslibrary",
+            "/Users/x/Pictures/Family.PHOTOSLIBRARY",
+            "/Users/x/Pictures/Archive/Old.PhotosLibrary",
+            "/Users/x/Pictures/Photo Booth Library",
+            "/Users/x/Pictures/photo booth library",
+        ]
+        for path in matching {
+            XCTAssertTrue(
+                ProtectedMediaStoreBundle.matches(URL(fileURLWithPath: path)),
+                "\(path) should be recognised as a protected media store"
+            )
+        }
+
+        let nonMatching = [
+            "/Users/x/Pictures/Wallpapers",
+            "/Users/x/Pictures/vacation.jpg",
+            "/Users/x/Documents/Photo Booth Library Notes.txt",
+            "/Users/x/Music/Music",
+        ]
+        for path in nonMatching {
+            XCTAssertFalse(
+                ProtectedMediaStoreBundle.matches(URL(fileURLWithPath: path)),
+                "\(path) should not be recognised as a protected media store"
+            )
+        }
+    }
+
+    /// With `skipsProtectedMediaStores` set, the walk drops Photos library
+    /// bundles whole — at any depth — and never descends into them, so the
+    /// real scan cannot trip a macOS Photos privacy prompt.
+    func test_scan_skipsProtectedMediaStores_dropsPhotoLibraryBundlesAtAnyDepth() async throws {
+        let topLibrary = tempRoot.appendingPathComponent("Photos Library.photoslibrary", isDirectory: true)
+        let nestedLibrary = tempRoot
+            .appendingPathComponent("Archive", isDirectory: true)
+            .appendingPathComponent("Old.photoslibrary", isDirectory: true)
+        for library in [topLibrary, nestedLibrary] {
+            try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+            try TestHelpers.createDummyFile(named: "originals.bin", size: 64, in: library)
+        }
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: tempRoot)
+
+        let scanner = FileScanner()
+        var files: [ScannedFile] = []
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .largeFile)],
+            excluding: [],
+            options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
+            files.append(contentsOf: batch)
+        }
+
+        XCTAssertEqual(
+            files.map { $0.url.lastPathComponent },
+            ["keep.bin"],
+            "Protected photo libraries must not be emitted, at any depth"
+        )
+    }
+
+    /// The skip is opt-in: with the option unset, a photo library is treated
+    /// like any other package — proving System Junk scans (which use the
+    /// default options) are unaffected.
+    func test_scan_packagesAsFiles_emitsPhotoLibraryWhenSkipOptionUnset() async throws {
+        let library = tempRoot.appendingPathComponent("Photos Library.photoslibrary", isDirectory: true)
+        try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "originals.bin", size: 64, in: library)
+
+        let scanner = FileScanner()
+        var files: [ScannedFile] = []
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .largeFile)],
+            excluding: [],
+            options: FileScanOptions(packagesAsFiles: true),
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
+            files.append(contentsOf: batch)
+        }
+
+        XCTAssertEqual(
+            files.map { $0.url.lastPathComponent },
+            ["Photos Library.photoslibrary"],
+            "With the skip option off, a photo library is treated like any other package"
+        )
+    }
 }
