@@ -76,7 +76,8 @@ struct SectionIntroView: View {
     // MARK: Hero
 
     /// Designer art when supplied, otherwise the accent-tinted SF Symbol,
-    /// over a soft accent orb. Decorative — hidden from accessibility.
+    /// over a soft accent orb. Exposed to accessibility as a labelled
+    /// illustration (see the `.accessibilityLabel`/`.isImage` below).
     @ViewBuilder
     private var hero: some View {
         ZStack {
