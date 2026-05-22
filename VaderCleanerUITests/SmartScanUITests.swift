@@ -75,11 +75,11 @@ final class SmartScanUITests: XCTestCase {
         )
     }
 
-    /// The Scan disc is 108pt of interactive glass, but its label is only the
-    /// centered "Scan" text. Without an explicit content shape the button's
-    /// hit region collapses to the text glyphs, so clicking the glass around
-    /// the word does nothing. The button element must report (close to) the
-    /// full 108pt disc, not the ~37x20pt text bounds.
+    /// The Scan disc's label is only the centered "Scan" text. Without an
+    /// explicit content shape the button's hit region collapses to the text
+    /// glyphs, so clicking the disc around the word does nothing. The button
+    /// element must report (close to) the full disc, not the ~37x20pt text
+    /// bounds.
     func test_smartScan_scanDiscIsFullyInteractive() throws {
         dismissOnboardingIfNeeded()
 
@@ -97,6 +97,34 @@ final class SmartScanUITests: XCTestCase {
         XCTAssertGreaterThan(
             frame.height, 100,
             "The Scan button must span the whole disc, not just its text label"
+        )
+    }
+
+    /// The Scan disc straddles the window's bottom edge, so the FDA popover
+    /// must open upward — above the disc. A downward popover would be clipped
+    /// off the bottom of the window, making "Scan Anyway" hard to reach.
+    func test_smartScan_fdaPopover_opensAboveTheDisc() throws {
+        dismissOnboardingIfNeeded()
+
+        let scanButton = app.buttons["section.smartScan.scan"]
+        XCTAssertTrue(
+            scanButton.waitForExistence(timeout: 10),
+            "Expected the floating Scan button on the Smart Scan intro"
+        )
+        let discFrame = scanButton.frame
+        scanButton.click()
+
+        let popover = app.descendants(matching: .any)["fda.popover"]
+        guard popover.waitForExistence(timeout: 5) else {
+            throw XCTSkip(
+                "Full Disk Access is granted on this host — no FDA popover to position-check."
+            )
+        }
+        // XCUITest frames are top-left origin, so a smaller midY is higher on
+        // screen: the popover's center must sit above the disc's center.
+        XCTAssertLessThan(
+            popover.frame.midY, discFrame.midY,
+            "The FDA popover must open above the Scan disc, not below it"
         )
     }
 
