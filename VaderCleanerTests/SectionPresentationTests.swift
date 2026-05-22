@@ -8,15 +8,15 @@ import SwiftUI
 
 final class SectionPresentationTests: XCTestCase {
 
-    /// The six sections that drive a scan/load and therefore get the unified
+    /// The seven sections that drive a scan/load and therefore get the unified
     /// intro screen + floating Scan button. Pinned here so a drift in
     /// `isScannable` or `SectionPresentation.for(_:)` fails loudly.
     private let scannableSections: Set<NavigationSection> = [
         .smartScan, .systemJunk, .largeOldFiles,
-        .spaceLens, .malwareRemoval, .optimization,
+        .spaceLens, .malwareRemoval, .optimization, .privacy,
     ]
 
-    func test_isScannable_isTrueForExactlyTheSixScannableSections() {
+    func test_isScannable_isTrueForExactlyTheSevenScannableSections() {
         for section in NavigationSection.allCases {
             let expected = scannableSections.contains(section)
             XCTAssertEqual(
@@ -27,9 +27,9 @@ final class SectionPresentationTests: XCTestCase {
         }
     }
 
-    func test_isScannable_countIsExactlySix() {
+    func test_isScannable_countIsExactlySeven() {
         let count = NavigationSection.allCases.filter(\.isScannable).count
-        XCTAssertEqual(count, 6, "Exactly six sections must be scannable")
+        XCTAssertEqual(count, 7, "Exactly seven sections must be scannable")
     }
 
     func test_presentationFor_isNonNilForScannableAndNilOtherwise() {

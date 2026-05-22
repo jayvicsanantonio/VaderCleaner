@@ -91,9 +91,9 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var isScannable: Bool {
         switch self {
         case .smartScan, .systemJunk, .largeOldFiles,
-             .spaceLens, .malwareRemoval, .optimization:
+             .spaceLens, .malwareRemoval, .optimization, .privacy:
             return true
-        case .privacy, .extensions, .appUninstaller,
+        case .extensions, .appUninstaller,
              .appUpdater, .healthMonitor:
             return false
         }
@@ -109,9 +109,9 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var requiresFullDiskAccess: Bool {
         switch self {
         case .smartScan, .systemJunk, .largeOldFiles,
-             .spaceLens, .malwareRemoval:
+             .spaceLens, .malwareRemoval, .privacy:
             return true
-        case .optimization, .privacy, .extensions,
+        case .optimization, .extensions,
              .appUninstaller, .appUpdater, .healthMonitor:
             return false
         }

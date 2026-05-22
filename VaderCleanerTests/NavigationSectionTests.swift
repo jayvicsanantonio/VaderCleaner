@@ -91,7 +91,7 @@ final class NavigationSectionTests: XCTestCase {
             .spaceLens: true,        // home directory walk
             .malwareRemoval: true,   // ClamAV scan
             .optimization: false,    // launchctl / login items / RAM
-            .privacy: false,
+            .privacy: true,          // Safari data lives in TCC-protected paths
             .extensions: false,
             .appUninstaller: false,
             .appUpdater: false,

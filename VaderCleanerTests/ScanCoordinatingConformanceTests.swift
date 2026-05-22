@@ -1,5 +1,5 @@
 // ScanCoordinatingConformanceTests.swift
-// Pins the full Phase→ScanPresentation mapping (every rich case) and the beginScan() entrypoint for all six scannable view models conforming to ScanCoordinating.
+// Pins the full Phase→ScanPresentation mapping (every rich case) and the beginScan() entrypoint for all seven scannable view models conforming to ScanCoordinating.
 
 import XCTest
 import Combine
@@ -575,6 +575,92 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second load")
     }
 
+    // MARK: - PrivacyViewModel
+    // Mapping: .idle→.intro; .scanning/.clearing→.working; .preview/.complete/.failed→.results.
+
+    func test_privacy_idleMapsToIntro() {
+        XCTAssertEqual(makePrivacy().scanPresentation, .intro)
+    }
+
+    func test_privacy_scanningMapsToWorking() async {
+        let gate = ScanGate()
+        let vm = makePrivacy(detector: {
+            await gate.wait()
+            return []
+        })
+
+        let task = Task { await vm.preview() }
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_privacy_previewMapsToResults() async {
+        let vm = makePrivacy()
+        await vm.preview()
+        XCTAssertEqual(vm.phase, .preview)
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_privacy_clearingMapsToWorking() async {
+        let gate = ScanGate()
+        // The recents clearer runs first inside `clear()`; gating it freezes
+        // the VM in `.clearing` long enough to observe the projection.
+        let vm = makePrivacy(clearRecentFiles: { await gate.wait() })
+        await vm.preview() // → .preview, the only phase clear() acts from.
+
+        let task = Task { await vm.clear() }
+        await yieldUntil({ vm.phase == .clearing }, ".clearing")
+        XCTAssertEqual(vm.scanPresentation, .working)
+
+        gate.open()
+        await task.value
+    }
+
+    func test_privacy_completeMapsToResults() async {
+        let vm = makePrivacy()
+        await vm.preview()
+        await vm.clear()
+        if case .complete = vm.phase {} else { XCTFail("expected .complete, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_privacy_failedMapsToResults() async {
+        let vm = makePrivacy(detector: { throw Boom() })
+        await vm.preview()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+        XCTAssertEqual(vm.scanPresentation, .results)
+    }
+
+    func test_privacy_beginScanLeavesIntro() async {
+        let vm = makePrivacy()
+        vm.beginScan()
+        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
+        XCTAssertNotEqual(vm.scanPresentation, .intro)
+    }
+
+    func test_privacy_beginScanIgnoresReentrantCallWhileScanning() async {
+        let gate = ScanGate()
+        let counter = CallCounter()
+        let vm = makePrivacy(detector: {
+            await counter.bump()
+            await gate.wait()
+            return []
+        })
+
+        vm.beginScan()
+        await yieldUntil({ vm.phase == .scanning }, ".scanning")
+        vm.beginScan() // re-entrant while scanning: must be a no-op
+        await yieldUntil({ counter.count >= 1 }, "detector invoked")
+        XCTAssertEqual(counter.count, 1)
+
+        gate.open()
+        await yieldUntil({ vm.phase != .scanning }, "scan settles")
+        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
+    }
+
     // MARK: - Construction helpers
     //
     // One per view model, mirroring the defaults each VM's own
@@ -654,6 +740,22 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
             flushRAM: flushRAM,
             runMaintenance: runMaintenance,
             launchAtLoginChanges: nil
+        )
+    }
+
+    private func makePrivacy(
+        detector: @escaping PrivacyViewModel.Detector = { [] },
+        sizer: @escaping PrivacyViewModel.Sizer = { _, _ in 0 },
+        pathsFor: @escaping PrivacyViewModel.PathsResolver = { _, _ in [] },
+        clearer: @escaping PrivacyViewModel.Clearer = { _, _ in },
+        clearRecentFiles: @escaping PrivacyViewModel.RecentFilesClearer = { }
+    ) -> PrivacyViewModel {
+        PrivacyViewModel(
+            detector: detector,
+            sizer: sizer,
+            pathsFor: pathsFor,
+            clearer: clearer,
+            clearRecentFiles: clearRecentFiles
         )
     }
 }
