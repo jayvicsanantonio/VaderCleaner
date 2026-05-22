@@ -5,8 +5,8 @@ import SwiftUI
 
 /// Palette for the Vader identity. Deep near-black base with a vivid crimson
 /// accent — retained as the default control tint for surfaces that have no
-/// section context (e.g. the Full Disk Access prompt card) and as the Malware
-/// Removal section's hue.
+/// section context (e.g. the Full Disk Access prompt card) and as the Smart
+/// Scan section's hue.
 extension Color {
     /// A near-black with a faint cool cast — the darkest base tone.
     static let vaderSpaceBlack = Color(red: 0.039, green: 0.039, blue: 0.055)
