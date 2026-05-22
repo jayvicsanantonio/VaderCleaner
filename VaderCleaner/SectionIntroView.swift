@@ -13,12 +13,6 @@ struct SectionIntroView: View {
     let presentation: SectionPresentation
     let section: NavigationSection
 
-    /// Observed for the inline FDA reminder. When access flips on (the user
-    /// granted it in System Settings; scenePhase refreshes the flag on
-    /// foreground), the card animates out so the intro returns to its
-    /// uncluttered landing without a relaunch.
-    @EnvironmentObject private var appState: AppState
-
     /// Drives the hero's slow vertical drift. Flipped true on appear so the
     /// repeating float animation has a value to oscillate between.
     @State private var heroFloating = false
@@ -27,14 +21,6 @@ struct SectionIntroView: View {
     /// rendered heading tracks the UI language while the identifiers below
     /// stay fixed regardless of locale.
     var title: String { section.title }
-
-    /// Whether the inline Full Disk Access reminder should render for this
-    /// section given the supplied access flag. Pulled out as a pure predicate
-    /// so tests can pin the behaviour without rendering the body — the only
-    /// inputs are `section.requiresFullDiskAccess` and the flag itself.
-    func shouldShowFullDiskAccessReminder(hasFullDiskAccess: Bool) -> Bool {
-        section.requiresFullDiskAccess && !hasFullDiskAccess
-    }
 
     // MARK: Accessibility identifiers
 
@@ -81,8 +67,14 @@ struct SectionIntroView: View {
         // Reserve the bottom band for the floating Scan disc, so the centred
         // cluster sits clear of it and the landing never needs to scroll.
         .padding(.bottom, 168)
-        .accessibilityIdentifier(rootAccessibilityIdentifier)
+        // Seal the intro as a container *before* naming it: applied in this
+        // order, `section.intro` labels the container element itself. The
+        // reverse order would instead propagate `section.intro` down onto
+        // every descendant — overwriting `textColumn`'s own
+        // `section.intro.<slug>` identifier so the per-section intro could no
+        // longer be located.
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(rootAccessibilityIdentifier)
     }
 
     // MARK: Hero
@@ -142,8 +134,8 @@ struct SectionIntroView: View {
 
     // MARK: Text + features
 
-    /// Title, tagline, the inline FDA reminder (when needed), and the
-    /// descriptive feature rows, grouped under the per-section identifier.
+    /// Title, tagline, and the descriptive feature rows, grouped under the
+    /// per-section identifier.
     private var textColumn: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 10) {
@@ -163,25 +155,6 @@ struct SectionIntroView: View {
                     .frame(maxWidth: 360, alignment: .leading)
             }
 
-            // Inline reminder, sized to align with the tagline column. Sits
-            // between tagline and features so it reads as context for "what
-            // this scan can see" rather than an alarm above the title. Slides
-            // in/out smoothly when access flips, which is the moment of
-            // delight: granting access in System Settings and watching the
-            // card retract on return.
-            if shouldShowFullDiskAccessReminder(hasFullDiskAccess: appState.hasFullDiskAccess) {
-                FullDiskAccessPromptCard(
-                    accent: presentation.accent,
-                    onRecheck: { appState.refresh() }
-                )
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity.combined(with: .scale(scale: 0.96))
-                    )
-                )
-            }
-
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(Array(presentation.features.enumerated()), id: \.offset) { index, feature in
                     featureRow(feature, index: index)
@@ -189,7 +162,6 @@ struct SectionIntroView: View {
             }
         }
         .frame(maxWidth: 380, alignment: .leading)
-        .animation(.smooth(duration: 0.4), value: appState.hasFullDiskAccess)
         // Combine the title + tagline + rows under the per-section id without
         // hiding the rows: .contain keeps each row independently queryable by
         // its own identifier while still pinning "this is section X's intro".

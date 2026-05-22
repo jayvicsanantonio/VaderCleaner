@@ -50,6 +50,7 @@ final class SpaceLensUITests: XCTestCase {
         XCTAssertTrue(floatingScan.waitForExistence(timeout: 5),
                       "Expected the floating Scan button on the Space Lens intro")
         floatingScan.click()
+        proceedPastScanAccessPopoverIfNeeded()
 
         // After Scan we expect either the scanning indicator or — on tiny home
         // folders / fast machines — the treemap to land before our timeout.
@@ -67,6 +68,17 @@ final class SpaceLensUITests: XCTestCase {
         let continueWithout = app.buttons["Continue Without Access"]
         if continueWithout.waitForExistence(timeout: 2) {
             continueWithout.click()
+        }
+    }
+
+    /// The floating Scan button gates FDA-sensitive sections behind an access
+    /// popover when Full Disk Access is missing — which it is on a test host
+    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
+    /// Anyway" so the scan proceeds and the wiring under test still runs.
+    private func proceedPastScanAccessPopoverIfNeeded() {
+        let scanAnyway = app.buttons["fda.popover.scanAnyway"]
+        if scanAnyway.waitForExistence(timeout: 5) {
+            scanAnyway.click()
         }
     }
 

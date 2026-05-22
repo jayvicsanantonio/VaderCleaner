@@ -92,51 +92,9 @@ final class SectionIntroViewTests: XCTestCase {
         }
     }
 
-    func test_reminderShows_whenSectionRequiresFDAAndAccessIsMissing() throws {
-        // The reminder card surfaces on the intro of every FDA-sensitive
-        // section whenever Full Disk Access has not been granted. Tested via
-        // the view's pure predicate so we don't need to render the body.
-        for section in NavigationSection.allCases where section.isScannable && section.requiresFullDiskAccess {
-            let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, section: section)
-
-            XCTAssertTrue(
-                view.shouldShowFullDiskAccessReminder(hasFullDiskAccess: false),
-                "\(section) requires FDA — the reminder must show when access is missing"
-            )
-        }
-    }
-
-    func test_reminderHides_whenFullDiskAccessIsGranted() throws {
-        // Granting access takes the card away on the next state flip, so the
-        // intro returns to its uncluttered landing.
-        for section in NavigationSection.allCases where section.isScannable {
-            let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, section: section)
-
-            XCTAssertFalse(
-                view.shouldShowFullDiskAccessReminder(hasFullDiskAccess: true),
-                "\(section) must not show the reminder once Full Disk Access is granted"
-            )
-        }
-    }
-
-    func test_reminderHides_whenSectionDoesNotRequireFDA() throws {
-        // Sections whose scans don't read FDA-gated paths never warn, even
-        // when access is missing — the reminder is reserved for cases where
-        // missing FDA actually yields empty or incomplete results.
-        for section in NavigationSection.allCases
-            where section.isScannable && !section.requiresFullDiskAccess
-        {
-            let presentation = try XCTUnwrap(SectionPresentation.for(section))
-            let view = SectionIntroView(presentation: presentation, section: section)
-
-            XCTAssertFalse(
-                view.shouldShowFullDiskAccessReminder(hasFullDiskAccess: false),
-                "\(section) does not require FDA — the reminder must stay hidden"
-            )
-        }
-    }
+    // The Scan-tap Full Disk Access gate that the intro reminder card was
+    // replaced by is covered by `ScanAccessPopoverTests` — the intro screen
+    // itself no longer renders an FDA reminder.
 
     func test_eachFeatureExposesItsIndexedAccessibilityIdentifier() throws {
         for section in NavigationSection.allCases where section.isScannable {

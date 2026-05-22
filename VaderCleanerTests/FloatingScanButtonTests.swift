@@ -78,6 +78,45 @@ final class FloatingScanButtonTests: XCTestCase {
         )
     }
 
+    func test_defaultDiameterIsCompact() {
+        // In-window CTAs (e.g. the Smart Scan "Clean" button) pass no diameter
+        // and must keep the compact size.
+        let button = FloatingScanButton(
+            title: "Clean",
+            accessibilityIdentifier: "section.clean",
+            action: {}
+        )
+
+        XCTAssertEqual(button.diameter, 108)
+    }
+
+    func test_customDiameterIsStored() {
+        let button = FloatingScanButton(
+            title: "Scan",
+            diameter: 150,
+            accessibilityIdentifier: "section.scan",
+            action: {}
+        )
+
+        XCTAssertEqual(button.diameter, 150)
+    }
+
+    func test_floatingDiameterIsLargerThanTheCompactDefault() {
+        // The floating Scan disc is deliberately a lot bigger than the
+        // in-window default so it reads as the screen's hero action.
+        let compact = FloatingScanButton(
+            title: "Clean",
+            accessibilityIdentifier: "section.clean",
+            action: {}
+        )
+
+        XCTAssertGreaterThan(
+            FloatingScanButton.floatingDiameter,
+            compact.diameter,
+            "The floating Scan disc must be larger than the compact CTA default"
+        )
+    }
+
     func test_accessibilityLabelDefaultsToTitle() {
         // Call sites that don't pass a label keep VoiceOver announcing the
         // visible title, so the disc still reads as "Scan" by default.
