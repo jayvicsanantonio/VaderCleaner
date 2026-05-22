@@ -106,7 +106,10 @@ struct ContentView: View {
         // step: the rail's selection pill slides, the detail screen
         // crossfades, and the floating Scan disc recolours.
         .animation(.smooth(duration: 0.42), value: selectedSection)
-        .frame(minWidth: 900, minHeight: 600)
+        // The side-by-side section intro needs a pane wide enough for the
+        // hero, the gap, and the text column; a 1000pt minimum keeps that
+        // fixed layout from clipping at the smallest allowed window width.
+        .frame(minWidth: 1000, minHeight: 600)
         // Per-section gradient backdrop, keyed to the selection and crossfaded
         // on change so moving between sections recolours the whole window. The
         // toolbar background is hidden so the floating glass toolbar items sit
