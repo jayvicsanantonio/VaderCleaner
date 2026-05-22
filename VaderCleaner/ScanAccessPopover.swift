@@ -51,20 +51,38 @@ struct ScanAccessPopover: View {
                     .font(.title2)
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(accent)
-                Text("Full Disk Access needed")
+                Text(String(
+                    localized: "Full Disk Access needed",
+                    comment: "Title of the popover shown when the user taps Scan on a section whose scan needs Full Disk Access."
+                ))
                     .font(.callout.weight(.semibold))
             }
-            Text("Without it, this scan can only see unprotected files. Grant access for complete results, or scan what's reachable now.")
+            Text(String(
+                localized: "Without it, this scan can only see unprotected files. Grant access for complete results, or scan what's reachable now.",
+                comment: "Body of the Scan access popover, explaining why Full Disk Access matters."
+            ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button("Open System Settings", action: onOpenSettings)
+                Button(
+                    String(
+                        localized: "Open System Settings",
+                        comment: "Scan access popover button that opens the Full Disk Access pane in System Settings."
+                    ),
+                    action: onOpenSettings
+                )
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
                     .tint(accent)
                     .accessibilityIdentifier("fda.popover.openSettings")
-                Button("Scan Anyway", action: onScanAnyway)
+                Button(
+                    String(
+                        localized: "Scan Anyway",
+                        comment: "Scan access popover button that starts the scan despite missing Full Disk Access."
+                    ),
+                    action: onScanAnyway
+                )
                     .controlSize(.small)
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("fda.popover.scanAnyway")
