@@ -27,13 +27,20 @@ enum FileCategory: Hashable {
     /// Tile color in the treemap. Held with the enum rather than at the
     /// view layer so a future use (legend, tooltip swatch) can read it
     /// directly without re-implementing the mapping.
+    ///
+    /// All five shades sit in the crimson family so the treemap stays inside
+    /// the Vader identity; they are spread bright → deep across lightness so
+    /// neighboring tiles remain distinguishable at a glance. `.media` is the
+    /// theme anchor — it is exactly `Color.vaderCrimson`. `.other` is a
+    /// desaturated dusty crimson so the fallback bucket still reads as the
+    /// quiet, neutral category.
     var color: Color {
         switch self {
-        case .documents: return .blue
-        case .media:     return .purple
-        case .apps:      return .orange
-        case .system:    return .red
-        case .other:     return .gray
+        case .documents: return Color(red: 0.95, green: 0.30, blue: 0.36)
+        case .media:     return .vaderCrimson
+        case .apps:      return Color(red: 0.66, green: 0.09, blue: 0.15)
+        case .system:    return Color(red: 0.46, green: 0.07, blue: 0.12)
+        case .other:     return Color(red: 0.40, green: 0.20, blue: 0.24)
         }
     }
 

@@ -64,7 +64,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "trash",
                 heroAssetName: nil,
-                accent: .green,
+                accent: .vaderCrimson,
                 tagline: String(
                     localized: "Clean your system to reclaim space and boost performance.",
                     comment: "System Junk intro tagline."
@@ -92,7 +92,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "doc.text.magnifyingglass",
                 heroAssetName: nil,
-                accent: .teal,
+                accent: .vaderCrimson,
                 tagline: String(
                     localized: "Find big and forgotten files taking up space.",
                     comment: "Large & Old Files intro tagline."
@@ -116,7 +116,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "square.split.2x2",
                 heroAssetName: nil,
-                accent: .indigo,
+                accent: .vaderCrimson,
                 tagline: String(
                     localized: "See what's using your storage with an interactive map.",
                     comment: "Space Lens intro tagline."
@@ -160,7 +160,7 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "gauge.with.needle",
                 heroAssetName: nil,
-                accent: .orange,
+                accent: .vaderCrimson,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
                     comment: "Optimization intro tagline."

@@ -3,6 +3,7 @@
 
 import XCTest
 import AppKit
+import SwiftUI
 @testable import VaderCleaner
 
 final class SectionPresentationTests: XCTestCase {
@@ -91,6 +92,20 @@ final class SectionPresentationTests: XCTestCase {
                     "Feature title must be non-empty for \(section)"
                 )
             }
+        }
+    }
+
+    /// Every scannable section's intro accent must be the single Vader crimson —
+    /// the app's one brand accent. A section added with a stray accent (or an
+    /// existing one drifting back to a per-section color) fails loudly here.
+    func test_everyScannablePresentationAccent_isVaderCrimson() throws {
+        for section in scannableSections {
+            let presentation = try XCTUnwrap(SectionPresentation.for(section))
+            XCTAssertEqual(
+                presentation.accent,
+                .vaderCrimson,
+                "Section \(section) must use the unified crimson accent"
+            )
         }
     }
 

@@ -2,6 +2,8 @@
 // Verifies FileCategory's mapping from DiskNode to one of documents/media/apps/system/other based on extension and path heuristics.
 
 import XCTest
+import SwiftUI
+import AppKit
 @testable import VaderCleaner
 
 /// Unit tests for `FileCategory`. The category drives tile color in the
@@ -110,6 +112,52 @@ final class FileCategoryTests: XCTestCase {
     func test_category_otherForUserDirectoryWithNoSpecialMarker() {
         let node = makeDirectory(path: "/Users/example/Projects")
         XCTAssertEqual(FileCategory.from(node: node), .other)
+    }
+
+    // MARK: - Tile colors
+
+    /// Every `FileCategory` case — the enum is not `CaseIterable`, so the list
+    /// is pinned here and the tile-color tests iterate it.
+    private static let allCategories: [FileCategory] = [
+        .documents, .media, .apps, .system, .other,
+    ]
+
+    /// Every category tile color must sit in the crimson family — a red-end
+    /// hue with real saturation — so the Space Lens treemap stays inside the
+    /// Vader identity. Asserted in hue/saturation rather than raw RGB so
+    /// re-tuning the ramp's lightness can't fail this for cosmetic reasons.
+    func test_everyCategoryTileColor_isInTheCrimsonFamily() {
+        for category in Self.allCategories {
+            let components = hsbComponents(of: category.color)
+            XCTAssertTrue(
+                components.hue <= 15.0 / 360.0 || components.hue >= 330.0 / 360.0,
+                "\(category) tile hue \(components.hue * 360)° must be at the red end (crimson family)"
+            )
+            XCTAssertGreaterThan(
+                components.saturation,
+                0.3,
+                "\(category) tile color must be saturated, not a washed-out neutral"
+            )
+        }
+    }
+
+    /// The five tiles must stay mutually distinguishable — a crimson family is
+    /// not a single crimson. Guards against a future "make everything
+    /// .vaderCrimson" collapse that would render the treemap unreadable.
+    func test_categoryTileColors_areAllDistinct() {
+        let colors = Self.allCategories.map(\.color)
+        XCTAssertEqual(
+            Set(colors).count,
+            colors.count,
+            "Every FileCategory must map to a distinct tile color"
+        )
+    }
+
+    private func hsbComponents(
+        of color: Color
+    ) -> (hue: CGFloat, saturation: CGFloat, brightness: CGFloat) {
+        let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color)
+        return (nsColor.hueComponent, nsColor.saturationComponent, nsColor.brightnessComponent)
     }
 
     // MARK: - Fixtures
