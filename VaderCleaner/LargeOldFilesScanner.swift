@@ -47,8 +47,9 @@ struct LargeOldFilesScanner {
         return matches
     }
 
-    /// Runs the scan and emits matching files in batches. `excluding` is
-    /// forwarded straight to the underlying `FileScanning` — the
+    /// Runs the scan and emits matching files in batches. Caller-provided
+    /// `excluding` paths are combined with `pathProvider.protectedMediaStores()`
+    /// before being forwarded to the underlying `FileScanning`; the
     /// path-component-aware match semantics covered in `FileScannerTests`
     /// apply unchanged.
     ///

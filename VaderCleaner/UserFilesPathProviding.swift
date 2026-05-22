@@ -49,11 +49,14 @@ struct DefaultUserFilesPathProvider: UserFilesPathProviding {
 
     /// Discovers the TCC-protected media stores under the user's home.
     ///
-    /// Photo libraries are found by listing `~/Pictures` — a shallow listing of
-    /// the user's own folder needs no special permission, and only descending
-    /// *into* a `.photoslibrary` / `Photo Booth Library` bundle trips the
-    /// Photos prompt. Listing catches renamed or multiple libraries that a
-    /// hard-coded default name would miss.
+    /// Photo libraries are found by walking `~/Pictures` recursively: a user
+    /// can rename the default library, keep several, or tuck one inside a
+    /// subfolder, so a shallow listing of fixed names would miss them. The
+    /// walk never descends *into* a bundle — that is what trips the Photos
+    /// prompt — because `.skipsPackageDescendants` skips `.photoslibrary`
+    /// packages and `Photo Booth Library` is skipped explicitly. Extension
+    /// and name matching is case-insensitive to mirror the default
+    /// case-insensitive APFS volume (and `FileScanner`'s exclusion matching).
     ///
     /// The Apple Music and legacy iTunes media folders sit at the fixed paths
     /// `~/Music/Music` and `~/Music/iTunes`; they are returned only when they
@@ -63,14 +66,21 @@ struct DefaultUserFilesPathProvider: UserFilesPathProviding {
         var stores: [URL] = []
 
         let pictures = homeDirectory.appendingPathComponent("Pictures", isDirectory: true)
-        if let entries = try? fileManager.contentsOfDirectory(
+        if let enumerator = fileManager.enumerator(
             at: pictures,
-            includingPropertiesForKeys: nil
+            includingPropertiesForKeys: nil,
+            options: [.skipsPackageDescendants]
         ) {
-            for entry in entries
-            where entry.pathExtension == "photoslibrary"
-                || entry.lastPathComponent == "Photo Booth Library" {
-                stores.append(entry)
+            for case let url as URL in enumerator {
+                if url.pathExtension.caseInsensitiveCompare("photoslibrary") == .orderedSame {
+                    stores.append(url)
+                } else if url.lastPathComponent.caseInsensitiveCompare("Photo Booth Library") == .orderedSame {
+                    stores.append(url)
+                    // Photo Booth's library is not a registered package type,
+                    // so `.skipsPackageDescendants` would not stop the walk
+                    // from descending into it — skip its contents explicitly.
+                    enumerator.skipDescendants()
+                }
             }
         }
 

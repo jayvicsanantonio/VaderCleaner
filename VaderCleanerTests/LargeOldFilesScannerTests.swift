@@ -425,6 +425,33 @@ final class LargeOldFilesScannerTests: XCTestCase {
         )
     }
 
+    /// A photo library can be renamed (changing its extension's casing on a
+    /// case-insensitive volume) or kept inside a `~/Pictures` subfolder.
+    /// `protectedMediaStores()` must still discover it — otherwise the scan
+    /// descends into the bundle and trips the Photos prompt this guards.
+    func test_protectedMediaStores_discoversNestedAndDifferentlyCasedPhotoLibraries() throws {
+        let pictures = tempRoot.appendingPathComponent("Pictures", isDirectory: true)
+        let nestedLibrary = pictures
+            .appendingPathComponent("Archive/2024", isDirectory: true)
+            .appendingPathComponent("Old Trips.photoslibrary", isDirectory: true)
+        let upperCasedLibrary = pictures.appendingPathComponent("Family.PHOTOSLIBRARY", isDirectory: true)
+        for directory in [nestedLibrary, upperCasedLibrary] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let provider = DefaultUserFilesPathProvider(homeDirectory: tempRoot)
+        let stores = Set(provider.protectedMediaStores().map { $0.resolvingSymlinksInPath().path })
+
+        XCTAssertTrue(
+            stores.contains(nestedLibrary.resolvingSymlinksInPath().path),
+            "A photo library nested in a ~/Pictures subfolder must still be discovered"
+        )
+        XCTAssertTrue(
+            stores.contains(upperCasedLibrary.resolvingSymlinksInPath().path),
+            "Photo library detection must be case-insensitive"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeRoot(_ name: String) throws -> URL {
