@@ -422,9 +422,13 @@ private extension AnyTransition {
     static func sectionContent(_ direction: SectionTransitionDirection) -> AnyTransition {
         // Halves run back-to-back: removal animates from 0 → exitDuration,
         // and the insertion's `.delay` keeps the new view at its starting
-        // edge until the outgoing has fully cleared.
-        let exitDuration: Double = 0.4
-        let entryDuration: Double = 0.4
+        // edge until the outgoing has fully cleared. The durations are
+        // generous enough that the long edge-to-edge travel reads as a
+        // fluid glide rather than a sharp slide, and `exitDuration`
+        // matches the backdrop's own crossfade so the new section begins
+        // entering exactly when the backdrop has finished recolouring.
+        let exitDuration: Double = 0.55
+        let entryDuration: Double = 0.55
         let removalEdge: Edge = direction == .down ? .bottom : .top
         let insertionEdge: Edge = direction == .down ? .top : .bottom
         return .asymmetric(
