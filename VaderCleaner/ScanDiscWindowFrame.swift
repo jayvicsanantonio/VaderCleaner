@@ -16,7 +16,7 @@ enum ScanDiscWindowFrame {
         /// The disc's center rests on the bottom edge — top half on the
         /// window, bottom half over the desktop. The standard windowed look.
         case straddleBottomEdge
-        /// The whole disc sits on the window, its bottom edge `margin` points
+        /// The whole panel sits inside the window, its bottom edge `margin`
         /// above the window's bottom edge. Used in fullscreen, where there is
         /// no desktop below the window to straddle into.
         case tuckedInside(margin: CGFloat)
@@ -49,9 +49,11 @@ enum ScanDiscWindowFrame {
             // Panel center on the edge → disc center on the edge.
             centerY = parentFrame.minY
         case .tuckedInside(let margin):
-            // Lift the panel so the disc's bottom edge clears the window edge
-            // by `margin`.
-            centerY = parentFrame.minY + margin + discDiameter / 2
+            // Sit the whole panel inside the window, its bottom edge `margin`
+            // above the window's edge. Keyed off `panelSize` — not the disc —
+            // so the transparent panel margin never hangs past the edge and
+            // intercepts bottom-edge clicks.
+            centerY = parentFrame.minY + margin + panelSize / 2
         }
         var originY = centerY - panelSize / 2
 

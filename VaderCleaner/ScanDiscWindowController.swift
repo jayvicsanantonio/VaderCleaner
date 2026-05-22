@@ -35,8 +35,9 @@ final class ScanDiscWindowController: ObservableObject {
     /// Side length of the square panel. Wider than the disc so its breathing
     /// accent glow is not clipped by the panel bounds.
     private let panelSize = FloatingScanButton.floatingDiameter + 100
-    /// Gap kept below the disc when it is tucked fully inside (fullscreen,
-    /// where there is no desktop below the window to straddle into).
+    /// Gap kept below the disc panel when it is tucked fully inside
+    /// (fullscreen, where there is no desktop below the window to straddle
+    /// into).
     private let fullScreenMargin: CGFloat = 36
 
     private var panel: NSPanel?

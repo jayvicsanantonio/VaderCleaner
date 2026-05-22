@@ -59,7 +59,7 @@ final class ScanDiscWindowFrameTests: XCTestCase {
 
     // MARK: Tucked inside (fullscreen)
 
-    func test_tucked_placesDiscFullyInsideAboveTheEdge() {
+    func test_tucked_placesPanelFullyInsideAboveTheEdge() {
         let margin: CGFloat = 40
         let frame = ScanDiscWindowFrame.panelFrame(
             parentFrame: parent,
@@ -68,12 +68,14 @@ final class ScanDiscWindowFrameTests: XCTestCase {
             discDiameter: discDiameter,
             placement: .tuckedInside(margin: margin)
         )
-        // The disc's bottom edge must sit `margin` above the window's bottom
-        // edge, so the whole disc is on-window (used in fullscreen, where
-        // there is no "outside" to straddle into).
-        let discBottom = frame.midY - discDiameter / 2
-        XCTAssertEqual(discBottom, parent.minY + margin, accuracy: 0.001,
-                       "Tucked disc bottom must sit `margin` above the window edge")
+        // The whole panel — not just the disc — must sit inside the window,
+        // its bottom edge `margin` above the window's bottom edge. In
+        // fullscreen there is no desktop below the window to overhang into,
+        // so even the transparent panel margin must stay on-window.
+        XCTAssertEqual(frame.minY, parent.minY + margin, accuracy: 0.001,
+                       "Tucked panel bottom must sit `margin` above the window edge")
+        XCTAssertGreaterThanOrEqual(frame.minY, parent.minY,
+                                    "The tucked panel must not hang below the window")
     }
 
     func test_tucked_keepsDiscWithinParentVerticalBounds() {
