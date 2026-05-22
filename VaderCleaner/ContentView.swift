@@ -110,15 +110,16 @@ struct ContentView: View {
                 ZStack {
                     detailView(for: selectedSection ?? .smartScan)
                         // Slide-and-fade the detail screen as the section
-                        // changes: the outgoing screen slides out to the edge
-                        // in the direction of travel — top for an upward
-                        // move, bottom for a downward one — and the incoming
-                        // screen enters from the opposite edge once the
-                        // outgoing has fully cleared. The two halves run
-                        // sequentially so only one section is on screen at a
-                        // time. `selectSection` updates `navigationDirection`
-                        // a tick before the selection commits so both halves
-                        // of the transition read the same direction.
+                        // changes, reading as a scroll between rows: a
+                        // downward rail tap sends content sliding up (the
+                        // outgoing screen exits through the top, the incoming
+                        // follows up from the bottom), and an upward rail tap
+                        // mirrors the motion in the opposite direction. Both
+                        // halves of the transition travel the same way and
+                        // run sequentially, so only one section is on screen
+                        // at a time. `selectSection` updates
+                        // `navigationDirection` a tick before the selection
+                        // commits so both halves agree on the direction.
                         .id(selectedSection)
                         .transition(.sectionContent(navigationDirection))
                 }
@@ -432,15 +433,15 @@ struct ContentView: View {
 }
 
 private extension AnyTransition {
-    /// Slide-and-fade for the detail pane. The outgoing screen slides all the
-    /// way out through the edge it's heading toward — top for `.up`, bottom
-    /// for `.down` — and fades as it leaves. The incoming screen then enters
-    /// from the opposite edge after the outgoing has finished, so a single
-    /// section is on screen at a time rather than the two overlapping.
-    /// `selectSection` writes the direction a tick before the selection so
-    /// the outgoing view re-renders with the new direction before SwiftUI
-    /// resolves the removal half, keeping both halves in agreement on a
-    /// reversal.
+    /// Slide-and-fade for the detail pane. Both halves of the transition
+    /// travel the same way, so it reads as a continuous scroll: a `.up`
+    /// move sends the outgoing screen out through the top edge and the
+    /// incoming screen up from the bottom; a `.down` move mirrors that
+    /// through the opposite edges. The two halves run sequentially so only
+    /// one section is on screen at a time. `selectSection` writes the
+    /// direction a tick before the selection so the outgoing view
+    /// re-renders with the new direction before SwiftUI resolves the
+    /// removal half, keeping both halves in agreement on a reversal.
     static func sectionContent(_ direction: SectionTransitionDirection) -> AnyTransition {
         // Halves run back-to-back: removal animates from 0 → exitDuration,
         // and the insertion's `.delay` keeps the new view at its starting
