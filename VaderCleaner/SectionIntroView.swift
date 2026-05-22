@@ -13,10 +13,6 @@ struct SectionIntroView: View {
     let presentation: SectionPresentation
     let section: NavigationSection
 
-    /// Drives the hero's slow vertical drift. Flipped true on appear so the
-    /// repeating float animation has a value to oscillate between.
-    @State private var heroFloating = false
-
     /// Localized section title for display. A computed accessor so the
     /// rendered heading tracks the UI language while the identifiers below
     /// stay fixed regardless of locale.
@@ -80,8 +76,7 @@ struct SectionIntroView: View {
     // MARK: Hero
 
     /// Designer art when supplied, otherwise the accent-tinted SF Symbol,
-    /// over a soft accent orb. Slowly drifts so it floats like the reference's
-    /// lit 3D illustration. Decorative — hidden from accessibility.
+    /// over a soft accent orb. Decorative — hidden from accessibility.
     @ViewBuilder
     private var hero: some View {
         ZStack {
@@ -111,13 +106,6 @@ struct SectionIntroView: View {
         // A soft bloom behind the hero, recoloured to the section accent so
         // the intro feels like part of one family.
         .shadow(color: presentation.accent.opacity(0.30), radius: 22)
-        // A slow vertical drift so the hero gently floats in place.
-        .offset(y: heroFloating ? -7 : 5)
-        .animation(
-            .easeInOut(duration: 3.6).repeatForever(autoreverses: true),
-            value: heroFloating
-        )
-        .onAppear { heroFloating = true }
         // The art is decorative, but a sighted user gets a clear section
         // anchor here, so VoiceOver gets one too. The label is qualified as
         // an "illustration" rather than the bare section name so it does not

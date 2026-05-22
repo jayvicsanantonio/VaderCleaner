@@ -49,12 +49,26 @@ struct FloatingScanButton: View {
                 .font(.system(size: diameter * 0.17, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: diameter, height: diameter)
-                // A flat, fully opaque accent fill — not a glass material and
-                // not a fading gradient — so the disc reads as a solid section-
-                // coloured button even where it floats over the desktop,
-                // beyond any window backdrop glass could tint against.
+                // An opaque accent fill darkened toward the centre by a radial
+                // black-to-clear wash, so the white title sits on a deeper
+                // backdrop and stays legible while the rim keeps the vivid
+                // section colour. The wash only darkens — it never fades to
+                // transparent — so the disc still reads as solid where it
+                // floats over the desktop, beyond any window backdrop glass
+                // could tint against.
                 .background(
-                    Circle().fill(accent)
+                    Circle()
+                        .fill(accent)
+                        .overlay(
+                            Circle().fill(
+                                RadialGradient(
+                                    colors: [.black.opacity(0.55), .clear],
+                                    center: .center,
+                                    startRadius: 0,
+                                    endRadius: diameter * 0.5
+                                )
+                            )
+                        )
                 )
                 // Crisp white ring, echoing the reference's lit disc.
                 .overlay(
