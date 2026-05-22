@@ -72,6 +72,11 @@ struct DefaultUserFilesPathProvider: UserFilesPathProviding {
             options: [.skipsPackageDescendants]
         ) {
             for case let url as URL in enumerator {
+                // The enclosing Large & Old Files scan can be cancelled while
+                // this pre-pass runs; bail out so a cancelled scan is not held
+                // up walking ~/Pictures. A partial result is harmless — the
+                // scan that consumes it aborts at its own next checkpoint.
+                if Task.isCancelled { break }
                 if url.pathExtension.caseInsensitiveCompare("photoslibrary") == .orderedSame {
                     stores.append(url)
                 } else if url.lastPathComponent.caseInsensitiveCompare("Photo Booth Library") == .orderedSame {
