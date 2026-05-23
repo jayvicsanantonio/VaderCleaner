@@ -21,6 +21,20 @@ struct SectionPresentation {
     /// back to `heroSymbol`; wired now so art can land later with no code
     /// change.
     let heroAssetName: String?
+    /// Bundle resource name (without extension) for a USDZ 3D hero model.
+    /// `nil` falls back to `heroAssetName` then `heroSymbol`. When non-nil,
+    /// `SectionIntroView` renders the model with `Model3D` and applies the
+    /// cursor-tracking parallax tilt. The convention is to use the
+    /// `NavigationSection` case name verbatim, e.g. `"smartScan"`.
+    let heroModelName: String?
+    /// Per-section multiplier on the USDZ's auto-normalized size in the hero
+    /// frame. `1.0` is the default fit (~85% of the camera frustum); values
+    /// above 1.0 grow the model on screen, below 1.0 shrink it. Use this to
+    /// rebalance assets whose composition includes empty space — e.g. the
+    /// Smart Scan sparkles cluster, where the surrounding negative space
+    /// makes the stars themselves render smaller than the trash bin even
+    /// after normalization.
+    let heroModelScale: Double
     /// The section's vivid hue — mirrors `NavigationSection.theme.accent` so
     /// the intro elements match the window backdrop.
     let accent: Color
@@ -41,6 +55,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "sparkles",
                 heroAssetName: nil,
+                heroModelName: "smartScan",
+                heroModelScale: 1.30,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Quick maintenance that takes care of the essentials.",
@@ -65,6 +81,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "trash",
                 heroAssetName: nil,
+                heroModelName: "systemJunk",
+                heroModelScale: 1.0,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Clean your system to reclaim space and boost performance.",
@@ -93,6 +111,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "doc.text.magnifyingglass",
                 heroAssetName: nil,
+                heroModelName: "largeOldFiles",
+                heroModelScale: 1.0,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Find big and forgotten files taking up space.",
@@ -117,6 +137,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "square.split.2x2",
                 heroAssetName: nil,
+                heroModelName: "spaceLens",
+                heroModelScale: 1.0,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "See what's using your storage with an interactive map.",
@@ -137,6 +159,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "shield.lefthalf.filled",
                 heroAssetName: nil,
+                heroModelName: "malwareRemoval",
+                heroModelScale: 1.0,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Check your Mac for threats and vulnerabilities.",
@@ -161,6 +185,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "gauge.with.needle",
                 heroAssetName: nil,
+                heroModelName: "optimization",
+                heroModelScale: 1.0,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
@@ -189,6 +215,8 @@ struct SectionPresentation {
             return SectionPresentation(
                 heroSymbol: "lock.shield",
                 heroAssetName: nil,
+                heroModelName: "privacy",
+                heroModelScale: 1.0,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Clear browsing history, cookies, and caches across your browsers.",
