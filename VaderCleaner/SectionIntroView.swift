@@ -194,74 +194,84 @@ struct SectionIntroView: View {
                 heroSymbol
             }
 
-            RealityView { content in
-                do {
-                    let model = try await Entity(named: name)
+            // TimelineView ticks at the display refresh rate while the view
+            // is on screen, forcing RealityView's `update` closure to fire
+            // every frame. That lets the slerp inside `update` smoothly ease
+            // the entity rotation toward the cursor's target every frame —
+            // not just on hover events. Without this, rotation would only
+            // change when the cursor moves, and snapping back to identity on
+            // cursor-leave would be an instantaneous jump.
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
+                RealityView { content in
+                    do {
+                        let model = try await Entity(named: name)
 
-                    // Normalize so the largest bounding-box dimension fills
-                    // ~85% of RealityView's default camera frustum on macOS,
-                    // then multiply by the per-section `scale` so assets
-                    // whose composition includes empty space (e.g. the
-                    // sparkles cluster) can be boosted without affecting
-                    // tightly-packed assets like the trash bin. We
-                    // deliberately *don't* add a custom PerspectiveCamera
-                    // here: macOS RealityView frames the scene with its own
-                    // camera and a custom one isn't guaranteed to take
-                    // precedence.
-                    let bounds = model.visualBounds(relativeTo: nil)
-                    let maxExtent = max(
-                        bounds.extents.x,
-                        bounds.extents.y,
-                        bounds.extents.z
-                    )
-                    if maxExtent > 0 {
-                        let normalized: Float = 0.85 / maxExtent
-                        model.scale = SIMD3<Float>(repeating: normalized * Float(scale))
+                        // Normalize so the largest bounding-box dimension
+                        // fills ~85% of RealityView's default camera frustum
+                        // on macOS, then multiply by the per-section `scale`
+                        // so assets whose composition includes empty space
+                        // (e.g. the sparkles cluster) can be boosted without
+                        // affecting tightly-packed assets like the trash bin.
+                        // We deliberately *don't* add a custom
+                        // PerspectiveCamera here: macOS RealityView frames
+                        // the scene with its own camera and a custom one
+                        // isn't guaranteed to take precedence.
+                        let bounds = model.visualBounds(relativeTo: nil)
+                        let maxExtent = max(
+                            bounds.extents.x,
+                            bounds.extents.y,
+                            bounds.extents.z
+                        )
+                        if maxExtent > 0 {
+                            let normalized: Float = 0.85 / maxExtent
+                            model.scale = SIMD3<Float>(repeating: normalized * Float(scale))
+                        }
+                        // Recenter the loaded model on its parent's origin so
+                        // the parent's rotation tilts the model about its own
+                        // centre.
+                        model.position = -bounds.center * model.scale
+
+                        // Wrapper entity carries the cursor-driven rotation.
+                        // The loaded `model` stays untouched as a child,
+                        // preserving its Blender-baked axis conversion.
+                        let hero = Entity()
+                        hero.name = "Hero"
+                        hero.addChild(model)
+                        content.add(hero)
+                        await MainActor.run { modelLoadFailed = false }
+                    } catch is CancellationError {
+                        // Section-switch invalidation — normal navigation,
+                        // not a real load failure.
+                    } catch {
+                        await MainActor.run { modelLoadFailed = true }
                     }
-                    // Recenter the loaded model on its parent's origin so the
-                    // parent's rotation tilts the model about its own centre.
-                    model.position = -bounds.center * model.scale
-
-                    // Wrapper entity carries the cursor-driven rotation. The
-                    // loaded `model` stays untouched as a child, preserving
-                    // its Blender-baked axis conversion.
-                    let hero = Entity()
-                    hero.name = "Hero"
-                    hero.addChild(model)
-                    content.add(hero)
-                    // Clear any stale failure state from a previous load —
-                    // belt-and-suspenders alongside the `.onChange(of: name)`
-                    // reset below, so a late-arriving cancellation from a
-                    // previous section's load can't permanently poison this
-                    // one.
-                    await MainActor.run { modelLoadFailed = false }
-                } catch is CancellationError {
-                    // RealityView cancels the in-flight `make` closure when
-                    // the view is invalidated by `.id(name)` on a section
-                    // switch. That cancellation is normal navigation, not a
-                    // real load failure — ignoring it prevents the old
-                    // section's cancellation from flipping the SF Symbol
-                    // fallback on for the new section.
-                } catch {
-                    await MainActor.run { modelLoadFailed = true }
+                } update: { content in
+                    guard
+                        let hero = content.entities.first(where: { $0.name == "Hero" })
+                    else { return }
+                    // Target rotation derived from the current cursor offset.
+                    let toRad = Float.pi / 180
+                    let xAngle = Float(-cursorOffset.y * maxTiltDegrees) * toRad
+                    let yAngle = Float(cursorOffset.x * maxTiltDegrees) * toRad
+                    let xRot = simd_quatf(angle: xAngle, axis: SIMD3<Float>(1, 0, 0))
+                    let yRot = simd_quatf(angle: yAngle, axis: SIMD3<Float>(0, 1, 0))
+                    let target = yRot * xRot
+                    // Slerp the wrapper's current rotation toward the target
+                    // each frame — exponential ease-out, ~0.18 step gives
+                    // an ~80ms half-life at 60 fps. Snappy enough to track
+                    // the cursor closely, smooth enough that a sudden cursor
+                    // leave returns to identity over a few frames instead of
+                    // snapping. Apply to the wrapper, never the loaded
+                    // model, so the child's Z-up → Y-up axis conversion is
+                    // preserved.
+                    hero.transform.rotation = simd_slerp(
+                        hero.transform.rotation,
+                        target,
+                        0.18
+                    )
                 }
-            } update: { content in
-                // Apply cursor-driven rotation on every dependency change.
-                // Capturing `cursorOffset` here is what registers the
-                // dependency that drives update-firing.
-                guard
-                    let hero = content.entities.first(where: { $0.name == "Hero" })
-                else { return }
-                let toRad = Float.pi / 180
-                let xAngle = Float(-cursorOffset.y * maxTiltDegrees) * toRad
-                let yAngle = Float(cursorOffset.x * maxTiltDegrees) * toRad
-                let xRot = simd_quatf(angle: xAngle, axis: SIMD3<Float>(1, 0, 0))
-                let yRot = simd_quatf(angle: yAngle, axis: SIMD3<Float>(0, 1, 0))
-                // Setting rotation on the wrapper — never the loaded model —
-                // so the child's Z-up → Y-up root transform is preserved.
-                hero.transform.rotation = yRot * xRot
+                .frame(width: 400, height: 400)
             }
-            .frame(width: 400, height: 400)
             // Force a fresh RealityView per asset so navigating between
             // sections re-runs the `make` closure with the new USDZ instead
             // of reusing the first-loaded entity.
