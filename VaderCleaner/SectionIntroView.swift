@@ -229,6 +229,19 @@ struct SectionIntroView: View {
                     hero.name = "Hero"
                     hero.addChild(model)
                     content.add(hero)
+                    // Clear any stale failure state from a previous load —
+                    // belt-and-suspenders alongside the `.onChange(of: name)`
+                    // reset below, so a late-arriving cancellation from a
+                    // previous section's load can't permanently poison this
+                    // one.
+                    await MainActor.run { modelLoadFailed = false }
+                } catch is CancellationError {
+                    // RealityView cancels the in-flight `make` closure when
+                    // the view is invalidated by `.id(name)` on a section
+                    // switch. That cancellation is normal navigation, not a
+                    // real load failure — ignoring it prevents the old
+                    // section's cancellation from flipping the SF Symbol
+                    // fallback on for the new section.
                 } catch {
                     await MainActor.run { modelLoadFailed = true }
                 }

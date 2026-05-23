@@ -23,9 +23,10 @@ struct SectionPresentation {
     let heroAssetName: String?
     /// Bundle resource name (without extension) for a USDZ 3D hero model.
     /// `nil` falls back to `heroAssetName` then `heroSymbol`. When non-nil,
-    /// `SectionIntroView` renders the model with `Model3D` and applies the
-    /// cursor-tracking parallax tilt. The convention is to use the
-    /// `NavigationSection` case name verbatim, e.g. `"smartScan"`.
+    /// `SectionIntroView` loads the model via RealityKit's `RealityView`
+    /// (SwiftUI's `Model3D` is `@available(macOS, unavailable)`) and
+    /// applies the cursor-tracking parallax tilt. The convention is to use
+    /// the `NavigationSection` case name verbatim, e.g. `"smartScan"`.
     let heroModelName: String?
     /// Per-section multiplier on the USDZ's auto-normalized size in the hero
     /// frame. `1.0` is the default fit (~85% of the camera frustum); values
