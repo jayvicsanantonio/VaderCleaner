@@ -175,6 +175,13 @@ struct SectionIntroView: View {
     /// through the RealityView's transparent canvas.
     @State private var modelLoadFailed: Bool = false
 
+    /// Pre-smoothed cursor offset that the rotation slerp targets. Updated
+    /// every frame inside the RealityView update closure by easing toward
+    /// the raw `cursorOffset` set by `.onContinuousHover`. This input-stage
+    /// filter removes any spikes from sparse hover events so the rotation
+    /// slerp can use a high follow factor without picking up jitter.
+    @State private var smoothedCursorOffset: CGPoint = .zero
+
     /// Real-time 3D rendering of a bundled USDZ via RealityView, with
     /// cursor-tracking parallax tilt. The loaded asset is wrapped in a parent
     /// `Hero` entity that owns the cursor-driven rotation, so the child
@@ -249,25 +256,42 @@ struct SectionIntroView: View {
                     guard
                         let hero = content.entities.first(where: { $0.name == "Hero" })
                     else { return }
-                    // Target rotation derived from the current cursor offset.
+
+                    // Stage 1 — pre-smooth the cursor input. Ease the
+                    // smoothed offset toward the raw `cursorOffset` so any
+                    // jitter from sparse hover events is filtered out
+                    // before it reaches the rotation. Mutating @State
+                    // inside an update closure runs on the main actor and
+                    // is fine here because the closure already runs on the
+                    // main thread; we keep the step small (0.45) so input
+                    // smoothing is brief but real.
+                    let inputEase: CGFloat = 0.45
+                    let dx = cursorOffset.x - smoothedCursorOffset.x
+                    let dy = cursorOffset.y - smoothedCursorOffset.y
+                    smoothedCursorOffset = CGPoint(
+                        x: smoothedCursorOffset.x + dx * inputEase,
+                        y: smoothedCursorOffset.y + dy * inputEase
+                    )
+
+                    // Stage 2 — rotation slerp toward the smoothed cursor
+                    // target. Higher follow factor (0.32 vs the previous
+                    // 0.18) makes the hero track the cursor more closely
+                    // — "snappier". The input smoothing above keeps the
+                    // motion clean — "smoother" — so the higher follow
+                    // factor doesn't pick up jitter.
                     let toRad = Float.pi / 180
-                    let xAngle = Float(-cursorOffset.y * maxTiltDegrees) * toRad
-                    let yAngle = Float(cursorOffset.x * maxTiltDegrees) * toRad
+                    let xAngle = Float(-smoothedCursorOffset.y * maxTiltDegrees) * toRad
+                    let yAngle = Float(smoothedCursorOffset.x * maxTiltDegrees) * toRad
                     let xRot = simd_quatf(angle: xAngle, axis: SIMD3<Float>(1, 0, 0))
                     let yRot = simd_quatf(angle: yAngle, axis: SIMD3<Float>(0, 1, 0))
                     let target = yRot * xRot
-                    // Slerp the wrapper's current rotation toward the target
-                    // each frame — exponential ease-out, ~0.18 step gives
-                    // an ~80ms half-life at 60 fps. Snappy enough to track
-                    // the cursor closely, smooth enough that a sudden cursor
-                    // leave returns to identity over a few frames instead of
-                    // snapping. Apply to the wrapper, never the loaded
-                    // model, so the child's Z-up → Y-up axis conversion is
-                    // preserved.
+                    // Apply rotation to the wrapper, never the loaded model
+                    // — the child's Z-up → Y-up axis conversion is
+                    // preserved this way.
                     hero.transform.rotation = simd_slerp(
                         hero.transform.rotation,
                         target,
-                        0.18
+                        0.32
                     )
                 }
                 .frame(width: 400, height: 400)
