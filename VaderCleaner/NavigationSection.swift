@@ -117,3 +117,27 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         }
     }
 }
+
+/// Which way the detail pane's content travels during a section change —
+/// derived from the rail order of the outgoing and incoming sections.
+enum SectionTransitionDirection {
+    case up
+    case down
+}
+
+extension NavigationSection {
+    /// The direction the main detail content should travel when the rail
+    /// selection moves from this section to `target`, decided by their order
+    /// in `allCases` (the rail's top-to-bottom order). The motion reads as a
+    /// scroll between rows: a move to a lower row scrolls the content `.up`
+    /// (outgoing exits the top edge, incoming follows up from the bottom),
+    /// and a move to a higher row mirrors it the other way as `.down`.
+    func transitionDirection(to target: NavigationSection) -> SectionTransitionDirection {
+        let order = NavigationSection.allCases
+        guard
+            let fromIndex = order.firstIndex(of: self),
+            let toIndex = order.firstIndex(of: target)
+        else { return .down }
+        return toIndex > fromIndex ? .up : .down
+    }
+}

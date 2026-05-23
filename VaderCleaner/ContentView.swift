@@ -21,6 +21,16 @@ struct ContentView: View {
     private let malwareViewModel: MalwareViewModel
     private let smartScanViewModel: SmartScanViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
+    /// Which way the detail pane's slide-and-fade transition should travel for
+    /// the current section change. Set by `selectSection` from the rail order
+    /// of the outgoing and incoming sections, just before the selection — and
+    /// therefore the keyed animation — commits.
+    @State private var navigationDirection: SectionTransitionDirection = .down
+    /// The latest section a rail tap is steering toward while a previous
+    /// `selectSection` is still waiting on its deferred commit. Coalesces
+    /// rapid taps into one pending dispatch so the navigation lands on the
+    /// final target — never an intermediate one — with the matching direction.
+    @State private var pendingSelection: NavigationSection?
     /// Namespace for the sliding selection pill in the custom rail.
     @Namespace private var pillNamespace
     /// The section the pointer is currently over, if any. Drives the rail's
@@ -92,12 +102,34 @@ struct ContentView: View {
             // Hosts `.navigationTitle` / `.toolbar` for the detail screens
             // without reintroducing a split divider.
             NavigationStack {
-                detailView(for: selectedSection ?? .smartScan)
-                    // Crossfade the whole detail screen as the section
-                    // changes, so navigation reads as a soft dissolve in step
-                    // with the backdrop recolour rather than a hard cut.
-                    .id(selectedSection)
-                    .transition(.opacity)
+                // A plain ZStack hosts the section-keyed detail view so its
+                // `.id`-driven swap has a stable parent to play its transition
+                // within. NavigationStack is not a reliable transition host
+                // for its own root content; wrapping in an everyday container
+                // is the canonical SwiftUI pattern.
+                ZStack {
+                    detailView(for: selectedSection ?? .smartScan)
+                        // Slide-and-fade the detail screen as the section
+                        // changes, reading as a scroll between rows: a
+                        // downward rail tap sends content sliding up (the
+                        // outgoing screen exits through the top, the incoming
+                        // follows up from the bottom), and an upward rail tap
+                        // mirrors the motion in the opposite direction. Both
+                        // halves of the transition travel the same way and
+                        // run sequentially, so only one section is on screen
+                        // at a time. `selectSection` updates
+                        // `navigationDirection` a tick before the selection
+                        // commits so both halves agree on the direction.
+                        .id(selectedSection)
+                        .transition(.sectionContent(navigationDirection))
+                }
+                // The transaction has to span the full sequential transition
+                // (exit + entry delay + entry = ~1.1s). If it's shorter than
+                // the insertion's `.delay`, SwiftUI cancels the deferred entry
+                // animation and the incoming view snaps to its rest position
+                // instead of sliding in. Slightly longer than the actual
+                // total just gives a margin of safety.
+                .animation(.smooth(duration: 1.2), value: selectedSection)
             }
         }
         // The floating Scan disc lives in its own borderless child panel
@@ -118,9 +150,9 @@ struct ContentView: View {
         .onChange(of: selectedSection) { _, newValue in
             scanDiscController.section = newValue ?? .smartScan
         }
-        // One ambient animation drives every section-change motion in lock
-        // step: the rail's selection pill slides and the detail screen
-        // crossfades.
+        // Animates the rail's section-change motion — chiefly the selection
+        // pill sliding between rows. The detail pane and the backdrop each
+        // animate their own transition with a matching curve.
         .animation(.smooth(duration: 0.42), value: selectedSection)
         // The side-by-side section intro needs a pane wide enough for the
         // hero, the gap, and the text column; a 1000pt minimum keeps that
@@ -204,7 +236,7 @@ struct ContentView: View {
         let isSelected = selectedSection == section
         let isHovering = hoveredSection == section
         return Button {
-            selectedSection = section
+            selectSection(section)
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: section.icon)
@@ -301,6 +333,37 @@ struct ContentView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// Applies a sidebar selection, recording the travel direction first and
+    /// then committing the selection on the next runloop tick. The deferral
+    /// matters: SwiftUI resolves a removal transition from the outgoing
+    /// view's last render, so a same-batch write of both `@State` values
+    /// would leave the removal half stuck on the previous direction and the
+    /// two halves of the slide would disagree on a reversal. To avoid the
+    /// race condition that a naive dispatch would open up (rapid taps
+    /// queuing intermediate selections, each animating with a later tap's
+    /// direction), we coalesce: only one pending commit is ever in flight,
+    /// and any further taps simply re-target it. The user always lands on
+    /// the final tapped section, with the direction computed against the
+    /// section they're actually leaving.
+    private func selectSection(_ section: NavigationSection) {
+        guard section != selectedSection else { return }
+        guard let current = selectedSection else {
+            selectedSection = section
+            return
+        }
+        navigationDirection = current.transitionDirection(to: section)
+        let wasIdle = pendingSelection == nil
+        pendingSelection = section
+        if wasIdle {
+            DispatchQueue.main.async {
+                if let target = pendingSelection {
+                    pendingSelection = nil
+                    selectedSection = target
+                }
+            }
+        }
+    }
+
     /// Idempotent permission-request driver. Fires the system prompt at most
     /// once per session, and only once the FDA onboarding flow has reached a
     /// terminal state (granted or explicitly dismissed).
@@ -321,9 +384,9 @@ struct ContentView: View {
             ScannableSectionContent(coordinator: smartScanViewModel, section: section) {
                 SmartScanView(
                     viewModel: smartScanViewModel,
-                    onReviewSystemJunk: { selectedSection = .systemJunk },
-                    onReviewMalware: { selectedSection = .malwareRemoval },
-                    onReviewOptimization: { selectedSection = .optimization }
+                    onReviewSystemJunk: { selectSection(.systemJunk) },
+                    onReviewMalware: { selectSection(.malwareRemoval) },
+                    onReviewOptimization: { selectSection(.optimization) }
                 )
             }
         case .healthMonitor:
@@ -375,6 +438,39 @@ struct ContentView: View {
     }
 }
 
+private extension AnyTransition {
+    /// Slide-and-fade for the detail pane. Both halves of the transition
+    /// travel the same way, so it reads as a continuous scroll: a `.up`
+    /// move sends the outgoing screen out through the top edge and the
+    /// incoming screen up from the bottom; a `.down` move mirrors that
+    /// through the opposite edges. The two halves run sequentially so only
+    /// one section is on screen at a time. `selectSection` writes the
+    /// direction a tick before the selection so the outgoing view
+    /// re-renders with the new direction before SwiftUI resolves the
+    /// removal half, keeping both halves in agreement on a reversal.
+    static func sectionContent(_ direction: SectionTransitionDirection) -> AnyTransition {
+        // Halves run back-to-back: removal animates from 0 → exitDuration,
+        // and the insertion's `.delay` keeps the new view at its starting
+        // edge until the outgoing has fully cleared. The durations are
+        // generous enough that the long edge-to-edge travel reads as a
+        // fluid glide rather than a sharp slide, and `exitDuration`
+        // matches the backdrop's own crossfade so the new section begins
+        // entering exactly when the backdrop has finished recolouring.
+        let exitDuration: Double = 0.55
+        let entryDuration: Double = 0.55
+        let removalEdge: Edge = direction == .down ? .bottom : .top
+        let insertionEdge: Edge = direction == .down ? .top : .bottom
+        return .asymmetric(
+            insertion: .move(edge: insertionEdge)
+                .combined(with: .opacity)
+                .animation(.smooth(duration: entryDuration).delay(exitDuration)),
+            removal: .move(edge: removalEdge)
+                .combined(with: .opacity)
+                .animation(.smooth(duration: exitDuration))
+        )
+    }
+}
+
 /// Gates a scannable section between the unified `SectionIntroView` and its
 /// own detail view. The coordinator is held as `@ObservedObject` here — not in
 /// ContentView, where the view models are plain `let`s — so the swap is
@@ -388,12 +484,19 @@ private struct ScannableSectionContent<Coordinator: ScanCoordinating, Detail: Vi
     @ViewBuilder let detail: () -> Detail
 
     var body: some View {
-        content
-            // Reuse SmartScanView's phase-transition pattern so the
-            // intro → scan swap crossfades instead of hard-cutting.
-            .id(phaseTransitionID)
-            .transition(.opacity)
-            .animation(.smooth(duration: 0.35), value: phaseTransitionID)
+        // A plain ZStack so the body's root carries no `.transition` of its
+        // own. The intro↔scan crossfade lives one level in, on `content`;
+        // keeping it off the root lets the outer section-navigation slide
+        // (applied to this view by `ContentView`) act on a clean container
+        // instead of colliding with this wrapper's own transition.
+        ZStack {
+            content
+                // Reuse SmartScanView's phase-transition pattern so the
+                // intro → scan swap crossfades instead of hard-cutting.
+                .id(phaseTransitionID)
+                .transition(.opacity)
+                .animation(.smooth(duration: 0.35), value: phaseTransitionID)
+        }
     }
 
     /// Binary token: only the intro ↔ detail boundary crossfades. It is
