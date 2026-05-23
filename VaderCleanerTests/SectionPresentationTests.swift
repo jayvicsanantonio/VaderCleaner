@@ -110,6 +110,43 @@ final class SectionPresentationTests: XCTestCase {
         }
     }
 
+    /// Every scannable section must declare the USDZ hero model that matches
+    /// its enum case name (e.g. `.smartScan` → `"smartScan"`). The naming is
+    /// the contract that lets `SectionIntroView` resolve the right asset
+    /// without a per-section switch.
+    func test_everyScannablePresentation_hasHeroModelNameMatchingSectionCase() throws {
+        for section in scannableSections {
+            let presentation = try XCTUnwrap(SectionPresentation.for(section))
+            XCTAssertEqual(
+                presentation.heroModelName,
+                String(describing: section),
+                "Section \(section) must declare heroModelName \"\(String(describing: section))\""
+            )
+        }
+    }
+
+    /// The declared hero model name must resolve to a real USDZ in the app
+    /// bundle — guards against drift between `SectionPresentation` declarations
+    /// and the files actually shipped in `Resources/Models/`.
+    func test_everyHeroModelName_resolvesToAUsdzInTheBundle() throws {
+        // Unit tests run with the VaderCleaner app as the test host
+        // (TEST_HOST in the test target's build settings), so Bundle.main
+        // here is the host app's bundle — the same one Model3D(named:)
+        // queries at runtime.
+        let bundle = Bundle.main
+        for section in scannableSections {
+            let presentation = try XCTUnwrap(SectionPresentation.for(section))
+            let modelName = try XCTUnwrap(
+                presentation.heroModelName,
+                "Missing heroModelName for \(section)"
+            )
+            XCTAssertNotNil(
+                bundle.url(forResource: modelName, withExtension: "usdz"),
+                "Bundle is missing Resources/Models/\(modelName).usdz for \(section)"
+            )
+        }
+    }
+
     func test_everyPresentationSymbol_isAValidSFSymbol() throws {
         guard #available(macOS 14.0, *) else {
             throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")
