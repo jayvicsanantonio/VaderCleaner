@@ -24,7 +24,14 @@ struct ScanDiscHostView: View {
     private var content: some View {
         switch controller.section {
         case .smartScan:
-            overlay(controller.smartScanViewModel, .smartScan)
+            // Smart Scan has two discs sharing the panel: the Scan disc at
+            // `.intro`, and the Run disc at `.results` with executable work.
+            // The wrapper combines their presence so the panel is visible
+            // when either disc is showing.
+            SmartScanFloatingDisc(
+                viewModel: controller.smartScanViewModel,
+                onPresenceChanged: { controller.setDiscVisible($0) }
+            )
         case .systemJunk:
             overlay(controller.systemJunkViewModel, .systemJunk)
         case .largeOldFiles:
@@ -53,5 +60,39 @@ struct ScanDiscHostView: View {
             section: section,
             onIntroPresenceChanged: { controller.setDiscVisible($0) }
         )
+    }
+}
+
+/// Composes the Smart Scan section's two discs — Scan at `.intro` and Run at
+/// `.results` with work — into one overlay, combining their presences with an
+/// OR so the host panel is ordered in whenever either disc is showing.
+/// Lifted out of the switch so it can hold the per-disc `@State` flags both
+/// sub-overlays write to.
+private struct SmartScanFloatingDisc: View {
+    @ObservedObject var viewModel: SmartScanViewModel
+    var onPresenceChanged: (Bool) -> Void
+
+    @State private var scanShown = false
+    @State private var runShown = false
+
+    var body: some View {
+        ZStack {
+            FloatingScanOverlay(
+                coordinator: viewModel,
+                section: .smartScan,
+                onIntroPresenceChanged: { shown in
+                    scanShown = shown
+                    onPresenceChanged(scanShown || runShown)
+                }
+            )
+            FloatingRunOverlay(
+                viewModel: viewModel,
+                section: .smartScan,
+                onPresenceChanged: { shown in
+                    runShown = shown
+                    onPresenceChanged(scanShown || runShown)
+                }
+            )
+        }
     }
 }

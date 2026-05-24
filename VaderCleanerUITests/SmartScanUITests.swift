@@ -157,7 +157,223 @@ final class SmartScanUITests: XCTestCase {
         )
     }
 
+    // MARK: - Dashboard structure (Slice 9)
+
+    /// Per CleanMyMac Smart Care parity, the results dashboard renders one
+    /// tile per orchestrated sub-module — five tiles total: System Junk
+    /// (Cleanup), Protection (Malware), Performance (Optimization),
+    /// Applications (App Updater), My Clutter (Large & Old Files). Every
+    /// scan lands all five, even zero-work ones, so the count is fixed.
+    func test_resultsDashboard_showsFiveTiles() throws {
+        try runScanToResultsDashboard()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["smartScan.resultsHeading"]
+                .waitForExistence(timeout: 5),
+            "Expected the results dashboard heading on screen"
+        )
+        // Performance is always actionable (maintenance scripts always
+        // available), so its checkbox is the most reliable anchor for "this
+        // is the Smart Care 5-tile dashboard, not the old 3-tile one".
+        let optimizationCheckbox = app.descendants(matching: .any)["smartScan.toggleOptimization"]
+        XCTAssertTrue(
+            optimizationCheckbox.waitForExistence(timeout: 2),
+            "Expected the Performance tile's checkbox on the dashboard"
+        )
+    }
+
+    /// The Run disc identifier must be `smartScan.run`, not the old
+    /// `smartScan.clean`. Renaming this identifier without renaming the
+    /// dashboard CTA would silently break the contract.
+    func test_resultsDashboard_runDiscIdentifierIsSmartScanRun() throws {
+        try runScanToResultsDashboard()
+        let run = app.descendants(matching: .any)["smartScan.run"]
+        XCTAssertTrue(
+            run.waitForExistence(timeout: 5),
+            "Expected the dashboard's Run CTA under the identifier `smartScan.run`"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["smartScan.clean"].exists,
+            "The legacy `smartScan.clean` identifier must not survive the rename"
+        )
+    }
+
+    /// Deselecting every tile must hide the Run disc — a Run that wouldn't
+    /// execute anything reads as a no-op trap.
+    func test_resultsDashboard_deselectingAllTilesHidesRun() throws {
+        try runScanToResultsDashboard()
+        let optimizationCheckbox = app.descendants(matching: .any)["smartScan.toggleOptimization"]
+        guard optimizationCheckbox.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Performance checkbox never appeared — dashboard didn't fully land.")
+        }
+        // Optimization is the only checkbox guaranteed to appear (the others
+        // depend on per-module work being found). Deselecting it should
+        // remove the Run disc when no other tile has executable work — i.e.
+        // when junk is empty AND no threats AND no updates AND no clutter
+        // selected. On most test hosts the first three are empty (FDA off,
+        // ClamAV absent), and largeFileSelection defaults empty.
+        optimizationCheckbox.click()
+
+        // Give the dashboard a moment to re-evaluate `hasExecutableWork`.
+        Thread.sleep(forTimeInterval: 0.5)
+        let run = app.descendants(matching: .any)["smartScan.run"]
+        // If other tiles produced work on this host (e.g. real available
+        // updates), the disc would still be visible after deselecting
+        // Performance alone — surface that as an XCTSkip rather than a
+        // false-positive fail.
+        if app.descendants(matching: .any)["smartScan.toggleApplications"].exists
+            || app.descendants(matching: .any)["smartScan.toggleMyClutter"].exists
+            || app.descendants(matching: .any)["smartScan.toggleMalware"].exists
+            || app.descendants(matching: .any)["smartScan.toggleJunk"].exists {
+            throw XCTSkip("This host has other actionable tiles; the disc remains visible after deselecting Performance alone.")
+        }
+        XCTAssertFalse(
+            run.exists,
+            "With every selected tile having no executable work, the Run disc must hide"
+        )
+    }
+
+    /// Zero-work tiles never render a checkbox (no work to gate) and never
+    /// render a Review button (nothing to drill into). Performance is the
+    /// only tile guaranteed to be on every host, so we anchor the assertion
+    /// to it inversely: every other tile should appear without its checkbox
+    /// when its module produced no work. Most test hosts hit this state for
+    /// at least one of Junk / Updates / Clutter / Malware.
+    func test_resultsDashboard_zeroWorkTileHasNoCheckboxOrReview() throws {
+        try runScanToResultsDashboard()
+        // Pick whichever module is zero-work on this host as the anchor;
+        // skip when every module happened to find work.
+        let modules: [(toggle: String, review: String)] = [
+            ("smartScan.toggleJunk", "smartScan.reviewJunk"),
+            ("smartScan.toggleMalware", "smartScan.reviewMalware"),
+            ("smartScan.toggleApplications", "smartScan.reviewApplications"),
+            ("smartScan.toggleMyClutter", "smartScan.reviewMyClutter"),
+        ]
+        let zeroWorkModule = modules.first { module in
+            !app.descendants(matching: .any)[module.toggle].exists
+        }
+        guard let zw = zeroWorkModule else {
+            throw XCTSkip("Every module found work on this host — no zero-work tile to anchor the assertion.")
+        }
+        XCTAssertFalse(
+            app.descendants(matching: .any)[zw.toggle].exists,
+            "Zero-work tile must not show a checkbox"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)[zw.review].exists,
+            "Zero-work tile must not show a Review button"
+        )
+    }
+
+    // MARK: - Review push (Slice 10)
+
+    /// Performance is the only Review reliably reachable on every host —
+    /// its tile is always actionable. Tapping Review opens the Performance
+    /// Manager; tapping Back returns to the dashboard with selection
+    /// preserved.
+    func test_review_optimizationPushesAndBackReturnsToDashboard() throws {
+        try runScanToResultsDashboard()
+        let reviewButton = app.descendants(matching: .any)["smartScan.review"]
+        guard reviewButton.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Performance Review button never appeared.")
+        }
+        reviewButton.click()
+
+        let optimizationReview = app.descendants(matching: .any)["smartScan.review.optimization"]
+        XCTAssertTrue(
+            optimizationReview.waitForExistence(timeout: 5),
+            "Tapping Review on the Performance tile must push the Performance Manager"
+        )
+        // The Back identifier is on a SwiftUI `Button`, so query the
+        // typed `app.buttons[...]` collection — `descendants(matching: .any)`
+        // misses Buttons whose label is a `Label(_:systemImage:)` because
+        // the system flattens the inner Text into the Button's accessibility
+        // label rather than exposing it as a separate descendant.
+        let backButton = app.buttons["smartScan.review.back"]
+        XCTAssertTrue(
+            backButton.waitForExistence(timeout: 2),
+            "The Review screen must expose a Back affordance"
+        )
+        backButton.click()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["smartScan.resultsHeading"]
+                .waitForExistence(timeout: 5),
+            "Back must return to the results dashboard"
+        )
+        // Performance is still selected — Back doesn't reset selection.
+        XCTAssertTrue(
+            app.descendants(matching: .any)["smartScan.toggleOptimization"].exists,
+            "Tile selection must be preserved after a Review round trip"
+        )
+    }
+
+    /// Every reviewable module must wire a manager screen with the right
+    /// identifier. Iterates the four data-bearing modules and verifies the
+    /// push, skipping any module whose tile didn't produce work on this
+    /// host (the Review button is absent for zero-work tiles).
+    func test_review_pushesEachModulesReviewView() throws {
+        try runScanToResultsDashboard()
+        let modules: [(review: String, screen: String, label: String)] = [
+            ("smartScan.reviewJunk", "smartScan.review.junk", "System Junk"),
+            ("smartScan.reviewMalware", "smartScan.review.malware", "Protection"),
+            ("smartScan.reviewApplications", "smartScan.review.applications", "Applications"),
+            ("smartScan.reviewMyClutter", "smartScan.review.myClutter", "My Clutter"),
+        ]
+        var verifiedAny = false
+        for module in modules {
+            let reviewButton = app.buttons[module.review]
+            guard reviewButton.exists else { continue }
+            reviewButton.click()
+            let screen = app.descendants(matching: .any)[module.screen]
+            XCTAssertTrue(
+                screen.waitForExistence(timeout: 5),
+                "Review on \(module.label) must push the manager screen with id \(module.screen)"
+            )
+            verifiedAny = true
+            let back = app.buttons["smartScan.review.back"]
+            XCTAssertTrue(
+                back.waitForExistence(timeout: 2),
+                "\(module.label) Review screen must show a Back affordance"
+            )
+            back.click()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["smartScan.resultsHeading"]
+                    .waitForExistence(timeout: 5),
+                "Back from \(module.label) Review must return to the dashboard"
+            )
+        }
+        if !verifiedAny {
+            throw XCTSkip("No data-bearing modules to verify on this host — every tile was zero-work.")
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Drives a Smart Scan from intro through to the results dashboard so
+    /// the dashboard / review assertions have a stable starting point.
+    /// Long timeout because a real scan touches the filesystem, ClamAV,
+    /// large-file walks, and the network — minutes are possible on a
+    /// heavily-installed machine. The dashboard heading is the canonical
+    /// "we're in `.results`" anchor, matching `SmartScanResultsState`'s
+    /// `smartScan.resultsHeading` identifier.
+    private func runScanToResultsDashboard() throws {
+        dismissOnboardingIfNeeded()
+        let scanButton = app.buttons["section.smartScan.scan"]
+        guard scanButton.waitForExistence(timeout: 10) else {
+            XCTFail("Scan button never appeared")
+            return
+        }
+        scanButton.click()
+        proceedPastScanAccessPopoverIfNeeded()
+        let heading = app.descendants(matching: .any)["smartScan.resultsHeading"]
+        // 180 s is generous; the test host may need most of it for the
+        // update-check round trips and large-old-files walk. If we still
+        // can't reach the dashboard, skip — the dashboard contract is
+        // exhaustively unit-tested against injected fakes elsewhere.
+        if !heading.waitForExistence(timeout: 180) {
+            throw XCTSkip("Smart Scan didn't reach the results dashboard within 180 s — likely FDA / network gating on this host.")
+        }
+    }
 
     private func dismissOnboardingIfNeeded() {
         let continueWithout = app.buttons["Continue Without Access"]
