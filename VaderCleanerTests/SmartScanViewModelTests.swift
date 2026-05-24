@@ -407,6 +407,86 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.isUpdateSelected(availableUpdate))
     }
 
+    func test_scan_cachesLargeOldFilesSortedBySizeDescending() async {
+        let small = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/small.mov"),
+            size: 1_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let big = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/big.mov"),
+            size: 5_000_000_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let mid = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/mid.mov"),
+            size: 50_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [small, big, mid] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(
+            vm.sortedLargeOldFiles.map(\.url),
+            [big.url, mid.url, small.url],
+            "Sort cache must rank large/old files biggest-first so the Review list opens on the most reclaimable thing"
+        )
+    }
+
+    func test_reset_clearsSortedLargeOldFilesCache() async {
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        await vm.scan()
+        XCTAssertFalse(vm.sortedLargeOldFiles.isEmpty)
+
+        vm.reset()
+
+        XCTAssertTrue(vm.sortedLargeOldFiles.isEmpty)
+    }
+
+    func test_selectAllLargeFiles_optsEveryDetectedFileInWithOneWrite() async {
+        let other = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/other.mov"),
+            size: 100_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile, other] })
+        await vm.scan()
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+
+        vm.selectAllLargeFiles()
+
+        XCTAssertEqual(vm.largeFileSelection, [largeFile.url, other.url])
+    }
+
+    func test_selectAllLargeFiles_outsideResults_isNoop() {
+        let vm = makeViewModel()
+        // `.idle` — never scanned.
+        vm.selectAllLargeFiles()
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+    }
+
+    func test_clearLargeFileSelection_emptiesTheSet() async {
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        await vm.scan()
+        vm.selectAllLargeFiles()
+        XCTAssertFalse(vm.largeFileSelection.isEmpty)
+
+        vm.clearLargeFileSelection()
+
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+    }
+
     func test_toggleLargeFile_addsAndRemoves() async {
         let vm = makeViewModel(
             largeOldFilesScanner: { [self.largeFile] }

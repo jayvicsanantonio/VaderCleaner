@@ -193,6 +193,12 @@ final class SmartScanViewModel: ObservableObject {
     /// user to opt each file in explicitly before Run can remove it.
     @Published private(set) var largeFileSelection: Set<URL> = []
 
+    /// `result.largeOldFiles` pre-sorted by size descending, so the My
+    /// Clutter Review's list reads "biggest forgotten thing first" without
+    /// the view re-sorting on every body re-evaluation. Recomputed once
+    /// when results land; cleared on `reset()`.
+    @Published private(set) var sortedLargeOldFiles: [ScannedFile] = []
+
     private let junkScanner: JunkScanner
     private let malwareInstalled: MalwareInstalled
     private let malwareScanner: MalwareScanner
@@ -288,6 +294,9 @@ final class SmartScanViewModel: ObservableObject {
             // largeFileSelection stays empty — parity with
             // `LargeOldFilesViewModel` (destructive deletes are opt-in).
             largeFileSelection = []
+            // Sort once here so the Review list doesn't re-sort on every
+            // SwiftUI body re-eval as the user toggles individual files.
+            sortedLargeOldFiles = largeFiles.sorted { $0.size > $1.size }
             phase = .results(result)
         } catch {
             log.error("Smart Scan failed: \(String(describing: error), privacy: .public)")
@@ -327,9 +336,14 @@ final class SmartScanViewModel: ObservableObject {
         var failedModules: Set<SmartScanModule> = []
 
         if tileSelection.contains(.systemJunk) {
-            let selectedJunk = result.junkResult.items.filter {
-                junkCategorySelection.contains($0.category)
-            }
+            // O(selected categories) flatten via the pre-grouped dictionary
+            // rather than O(all junk files) filter on the flat `items`
+            // array. System Junk scans routinely surface tens of thousands
+            // of files; filtering on the main actor used to stutter the
+            // "Running…" indicator.
+            let selectedJunk = junkCategorySelection
+                .compactMap { result.junkResult.itemsByCategory[$0] }
+                .flatMap { $0 }
             if !selectedJunk.isEmpty {
                 do {
                     bytesFreed = try await junkCleaner(selectedJunk)
@@ -467,6 +481,22 @@ final class SmartScanViewModel: ObservableObject {
         }
     }
 
+    /// Opt every detected large/old file in for removal in one write to
+    /// `largeFileSelection`. Done as a single set assignment so SwiftUI
+    /// observes one publish instead of N (one per `toggleLargeFile` call),
+    /// which on large clutter scans would otherwise stall the UI behind
+    /// the cascade of refreshes.
+    func selectAllLargeFiles() {
+        guard case .results(let result) = phase else { return }
+        largeFileSelection = Set(result.largeOldFiles.map(\.url))
+    }
+
+    /// Opt every file back out — single-write counterpart to
+    /// `selectAllLargeFiles()`.
+    func clearLargeFileSelection() {
+        largeFileSelection = []
+    }
+
     // MARK: - Executable work surface
 
     /// Whether the given module would actually produce work if Run were
@@ -483,9 +513,13 @@ final class SmartScanViewModel: ObservableObject {
         guard isModuleSelected(module) else { return false }
         switch module {
         case .systemJunk:
-            return result.junkResult.items.contains {
-                junkCategorySelection.contains($0.category)
-            }
+            // O(min(selected categories, categories-with-items)) intersection
+            // on the pre-grouped dictionary's keys rather than O(all files).
+            // `hasExecutableWork` calls this on every SwiftUI refresh, so
+            // the cheaper check matters under heavy junk scans.
+            return !junkCategorySelection
+                .intersection(result.junkResult.itemsByCategory.keys)
+                .isEmpty
         case .malware:
             return result.threats.contains {
                 threatSelection.contains($0.filePath)
@@ -536,6 +570,7 @@ final class SmartScanViewModel: ObservableObject {
         threatSelection = []
         updateSelection = []
         largeFileSelection = []
+        sortedLargeOldFiles = []
     }
 }
 

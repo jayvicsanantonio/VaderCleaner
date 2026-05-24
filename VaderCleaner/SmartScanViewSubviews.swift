@@ -780,8 +780,11 @@ struct SmartScanMyClutterReview: View {
     let result: SmartScanResult
     let onBack: () -> Void
 
+    /// Pre-sorted by `SmartScanViewModel` once when results land — reading
+    /// it here keeps the body free of O(N log N) work on every refresh
+    /// triggered by toggling individual files.
     private var sortedFiles: [ScannedFile] {
-        result.largeOldFiles.sorted { $0.size > $1.size }
+        viewModel.sortedLargeOldFiles
     }
 
     var body: some View {
@@ -828,18 +831,17 @@ struct SmartScanMyClutterReview: View {
                     localized: "Select All",
                     comment: "Bulk action on the Smart Scan My Clutter Review — opt every file in for removal."
                 )) {
-                    for file in sortedFiles where !viewModel.isLargeFileSelected(file) {
-                        viewModel.toggleLargeFile(file)
-                    }
+                    // Single write to `largeFileSelection` — SwiftUI sees
+                    // one publish, not N. Per-file iteration here used to
+                    // stall the UI on large clutter scans.
+                    viewModel.selectAllLargeFiles()
                 }
                 .accessibilityIdentifier("smartScan.review.myClutter.selectAll")
                 Button(String(
                     localized: "Clear",
                     comment: "Bulk action on the Smart Scan My Clutter Review — opt every file out of removal."
                 )) {
-                    for file in sortedFiles where viewModel.isLargeFileSelected(file) {
-                        viewModel.toggleLargeFile(file)
-                    }
+                    viewModel.clearLargeFileSelection()
                 }
                 .accessibilityIdentifier("smartScan.review.myClutter.clear")
                 Spacer()
