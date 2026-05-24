@@ -144,6 +144,12 @@ private struct SmartScanMetricCard: View {
                         .accessibilityIdentifier(reviewIdentifier)
                         .opacity(isDeselected ? 0 : 1)
                         .allowsHitTesting(!isDeselected)
+                        // The button still occupies its layout slot when
+                        // the tile is deselected (so the card footprint
+                        // stays stable), but a VoiceOver / Switch Control
+                        // user would otherwise land on an invisible target.
+                        // Hide it from the accessibility tree too.
+                        .accessibilityHidden(isDeselected)
                 }
             }
         }

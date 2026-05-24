@@ -260,8 +260,8 @@ final class SmartScanViewModel: ObservableObject {
         }
 
         phase = .scanning(phase: String(
-            localized: "Scanning for junk, malware, and optimization opportunities…",
-            comment: "Progress label shown while the Smart Scan runs all sub-scans."
+            localized: "Scanning cleanup, protection, performance, applications, and clutter…",
+            comment: "Progress label shown while the Smart Scan runs all five sub-scans — uses the user-facing tile names from the results dashboard."
         ))
 
         let clamAVAvailable = malwareInstalled()
