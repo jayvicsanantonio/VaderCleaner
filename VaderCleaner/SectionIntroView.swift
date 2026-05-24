@@ -50,15 +50,6 @@ struct SectionIntroView: View {
 
     // MARK: Body
 
-    /// Cursor position within the intro panel, normalized to (-1, 1) on both
-    /// axes with (0, 0) at the panel centre. Drives the 3D hero's parallax
-    /// tilt. Resets to `.zero` when the cursor leaves so the hero springs back.
-    @State private var cursorOffset: CGPoint = .zero
-    /// Size of the intro panel as measured by the hover layer. Cached so the
-    /// hover handler can normalize cursor coordinates without re-reading
-    /// the geometry on every event.
-    @State private var panelSize: CGSize = .zero
-
     /// Hero and text laid side by side, centred in the pane above the floating
     /// Scan disc. No `ScrollView`: the landing is a single static composition,
     /// kept compact so it fits without scrolling, and the bottom inset reserves
@@ -73,31 +64,6 @@ struct SectionIntroView: View {
         // Reserve the bottom band for the floating Scan disc, so the centred
         // cluster sits clear of it and the landing never needs to scroll.
         .padding(.bottom, 168)
-        // Hover-tracking layer covers the whole intro so the cursor can drive
-        // the 3D hero's parallax from anywhere on the panel — not just from
-        // directly over the model. Sized via a transparent background
-        // GeometryReader so the normalization uses the panel's real bounds.
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { panelSize = proxy.size }
-                    .onChange(of: proxy.size) { _, newSize in panelSize = newSize }
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let point):
-                            guard panelSize.width > 0, panelSize.height > 0 else { return }
-                            // Map [0, size] → [-1, 1]. Y is flipped so a cursor
-                            // above the hero tilts it back (positive X-axis
-                            // rotation), matching the natural light direction.
-                            let nx = (point.x / panelSize.width) * 2 - 1
-                            let ny = (point.y / panelSize.height) * 2 - 1
-                            cursorOffset = CGPoint(x: nx, y: ny)
-                        case .ended:
-                            cursorOffset = .zero
-                        }
-                    }
-            }
-        )
         // Seal the intro as a container *before* naming it: applied in this
         // order, `section.intro` labels the container element itself. The
         // reverse order would instead propagate `section.intro` down onto
@@ -108,11 +74,11 @@ struct SectionIntroView: View {
         .accessibilityIdentifier(rootAccessibilityIdentifier)
     }
 
-    /// Maximum Y-axis rotation applied to the hero in degrees when the
-    /// cursor is at the panel's horizontal edge. Larger than a subtle
-    /// parallax — the model visibly *faces* the cursor side rather than
-    /// just leaning.
-    private let maxTiltDegrees: Double = 35
+    /// Fixed leftward Y-axis rotation applied to every 3D hero so the model
+    /// reads as a three-dimensional object rather than a flat icon, without
+    /// any cursor-driven motion. Negative rotates the model's +Z front
+    /// toward -X, so the model turns its right shoulder toward the camera.
+    private let heroLeftTiltDegrees: Double = -22
 
     // MARK: Hero
 
@@ -176,16 +142,16 @@ struct SectionIntroView: View {
     /// through the RealityView's transparent canvas.
     @State private var modelLoadFailed: Bool = false
 
-    /// Real-time 3D rendering of a bundled USDZ via RealityView, with
-    /// cursor-tracking parallax tilt. The loaded asset is wrapped in a parent
-    /// `Hero` entity that owns the cursor-driven rotation, so the child
-    /// entity's own root transform — which carries the Z-up → Y-up axis
-    /// conversion Blender's USD exporter bakes in — is never overwritten.
-    /// Without the wrapper, setting `hero.transform.rotation` directly on the
-    /// loaded entity wipes that conversion and the model renders edge-on.
-    /// SwiftUI's own `Model3D` would have been simpler, but it is
-    /// `@available(macOS, unavailable)` (visionOS-only) so we drive RealityKit
-    /// directly here.
+    /// Real-time 3D rendering of a bundled USDZ via RealityView, locked to a
+    /// fixed leftward turn so the model reads as a three-dimensional object.
+    /// The loaded asset is wrapped in a parent `Hero` entity that owns the
+    /// rotation, so the child entity's own root transform — which carries
+    /// the Z-up → Y-up axis conversion Blender's USD exporter bakes in — is
+    /// never overwritten. Without the wrapper, setting `hero.transform.rotation`
+    /// directly on the loaded entity wipes that conversion and the model
+    /// renders edge-on. SwiftUI's own `Model3D` would have been simpler, but
+    /// it is `@available(macOS, unavailable)` (visionOS-only) so we drive
+    /// RealityKit directly here.
     private func heroModel(named name: String, scale: Double) -> some View {
         ZStack {
             // Symbol only shows if the USDZ actually failed to load — keeps
@@ -224,11 +190,16 @@ struct SectionIntroView: View {
                     // centre.
                     model.position = -bounds.center * model.scale
 
-                    // Wrapper entity carries the cursor-driven rotation.
-                    // The loaded `model` stays untouched as a child,
-                    // preserving its Blender-baked axis conversion.
+                    // Wrapper entity owns the fixed leftward rotation; the
+                    // loaded `model` stays untouched as a child so its
+                    // Blender-baked axis conversion is preserved.
                     let hero = Entity()
                     hero.name = "Hero"
+                    let yAngle = Float(heroLeftTiltDegrees) * (Float.pi / 180)
+                    hero.transform.rotation = simd_quatf(
+                        angle: yAngle,
+                        axis: SIMD3<Float>(0, 1, 0)
+                    )
                     hero.addChild(model)
                     content.add(hero)
                     await MainActor.run { modelLoadFailed = false }
@@ -238,27 +209,6 @@ struct SectionIntroView: View {
                 } catch {
                     await MainActor.run { modelLoadFailed = true }
                 }
-            } update: { content in
-                guard
-                    let hero = content.entities.first(where: { $0.name == "Hero" })
-                else { return }
-
-                // Immediate, no-easing rotation: the model snaps to face
-                // wherever the cursor is right now. `.onContinuousHover`
-                // fires at the cursor's event rate, triggering a fresh
-                // update each event — so as the cursor moves smoothly,
-                // the model follows 1:1 without lag. Horizontal-only:
-                // vertical cursor position is intentionally ignored.
-                // Positive yAngle (right-hand rule about +Y) rotates the
-                // model's +Z front toward +X, so cursor right → faces
-                // right, cursor left → faces left. Rotation applied to
-                // the wrapper, never the loaded model, so the child's
-                // Z-up → Y-up axis conversion is preserved.
-                let yAngle = Float(cursorOffset.x * maxTiltDegrees) * (Float.pi / 180)
-                hero.transform.rotation = simd_quatf(
-                    angle: yAngle,
-                    axis: SIMD3<Float>(0, 1, 0)
-                )
             }
             .frame(width: 400, height: 400)
             // Force a fresh RealityView per asset so navigating between

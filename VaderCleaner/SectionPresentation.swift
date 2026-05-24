@@ -57,7 +57,7 @@ struct SectionPresentation {
                 heroSymbol: "sparkles",
                 heroAssetName: nil,
                 heroModelName: "smartScan",
-                heroModelScale: 1.30,
+                heroModelScale: 1.6,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Quick maintenance that takes care of the essentials.",
@@ -83,7 +83,7 @@ struct SectionPresentation {
                 heroSymbol: "trash",
                 heroAssetName: nil,
                 heroModelName: "systemJunk",
-                heroModelScale: 1.0,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Clean your system to reclaim space and boost performance.",
@@ -113,7 +113,7 @@ struct SectionPresentation {
                 heroSymbol: "doc.text.magnifyingglass",
                 heroAssetName: nil,
                 heroModelName: "largeOldFiles",
-                heroModelScale: 1.0,
+                heroModelScale: 1.8,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Find big and forgotten files taking up space.",
@@ -139,7 +139,7 @@ struct SectionPresentation {
                 heroSymbol: "square.split.2x2",
                 heroAssetName: nil,
                 heroModelName: "spaceLens",
-                heroModelScale: 1.0,
+                heroModelScale: 1.9,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "See what's using your storage with an interactive map.",
@@ -161,7 +161,7 @@ struct SectionPresentation {
                 heroSymbol: "shield.lefthalf.filled",
                 heroAssetName: nil,
                 heroModelName: "malwareRemoval",
-                heroModelScale: 1.0,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Check your Mac for threats and vulnerabilities.",
@@ -187,7 +187,7 @@ struct SectionPresentation {
                 heroSymbol: "gauge.with.needle",
                 heroAssetName: nil,
                 heroModelName: "optimization",
-                heroModelScale: 1.0,
+                heroModelScale: 2.2,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
@@ -217,7 +217,7 @@ struct SectionPresentation {
                 heroSymbol: "lock.shield",
                 heroAssetName: nil,
                 heroModelName: "privacy",
-                heroModelScale: 1.0,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Clear browsing history, cookies, and caches across your browsers.",
