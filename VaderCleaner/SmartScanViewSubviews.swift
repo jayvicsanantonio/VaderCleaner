@@ -73,22 +73,44 @@ struct SmartScanFailedState: View {
 
 // MARK: - Results
 
-/// One dashboard tile: category icon + title, a large metric number, a
-/// caption, and an optional "Review" button that drills into that section.
-/// The tiles never perform work themselves — the single circular CTA does —
-/// so there are no per-card action buttons, only navigation.
+/// One dashboard tile: optional opt-in checkbox, category icon + title, a
+/// large metric number, a caption, and an optional "Review" button that
+/// drills into that tile's manager screen. The single circular CTA performs
+/// the actual work — each tile's checkbox gates whether that module
+/// participates in Run.
+///
+/// Three independent presentation switches:
+///   * `selection` nil → no checkbox (zero-work tiles, e.g. "No vital
+///     updates").
+///   * `selection.wrappedValue == false` → tile dims and Review is hidden
+///     (matches the reference's gray state for deselected modules).
+///   * `onReview` nil → Review button is hidden (zero-work tiles have
+///     nothing to review).
 private struct SmartScanMetricCard: View {
     let icon: String
     let tint: Color
     let title: String
     let metric: String
     let caption: String
-    var reviewIdentifier: String?
+    var selection: Binding<Bool>? = nil
+    var checkboxIdentifier: String? = nil
+    var reviewIdentifier: String? = nil
     var onReview: (() -> Void)?
+
+    private var isDeselected: Bool {
+        if let selection { return !selection.wrappedValue }
+        return false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
+                if let selection {
+                    Toggle("", isOn: selection)
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        .accessibilityIdentifier(checkboxIdentifier ?? "")
+                }
                 Image(systemName: icon)
                     .font(.title2)
                     .foregroundStyle(tint)
@@ -107,13 +129,27 @@ private struct SmartScanMetricCard: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
+                // Render the Review button unconditionally so deselecting a
+                // tile doesn't pop it out of the layout (which would shrink
+                // the bottom HStack and shift the grid row). When the tile
+                // is deselected — or has no Review at all — the button is
+                // present in the tree but invisible and non-interactive, so
+                // the card's footprint never changes.
                 if let reviewIdentifier, let onReview {
                     Button(String(
                         localized: "Review",
-                        comment: "Per-card button on the Smart Scan dashboard that opens that section."
+                        comment: "Per-card button on the Smart Scan dashboard that opens that tile's manager screen."
                     ), action: onReview)
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier(reviewIdentifier)
+                        .opacity(isDeselected ? 0 : 1)
+                        .allowsHitTesting(!isDeselected)
+                        // The button still occupies its layout slot when
+                        // the tile is deselected (so the card footprint
+                        // stays stable), but a VoiceOver / Switch Control
+                        // user would otherwise land on an invisible target.
+                        // Hide it from the accessibility tree too.
+                        .accessibilityHidden(isDeselected)
                 }
             }
         }
@@ -122,6 +158,8 @@ private struct SmartScanMetricCard: View {
         // 12 matches HealthCard so the two dashboard card surfaces share one
         // corner radius.
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .opacity(isDeselected ? 0.55 : 1.0)
+        .animation(.smooth(duration: 0.25), value: isDeselected)
     }
 }
 
@@ -149,18 +187,17 @@ private extension View {
     }
 }
 
-/// The Smart Scan results dashboard: a "Start Over" bar, a metric-card grid,
-/// and one circular CTA that runs the clean. Mirrors the reference's task
-/// dashboard. There are deliberately no per-card checkboxes — the underlying
-/// model has no selective-clean concept, and a checkbox that doesn't gate
-/// anything would be misleading. Each card's "Review" drills into its full
-/// section instead; the circular "Clean" performs the junk + threats pass.
+/// The Smart Scan results dashboard, mirroring CleanMyMac Smart Care's layout:
+/// a "Start Over" bar top-left and a five-tile metric grid with per-tile
+/// opt-in checkboxes. The Run CTA lives in the same borderless child panel
+/// as the Scan disc (see `FloatingRunOverlay` + `ScanDiscWindowController`)
+/// so it straddles the window's bottom edge with matching size and
+/// position. The dashboard reserves bottom padding so the floating Run disc
+/// never overlaps the bottom-most grid row.
 struct SmartScanResultsState: View {
+    @ObservedObject var viewModel: SmartScanViewModel
     let result: SmartScanResult
-    let onClean: () -> Void
-    let onReviewSystemJunk: () -> Void
-    let onReviewMalware: () -> Void
-    let onReviewOptimization: () -> Void
+    let onRequestReview: (SmartScanModule) -> Void
     let onStartOver: () -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]
@@ -169,12 +206,8 @@ struct SmartScanResultsState: View {
     /// dashboard first appears.
     @State private var appeared = false
 
-    /// The circular CTA only appears when the clean would actually do
-    /// something — junk to delete or threats to remove. Optimization is
-    /// review-only and never contributes cleanable work.
-    private var hasCleanableWork: Bool {
-        result.totalJunkBytes > 0 || !result.threats.isEmpty
-    }
+    /// Order the tiles appear in, mirroring the reference's reading order.
+    private static let displayOrder: [SmartScanModule] = SmartScanModule.allCases
 
     var body: some View {
         VStack(spacing: 0) {
@@ -195,7 +228,7 @@ struct SmartScanResultsState: View {
             ScrollView {
                 VStack(spacing: 24) {
                     Text(String(
-                        localized: "Your scan is ready. Here's what we found:",
+                        localized: "Your tasks are ready to run. Look what we found:",
                         comment: "Heading on the Smart Scan results dashboard."
                     ))
                         .font(.title3.weight(.medium))
@@ -206,57 +239,101 @@ struct SmartScanResultsState: View {
                     // refract consistently as the grid reflows on resize.
                     GlassEffectContainer(spacing: 16) {
                         LazyVGrid(columns: columns, spacing: 16) {
-                            junkCard.staggeredEntrance(index: 0, appeared: appeared)
-                            malwareCard.staggeredEntrance(index: 1, appeared: appeared)
-                            optimizationCard.staggeredEntrance(index: 2, appeared: appeared)
+                            ForEach(Array(Self.displayOrder.enumerated()), id: \.element) { index, module in
+                                tile(for: module)
+                                    .staggeredEntrance(index: index, appeared: appeared)
+                            }
                         }
                     }
                 }
-                .padding(24)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                // Reserve the bottom band for the floating Run disc, so the
+                // last grid row never sits under it. Mirrors the
+                // SectionIntroView's `.padding(.bottom, 168)` reservation
+                // for the Scan disc.
+                .padding(.bottom, 168)
             }
             .onAppear { appeared = true }
-
-            if hasCleanableWork {
-                FloatingScanButton(
-                    title: String(
-                        localized: "Clean",
-                        comment: "Circular button on the Smart Scan dashboard that cleans junk and removes threats."
-                    ),
-                    accessibilityIdentifier: "smartScan.clean",
-                    action: onClean
-                )
-                .padding(.bottom, 28)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var junkCard: some View {
-        SmartScanMetricCard(
+    /// Whether the given module would actually produce work if Run were
+    /// pressed right now. Delegates to `SmartScanViewModel.willExecute(_:)`
+    /// so per-tile caption decisions and the floating Run disc's visibility
+    /// gate share one source of truth.
+    private func willExecute(_ module: SmartScanModule) -> Bool {
+        viewModel.willExecute(module)
+    }
+
+    @ViewBuilder
+    private func tile(for module: SmartScanModule) -> some View {
+        switch module {
+        case .systemJunk:
+            systemJunkTile
+        case .malware:
+            malwareTile
+        case .optimization:
+            optimizationTile
+        case .applications:
+            applicationsTile
+        case .myClutter:
+            myClutterTile
+        }
+    }
+
+    /// Binding bridge from the view-model's `Set<SmartScanModule>` to a
+    /// per-tile `Toggle`. Reading checks set membership; writing flips it,
+    /// regardless of the incoming bool (`Toggle` always passes the inverse).
+    private func tileBinding(_ module: SmartScanModule) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.isModuleSelected(module) },
+            set: { _ in viewModel.toggleModule(module) }
+        )
+    }
+
+    // MARK: Per-tile views
+
+    private var systemJunkTile: some View {
+        let hasWork = result.totalJunkBytes > 0
+        return SmartScanMetricCard(
             icon: "trash.fill",
             tint: .blue,
             title: String(
                 localized: "System Junk",
                 comment: "Smart Scan card title for the System Junk module."
             ),
-            metric: result.junkResult.formattedTotalSize,
-            caption: String(
-                localized: "to clean",
-                comment: "Caption under the System Junk metric on the Smart Scan dashboard."
-            ),
-            reviewIdentifier: "smartScan.reviewJunk",
-            onReview: onReviewSystemJunk
+            metric: hasWork
+                ? result.junkResult.formattedTotalSize
+                : String(
+                    localized: "0 KB",
+                    comment: "Zero-work caption metric on the Smart Scan System Junk card."
+                ),
+            caption: hasWork
+                ? String(
+                    localized: "to clean",
+                    comment: "Caption under the System Junk metric on the Smart Scan dashboard."
+                )
+                : String(
+                    localized: "no junk found",
+                    comment: "Zero-work caption on the Smart Scan System Junk card."
+                ),
+            selection: hasWork ? tileBinding(.systemJunk) : nil,
+            checkboxIdentifier: "smartScan.toggleJunk",
+            reviewIdentifier: hasWork ? "smartScan.reviewJunk" : nil,
+            onReview: hasWork ? { onRequestReview(.systemJunk) } : nil
         )
     }
 
     @ViewBuilder
-    private var malwareCard: some View {
+    private var malwareTile: some View {
         if !result.clamAVAvailable {
             SmartScanMetricCard(
                 icon: "shield.slash.fill",
                 tint: .secondary,
                 title: String(
-                    localized: "Malware",
+                    localized: "Protection",
                     comment: "Smart Scan card title for the Malware module."
                 ),
                 metric: "—",
@@ -270,23 +347,21 @@ struct SmartScanResultsState: View {
                 icon: "checkmark.shield.fill",
                 tint: .green,
                 title: String(
-                    localized: "Malware",
+                    localized: "Protection",
                     comment: "Smart Scan card title for the Malware module."
                 ),
                 metric: "0",
                 caption: String(
                     localized: "threats found",
                     comment: "Caption on the Smart Scan malware card after a clean scan."
-                ),
-                reviewIdentifier: "smartScan.reviewMalware",
-                onReview: onReviewMalware
+                )
             )
         } else {
             SmartScanMetricCard(
                 icon: "exclamationmark.shield.fill",
                 tint: .red,
                 title: String(
-                    localized: "Malware",
+                    localized: "Protection",
                     comment: "Smart Scan card title for the Malware module."
                 ),
                 metric: "\(result.threats.count)",
@@ -299,33 +374,488 @@ struct SmartScanResultsState: View {
                         localized: "threats to remove",
                         comment: "Plural caption on the Smart Scan malware card when threats were found."
                     ),
+                selection: tileBinding(.malware),
+                checkboxIdentifier: "smartScan.toggleMalware",
                 reviewIdentifier: "smartScan.reviewMalware",
-                onReview: onReviewMalware
+                onReview: { onRequestReview(.malware) }
             )
         }
     }
 
-    private var optimizationCard: some View {
+    private var optimizationTile: some View {
+        // Performance is always actionable — maintenance scripts run on
+        // every macOS install — so this tile never collapses to a zero-work
+        // variant. The login-item count is informational; Run's actual work
+        // here is `MaintenanceScriptRunner`.
         SmartScanMetricCard(
             icon: "slider.horizontal.3",
             tint: .orange,
             title: String(
-                localized: "Optimization",
+                localized: "Performance",
                 comment: "Smart Scan card title for the Optimization module."
             ),
-            metric: "\(result.optimizationItems.count)",
-            caption: result.optimizationItems.count == 1
-                ? String(
-                    localized: "login item to review",
-                    comment: "Singular caption under the Optimization metric when exactly one login item was found."
-                )
-                : String(
-                    localized: "login items to review",
-                    comment: "Plural caption under the Optimization metric on the Smart Scan dashboard."
-                ),
+            metric: String(
+                localized: "1 task",
+                comment: "Smart Scan Performance card metric — maintenance scripts run as a single task."
+            ),
+            caption: String(
+                localized: "to run",
+                comment: "Caption under the Performance metric on the Smart Scan dashboard."
+            ),
+            selection: tileBinding(.optimization),
+            checkboxIdentifier: "smartScan.toggleOptimization",
             reviewIdentifier: "smartScan.review",
-            onReview: onReviewOptimization
+            onReview: { onRequestReview(.optimization) }
         )
+    }
+
+    private var applicationsTile: some View {
+        let count = result.availableUpdates.count
+        let hasWork = count > 0
+        return SmartScanMetricCard(
+            icon: "arrow.triangle.2.circlepath",
+            tint: .purple,
+            title: String(
+                localized: "Applications",
+                comment: "Smart Scan card title for the App Updater module."
+            ),
+            metric: hasWork
+                ? "\(count)"
+                : String(
+                    localized: "No vital updates",
+                    comment: "Zero-work metric on the Smart Scan Applications card — no app updates available."
+                ),
+            caption: hasWork
+                ? (count == 1
+                    ? String(
+                        localized: "update to install",
+                        comment: "Singular caption on the Smart Scan Applications card when exactly one update was found."
+                    )
+                    : String(
+                        localized: "updates to install",
+                        comment: "Plural caption on the Smart Scan Applications card when multiple updates were found."
+                    ))
+                : String(
+                    localized: "to install",
+                    comment: "Zero-work caption on the Smart Scan Applications card."
+                ),
+            selection: hasWork ? tileBinding(.applications) : nil,
+            checkboxIdentifier: "smartScan.toggleApplications",
+            reviewIdentifier: hasWork ? "smartScan.reviewApplications" : nil,
+            onReview: hasWork ? { onRequestReview(.applications) } : nil
+        )
+    }
+
+    private var myClutterTile: some View {
+        let count = result.largeOldFiles.count
+        let hasWork = count > 0
+        // When the tile is checked but no individual file is opted in, the
+        // caption nudges the user to Review and pick — Run would otherwise
+        // silently skip the tile (large-file deletion is opt-in per
+        // `largeFileSelection`).
+        let selectedCount = viewModel.largeFileSelection.count
+        let captionWhenWork: String = selectedCount == 0
+            ? String(
+                localized: "Tap Review to pick files",
+                comment: "Caption on the Smart Scan My Clutter card when files were found but none have been selected for removal."
+            )
+            : (selectedCount == 1
+                ? String(
+                    localized: "1 file selected",
+                    comment: "Singular caption on the Smart Scan My Clutter card when one file has been opted in for removal."
+                )
+                : String.localizedStringWithFormat(
+                    String(
+                        localized: "%d files selected",
+                        comment: "Plural caption on the Smart Scan My Clutter card; %d is a count."
+                    ),
+                    selectedCount
+                ))
+        return SmartScanMetricCard(
+            icon: "folder.fill",
+            tint: .teal,
+            title: String(
+                localized: "My Clutter",
+                comment: "Smart Scan card title for the Large & Old Files module."
+            ),
+            metric: hasWork
+                ? (count == 1
+                    ? String(
+                        localized: "1 file",
+                        comment: "Singular metric on the Smart Scan My Clutter card when one large/old file was found."
+                    )
+                    : String.localizedStringWithFormat(
+                        String(
+                            localized: "%d files",
+                            comment: "Plural metric on the Smart Scan My Clutter card; %d is a count."
+                        ),
+                        count
+                    ))
+                : String(
+                    localized: "Nothing clutters",
+                    comment: "Zero-work metric on the Smart Scan My Clutter card."
+                ),
+            caption: hasWork
+                ? captionWhenWork
+                : String(
+                    localized: "your downloads",
+                    comment: "Zero-work caption on the Smart Scan My Clutter card."
+                ),
+            selection: hasWork ? tileBinding(.myClutter) : nil,
+            checkboxIdentifier: "smartScan.toggleMyClutter",
+            reviewIdentifier: hasWork ? "smartScan.reviewMyClutter" : nil,
+            onReview: hasWork ? { onRequestReview(.myClutter) } : nil
+        )
+    }
+}
+
+// MARK: - Review screens
+//
+// Each Review screen replaces the dashboard in place (no nested
+// NavigationStack — those collide with the outer section-slide transition
+// in ContentView) and exposes a Back chevron that the parent view wires to
+// clear the review state. The screens bind directly to
+// `SmartScanViewModel` so toggling an item in a Review updates the same
+// sub-selection set the dashboard's caption and the Run gating already
+// read from.
+
+/// Shared header for every Review screen: a left-aligned Back chevron and
+/// the screen's title centered. Mirrors the dashboard's "Start Over" top
+/// bar so the two surfaces feel like one design. The Back button uses an
+/// explicit `HStack(Image, Text)` rather than `Label(_:systemImage:)`
+/// because the latter inside `.buttonStyle(.plain)` doesn't reliably
+/// surface as a typed `button` element in XCUITest's `app.buttons[…]`
+/// query — the plain HStack does.
+private struct SmartScanReviewHeader: View {
+    let title: String
+    let onBack: () -> Void
+
+    var body: some View {
+        ZStack {
+            HStack {
+                Button(action: onBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text(String(
+                            localized: "Back",
+                            comment: "Back button on every Smart Scan Review screen — returns to the results dashboard."
+                        ))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("smartScan.review.back")
+                .accessibilityLabel(Text(String(
+                    localized: "Back",
+                    comment: "VoiceOver label for the Back button on Smart Scan Review screens."
+                )))
+                Spacer()
+            }
+            Text(title)
+                .font(.headline)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+}
+
+/// Per-category toggle list for the System Junk Review. Reuses the row
+/// idiom from `SystemJunkView.CategoryRow` so the two surfaces stay visually
+/// consistent.
+struct SmartScanJunkReview: View {
+    @ObservedObject var viewModel: SmartScanViewModel
+    let result: SmartScanResult
+    let onBack: () -> Void
+
+    private var categories: [ScanCategory] {
+        ScanCategory.allCases.filter { result.junkResult.itemsByCategory[$0] != nil }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SmartScanReviewHeader(
+                title: String(
+                    localized: "Cleanup Manager",
+                    comment: "Title on the Smart Scan System Junk Review screen."
+                ),
+                onBack: onBack
+            )
+            List {
+                ForEach(categories, id: \.self) { category in
+                    HStack(spacing: 12) {
+                        Toggle("", isOn: Binding(
+                            get: { viewModel.isJunkCategorySelected(category) },
+                            set: { _ in viewModel.toggleJunkCategory(category) }
+                        ))
+                            .toggleStyle(.checkbox)
+                            .labelsHidden()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(category.displayName)
+                                .font(.body.weight(.medium))
+                            let count = result.junkResult.itemsByCategory[category]?.count ?? 0
+                            Text("\(count) item\(count == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(smartScanByteFormatter.string(
+                            fromByteCount: result.junkResult.sizeByCategory[category] ?? 0
+                        ))
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityIdentifier("smartScan.review.junk.\(category.rawValue)")
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("smartScan.review.junk")
+    }
+}
+
+/// Per-threat toggle list for the Malware Review.
+struct SmartScanMalwareReview: View {
+    @ObservedObject var viewModel: SmartScanViewModel
+    let result: SmartScanResult
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SmartScanReviewHeader(
+                title: String(
+                    localized: "Protection Manager",
+                    comment: "Title on the Smart Scan Malware Review screen."
+                ),
+                onBack: onBack
+            )
+            List {
+                ForEach(result.threats, id: \.filePath) { threat in
+                    HStack(spacing: 12) {
+                        Toggle("", isOn: Binding(
+                            get: { viewModel.isThreatSelected(threat) },
+                            set: { _ in viewModel.toggleThreat(threat) }
+                        ))
+                            .toggleStyle(.checkbox)
+                            .labelsHidden()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(threat.threatName)
+                                .font(.body.weight(.medium))
+                            Text(threat.filePath.path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("smartScan.review.malware")
+    }
+}
+
+/// Read-only summary for the Performance / Optimization Review. The
+/// actionable work — running the maintenance scripts — is the *whole*
+/// tile, not a per-item selection; the login-item list shown here is
+/// informational. An "Open Optimization" link lets the user jump to the
+/// standalone screen to manage login items / launch agents / RAM in detail.
+struct SmartScanOptimizationReview: View {
+    let result: SmartScanResult
+    let onBack: () -> Void
+    let onOpenOptimization: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SmartScanReviewHeader(
+                title: String(
+                    localized: "Performance Manager",
+                    comment: "Title on the Smart Scan Optimization Review screen."
+                ),
+                onBack: onBack
+            )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(String(
+                        localized: "Run will execute the system maintenance scripts (periodic daily, weekly, monthly).",
+                        comment: "Explainer at the top of the Smart Scan Performance Review screen."
+                    ))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    if !result.optimizationItems.isEmpty {
+                        Text(String(
+                            localized: "Login Items",
+                            comment: "Section heading inside the Smart Scan Performance Review screen for the read-only login-item list."
+                        ))
+                            .font(.headline)
+                        ForEach(result.optimizationItems, id: \.id) { item in
+                            HStack {
+                                Image(systemName: "power")
+                                    .foregroundStyle(.orange)
+                                Text(item.name)
+                                Spacer()
+                                Text(item.isEnabled
+                                    ? String(
+                                        localized: "Enabled",
+                                        comment: "Status label for a login item enabled at boot."
+                                    )
+                                    : String(
+                                        localized: "Disabled",
+                                        comment: "Status label for a login item disabled at boot."
+                                    ))
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    Button(
+                        String(
+                            localized: "Open Optimization",
+                            comment: "Button on the Smart Scan Performance Review that jumps to the standalone Optimization screen."
+                        ),
+                        action: onOpenOptimization
+                    )
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("smartScan.review.openOptimization")
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("smartScan.review.optimization")
+    }
+}
+
+/// Per-update toggle list for the Applications Review.
+struct SmartScanApplicationsReview: View {
+    @ObservedObject var viewModel: SmartScanViewModel
+    let result: SmartScanResult
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SmartScanReviewHeader(
+                title: String(
+                    localized: "Applications Manager",
+                    comment: "Title on the Smart Scan Applications Review screen."
+                ),
+                onBack: onBack
+            )
+            List {
+                ForEach(result.availableUpdates, id: \.id) { update in
+                    HStack(spacing: 12) {
+                        Toggle("", isOn: Binding(
+                            get: { viewModel.isUpdateSelected(update) },
+                            set: { _ in viewModel.toggleUpdate(update) }
+                        ))
+                            .toggleStyle(.checkbox)
+                            .labelsHidden()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(update.appName)
+                                .font(.body.weight(.medium))
+                            Text("\(update.installedVersion) → \(update.latestVersion)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("smartScan.review.applications")
+    }
+}
+
+/// Per-file toggle list for the My Clutter Review. Defaults to nothing
+/// selected (destructive deletes are opt-in); a footer offers Select All /
+/// Clear bulk actions.
+struct SmartScanMyClutterReview: View {
+    @ObservedObject var viewModel: SmartScanViewModel
+    let result: SmartScanResult
+    let onBack: () -> Void
+
+    /// Pre-sorted by `SmartScanViewModel` once when results land — reading
+    /// it here keeps the body free of O(N log N) work on every refresh
+    /// triggered by toggling individual files.
+    private var sortedFiles: [ScannedFile] {
+        viewModel.sortedLargeOldFiles
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SmartScanReviewHeader(
+                title: String(
+                    localized: "Clutter Manager",
+                    comment: "Title on the Smart Scan My Clutter Review screen."
+                ),
+                onBack: onBack
+            )
+            List {
+                ForEach(sortedFiles, id: \.url) { file in
+                    HStack(spacing: 12) {
+                        Toggle("", isOn: Binding(
+                            get: { viewModel.isLargeFileSelected(file) },
+                            set: { _ in viewModel.toggleLargeFile(file) }
+                        ))
+                            .toggleStyle(.checkbox)
+                            .labelsHidden()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.url.lastPathComponent)
+                                .font(.body.weight(.medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(file.url.deletingLastPathComponent().path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                        Text(smartScanByteFormatter.string(fromByteCount: file.size))
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            Divider()
+            HStack(spacing: 12) {
+                Button(String(
+                    localized: "Select All",
+                    comment: "Bulk action on the Smart Scan My Clutter Review — opt every file in for removal."
+                )) {
+                    // Single write to `largeFileSelection` — SwiftUI sees
+                    // one publish, not N. Per-file iteration here used to
+                    // stall the UI on large clutter scans.
+                    viewModel.selectAllLargeFiles()
+                }
+                .accessibilityIdentifier("smartScan.review.myClutter.selectAll")
+                Button(String(
+                    localized: "Clear",
+                    comment: "Bulk action on the Smart Scan My Clutter Review — opt every file out of removal."
+                )) {
+                    viewModel.clearLargeFileSelection()
+                }
+                .accessibilityIdentifier("smartScan.review.myClutter.clear")
+                Spacer()
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("smartScan.review.myClutter")
     }
 }
 
@@ -351,6 +881,28 @@ struct SmartScanDoneState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("smartScan.doneSummary")
+            // Per Open Decision 1: per-module failures don't collapse the
+            // whole Run to .failed — they surface here as a warning so the
+            // user can see exactly which module's action didn't complete.
+            if !summary.failedModules.isEmpty {
+                Text(failureLine)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 460)
+                    .accessibilityIdentifier("smartScan.doneFailureLine")
+            }
+            // Maintenance scripts' result line goes below the headline so the
+            // user can see what the privileged helper actually did, matching
+            // the standalone Optimization screen's output-log idiom.
+            if let maintenance = summary.maintenanceOutput {
+                Text(maintenance)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 540)
+                    .accessibilityIdentifier("smartScan.doneMaintenanceOutput")
+            }
             Button(String(
                 localized: "Done",
                 comment: "Button that returns to the idle Smart Scan screen."
@@ -363,22 +915,93 @@ struct SmartScanDoneState: View {
         .padding()
     }
 
-    private var summaryLine: String {
-        let freed = smartScanByteFormatter.string(fromByteCount: summary.bytesFreed)
-        let threats = String.localizedStringWithFormat(
-            String(
-                localized: "Removed %d threats",
-                comment: "Threat-count clause of the Smart Scan done summary; %d is a count. Pluralized via Localizable.stringsdict."
-            ),
-            summary.threatsRemoved
-        )
+    /// Drop-zero clause assembly so the summary only mentions work that
+    /// actually happened. An empty Run lands "Nothing to report" rather than
+    /// "0 KB freed · 0 threats removed · …" — which would read as an error.
+    /// Exposed `internal` so the view-model-free unit tests in
+    /// `SmartScanViewModelTests` can pin the contract without rendering.
+    var summaryLine: String {
+        var clauses: [String] = []
+        if summary.bytesFreed > 0 {
+            clauses.append(String.localizedStringWithFormat(
+                String(
+                    localized: "%@ freed",
+                    comment: "Bytes-freed clause of the Smart Scan done summary; %@ is a file-style byte string."
+                ),
+                smartScanByteFormatter.string(fromByteCount: summary.bytesFreed)
+            ))
+        }
+        if summary.threatsRemoved > 0 {
+            clauses.append(String.localizedStringWithFormat(
+                String(
+                    localized: "%d threats removed",
+                    comment: "Threat-count clause of the Smart Scan done summary; %d is a count. Pluralized via Localizable.stringsdict."
+                ),
+                summary.threatsRemoved
+            ))
+        }
+        if summary.updatesOpened > 0 {
+            clauses.append(String.localizedStringWithFormat(
+                String(
+                    localized: "%d updates opened",
+                    comment: "Updates clause of the Smart Scan done summary; %d is a count. Pluralized via Localizable.stringsdict."
+                ),
+                summary.updatesOpened
+            ))
+        }
+        if summary.clutterFilesRemoved > 0 {
+            clauses.append(String.localizedStringWithFormat(
+                String(
+                    localized: "%@ of clutter removed",
+                    comment: "Clutter clause of the Smart Scan done summary; %@ is a file-style byte string."
+                ),
+                smartScanByteFormatter.string(fromByteCount: summary.clutterBytesRemoved)
+            ))
+        }
+        if summary.maintenanceOutput != nil {
+            clauses.append(String(
+                localized: "maintenance ran",
+                comment: "Maintenance clause of the Smart Scan done summary."
+            ))
+        }
+        if clauses.isEmpty {
+            return String(
+                localized: "Nothing to report — every selected module was already in good shape.",
+                comment: "Smart Scan done summary when Run executed but produced no work (every module's selection drained to empty)."
+            )
+        }
+        return clauses.joined(separator: " · ")
+    }
+
+    private var failureLine: String {
+        let names = summary.failedModules
+            .sorted { String(describing: $0) < String(describing: $1) }
+            .map(Self.displayName(for:))
+            .joined(separator: ", ")
         return String.localizedStringWithFormat(
             String(
-                localized: "%@ freed. %@.",
-                comment: "Smart Scan done summary; first %@ is a freed-bytes string, second %@ is the removed-threats clause."
+                localized: "Some modules couldn't complete: %@",
+                comment: "Warning clause shown below the Smart Scan done summary when one or more modules failed. %@ is a comma-separated list of module names."
             ),
-            freed,
-            threats
+            names
         )
+    }
+
+    /// Localized display name for a module — used by `failureLine` so the
+    /// warning reads in the UI language, not as the raw case name. The
+    /// switch is exhaustive so a future module is a compile-time prompt.
+    private static func displayName(for module: SmartScanModule) -> String {
+        switch module {
+        case .systemJunk:
+            return String(localized: "System Junk", comment: "Smart Scan module name in the done-screen failure clause.")
+        case .malware:
+            return String(localized: "Protection", comment: "Smart Scan module name in the done-screen failure clause.")
+        case .optimization:
+            return String(localized: "Performance", comment: "Smart Scan module name in the done-screen failure clause.")
+        case .applications:
+            return String(localized: "Applications", comment: "Smart Scan module name in the done-screen failure clause.")
+        case .myClutter:
+            return String(localized: "My Clutter", comment: "Smart Scan module name in the done-screen failure clause.")
+        }
     }
 }

@@ -66,5 +66,69 @@
             <string>%d login items</string>
         </dict>
     </dict>
+    <key>%d threats removed</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@threats@ removed</string>
+        <key>threats</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d threat</string>
+            <key>other</key>
+            <string>%d threats</string>
+        </dict>
+    </dict>
+    <key>%d updates opened</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@updates@ opened</string>
+        <key>updates</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d update</string>
+            <key>other</key>
+            <string>%d updates</string>
+        </dict>
+    </dict>
+    <key>%d files</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@files@</string>
+        <key>files</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d file</string>
+            <key>other</key>
+            <string>%d files</string>
+        </dict>
+    </dict>
+    <key>%d files selected</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@files@ selected</string>
+        <key>files</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d file</string>
+            <key>other</key>
+            <string>%d files</string>
+        </dict>
+    </dict>
 </dict>
 </plist>

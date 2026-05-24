@@ -384,9 +384,12 @@ struct ContentView: View {
             ScannableSectionContent(coordinator: smartScanViewModel, section: section) {
                 SmartScanView(
                     viewModel: smartScanViewModel,
-                    onReviewSystemJunk: { selectSection(.systemJunk) },
-                    onReviewMalware: { selectSection(.malwareRemoval) },
-                    onReviewOptimization: { selectSection(.optimization) }
+                    // Review buttons inside the Smart Scan dashboard now
+                    // push their own in-place manager screens; only the
+                    // Optimization Review's "Open Optimization" link still
+                    // hops to the standalone section. The other two
+                    // selectSection calls disappear with the inline push.
+                    onOpenOptimization: { selectSection(.optimization) }
                 )
             }
         case .healthMonitor:

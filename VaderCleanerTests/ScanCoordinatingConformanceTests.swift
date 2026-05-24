@@ -111,13 +111,17 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
 
     func test_smartScan_cleaningMapsToResults() async {
         let gate = ScanGate()
-        let vm = makeSmartScan(junkCleaner: { _ in
-            await gate.wait()
-            return 0
-        })
-        await vm.scan() // → .results, the only phase clean() acts from.
+        let junkFile = makeFile(name: "a")
+        let vm = makeSmartScan(
+            junkScanner: { ScanResult(items: [junkFile]) },
+            junkCleaner: { _ in
+                await gate.wait()
+                return 0
+            }
+        )
+        await vm.scan() // → .results, the only phase run() acts from.
 
-        let task = Task { await vm.clean() }
+        let task = Task { await vm.run() }
         await yieldUntil({ vm.phase == .cleaning }, ".cleaning")
         XCTAssertEqual(vm.scanPresentation, .results)
 
@@ -128,7 +132,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     func test_smartScan_doneMapsToResults() async {
         let vm = makeSmartScan()
         await vm.scan()
-        await vm.clean()
+        await vm.run()
         if case .done = vm.phase {} else { XCTFail("expected .done, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)
     }
@@ -671,16 +675,26 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
         malwareScanner: @escaping SmartScanViewModel.MalwareScanner = { [] },
         loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
+        largeOldFilesScanner: @escaping SmartScanViewModel.ClutterScanner = { [] },
+        updatesChecker: @escaping SmartScanViewModel.UpdatesChecker = { [] },
         junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
-        threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] }
+        threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
+        maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
+        updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
+        largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] }
     ) -> SmartScanViewModel {
         SmartScanViewModel(
             junkScanner: junkScanner,
             malwareInstalled: malwareInstalled,
             malwareScanner: malwareScanner,
             loginItemsLoader: loginItemsLoader,
+            largeOldFilesScanner: largeOldFilesScanner,
+            updatesChecker: updatesChecker,
             junkCleaner: junkCleaner,
-            threatRemover: threatRemover
+            threatRemover: threatRemover,
+            maintenanceRunner: maintenanceRunner,
+            updateOpener: updateOpener,
+            largeFileDeleter: largeFileDeleter
         )
     }
 

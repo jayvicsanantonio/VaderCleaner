@@ -14,6 +14,24 @@ final class SmartScanViewModelTests: XCTestCase {
 
     private let loginItem = LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)
 
+    private let largeFile = ScannedFile(
+        url: URL(fileURLWithPath: "/Users/me/Movies/very-old-trip.mov"),
+        size: 5_000_000_000,
+        lastAccessDate: nil,
+        lastModifiedDate: nil,
+        category: .userCache
+    )
+
+    private let availableUpdate = UpdateInfo(
+        appName: "Example",
+        bundleID: "com.example.app",
+        bundleURL: URL(fileURLWithPath: "/Applications/Example.app"),
+        installedVersion: "1.0",
+        latestVersion: "2.0",
+        source: .sparkle,
+        updateURL: URL(string: "https://example.com/example.zip")!
+    )
+
     // MARK: - Initial state
 
     func test_init_phaseIsIdle() {
@@ -147,6 +165,54 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(result.optimizationItems, [])
     }
 
+    func test_scan_populatesLargeOldFilesFromScanner() async {
+        var ranLargeOldFiles = false
+        let vm = makeViewModel(
+            largeOldFilesScanner: {
+                ranLargeOldFiles = true
+                return [self.largeFile]
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertTrue(ranLargeOldFiles, "Smart Scan must run the Large & Old Files scan")
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.largeOldFiles, [largeFile])
+    }
+
+    func test_scan_populatesAvailableUpdatesFromChecker() async {
+        var ranUpdates = false
+        let vm = makeViewModel(
+            updatesChecker: {
+                ranUpdates = true
+                return [self.availableUpdate]
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertTrue(ranUpdates, "Smart Scan must run the App Updater check")
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.availableUpdates, [availableUpdate])
+    }
+
+    func test_scan_emptyLargeOldFilesAndUpdates_defaultEmpty() async {
+        let vm = makeViewModel()
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.largeOldFiles, [])
+        XCTAssertEqual(result.availableUpdates, [])
+    }
+
     func test_scan_ignoresReentryWhileAScanIsInFlight() async {
         var junkInvocations = 0
         var resume: CheckedContinuation<Void, Never>?
@@ -172,9 +238,295 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(junkInvocations, 1)
     }
 
-    // MARK: - Clean: delegation
+    // MARK: - Tile selection
 
-    func test_clean_delegatesToJunkCleanerAndThreatRemover() async {
+    func test_init_tileSelectionIsEmpty() {
+        let vm = makeViewModel()
+        XCTAssertEqual(vm.tileSelection, [])
+    }
+
+    func test_scan_defaultsTileSelectionToModulesWithCleanableWork() async {
+        // Junk has bytes, malware has a threat, updates has one entry, large
+        // old files has one entry, login items has one — every module should
+        // default to checked. Optimization additionally is always actionable
+        // (maintenance scripts always available on macOS), so it is also on.
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) },
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat] },
+            loginItemsLoader: { [self.loginItem] },
+            largeOldFilesScanner: { [self.largeFile] },
+            updatesChecker: { [self.availableUpdate] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.tileSelection, Set(SmartScanModule.allCases))
+    }
+
+    func test_scan_defaultsTileSelectionExcludesModulesWithoutWork() async {
+        // Junk has bytes, but every other module is empty. Optimization
+        // stays on because maintenance scripts are always actionable.
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.tileSelection, [.systemJunk, .optimization])
+    }
+
+    func test_scan_defaultsTileSelectionEmptyExceptOptimizationWhenNothingFound() async {
+        let vm = makeViewModel()
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.tileSelection, [.optimization])
+    }
+
+    func test_toggleModule_addsThenRemovesFromSelection() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        // Optimization is on by default.
+        XCTAssertTrue(vm.isModuleSelected(.optimization))
+
+        vm.toggleModule(.optimization)
+        XCTAssertFalse(vm.isModuleSelected(.optimization))
+
+        vm.toggleModule(.optimization)
+        XCTAssertTrue(vm.isModuleSelected(.optimization))
+    }
+
+    func test_reset_clearsTileSelection() async {
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)])) }
+        )
+        await vm.scan()
+        XCTAssertFalse(vm.tileSelection.isEmpty)
+
+        vm.reset()
+
+        XCTAssertEqual(vm.tileSelection, [])
+    }
+
+    // MARK: - Sub-selections
+
+    func test_scan_defaultsJunkCategorySelectionToAllCategoriesWithItems() async {
+        let vm = makeViewModel(
+            junkScanner: {
+                self.makeResult(
+                    (.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)]),
+                    (.userLogs, [self.makeFile(name: "b", size: 2, category: .userLogs)])
+                )
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.junkCategorySelection, [.userCache, .userLogs])
+    }
+
+    func test_scan_defaultsThreatSelectionToAllDetectedThreats() async {
+        let second = MalwareThreat(
+            filePath: URL(fileURLWithPath: "/Library/Caches/x"),
+            threatName: "OSX.Bad"
+        )
+        let vm = makeViewModel(
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat, second] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.threatSelection, [threat.filePath, second.filePath])
+    }
+
+    func test_scan_defaultsUpdateSelectionToAllAvailableUpdates() async {
+        let vm = makeViewModel(
+            updatesChecker: { [self.availableUpdate] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.updateSelection, [availableUpdate.bundleID])
+    }
+
+    func test_scan_defaultsLargeFileSelectionToEmpty() async {
+        // Destructive deletes mirror `LargeOldFilesViewModel`'s contract:
+        // nothing is selected by default — the user must explicitly opt
+        // individual files into removal via the Review screen.
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [self.largeFile] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.largeFileSelection, [])
+    }
+
+    func test_toggleJunkCategory_addsAndRemoves() async {
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)])) }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isJunkCategorySelected(.userCache))
+
+        vm.toggleJunkCategory(.userCache)
+        XCTAssertFalse(vm.isJunkCategorySelected(.userCache))
+
+        vm.toggleJunkCategory(.userCache)
+        XCTAssertTrue(vm.isJunkCategorySelected(.userCache))
+    }
+
+    func test_toggleThreat_addsAndRemoves() async {
+        let vm = makeViewModel(
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat] }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isThreatSelected(threat))
+
+        vm.toggleThreat(threat)
+        XCTAssertFalse(vm.isThreatSelected(threat))
+
+        vm.toggleThreat(threat)
+        XCTAssertTrue(vm.isThreatSelected(threat))
+    }
+
+    func test_toggleUpdate_addsAndRemoves() async {
+        let vm = makeViewModel(
+            updatesChecker: { [self.availableUpdate] }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isUpdateSelected(availableUpdate))
+
+        vm.toggleUpdate(availableUpdate)
+        XCTAssertFalse(vm.isUpdateSelected(availableUpdate))
+
+        vm.toggleUpdate(availableUpdate)
+        XCTAssertTrue(vm.isUpdateSelected(availableUpdate))
+    }
+
+    func test_scan_cachesLargeOldFilesSortedBySizeDescending() async {
+        let small = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/small.mov"),
+            size: 1_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let big = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/big.mov"),
+            size: 5_000_000_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let mid = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/mid.mov"),
+            size: 50_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [small, big, mid] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(
+            vm.sortedLargeOldFiles.map(\.url),
+            [big.url, mid.url, small.url],
+            "Sort cache must rank large/old files biggest-first so the Review list opens on the most reclaimable thing"
+        )
+    }
+
+    func test_reset_clearsSortedLargeOldFilesCache() async {
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        await vm.scan()
+        XCTAssertFalse(vm.sortedLargeOldFiles.isEmpty)
+
+        vm.reset()
+
+        XCTAssertTrue(vm.sortedLargeOldFiles.isEmpty)
+    }
+
+    func test_selectAllLargeFiles_optsEveryDetectedFileInWithOneWrite() async {
+        let other = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/other.mov"),
+            size: 100_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile, other] })
+        await vm.scan()
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+
+        vm.selectAllLargeFiles()
+
+        XCTAssertEqual(vm.largeFileSelection, [largeFile.url, other.url])
+    }
+
+    func test_selectAllLargeFiles_outsideResults_isNoop() {
+        let vm = makeViewModel()
+        // `.idle` — never scanned.
+        vm.selectAllLargeFiles()
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+    }
+
+    func test_clearLargeFileSelection_emptiesTheSet() async {
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        await vm.scan()
+        vm.selectAllLargeFiles()
+        XCTAssertFalse(vm.largeFileSelection.isEmpty)
+
+        vm.clearLargeFileSelection()
+
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+    }
+
+    func test_toggleLargeFile_addsAndRemoves() async {
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [self.largeFile] }
+        )
+        await vm.scan()
+        XCTAssertFalse(vm.isLargeFileSelected(largeFile))
+
+        vm.toggleLargeFile(largeFile)
+        XCTAssertTrue(vm.isLargeFileSelected(largeFile))
+
+        vm.toggleLargeFile(largeFile)
+        XCTAssertFalse(vm.isLargeFileSelected(largeFile))
+    }
+
+    func test_reset_clearsAllSubSelections() async {
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)])) },
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat] },
+            largeOldFilesScanner: { [self.largeFile] },
+            updatesChecker: { [self.availableUpdate] }
+        )
+        await vm.scan()
+        vm.toggleLargeFile(largeFile)
+        XCTAssertFalse(vm.junkCategorySelection.isEmpty)
+        XCTAssertFalse(vm.threatSelection.isEmpty)
+        XCTAssertFalse(vm.updateSelection.isEmpty)
+        XCTAssertFalse(vm.largeFileSelection.isEmpty)
+
+        vm.reset()
+
+        XCTAssertTrue(vm.junkCategorySelection.isEmpty)
+        XCTAssertTrue(vm.threatSelection.isEmpty)
+        XCTAssertTrue(vm.updateSelection.isEmpty)
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+    }
+
+    // MARK: - Run: delegation + selection gating
+
+    func test_run_delegatesToJunkCleanerAndThreatRemover() async {
         let junkFile = makeFile(name: "a", size: 100, category: .userCache)
         var cleanedFiles: [ScannedFile] = []
         var removedThreats: [MalwareThreat] = []
@@ -189,15 +541,15 @@ final class SmartScanViewModelTests: XCTestCase {
         )
         await vm.scan()
 
-        await vm.clean()
+        await vm.run()
 
-        XCTAssertEqual(cleanedFiles, [junkFile], "clean() must hand the scanned junk files to the junk cleaner")
-        XCTAssertEqual(removedThreats, [threat], "clean() must hand the detected threats to the threat remover")
+        XCTAssertEqual(cleanedFiles, [junkFile], "run() must hand the scanned junk files to the junk cleaner")
+        XCTAssertEqual(removedThreats, [threat], "run() must hand the detected threats to the threat remover")
         XCTAssertTrue(disabledLoginItems.isEmpty,
-                      "clean() must NOT auto-disable login items — Optimization is a Review action, not a cleaner")
+                      "run() must NOT auto-disable login items — Optimization wires the maintenance-script action, not login-item changes")
     }
 
-    func test_clean_reportsSummary() async {
+    func test_run_reportsSummary() async {
         let vm = makeViewModel(
             junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) },
             malwareInstalled: { true },
@@ -207,13 +559,22 @@ final class SmartScanViewModelTests: XCTestCase {
             threatRemover: { _ in [] }
         )
         await vm.scan()
+        // Deselect Optimization so the summary line stays focused on the
+        // junk/malware result for this assertion — Optimization wiring is
+        // covered by its own tests below.
+        vm.toggleModule(.optimization)
 
-        await vm.clean()
+        await vm.run()
 
-        XCTAssertEqual(vm.phase, .done(summary: SmartScanSummary(bytesFreed: 2_048, threatsRemoved: 1)))
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.bytesFreed, 2_048)
+        XCTAssertEqual(summary.threatsRemoved, 1)
+        XCTAssertTrue(summary.failedModules.isEmpty)
     }
 
-    func test_clean_partialThreatFailure_reportsRemovedCount() async {
+    func test_run_partialThreatFailure_reportsRemovedCount() async {
         let second = MalwareThreat(
             filePath: URL(fileURLWithPath: "/Library/Caches/x"),
             threatName: "OSX.Bad"
@@ -227,13 +588,22 @@ final class SmartScanViewModelTests: XCTestCase {
             threatRemover: { _ in [second] }   // second could not be removed
         )
         await vm.scan()
+        vm.toggleModule(.optimization)
 
-        await vm.clean()
+        await vm.run()
 
-        XCTAssertEqual(vm.phase, .done(summary: SmartScanSummary(bytesFreed: 0, threatsRemoved: 1)))
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.bytesFreed, 0)
+        XCTAssertEqual(summary.threatsRemoved, 1)
     }
 
-    func test_clean_junkFailure_movesToFailed() async {
+    func test_run_junkFailure_landsDoneAndRecordsFailureInSummary() async {
+        // Per Open Decision 1: per-module failure must not collapse the
+        // whole Run to .failed. Other modules' successes still need to
+        // survive — the summary records which modules failed so the done
+        // screen can surface a warning while still showing what succeeded.
         struct Boom: Error {}
         let vm = makeViewModel(
             junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)])) },
@@ -241,21 +611,377 @@ final class SmartScanViewModelTests: XCTestCase {
         )
         await vm.scan()
 
-        await vm.clean()
+        await vm.run()
 
-        guard case .failed = vm.phase else {
-            return XCTFail("Expected .failed, got \(vm.phase)")
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
         }
+        XCTAssertEqual(summary.bytesFreed, 0)
+        XCTAssertTrue(summary.failedModules.contains(.systemJunk),
+                      "A junk cleaner throw must be recorded in summary.failedModules")
     }
 
-    func test_clean_whenNotInResults_isNoop() async {
+    func test_run_whenNotInResults_isNoop() async {
         var cleaned = false
         let vm = makeViewModel(junkCleaner: { _ in cleaned = true; return 0 })
 
-        await vm.clean()
+        await vm.run()
 
-        XCTAssertFalse(cleaned, "clean() before a scan must be a no-op")
+        XCTAssertFalse(cleaned, "run() before a scan must be a no-op")
         XCTAssertEqual(vm.phase, .idle)
+    }
+
+    func test_run_skipsSystemJunkWhenTileDeselected() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        var junkCalls = 0
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [junkFile])) },
+            junkCleaner: { _ in junkCalls += 1; return 100 }
+        )
+        await vm.scan()
+        vm.toggleModule(.systemJunk)   // deselect
+
+        await vm.run()
+
+        XCTAssertEqual(junkCalls, 0, "Deselecting the System Junk tile must skip the junk cleaner entirely")
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.bytesFreed, 0)
+    }
+
+    func test_run_skipsMalwareWhenTileDeselected() async {
+        var removerCalls = 0
+        let vm = makeViewModel(
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat] },
+            threatRemover: { _ in removerCalls += 1; return [] }
+        )
+        await vm.scan()
+        vm.toggleModule(.malware)   // deselect
+
+        await vm.run()
+
+        XCTAssertEqual(removerCalls, 0, "Deselecting the Malware tile must skip the threat remover entirely")
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.threatsRemoved, 0)
+    }
+
+    func test_run_filtersJunkItemsByCategorySelection() async {
+        let cacheFile = makeFile(name: "a", size: 100, category: .userCache)
+        let logFile = makeFile(name: "b", size: 200, category: .userLogs)
+        var receivedFiles: [ScannedFile] = []
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [cacheFile]), (.userLogs, [logFile])) },
+            junkCleaner: { files in receivedFiles = files; return 0 }
+        )
+        await vm.scan()
+        vm.toggleJunkCategory(.userLogs)   // deselect logs only
+
+        await vm.run()
+
+        XCTAssertEqual(receivedFiles, [cacheFile],
+                       "Deselected categories must not have their files passed to the cleaner")
+    }
+
+    func test_run_filtersThreatsByThreatSelection() async {
+        let second = MalwareThreat(
+            filePath: URL(fileURLWithPath: "/Library/Caches/x"),
+            threatName: "OSX.Bad"
+        )
+        var receivedThreats: [MalwareThreat] = []
+        let vm = makeViewModel(
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat, second] },
+            threatRemover: { threats in receivedThreats = threats; return [] }
+        )
+        await vm.scan()
+        vm.toggleThreat(second)   // deselect the second threat only
+
+        await vm.run()
+
+        XCTAssertEqual(receivedThreats, [threat],
+                       "Deselected threats must not be passed to the remover")
+    }
+
+    func test_run_skipsJunkCleanerWhenSelectionDrainsToEmpty() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        var junkCalls = 0
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [junkFile])) },
+            junkCleaner: { _ in junkCalls += 1; return 100 }
+        )
+        await vm.scan()
+        // Tile still on, but the user deselected every category — the
+        // filter empties out and the cleaner must not be called with `[]`.
+        vm.toggleJunkCategory(.userCache)
+
+        await vm.run()
+
+        XCTAssertEqual(junkCalls, 0)
+    }
+
+    func test_run_noTilesSelected_landsDoneWithEmptySummary() async {
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)])) },
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat] }
+        )
+        await vm.scan()
+        for module in SmartScanModule.allCases where vm.isModuleSelected(module) {
+            vm.toggleModule(module)
+        }
+
+        await vm.run()
+
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.bytesFreed, 0)
+        XCTAssertEqual(summary.threatsRemoved, 0)
+        XCTAssertNil(summary.maintenanceOutput)
+        XCTAssertEqual(summary.updatesOpened, 0)
+        XCTAssertEqual(summary.clutterFilesRemoved, 0)
+        XCTAssertEqual(summary.clutterBytesRemoved, 0)
+        XCTAssertTrue(summary.failedModules.isEmpty)
+    }
+
+    // MARK: - Run: Optimization (maintenance scripts)
+
+    func test_run_runsMaintenanceWhenOptimizationSelected() async {
+        var ranMaintenance = false
+        let vm = makeViewModel(
+            maintenanceRunner: {
+                ranMaintenance = true
+                return "ran"
+            }
+        )
+        await vm.scan()
+        // Optimization defaults on with maintenance.
+
+        await vm.run()
+
+        XCTAssertTrue(ranMaintenance)
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.maintenanceOutput, "ran")
+    }
+
+    func test_run_skipsMaintenanceWhenOptimizationDeselected() async {
+        var ranMaintenance = false
+        let vm = makeViewModel(
+            maintenanceRunner: {
+                ranMaintenance = true
+                return "ran"
+            }
+        )
+        await vm.scan()
+        vm.toggleModule(.optimization)   // deselect
+
+        await vm.run()
+
+        XCTAssertFalse(ranMaintenance)
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertNil(summary.maintenanceOutput)
+    }
+
+    func test_run_maintenanceFailure_landsDoneAndRecordsFailureInSummary() async {
+        struct Boom: Error {}
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) },
+            junkCleaner: { _ in 2_048 },
+            maintenanceRunner: { throw Boom() }
+        )
+        await vm.scan()
+
+        await vm.run()
+
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.bytesFreed, 2_048, "Junk must still clean even when maintenance fails")
+        XCTAssertNil(summary.maintenanceOutput)
+        XCTAssertTrue(summary.failedModules.contains(.optimization))
+    }
+
+    // MARK: - Run: Applications (open selected updates)
+
+    func test_run_opensSelectedUpdatesWhenApplicationsSelected() async {
+        var openedURLs: [URL] = []
+        let vm = makeViewModel(
+            updatesChecker: { [self.availableUpdate] },
+            updateOpener: { openedURLs.append($0) }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isModuleSelected(.applications))
+
+        await vm.run()
+
+        XCTAssertEqual(openedURLs, [availableUpdate.updateURL])
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.updatesOpened, 1)
+    }
+
+    func test_run_skipsApplicationsWhenTileDeselected() async {
+        var openedURLs: [URL] = []
+        let vm = makeViewModel(
+            updatesChecker: { [self.availableUpdate] },
+            updateOpener: { openedURLs.append($0) }
+        )
+        await vm.scan()
+        vm.toggleModule(.applications)
+
+        await vm.run()
+
+        XCTAssertEqual(openedURLs, [])
+    }
+
+    func test_run_skipsDeselectedUpdates() async {
+        let second = UpdateInfo(
+            appName: "Other",
+            bundleID: "com.example.other",
+            bundleURL: URL(fileURLWithPath: "/Applications/Other.app"),
+            installedVersion: "1.0",
+            latestVersion: "2.0",
+            source: .appStore,
+            updateURL: URL(string: "macappstore://apps.apple.com/app/id1")!
+        )
+        var openedURLs: [URL] = []
+        let vm = makeViewModel(
+            updatesChecker: { [self.availableUpdate, second] },
+            updateOpener: { openedURLs.append($0) }
+        )
+        await vm.scan()
+        vm.toggleUpdate(second)   // deselect the second update only
+
+        await vm.run()
+
+        XCTAssertEqual(openedURLs, [availableUpdate.updateURL])
+    }
+
+    // MARK: - Run: My Clutter (delete selected large files)
+
+    func test_run_deletesSelectedLargeFiles() async {
+        var receivedURLs: [URL] = []
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [self.largeFile] },
+            largeFileDeleter: { urls in
+                receivedURLs = urls
+                return Set(urls)
+            }
+        )
+        await vm.scan()
+        vm.toggleLargeFile(largeFile)   // opt the file in
+
+        await vm.run()
+
+        XCTAssertEqual(receivedURLs, [largeFile.url])
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.clutterFilesRemoved, 1)
+        XCTAssertEqual(summary.clutterBytesRemoved, largeFile.size)
+    }
+
+    func test_run_skipsMyClutterWhenNothingSelected() async {
+        // Tile is selected by default (largeOldFiles non-empty), but no
+        // individual file is opted in — deleter must NOT be called with [].
+        var deleterCalls = 0
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [self.largeFile] },
+            largeFileDeleter: { _ in deleterCalls += 1; return [] }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isModuleSelected(.myClutter))
+        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+
+        await vm.run()
+
+        XCTAssertEqual(deleterCalls, 0)
+    }
+
+    func test_run_recordsClutterPartialSuccess() async {
+        let other = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Movies/locked.mov"),
+            size: 9_000_000_000,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .userCache
+        )
+        let vm = makeViewModel(
+            largeOldFilesScanner: { [self.largeFile, other] },
+            // Deleter reports only `largeFile` as actually removed — `other`
+            // was locked / permission-denied.
+            largeFileDeleter: { _ in [self.largeFile.url] }
+        )
+        await vm.scan()
+        vm.toggleLargeFile(largeFile)
+        vm.toggleLargeFile(other)
+
+        await vm.run()
+
+        guard case .done(let summary) = vm.phase else {
+            return XCTFail("Expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(summary.clutterFilesRemoved, 1)
+        XCTAssertEqual(summary.clutterBytesRemoved, largeFile.size)
+    }
+
+    // MARK: - Executable work surface
+
+    func test_hasExecutableWork_falseAtIdle() {
+        let vm = makeViewModel()
+        XCTAssertFalse(vm.hasExecutableWork)
+    }
+
+    func test_hasExecutableWork_trueAtResultsWithOptimizationOn() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        // Optimization defaults on with always-actionable maintenance, so a
+        // freshly-landed scan with zero other work still has executable work.
+        XCTAssertTrue(vm.hasExecutableWork)
+    }
+
+    func test_hasExecutableWork_falseAfterDeselectingEveryTile() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        for module in SmartScanModule.allCases where vm.isModuleSelected(module) {
+            vm.toggleModule(module)
+        }
+        XCTAssertFalse(vm.hasExecutableWork)
+    }
+
+    func test_willExecute_systemJunkRespectsCategorySelection() async {
+        let cacheFile = makeFile(name: "a", size: 100, category: .userCache)
+        let logFile = makeFile(name: "b", size: 200, category: .userLogs)
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [cacheFile]), (.userLogs, [logFile])) }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.willExecute(.systemJunk))
+
+        // Deselect every category → systemJunk has no work.
+        vm.toggleJunkCategory(.userCache)
+        vm.toggleJunkCategory(.userLogs)
+        XCTAssertFalse(vm.willExecute(.systemJunk))
+    }
+
+    func test_willExecute_myClutterRequiresAtLeastOneFileSelected() async {
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        await vm.scan()
+        XCTAssertTrue(vm.isModuleSelected(.myClutter))
+        // Largeold files defaults to nothing selected — tile is on, no work.
+        XCTAssertFalse(vm.willExecute(.myClutter))
+
+        vm.toggleLargeFile(largeFile)
+        XCTAssertTrue(vm.willExecute(.myClutter))
     }
 
     // MARK: - Helpers
@@ -265,16 +991,26 @@ final class SmartScanViewModelTests: XCTestCase {
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
         malwareScanner: @escaping SmartScanViewModel.MalwareScanner = { [] },
         loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
+        largeOldFilesScanner: @escaping SmartScanViewModel.ClutterScanner = { [] },
+        updatesChecker: @escaping SmartScanViewModel.UpdatesChecker = { [] },
         junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
-        threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] }
+        threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
+        maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
+        updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
+        largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] }
     ) -> SmartScanViewModel {
         SmartScanViewModel(
             junkScanner: junkScanner,
             malwareInstalled: malwareInstalled,
             malwareScanner: malwareScanner,
             loginItemsLoader: loginItemsLoader,
+            largeOldFilesScanner: largeOldFilesScanner,
+            updatesChecker: updatesChecker,
             junkCleaner: junkCleaner,
-            threatRemover: threatRemover
+            threatRemover: threatRemover,
+            maintenanceRunner: maintenanceRunner,
+            updateOpener: updateOpener,
+            largeFileDeleter: largeFileDeleter
         )
     }
 
