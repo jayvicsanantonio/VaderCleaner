@@ -29,14 +29,35 @@ struct ClamAVScanner {
 
     /// Directory-path regexes (clamscan's `--exclude-dir` flavour) that
     /// the scanner should skip. Walking these on a developer machine
-    /// dominates scan time while contributing ~zero detection value.
-    /// Pinned by `test_defaultExcludedDirectories_skipsObviousDevAndCacheNoise`.
+    /// dominates scan time while contributing ~zero detection value:
+    /// content-addressed package stores hold third-party code we'd
+    /// re-fetch from the same registries on every machine, and OS- or
+    /// IDE-managed caches are regenerable. Pinned by
+    /// `test_defaultExcludedDirectories_skipsObviousDevAndCacheNoise`.
     static let defaultExcludedDirectories: [String] = [
+        // Per-project noise
         "/node_modules/",
         "/\\.git/",
+
+        // System-level caches and dev-tool homes
         "/Library/Caches/",
-        "/Library/Developer/",   // catches Xcode DerivedData / iOS device support
-        "/\\.Trash/"
+        "/Library/Developer/",   // Xcode DerivedData / iOS device support
+        "/\\.Trash/",
+
+        // Electron / IDE app caches that live under Application Support
+        // rather than Library/Caches (VSCode, Windsurf, Slack, Discord…)
+        "/Library/Application Support/[^/]+/Cache/",
+        "/Library/Application Support/[^/]+/Caches/",
+        "/Library/Application Support/[^/]+/CachedData/",
+
+        // Package-manager content stores — every version of every dep
+        // the user has ever installed, deduped. Usually multi-GB.
+        "/Library/pnpm/",
+        "/\\.npm/",
+        "/\\.yarn/",
+        "/\\.cargo/registry/",
+        "/\\.gradle/caches/",
+        "/\\.m2/repository/"
     ]
 
     private let detector: ClamAVDetector

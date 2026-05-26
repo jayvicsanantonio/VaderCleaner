@@ -123,9 +123,11 @@ final class ClamAVScannerTests: XCTestCase {
 
     func test_defaultExcludedDirectories_skipsObviousDevAndCacheNoise() {
         // Pinning the production default so the list can't silently
-        // shift. These five cover the trees that take the most time
-        // and produce ~zero detection value (signed dev toolchains,
-        // OS-managed caches, already-trashed files).
+        // shift. These cover the trees that take the most time and
+        // produce ~zero detection value: project-local noise (node
+        // modules, .git), OS- and IDE-managed caches, Trash, and the
+        // package-manager content stores that hold every version of
+        // every dependency the user has ever installed.
         XCTAssertEqual(
             ClamAVScanner.defaultExcludedDirectories,
             [
@@ -133,7 +135,16 @@ final class ClamAVScannerTests: XCTestCase {
                 "/\\.git/",
                 "/Library/Caches/",
                 "/Library/Developer/",
-                "/\\.Trash/"
+                "/\\.Trash/",
+                "/Library/Application Support/[^/]+/Cache/",
+                "/Library/Application Support/[^/]+/Caches/",
+                "/Library/Application Support/[^/]+/CachedData/",
+                "/Library/pnpm/",
+                "/\\.npm/",
+                "/\\.yarn/",
+                "/\\.cargo/registry/",
+                "/\\.gradle/caches/",
+                "/\\.m2/repository/"
             ]
         )
     }
