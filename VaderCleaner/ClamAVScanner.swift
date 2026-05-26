@@ -27,9 +27,23 @@ struct ClamAVScanner {
     /// `clamscan` with its own DB layout.
     typealias DatabaseDirectoryProvider = () -> URL?
 
+    /// Directory-path regexes (clamscan's `--exclude-dir` flavour) that
+    /// the scanner should skip. Walking these on a developer machine
+    /// dominates scan time while contributing ~zero detection value.
+    /// Pinned by `test_defaultExcludedDirectories_skipsObviousDevAndCacheNoise`.
+    static let defaultExcludedDirectories: [String] = [
+        "/node_modules/",
+        "/\\.git/",
+        "/Library/Caches/",
+        "/Library/Developer/",   // catches Xcode DerivedData / iOS device support
+        "/\\.Trash/"
+    ]
+
     private let detector: ClamAVDetector
     private let runner: ScanRunner
     private let databaseDirectoryProvider: DatabaseDirectoryProvider
+    private let excludedDirectories: [String]
+    private let progressThrottleInterval: TimeInterval
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "ClamAVScanner")
 
@@ -37,11 +51,15 @@ struct ClamAVScanner {
         detector: ClamAVDetector = ClamAVDetector(),
         runner: @escaping ScanRunner = ClamAVScanner.defaultRunner,
         databaseDirectoryProvider: @escaping DatabaseDirectoryProvider =
-            ClamAVScanner.defaultDatabaseDirectoryProvider
+            ClamAVScanner.defaultDatabaseDirectoryProvider,
+        excludedDirectories: [String] = ClamAVScanner.defaultExcludedDirectories,
+        progressThrottleInterval: TimeInterval = 0.1
     ) {
         self.detector = detector
         self.runner = runner
         self.databaseDirectoryProvider = databaseDirectoryProvider
+        self.excludedDirectories = excludedDirectories
+        self.progressThrottleInterval = progressThrottleInterval
     }
 
     /// Production default: the writable DB directory the bundled
@@ -77,15 +95,37 @@ struct ClamAVScanner {
         if let database = databaseDirectoryProvider() {
             arguments.append("--database=\(database.path)")
         }
-        arguments.append(contentsOf: ["--recursive", "--infected", "--no-summary"])
+        // `--exclude-dir` accepts a Perl-compatible regex per flag —
+        // pass each pattern separately so clamscan combines them with
+        // OR semantics. Listed before the scan targets so the override
+        // is unambiguous.
+        for pattern in excludedDirectories {
+            arguments.append("--exclude-dir=\(pattern)")
+        }
+        // `--infected` (a.k.a. `-i`) suppresses the `: OK` lines that
+        // make up >99% of clamscan's output on a clean machine — we
+        // *want* those lines so the UI has a steady progress signal.
+        // `ClamAVOutputParser.parseLine` already filters down to the
+        // ` FOUND` suffix, so non-infection lines never become threats.
+        arguments.append(contentsOf: ["--recursive", "--no-summary"])
         arguments.append(contentsOf: paths.map(\.path))
 
         let collector = ThreatCollector()
+        let throttle = ProgressThrottle(interval: progressThrottleInterval)
         let status = try await runner(binary, arguments) { line in
+            // Every line is parsed for threats so the throttle below
+            // can't silently lose detections inside a tight burst of
+            // infected files.
             if let threat = ClamAVOutputParser.parseLine(line) {
                 collector.append(threat)
             }
-            progress(line)
+            // The progress callback hops to the main actor in
+            // `MalwareViewModel` and feeds an @Published phase; without
+            // the throttle, a fast clean stretch would spam millions
+            // of Tasks per scan.
+            if throttle.shouldEmit() {
+                progress(line)
+            }
         }
 
         // 0 = clean, 1 = virus(es) found, 2 = error. Anything else (or a
@@ -125,6 +165,34 @@ struct ClamAVScanner {
             environment: environment,
             onLine: onLine
         )
+    }
+}
+
+/// Rate-limits the scanner's progress callback to one call per
+/// `interval` seconds. `ProcessLineStreamer` invokes the runner closure
+/// from a single background read loop, so the timestamp doesn't need a
+/// lock — but we mark `@unchecked Sendable` so the throttle can be
+/// captured by the closure under Swift 6's strict concurrency rules.
+///
+/// An `interval` of `0` disables throttling entirely (every call emits)
+/// — useful for tests asserting line-by-line behaviour without timing
+/// games.
+private final class ProgressThrottle: @unchecked Sendable {
+    private let interval: TimeInterval
+    private var lastEmit: Date?
+
+    init(interval: TimeInterval) {
+        self.interval = interval
+    }
+
+    func shouldEmit() -> Bool {
+        guard interval > 0 else { return true }
+        let now = Date()
+        if let last = lastEmit, now.timeIntervalSince(last) < interval {
+            return false
+        }
+        lastEmit = now
+        return true
     }
 }
 
