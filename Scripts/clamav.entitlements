@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Applied to the bundled `clamscan` and `freshclam` executables during
+  staging. Without it, dyld refuses to load our libclamav/libssl/libcrypto
+  siblings into the spawned process because the ad-hoc signatures don't
+  share a Team ID with the parent app (or each other). Disabling library
+  validation here is scoped to the ClamAV binaries only — the parent
+  VaderCleaner app keeps its hardened entitlements untouched.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
