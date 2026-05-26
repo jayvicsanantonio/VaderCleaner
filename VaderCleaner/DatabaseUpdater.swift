@@ -5,10 +5,11 @@ import Foundation
 
 /// Tracks and refreshes the ClamAV signature database.
 ///
-/// Homebrew keeps signatures under `<prefix>/var/lib/clamav` as `.cvd`
-/// (compressed, full) or `.cld` (incremental) files; their modification
-/// time is the most reliable "last updated" signal without parsing
-/// `freshclam.log`. Refreshing runs the `freshclam` tool. Database
+/// Checks for a bundled ClamAV first (staged by the build script), then
+/// falls back to Homebrew which keeps signatures under `<prefix>/var/lib/clamav`
+/// as `.cvd` (compressed, full) or `.cld` (incremental) files; their
+/// modification time is the most reliable "last updated" signal without
+/// parsing `freshclam.log`. Refreshing runs the `freshclam` tool. Database
 /// directories, the `freshclam` location, the executable check, and the
 /// runner are injected so both queries and updates are unit-testable
 /// without a real ClamAV install.
@@ -34,14 +35,8 @@ struct DatabaseUpdater {
     private let runner: FreshclamRunner
 
     init(
-        databaseDirectories: [URL] = [
-            URL(fileURLWithPath: "/opt/homebrew/var/lib/clamav", isDirectory: true),
-            URL(fileURLWithPath: "/usr/local/var/lib/clamav", isDirectory: true)
-        ],
-        freshclamPaths: [URL] = [
-            URL(fileURLWithPath: "/opt/homebrew/bin/freshclam"),
-            URL(fileURLWithPath: "/usr/local/bin/freshclam")
-        ],
+        databaseDirectories: [URL] = DatabaseUpdater.defaultDatabaseDirectories(),
+        freshclamPaths: [URL] = DatabaseUpdater.defaultFreshclamPaths(),
         fileManager: FileManager = .default,
         isExecutable: @escaping ExecutableCheck = { FileManager.default.isExecutableFile(atPath: $0) },
         runner: @escaping FreshclamRunner = DatabaseUpdater.defaultRunner
@@ -51,6 +46,48 @@ struct DatabaseUpdater {
         self.fileManager = fileManager
         self.isExecutable = isExecutable
         self.runner = runner
+    }
+
+    // MARK: - Default Paths
+
+    /// Returns candidate database directories, checking the bundled ClamAV
+    /// first, then falling back to Homebrew prefixes.
+    static func defaultDatabaseDirectories() -> [URL] {
+        var paths: [URL] = []
+        
+        // 1. Bundled ClamAV database (staged by Scripts/stage-clamav.sh)
+        if let bundled = Bundle.main.resourceURL?
+            .appendingPathComponent("clamav/share/clamav", isDirectory: true) {
+            paths.append(bundled)
+        }
+        
+        // 2. Homebrew on Apple silicon
+        paths.append(URL(fileURLWithPath: "/opt/homebrew/var/lib/clamav", isDirectory: true))
+        
+        // 3. Homebrew on Intel
+        paths.append(URL(fileURLWithPath: "/usr/local/var/lib/clamav", isDirectory: true))
+        
+        return paths
+    }
+
+    /// Returns candidate `freshclam` paths, checking the bundled ClamAV
+    /// first, then falling back to Homebrew prefixes.
+    static func defaultFreshclamPaths() -> [URL] {
+        var paths: [URL] = []
+        
+        // 1. Bundled ClamAV (staged by Scripts/stage-clamav.sh)
+        if let bundled = Bundle.main.resourceURL?
+            .appendingPathComponent("clamav/bin/freshclam", isDirectory: false) {
+            paths.append(bundled)
+        }
+        
+        // 2. Homebrew on Apple silicon
+        paths.append(URL(fileURLWithPath: "/opt/homebrew/bin/freshclam"))
+        
+        // 3. Homebrew on Intel
+        paths.append(URL(fileURLWithPath: "/usr/local/bin/freshclam"))
+        
+        return paths
     }
 
     /// The newest modification date across every signature file in every

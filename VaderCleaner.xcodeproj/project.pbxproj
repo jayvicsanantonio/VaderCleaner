@@ -82,7 +82,7 @@
 		4A3FEBEBF48CA7078F98EA17 /* BrowserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F6A5DF7364E1886699488B /* BrowserTests.swift */; };
 		4AFD7481F468F9E06DF1A2DE /* AppUpdaterViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68B3B6F431DB972DC6427E55 /* AppUpdaterViewModel.swift */; };
 		4E3164CA58AE90EB4A350C67 /* ExtensionsManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E77DD34548C2014EE7262F5 /* ExtensionsManagerView.swift */; };
-		4E43B8F6DFA386900DC8CA24 /* com.personal.VaderCleaner.helper.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = 36FD121EC3D77731E8032A96 /* com.personal.VaderCleaner.helper.plist */; };
+		4E43B8F6DFA386900DC8CA24 /* com.personal.VaderCleaner.helper.plist in Copy Files */ = {isa = PBXBuildFile; fileRef = 36FD121EC3D77731E8032A96 /* com.personal.VaderCleaner.helper.plist */; };
 		4ED4E093FE7E2ADB381708F4 /* ScanDiscWindowFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = E75515819550B2B92260F57B /* ScanDiscWindowFrame.swift */; };
 		50B0458DB3351E7011490C1D /* LargeOldFilesScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 603E7AED5C7A32BB0FE282B8 /* LargeOldFilesScannerTests.swift */; };
 		52E7E444ACD88BC4E77BD2FC /* FileScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCB49EDAF88E02A105E9B9FE /* FileScanner.swift */; };
@@ -246,14 +246,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		0C5C5E5270D52EFEBF1EE933 /* CopyFiles */ = {
+		0C5C5E5270D52EFEBF1EE933 /* Copy Files */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = Contents/Library/LaunchDaemons;
 			dstSubfolderSpec = 1;
 			files = (
-				4E43B8F6DFA386900DC8CA24 /* com.personal.VaderCleaner.helper.plist in CopyFiles */,
+				4E43B8F6DFA386900DC8CA24 /* com.personal.VaderCleaner.helper.plist in Copy Files */,
 			);
+			name = "Copy Files";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D37833ADC32F18DB4C339B74 /* Embed Dependencies */ = {
@@ -368,7 +369,7 @@
 		6B72F3BD5C48C77AE99F8D4E /* SystemStatsServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatsServiceTests.swift; sourceTree = "<group>"; };
 		6BD871C2C2002760DD923686 /* VaderCleanerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaderCleanerUITests.swift; sourceTree = "<group>"; };
 		6C425A233C540203282273D7 /* MalwareOnboardingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingViewModelTests.swift; sourceTree = "<group>"; };
-		6CBCA8999E04715E502AB892 /* VaderCleanerHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = VaderCleanerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		6CBCA8999E04715E502AB892 /* VaderCleanerHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = VaderCleanerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		6DDE71332468CC343A9C6091 /* OptimizationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationViewModel.swift; sourceTree = "<group>"; };
 		6FE66C634D06A8A842F49852 /* PermissionOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionOnboardingView.swift; sourceTree = "<group>"; };
 		7174CD853A7D947268E17C33 /* ProcessLineStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessLineStreamer.swift; sourceTree = "<group>"; };
@@ -825,7 +826,8 @@
 			buildPhases = (
 				D61896638874031150B1DBA3 /* Sources */,
 				789DD6BBD4FECA89B890AEF3 /* Resources */,
-				0C5C5E5270D52EFEBF1EE933 /* CopyFiles */,
+				DB3D58382FC51F7E007384AF /* Stage bundled ClamAV */,
+				0C5C5E5270D52EFEBF1EE933 /* Copy Files */,
 				D37833ADC32F18DB4C339B74 /* Embed Dependencies */,
 			);
 			buildRules = (
@@ -927,6 +929,32 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		DB3D58382FC51F7E007384AF /* Stage bundled ClamAV */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Vendor/clamav/bin/clamscan",
+				"$(SRCROOT)/Vendor/clamav/bin/freshclam",
+			);
+			name = "Stage bundled ClamAV";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/clamscan",
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/freshclam",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/Scripts/stage-clamav.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1D19ACDB4F0FC941ECCB7272 /* Sources */ = {
