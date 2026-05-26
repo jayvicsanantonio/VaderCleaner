@@ -9,9 +9,12 @@ final class ClamAVScannerTests: XCTestCase {
     private let binary = URL(fileURLWithPath: "/opt/homebrew/bin/clamscan")
 
     func test_scan_buildsRecursiveInfectedNoSummaryArgumentsWithPaths() async throws {
+        // No database provider here — verify the base argument list when
+        // clamscan should fall back to its compiled-in DB directory.
         var capturedExecutable: URL?
         var capturedArguments: [String]?
-        let scanner = makeScanner(installed: true) { executable, arguments, _ in
+        let scanner = makeScanner(installed: true, databaseDirectory: nil) {
+            executable, arguments, _ in
             capturedExecutable = executable
             capturedArguments = arguments
             return 0
@@ -26,6 +29,33 @@ final class ClamAVScannerTests: XCTestCase {
         XCTAssertEqual(
             capturedArguments,
             ["--recursive", "--infected", "--no-summary", "/Users/x", "/tmp/y"]
+        )
+    }
+
+    func test_scan_prependsDatabaseArgumentWhenProviderReturnsAURL() async throws {
+        // The bundled clamscan's compiled-in default DB path is the
+        // Homebrew Cellar — absent on a user machine. `--database` must
+        // point at the directory freshclam populated under Application
+        // Support, ahead of the rest of the arguments so the override is
+        // unambiguous.
+        let dbDirectory = URL(fileURLWithPath: "/Users/x/Library/Application Support/VaderCleaner/clamav/db")
+        var capturedArguments: [String]?
+        let scanner = makeScanner(installed: true, databaseDirectory: dbDirectory) {
+            _, arguments, _ in
+            capturedArguments = arguments
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(
+            capturedArguments,
+            ["--database=\(dbDirectory.path)",
+             "--recursive", "--infected", "--no-summary",
+             "/Users/x"]
         )
     }
 
@@ -94,6 +124,7 @@ final class ClamAVScannerTests: XCTestCase {
 
     private func makeScanner(
         installed: Bool,
+        databaseDirectory: URL? = nil,
         runner: @escaping ClamAVScanner.ScanRunner
     ) -> ClamAVScanner {
         let detector = ClamAVDetector(
@@ -101,6 +132,13 @@ final class ClamAVScannerTests: XCTestCase {
             isExecutable: { _ in installed },
             versionRunner: { _ in nil }
         )
-        return ClamAVScanner(detector: detector, runner: runner)
+        // Default to no database directory so tests run hermetically —
+        // the production default reaches into ~/Library/Application
+        // Support, which would couple unit tests to the host filesystem.
+        return ClamAVScanner(
+            detector: detector,
+            runner: runner,
+            databaseDirectoryProvider: { databaseDirectory }
+        )
     }
 }

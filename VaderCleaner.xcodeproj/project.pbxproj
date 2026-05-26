@@ -123,6 +123,8 @@
 		7E70FB1E6C2740467DE8467B /* BrowserDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42AF567A089D89B454DAE3C5 /* BrowserDetectorTests.swift */; };
 		7E8BF51A566655FA6DCFCB0B /* RAMManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D5CB08F96767D10B1271970 /* RAMManager.swift */; };
 		80B190269BF951513C453663 /* ClamAVDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5BB068BDD86F2C6D2FC966 /* ClamAVDetector.swift */; };
+		A189675DA8821202790CFD1D /* BundledClamAVRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F30A2B5B6C319DAD4BCB883D /* BundledClamAVRuntime.swift */; };
+		8D4274FEFC42F83C2EFB2E7F /* BundledClamAVRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0787E34D88BFFF8489593F5 /* BundledClamAVRuntimeTests.swift */; };
 		82114340C443D23D241B67EE /* DiskScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A89B9E06E1B08BFF9C46D41 /* DiskScannerTests.swift */; };
 		823A4719C664D1125A35103C /* FileScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6734EE11A5B3607B3D58EEA0 /* FileScannerTests.swift */; };
 		82DB89EC1E0EAFD90FB6018D /* MalwareUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B0ABA8AA490286024757B9 /* MalwareUITests.swift */; };
@@ -337,6 +339,7 @@
 		4C0A3D2497CF28388945BB57 /* SystemJunkUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkUITests.swift; sourceTree = "<group>"; };
 		4D92F45290B56030CBFA83D3 /* Browser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Browser.swift; sourceTree = "<group>"; };
 		4F5BB068BDD86F2C6D2FC966 /* ClamAVDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClamAVDetector.swift; sourceTree = "<group>"; };
+		F30A2B5B6C319DAD4BCB883D /* BundledClamAVRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledClamAVRuntime.swift; sourceTree = "<group>"; };
 		4F67F7A443777AD4D4640457 /* AppStoreUpdateCheckerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreUpdateCheckerTests.swift; sourceTree = "<group>"; };
 		4F8C7457CFE216106F15EDAA /* HTTPFetching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPFetching.swift; sourceTree = "<group>"; };
 		50BDB24525760C96625DD266 /* TreemapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreemapView.swift; sourceTree = "<group>"; };
@@ -468,6 +471,7 @@
 		E177C5757BB8E0E39F5A0DE1 /* MalwareOnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingViewModel.swift; sourceTree = "<group>"; };
 		E356F94AA9A841A2BF4FA016 /* LargeOldFilesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldFilesViewModel.swift; sourceTree = "<group>"; };
 		E6E0615BF174E6CD7925C8C9 /* ClamAVDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClamAVDetectorTests.swift; sourceTree = "<group>"; };
+		F0787E34D88BFFF8489593F5 /* BundledClamAVRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledClamAVRuntimeTests.swift; sourceTree = "<group>"; };
 		E6E70D995D68953417DB5C7A /* DiskNodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskNodeTests.swift; sourceTree = "<group>"; };
 		E75515819550B2B92260F57B /* ScanDiscWindowFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanDiscWindowFrame.swift; sourceTree = "<group>"; };
 		E776BF468380DFF621C6063C /* HelperConnectionErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperConnectionErrorTests.swift; sourceTree = "<group>"; };
@@ -556,6 +560,7 @@
 				9546ABE698D709FA5CB9ED29 /* BrowserDataClearer.swift */,
 				3B254800CFACCE9FC59E66A4 /* BrowserDataPathProviding.swift */,
 				D221A2A7BDB0CB1983DA2D72 /* BrowserDetector.swift */,
+				F30A2B5B6C319DAD4BCB883D /* BundledClamAVRuntime.swift */,
 				4F5BB068BDD86F2C6D2FC966 /* ClamAVDetector.swift */,
 				D100906EEB9D4F9BF793858C /* ClamAVOutputParser.swift */,
 				4B3FB5D1E4E24DA8CD36F774 /* ClamAVScanner.swift */,
@@ -713,6 +718,7 @@
 				A77073103E6F462B0726CFD5 /* BrowserDataPathProviderTests.swift */,
 				42AF567A089D89B454DAE3C5 /* BrowserDetectorTests.swift */,
 				D1F6A5DF7364E1886699488B /* BrowserTests.swift */,
+				F0787E34D88BFFF8489593F5 /* BundledClamAVRuntimeTests.swift */,
 				E6E0615BF174E6CD7925C8C9 /* ClamAVDetectorTests.swift */,
 				CE0EA3955C85E769BBC3C895 /* ClamAVOutputParserTests.swift */,
 				C2B32284509BF497C570E2FA /* ClamAVScannerTests.swift */,
@@ -973,6 +979,7 @@
 				B6493A8047381998C7892982 /* BrowserDataPathProviderTests.swift in Sources */,
 				7E70FB1E6C2740467DE8467B /* BrowserDetectorTests.swift in Sources */,
 				4A3FEBEBF48CA7078F98EA17 /* BrowserTests.swift in Sources */,
+				8D4274FEFC42F83C2EFB2E7F /* BundledClamAVRuntimeTests.swift in Sources */,
 				8B4F6825901250C83DBA5941 /* ClamAVDetectorTests.swift in Sources */,
 				725D1A78CA0593CC3E1267AB /* ClamAVOutputParserTests.swift in Sources */,
 				DC099BEFD567C81EAA36519E /* ClamAVScannerTests.swift in Sources */,
@@ -1087,6 +1094,7 @@
 				85EAEABDF5D8CF95024CCD3C /* BrowserDataClearer.swift in Sources */,
 				2B0438D190A4BDCD9853DC7D /* BrowserDataPathProviding.swift in Sources */,
 				159F0D7D84A23B27058835D6 /* BrowserDetector.swift in Sources */,
+				A189675DA8821202790CFD1D /* BundledClamAVRuntime.swift in Sources */,
 				80B190269BF951513C453663 /* ClamAVDetector.swift in Sources */,
 				25057052F5E478AD7B692B9F /* ClamAVOutputParser.swift in Sources */,
 				117989F5D9137A7400CE8760 /* ClamAVScanner.swift in Sources */,

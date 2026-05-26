@@ -20,15 +20,24 @@ enum ProcessLineStreamer {
     /// termination status. The blocking read loop runs off the caller's
     /// thread. stderr is routed to `/dev/null` so a chatty command can't
     /// deadlock on an unread pipe buffer.
+    ///
+    /// When `environment` is non-nil it replaces the child's environment
+    /// wholesale — callers that want to add a variable should derive
+    /// from `ProcessInfo.processInfo.environment` first so PATH / HOME /
+    /// the user's locale aren't dropped on the floor.
     static func run(
         executable: URL,
         arguments: [String],
+        environment: [String: String]? = nil,
         onLine: @escaping (String) -> Void
     ) async throws -> Int32 {
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = executable
             process.arguments = arguments
+            if let environment {
+                process.environment = environment
+            }
             let outputPipe = Pipe()
             process.standardOutput = outputPipe
             process.standardError = FileHandle.nullDevice

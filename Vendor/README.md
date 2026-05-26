@@ -11,6 +11,7 @@ Produced by `Scripts/bundle-clamav.sh`. Populates:
 Vendor/clamav/
   bin/{clamscan,freshclam}
   Frameworks/*.dylib       # libclamav + 8 dylib closure deps
+  certs/clamav.crt         # root cert freshclam/libclamav use to verify CVD signatures
   LICENSES/                # GPL-2.0 (ClamAV) + courtesy includes
   .build-info              # bottle versions + sha256s used
 ```

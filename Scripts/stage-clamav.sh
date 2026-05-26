@@ -42,6 +42,7 @@ mkdir -p "${RES_DIR}/bin"
 # destination in lockstep with Vendor/ so a removed file in Vendor really
 # disappears from the .app on the next build.
 rsync -a --delete "${VENDOR_DIR}/bin/"        "${RES_DIR}/bin/"
+rsync -a --delete "${VENDOR_DIR}/certs/"      "${RES_DIR}/certs/"
 rsync -a --delete "${VENDOR_DIR}/LICENSES/"   "${RES_DIR}/LICENSES/"
 
 # -----------------------------------------------------------------------------

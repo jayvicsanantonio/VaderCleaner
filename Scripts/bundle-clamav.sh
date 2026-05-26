@@ -28,6 +28,11 @@ readonly FORMULAE=(clamav openssl@3 pcre2 json-c)
 readonly KEEP_PATHS=(
     "clamav:bin/clamscan"
     "clamav:bin/freshclam"
+    # Root CA cert used by freshclam (>=1.5) to verify the digital
+    # signature on every CVD it downloads. Lives under .bottle/etc/ in
+    # the tarball because Homebrew rewrites etc/ paths at install time;
+    # we ship a copy in the .app and pass --cvdcertsdir to freshclam.
+    "clamav:.bottle/etc/clamav/certs/clamav.crt"
     "clamav:lib/libclamav.12.1.0.dylib"
     "clamav:lib/libclamav.12.dylib"
     "clamav:lib/libclamav.dylib"
@@ -187,6 +192,9 @@ place_artifact() {
             ;;
         lib/*.dylib)
             dst="${VENDOR_DIR}/Frameworks/$(basename "${rel}")"
+            ;;
+        .bottle/etc/clamav/certs/*)
+            dst="${VENDOR_DIR}/certs/$(basename "${rel}")"
             ;;
         *)
             die "unrouted artifact: ${formula}/${rel}"
