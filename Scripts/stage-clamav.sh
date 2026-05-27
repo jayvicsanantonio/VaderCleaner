@@ -77,9 +77,13 @@ else
     readonly SIGN_OPTS=(--timestamp=none)
 fi
 
-find "${FW_DIR}" -type f -name 'lib*.dylib' -print0 | \
-    xargs -0 codesign --force "${SIGN_OPTS[@]}" --sign "${SIGN_IDENTITY}"
-find "${RES_DIR}/bin" -type f -print0 | \
-    xargs -0 codesign --force "${SIGN_OPTS[@]}" \
-                      --entitlements "${CLAMAV_ENTITLEMENTS}" \
-                      --sign "${SIGN_IDENTITY}"
+# `-exec ... {} +` over `-print0 | xargs -0` because macOS xargs invokes
+# its command exactly once even when find matches zero files, which would
+# call `codesign` with no paths and abort the build under `set -e`.
+# `find -exec ... {} +` simply does nothing if there are no matches.
+find "${FW_DIR}" -type f -name 'lib*.dylib' \
+    -exec codesign --force "${SIGN_OPTS[@]}" --sign "${SIGN_IDENTITY}" {} +
+find "${RES_DIR}/bin" -type f \
+    -exec codesign --force "${SIGN_OPTS[@]}" \
+                   --entitlements "${CLAMAV_ENTITLEMENTS}" \
+                   --sign "${SIGN_IDENTITY}" {} +

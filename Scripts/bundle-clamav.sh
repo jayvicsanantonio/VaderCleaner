@@ -348,7 +348,12 @@ declare -a BUILD_INFO_ENTRIES=()
 
 log "Downloading bottles (${BOTTLE_TAG})"
 for formula in "${FORMULAE[@]}"; do
-    read -r version url sha < <(fetch_bottle_info "${formula}" | tr '\n' ' '; echo)
+    # Capture into a variable first so `set -e` catches a fetch failure
+    # — a process-substitution pipeline would swallow the non-zero exit
+    # and leave us parsing empty strings into version/url/sha downstream.
+    bottle_info="$(fetch_bottle_info "${formula}")" \
+        || die "failed to fetch bottle info for ${formula}"
+    read -r version url sha <<< "$(printf '%s' "${bottle_info}" | tr '\n' ' ')"
     log "  ${formula} ${version}"
     tarball="$(download_bottle "${formula}" "${version}" "${url}" "${sha}")"
     extract_bottle "${formula}" "${tarball}"

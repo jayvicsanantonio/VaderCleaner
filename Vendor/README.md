@@ -7,7 +7,7 @@ contents are **not** checked into git — see `.gitignore`.
 
 Produced by `Scripts/bundle-clamav.sh`. Populates:
 
-```
+```text
 Vendor/clamav/
   bin/{clamscan,freshclam}
   Frameworks/*.dylib       # libclamav + 8 dylib closure deps
