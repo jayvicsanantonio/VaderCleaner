@@ -1,0 +1,5 @@
+# The Vendor/ tree is generated. Run Scripts/bundle-clamav.sh to populate it.
+# We keep this .gitignore checked in so the directory exists but binary
+# payloads are never committed — re-running the script is the source of truth.
+clamav/
+.cache/

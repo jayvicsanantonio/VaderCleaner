@@ -8,10 +8,19 @@ final class ClamAVScannerTests: XCTestCase {
 
     private let binary = URL(fileURLWithPath: "/opt/homebrew/bin/clamscan")
 
-    func test_scan_buildsRecursiveInfectedNoSummaryArgumentsWithPaths() async throws {
+    func test_scan_buildsRecursiveNoSummaryArgumentsWithPaths() async throws {
+        // No database provider, no exclusions — verify the base argument
+        // list when clamscan falls back to its compiled-in defaults.
+        // `--infected` is intentionally *not* in the list: with it,
+        // clamscan stays silent during clean stretches and the UI has no
+        // progress signal to display. We parse `FOUND` separately so
+        // dropping the flag doesn't change threat detection.
         var capturedExecutable: URL?
         var capturedArguments: [String]?
-        let scanner = makeScanner(installed: true) { executable, arguments, _ in
+        let scanner = makeScanner(installed: true,
+                                  databaseDirectory: nil,
+                                  excludedDirectories: []) {
+            executable, arguments, _ in
             capturedExecutable = executable
             capturedArguments = arguments
             return 0
@@ -25,7 +34,171 @@ final class ClamAVScannerTests: XCTestCase {
         XCTAssertEqual(capturedExecutable, binary)
         XCTAssertEqual(
             capturedArguments,
-            ["--recursive", "--infected", "--no-summary", "/Users/x", "/tmp/y"]
+            ["--recursive", "--no-summary", "/Users/x", "/tmp/y"]
+        )
+    }
+
+    func test_scan_appendsExcludeDirArgumentsBeforeScanPaths() async throws {
+        // Exclusions are full Perl-compatible regexes against clamscan's
+        // candidate directory paths; we feed them as `--exclude-dir=<re>`
+        // ahead of the scan targets so the override is unambiguous.
+        var capturedArguments: [String]?
+        let scanner = makeScanner(
+            installed: true,
+            databaseDirectory: nil,
+            excludedDirectories: ["/node_modules/", "/\\.git/"]
+        ) { _, arguments, _ in
+            capturedArguments = arguments
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(
+            capturedArguments,
+            [
+                "--exclude-dir=/node_modules/",
+                "--exclude-dir=/\\.git/",
+                "--recursive", "--no-summary",
+                "/Users/x"
+            ]
+        )
+    }
+
+    func test_scan_throttlesProgressCallbackToConfiguredInterval() async throws {
+        // The runner closure is invoked once per output line by
+        // ProcessLineStreamer. On a clean machine that's millions of
+        // lines; without throttling each one would spawn an async Task
+        // to update the UI. The throttle drops calls that arrive within
+        // `interval` of the previous emit.
+        var progressCallCount = 0
+        let scanner = makeScanner(
+            installed: true,
+            databaseDirectory: nil,
+            excludedDirectories: [],
+            progressThrottleInterval: 10.0  // effectively only emit once
+        ) { _, _, onLine in
+            onLine("/Users/x/a: OK")
+            onLine("/Users/x/b: OK")
+            onLine("/Users/x/c: OK")
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _ in progressCallCount += 1 }
+        )
+
+        XCTAssertEqual(progressCallCount, 1,
+                       "second and third lines fall within the 10s window so progress must not fire again")
+    }
+
+    func test_scan_parsesEveryThreatRegardlessOfProgressThrottle() async throws {
+        // Throttling drops *progress* updates but every line is still
+        // parsed for the `FOUND` suffix. A burst of infected files
+        // arriving within the throttle window must all surface as
+        // threats — otherwise we'd silently undercount detections.
+        let scanner = makeScanner(
+            installed: true,
+            databaseDirectory: nil,
+            excludedDirectories: [],
+            progressThrottleInterval: 10.0
+        ) { _, _, onLine in
+            onLine("/Users/x/a: Eicar-A FOUND")
+            onLine("/Users/x/b: Eicar-B FOUND")
+            onLine("/Users/x/c: Eicar-C FOUND")
+            return 1
+        }
+
+        let threats = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(threats.map(\.threatName), ["Eicar-A", "Eicar-B", "Eicar-C"])
+    }
+
+    func test_defaultExcludedDirectories_skipsObviousDevAndCacheNoise() {
+        // Pinning the production default so the list can't silently
+        // shift. These cover the trees that take the most time and
+        // produce ~zero detection value: project-local noise (node
+        // modules, .git), OS- and IDE-managed caches, Trash, and the
+        // package-manager content stores that hold every version of
+        // every dependency the user has ever installed.
+        XCTAssertEqual(
+            ClamAVScanner.defaultExcludedDirectories,
+            [
+                "/node_modules/",
+                "/\\.git/",
+                "/Library/Caches/",
+                "/Library/Developer/",
+                "/\\.Trash/",
+                "/Library/Application Support/[^/]+/Cache/",
+                "/Library/Application Support/[^/]+/Caches/",
+                "/Library/Application Support/[^/]+/CachedData/",
+                "/Library/pnpm/",
+                "/\\.npm/",
+                "/\\.yarn/",
+                "/\\.cargo/registry/",
+                "/\\.gradle/caches/",
+                "/\\.m2/repository/"
+            ]
+        )
+    }
+
+    func test_deepScanAdditionalExcludedDirectories_skipsMediaAndCloudCaches() {
+        // The Deep Scan stacks these on top of `defaultExcludedDirectories`
+        // when walking the entire $HOME. They cover trees that are too
+        // big to scan in reasonable time and contribute ~zero detection
+        // value: photo and video libraries (binary media, not the file
+        // formats ClamAV signatures match), iCloud Drive's local cache
+        // (Apple already scans the canonical store on their side), and
+        // Time Machine local snapshots (read-only, can't host malware
+        // that isn't already in the source).
+        XCTAssertEqual(
+            ClamAVScanner.deepScanAdditionalExcludedDirectories,
+            [
+                "/Photos Library\\.photoslibrary/",
+                "/Library/Mobile Documents/",
+                "/\\.MobileBackups/",
+                "/Library/MobileBackups/",
+                "/Music/Music/Media\\.localized/",
+                "/Music/iTunes/",
+                "/Movies/"
+            ]
+        )
+    }
+
+    func test_scan_prependsDatabaseArgumentWhenProviderReturnsAURL() async throws {
+        // The bundled clamscan's compiled-in default DB path is the
+        // Homebrew Cellar — absent on a user machine. `--database` must
+        // point at the directory freshclam populated under Application
+        // Support, ahead of the rest of the arguments so the override is
+        // unambiguous.
+        let dbDirectory = URL(fileURLWithPath: "/Users/x/Library/Application Support/VaderCleaner/clamav/db")
+        var capturedArguments: [String]?
+        let scanner = makeScanner(
+            installed: true,
+            databaseDirectory: dbDirectory,
+            excludedDirectories: []
+        ) { _, arguments, _ in
+            capturedArguments = arguments
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(
+            capturedArguments,
+            ["--database=\(dbDirectory.path)",
+             "--recursive", "--no-summary",
+             "/Users/x"]
         )
     }
 
@@ -94,6 +267,9 @@ final class ClamAVScannerTests: XCTestCase {
 
     private func makeScanner(
         installed: Bool,
+        databaseDirectory: URL? = nil,
+        excludedDirectories: [String]? = nil,
+        progressThrottleInterval: TimeInterval = 0,
         runner: @escaping ClamAVScanner.ScanRunner
     ) -> ClamAVScanner {
         let detector = ClamAVDetector(
@@ -101,6 +277,17 @@ final class ClamAVScannerTests: XCTestCase {
             isExecutable: { _ in installed },
             versionRunner: { _ in nil }
         )
-        return ClamAVScanner(detector: detector, runner: runner)
+        // Default to no database directory and no exclusions so tests
+        // run hermetically — the production defaults reach into the
+        // user's home and Application Support, which would couple the
+        // tests to the host filesystem. `progressThrottleInterval = 0`
+        // means every line passes through, which most tests want.
+        return ClamAVScanner(
+            detector: detector,
+            runner: runner,
+            databaseDirectoryProvider: { databaseDirectory },
+            excludedDirectories: excludedDirectories ?? [],
+            progressThrottleInterval: progressThrottleInterval
+        )
     }
 }

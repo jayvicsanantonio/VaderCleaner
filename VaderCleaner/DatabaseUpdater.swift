@@ -5,10 +5,11 @@ import Foundation
 
 /// Tracks and refreshes the ClamAV signature database.
 ///
-/// Homebrew keeps signatures under `<prefix>/var/lib/clamav` as `.cvd`
-/// (compressed, full) or `.cld` (incremental) files; their modification
-/// time is the most reliable "last updated" signal without parsing
-/// `freshclam.log`. Refreshing runs the `freshclam` tool. Database
+/// Checks for a bundled ClamAV first (staged by the build script), then
+/// falls back to Homebrew which keeps signatures under `<prefix>/var/lib/clamav`
+/// as `.cvd` (compressed, full) or `.cld` (incremental) files; their
+/// modification time is the most reliable "last updated" signal without
+/// parsing `freshclam.log`. Refreshing runs the `freshclam` tool. Database
 /// directories, the `freshclam` location, the executable check, and the
 /// runner are injected so both queries and updates are unit-testable
 /// without a real ClamAV install.
@@ -34,14 +35,8 @@ struct DatabaseUpdater {
     private let runner: FreshclamRunner
 
     init(
-        databaseDirectories: [URL] = [
-            URL(fileURLWithPath: "/opt/homebrew/var/lib/clamav", isDirectory: true),
-            URL(fileURLWithPath: "/usr/local/var/lib/clamav", isDirectory: true)
-        ],
-        freshclamPaths: [URL] = [
-            URL(fileURLWithPath: "/opt/homebrew/bin/freshclam"),
-            URL(fileURLWithPath: "/usr/local/bin/freshclam")
-        ],
+        databaseDirectories: [URL] = DatabaseUpdater.defaultDatabaseDirectories(),
+        freshclamPaths: [URL] = DatabaseUpdater.defaultFreshclamPaths(),
         fileManager: FileManager = .default,
         isExecutable: @escaping ExecutableCheck = { FileManager.default.isExecutableFile(atPath: $0) },
         runner: @escaping FreshclamRunner = DatabaseUpdater.defaultRunner
@@ -51,6 +46,50 @@ struct DatabaseUpdater {
         self.fileManager = fileManager
         self.isExecutable = isExecutable
         self.runner = runner
+    }
+
+    // MARK: - Default Paths
+
+    /// Returns candidate database directories. The first entry is the
+    /// writable runtime directory the bundled `freshclam` populates
+    /// (`~/Library/Application Support/VaderCleaner/clamav/db/`); the
+    /// Homebrew prefixes are kept as fallbacks for dev builds that opt
+    /// out of the bundled binary.
+    static func defaultDatabaseDirectories() -> [URL] {
+        var paths: [URL] = []
+
+        // 1. Bundled runtime — freshclam writes here, clamscan reads here.
+        if let bundled = try? BundledClamAVRuntime().databaseDirectory() {
+            paths.append(bundled)
+        }
+
+        // 2. Homebrew on Apple silicon
+        paths.append(URL(fileURLWithPath: "/opt/homebrew/var/lib/clamav", isDirectory: true))
+
+        // 3. Homebrew on Intel
+        paths.append(URL(fileURLWithPath: "/usr/local/var/lib/clamav", isDirectory: true))
+
+        return paths
+    }
+
+    /// Returns candidate `freshclam` paths, checking the bundled ClamAV
+    /// first, then falling back to Homebrew prefixes.
+    static func defaultFreshclamPaths() -> [URL] {
+        var paths: [URL] = []
+        
+        // 1. Bundled ClamAV (staged by Scripts/stage-clamav.sh)
+        if let bundled = Bundle.main.resourceURL?
+            .appendingPathComponent("clamav/bin/freshclam", isDirectory: false) {
+            paths.append(bundled)
+        }
+        
+        // 2. Homebrew on Apple silicon
+        paths.append(URL(fileURLWithPath: "/opt/homebrew/bin/freshclam"))
+        
+        // 3. Homebrew on Intel
+        paths.append(URL(fileURLWithPath: "/usr/local/bin/freshclam"))
+        
+        return paths
     }
 
     /// The newest modification date across every signature file in every
@@ -108,10 +147,39 @@ struct DatabaseUpdater {
 
     // MARK: - Production collaborator
 
+    /// The bundled `freshclam` was compiled with a Homebrew-only default
+    /// config path (`/opt/homebrew/etc/clamav/freshclam.conf`) that
+    /// doesn't exist on a user machine, so we always pass our own
+    /// `--config-file` pointing at the conf `BundledClamAVRuntime`
+    /// generated under Application Support.
     static let defaultRunner: FreshclamRunner = { executable, onLine in
-        try await ProcessLineStreamer.run(
+        var arguments: [String] = []
+        var environment: [String: String]? = nil
+        let runtime = BundledClamAVRuntime()
+        // The bundled `freshclam` was compiled with Homebrew-only
+        // defaults for both the config file and the CVD-signature certs
+        // directory; without overrides it errors out before fetching a
+        // single byte. We pass our own paths when we have them and
+        // fall back silently otherwise so a developer using a Homebrew
+        // freshclam still gets the unmodified invocation.
+        if let conf = try? runtime.freshclamConfigFile() {
+            arguments.append("--config-file=\(conf.path)")
+        }
+        if let certs = runtime.bundledCVDCertsDirectory() {
+            // `--cvdcertsdir` configures freshclam's own download
+            // verifier; `CVD_CERTS_DIR` propagates into libclamav's
+            // separate "test the freshly-downloaded CVD before saving"
+            // verifier, which doesn't read the CLI flag. Setting both
+            // covers every code path that loads a `.cvd` file.
+            arguments.append("--cvdcertsdir=\(certs.path)")
+            var env = ProcessInfo.processInfo.environment
+            env["CVD_CERTS_DIR"] = certs.path
+            environment = env
+        }
+        return try await ProcessLineStreamer.run(
             executable: executable,
-            arguments: [],
+            arguments: arguments,
+            environment: environment,
             onLine: onLine
         )
     }

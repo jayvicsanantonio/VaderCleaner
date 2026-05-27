@@ -20,37 +20,68 @@ enum ProcessLineStreamer {
     /// termination status. The blocking read loop runs off the caller's
     /// thread. stderr is routed to `/dev/null` so a chatty command can't
     /// deadlock on an unread pipe buffer.
+    ///
+    /// When `environment` is non-nil it replaces the child's environment
+    /// wholesale — callers that want to add a variable should derive
+    /// from `ProcessInfo.processInfo.environment` first so PATH / HOME /
+    /// the user's locale aren't dropped on the floor.
+    ///
+    /// Cancellation: if the calling Task is cancelled, the child process
+    /// is SIGTERM-ed via `Process.terminate()`. clamscan exits within a
+    /// second, the read loop sees EOF, and `run()` returns the (signal-
+    /// derived) termination status to the caller. Without this the
+    /// detached read loop would block on `waitUntilExit()` forever and
+    /// the child would outlive its parent — a real concern in the
+    /// Malware Removal flow where the user can cancel mid-scan or quit
+    /// the app while clamscan is still walking the home directory.
     static func run(
         executable: URL,
         arguments: [String],
+        environment: [String: String]? = nil,
         onLine: @escaping (String) -> Void
     ) async throws -> Int32 {
-        try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments
-            let outputPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = FileHandle.nullDevice
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.nullDevice
 
-            try process.run()
+        // Launch synchronously before the cancellation handler is wired
+        // up so a fast cancellation can't see `process.isRunning == false`
+        // and skip the terminate() — the handler only fires after this
+        // line returns, and by then we're committed.
+        try process.run()
 
-            let handle = outputPipe.fileHandleForReading
-            var buffer = Data()
-            while case let chunk = handle.availableData, !chunk.isEmpty {
-                buffer.append(chunk)
-                while let newlineIndex = buffer.firstIndex(of: newline) {
-                    let lineData = buffer.subdata(in: buffer.startIndex..<newlineIndex)
-                    buffer.removeSubrange(buffer.startIndex...newlineIndex)
-                    emit(lineData, to: onLine)
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                let handle = outputPipe.fileHandleForReading
+                var buffer = Data()
+                while case let chunk = handle.availableData, !chunk.isEmpty {
+                    buffer.append(chunk)
+                    while let newlineIndex = buffer.firstIndex(of: newline) {
+                        let lineData = buffer.subdata(in: buffer.startIndex..<newlineIndex)
+                        buffer.removeSubrange(buffer.startIndex...newlineIndex)
+                        emit(lineData, to: onLine)
+                    }
                 }
-            }
-            // EOF — the process closed stdout without a final newline.
-            emit(buffer, to: onLine)
+                // EOF — the process closed stdout without a final newline.
+                emit(buffer, to: onLine)
 
-            process.waitUntilExit()
-            return process.terminationStatus
-        }.value
+                process.waitUntilExit()
+                return process.terminationStatus
+            }.value
+        } onCancel: {
+            // `terminate()` is documented as safe to call from any
+            // thread. It sends SIGTERM; the read loop unblocks on EOF
+            // and the function returns through its normal path.
+            if process.isRunning {
+                process.terminate()
+            }
+        }
     }
 
     private static func emit(_ data: Data, to onLine: (String) -> Void) {

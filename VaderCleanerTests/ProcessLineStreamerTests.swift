@@ -54,6 +54,34 @@ final class ProcessLineStreamerTests: XCTestCase {
         XCTAssertTrue(collector.snapshot().isEmpty)
     }
 
+    func test_run_terminatesChildProcessOnTaskCancellation() async throws {
+        // /bin/sleep 30 would block waitUntilExit() for 30s. If
+        // cancellation isn't honoured, run() hangs and this test would
+        // time out instead of failing cleanly — so the *signal* of
+        // working cancellation is that the task returns in well under
+        // a second.
+        let task = Task<Int32, Error> {
+            try await ProcessLineStreamer.run(
+                executable: URL(fileURLWithPath: "/bin/sleep"),
+                arguments: ["30"],
+                onLine: { _ in }
+            )
+        }
+        // Give the process time to actually launch before cancelling —
+        // otherwise we'd race process.run() and might cancel a Task
+        // that hasn't started any work yet.
+        try await Task.sleep(nanoseconds: 200_000_000) // 200ms
+        let start = Date()
+        task.cancel()
+        _ = try await task.value
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(
+            elapsed,
+            2.0,
+            "cancellation must return within ~1s of SIGTERM; took \(elapsed)s"
+        )
+    }
+
     /// `onLine` is invoked from the streamer's background read loop, so the
     /// collected lines are guarded the same way production callers guard
     /// their accumulators.
