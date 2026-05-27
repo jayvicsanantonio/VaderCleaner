@@ -33,6 +33,7 @@ final class EmptyStateFullDiskAccessTests: XCTestCase {
         let missing = MalwareCleanState(
             lastScanDate: nil,
             onScanAgain: {},
+            onDeepScan: nil,
             hasFullDiskAccess: false,
             onRefreshAccess: {}
         )
@@ -44,6 +45,7 @@ final class EmptyStateFullDiskAccessTests: XCTestCase {
         let granted = MalwareCleanState(
             lastScanDate: nil,
             onScanAgain: {},
+            onDeepScan: nil,
             hasFullDiskAccess: true,
             onRefreshAccess: {}
         )

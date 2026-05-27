@@ -149,6 +149,29 @@ final class ClamAVScannerTests: XCTestCase {
         )
     }
 
+    func test_deepScanAdditionalExcludedDirectories_skipsMediaAndCloudCaches() {
+        // The Deep Scan stacks these on top of `defaultExcludedDirectories`
+        // when walking the entire $HOME. They cover trees that are too
+        // big to scan in reasonable time and contribute ~zero detection
+        // value: photo and video libraries (binary media, not the file
+        // formats ClamAV signatures match), iCloud Drive's local cache
+        // (Apple already scans the canonical store on their side), and
+        // Time Machine local snapshots (read-only, can't host malware
+        // that isn't already in the source).
+        XCTAssertEqual(
+            ClamAVScanner.deepScanAdditionalExcludedDirectories,
+            [
+                "/Photos Library\\.photoslibrary/",
+                "/Library/Mobile Documents/",
+                "/\\.MobileBackups/",
+                "/Library/MobileBackups/",
+                "/Music/Music/Media\\.localized/",
+                "/Music/iTunes/",
+                "/Movies/"
+            ]
+        )
+    }
+
     func test_scan_prependsDatabaseArgumentWhenProviderReturnsAURL() async throws {
         // The bundled clamscan's compiled-in default DB path is the
         // Homebrew Cellar — absent on a user machine. `--database` must

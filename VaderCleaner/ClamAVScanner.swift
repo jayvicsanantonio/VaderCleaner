@@ -60,6 +60,33 @@ struct ClamAVScanner {
         "/\\.m2/repository/"
     ]
 
+    /// Extra exclusions stacked on top of `defaultExcludedDirectories`
+    /// only when running a Deep Scan over the entire `$HOME`. These
+    /// trees are too big to skip at Quick Scan scope (they aren't in
+    /// Downloads/Desktop/Documents anyway) but dominate scan time on a
+    /// whole-home pass. Pinned by
+    /// `test_deepScanAdditionalExcludedDirectories_skipsMediaAndCloudCaches`.
+    static let deepScanAdditionalExcludedDirectories: [String] = [
+        // Photos libraries are routinely 50–500 GB of binary image and
+        // video data. Image-parser CVEs aren't what ClamAV signatures
+        // catch — that's an XProtect / kernel concern.
+        "/Photos Library\\.photoslibrary/",
+        // iCloud Drive's local materialised copy; Apple already scans
+        // the canonical store on their side.
+        "/Library/Mobile Documents/",
+        // Time Machine local snapshots — read-only, can't host malware
+        // that wouldn't already be in the source.
+        "/\\.MobileBackups/",
+        "/Library/MobileBackups/",
+        // Apple's media libraries — Music, TV, Podcasts. Multi-GB
+        // streams or downloads of signed media files.
+        "/Music/Music/Media\\.localized/",
+        "/Music/iTunes/",
+        // User-managed video dumps — typically the largest single
+        // directory on a home Mac.
+        "/Movies/"
+    ]
+
     private let detector: ClamAVDetector
     private let runner: ScanRunner
     private let databaseDirectoryProvider: DatabaseDirectoryProvider
