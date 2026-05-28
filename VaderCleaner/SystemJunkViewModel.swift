@@ -2,6 +2,7 @@
 // State machine and selection logic behind the System Junk feature view — drives idle/scanning/preview/cleaning/complete transitions and routes the user's category selection through an injected deleter.
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the System Junk feature view (scan → preview → clean → done).

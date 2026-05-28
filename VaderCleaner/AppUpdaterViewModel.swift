@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import Observation
 import os.log
 
 /// Outcome of a single update-feed lookup. `.unreachable` is the

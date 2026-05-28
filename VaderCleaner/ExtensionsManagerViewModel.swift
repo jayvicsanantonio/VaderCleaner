@@ -2,6 +2,7 @@
 // State machine behind the Extensions Manager view — runs the five discoverers concurrently, groups results by ExtensionType, and routes removal between FileManager (user paths) and the privileged helper (/Library paths).
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Extensions Manager feature view (discover → group → remove).

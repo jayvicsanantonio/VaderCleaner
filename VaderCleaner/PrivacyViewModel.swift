@@ -2,6 +2,7 @@
 // State machine and selection logic behind the Privacy feature view — drives idle/scanning/preview/clearing/complete transitions and routes the user's per-browser per-category selection through an injected clearer plus a recent-files manager.
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Privacy feature view (preview → clear → done).

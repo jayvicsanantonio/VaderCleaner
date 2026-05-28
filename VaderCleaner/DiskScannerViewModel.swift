@@ -2,6 +2,7 @@
 // State machine and progress tracker behind Space Lens — drives idle/scanning/ready/error transitions and clamps the injected scanner's progress callbacks into a 0–1 published value.
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Space Lens detail view. Holds the discrete `Phase` the view

@@ -2,6 +2,7 @@
 // State machine, sort order, and selection logic behind the Large & Old Files feature view — drives idle/scanning/results/empty/failed transitions and routes deletions through an injected per-URL deleter.
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Large & Old Files feature view (scan → results → delete).

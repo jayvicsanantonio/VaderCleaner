@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import Observation
 import os.log
 
 /// Drives the App Uninstaller feature view (load apps → select → uninstall → done).

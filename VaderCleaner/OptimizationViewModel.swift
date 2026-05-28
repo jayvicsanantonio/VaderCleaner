@@ -3,6 +3,7 @@
 
 import Combine
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Optimization feature view. Collaborators are injected as

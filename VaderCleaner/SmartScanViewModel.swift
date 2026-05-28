@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import Observation
 import os.log
 
 /// The five tiles the Smart Scan dashboard renders, one per orchestrated
