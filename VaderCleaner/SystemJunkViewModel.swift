@@ -21,7 +21,8 @@ import os.log
 /// transition without touching the real filesystem or the privileged XPC
 /// helper. Production wiring lives in `SystemJunkViewModel.live(...)` below.
 @MainActor
-final class SystemJunkViewModel: ObservableObject {
+@Observable
+final class SystemJunkViewModel {
 
     /// Which step of the flow generated a `.failed` phase, so the view can
     /// pick the right heading. `clean()` failure must not surface as
@@ -57,18 +58,18 @@ final class SystemJunkViewModel: ObservableObject {
     /// accurately to the user.
     typealias Deleter = ([ScannedFile]) async throws -> Int64
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var checkedCategories: Set<ScanCategory> = []
+    private(set) var phase: Phase = .idle
+    private(set) var checkedCategories: Set<ScanCategory> = []
 
-    private let scanner: Scanner
-    private let deleter: Deleter
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "SystemJunkViewModel")
+    @ObservationIgnored private let scanner: Scanner
+    @ObservationIgnored private let deleter: Deleter
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "SystemJunkViewModel")
 
     /// Cached most-recent scan result. Held so checkbox toggles can recompute
     /// `totalSelectedSize` cheaply, and so `clean()` knows which items to
     /// hand to the deleter.
-    private var latestResult: ScanResult?
+    @ObservationIgnored private var latestResult: ScanResult?
 
     init(scanner: @escaping Scanner, deleter: @escaping Deleter) {
         self.scanner = scanner

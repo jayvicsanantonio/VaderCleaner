@@ -19,34 +19,34 @@ struct VaderCleanerApp: App {
 
     // App-scope state owned outside the WindowGroup so dismissing the FDA
     // onboarding sheet (or any future session-wide flag) holds across all
-    // windows the user might open. A per-view @StateObject in ContentView
-    // would be re-created per WindowGroup instance.
-    @StateObject private var appState = AppState()
-    @StateObject private var onboardingViewModel = PermissionOnboardingViewModel()
-    @StateObject private var menuBarViewModel: MenuBarViewModel
-    @StateObject private var preferences: PreferencesStore
-    @StateObject private var exclusions: ExclusionsStore
-    @StateObject private var systemJunkViewModel: SystemJunkViewModel
-    @StateObject private var largeOldFilesViewModel: LargeOldFilesViewModel
-    @StateObject private var spaceLensViewModel: DiskScannerViewModel
-    @StateObject private var privacyViewModel: PrivacyViewModel
-    @StateObject private var appUninstallerViewModel: AppUninstallerViewModel
-    @StateObject private var appUpdaterViewModel: AppUpdaterViewModel
-    @StateObject private var extensionsManagerViewModel: ExtensionsManagerViewModel
-    @StateObject private var optimizationViewModel: OptimizationViewModel
-    @StateObject private var malwareViewModel: MalwareViewModel
-    @StateObject private var smartScanViewModel: SmartScanViewModel
+    // windows the user might open. A per-view @State in ContentView would
+    // be re-created per WindowGroup instance.
+    @State private var appState = AppState()
+    @State private var onboardingViewModel = PermissionOnboardingViewModel()
+    @State private var menuBarViewModel: MenuBarViewModel
+    @State private var preferences: PreferencesStore
+    @State private var exclusions: ExclusionsStore
+    @State private var systemJunkViewModel: SystemJunkViewModel
+    @State private var largeOldFilesViewModel: LargeOldFilesViewModel
+    @State private var spaceLensViewModel: DiskScannerViewModel
+    @State private var privacyViewModel: PrivacyViewModel
+    @State private var appUninstallerViewModel: AppUninstallerViewModel
+    @State private var appUpdaterViewModel: AppUpdaterViewModel
+    @State private var extensionsManagerViewModel: ExtensionsManagerViewModel
+    @State private var optimizationViewModel: OptimizationViewModel
+    @State private var malwareViewModel: MalwareViewModel
+    @State private var smartScanViewModel: SmartScanViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
     // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
     // notification dispatcher (Prompt 11) all subscribe via
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
-    @StateObject private var systemStats: SystemStatsService
+    @State private var systemStats: SystemStatsService
     // App-scope: subscribes to `systemStats` and pushes notifications via
     // `NotificationManager`. Held here so the Combine subscriptions live as
     // long as the app and so the per-kind cooldown table survives across
     // window open/close cycles.
-    @StateObject private var notificationMonitor: NotificationThresholdMonitor
+    @State private var notificationMonitor: NotificationThresholdMonitor
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -60,28 +60,28 @@ struct VaderCleanerApp: App {
             launchAtLoginHandler: { try LoginItemManager.setEnabled($0) },
             launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:)
         )
-        _preferences = StateObject(wrappedValue: prefs)
+        _preferences = State(initialValue: prefs)
         // Feature-session view models live at app scope so sidebar navigation
         // rebuilds only their views, not their production collaborators or
         // in-progress scan/selection state. The scanner models capture this
         // same exclusions store and snapshot it per scan.
         let exclusions = ExclusionsStore()
-        _exclusions = StateObject(wrappedValue: exclusions)
-        _systemJunkViewModel = StateObject(
-            wrappedValue: SystemJunkViewModel.live(exclusions: exclusions)
+        _exclusions = State(initialValue: exclusions)
+        _systemJunkViewModel = State(
+            initialValue: SystemJunkViewModel.live(exclusions: exclusions)
         )
-        _largeOldFilesViewModel = StateObject(
-            wrappedValue: LargeOldFilesViewModel.live(exclusions: exclusions)
+        _largeOldFilesViewModel = State(
+            initialValue: LargeOldFilesViewModel.live(exclusions: exclusions)
         )
-        _spaceLensViewModel = StateObject(
-            wrappedValue: DiskScannerViewModel.live(exclusions: exclusions)
+        _spaceLensViewModel = State(
+            initialValue: DiskScannerViewModel.live(exclusions: exclusions)
         )
-        _privacyViewModel = StateObject(wrappedValue: PrivacyViewModel.live())
-        _appUninstallerViewModel = StateObject(
-            wrappedValue: AppUninstallerViewModel.live(exclusions: exclusions)
+        _privacyViewModel = State(initialValue: PrivacyViewModel.live())
+        _appUninstallerViewModel = State(
+            initialValue: AppUninstallerViewModel.live(exclusions: exclusions)
         )
-        _appUpdaterViewModel = StateObject(wrappedValue: AppUpdaterViewModel.live())
-        _extensionsManagerViewModel = StateObject(wrappedValue: ExtensionsManagerViewModel.live())
+        _appUpdaterViewModel = State(initialValue: AppUpdaterViewModel.live())
+        _extensionsManagerViewModel = State(initialValue: ExtensionsManagerViewModel.live())
         // Construct the polling service and the menu bar view-model in the
         // same init so both `@StateObject` wrappers reference the *same*
         // service instance. Initializing `menuBarViewModel` at its property
@@ -89,13 +89,13 @@ struct VaderCleanerApp: App {
         // doubling the polling timer and decoupling the menu bar from the
         // service the Health Monitor consumes.
         let stats = SystemStatsService()
-        _systemStats = StateObject(wrappedValue: stats)
+        _systemStats = State(initialValue: stats)
         // Wired after `stats` so the Optimization RAM figures come from the
         // same polling service the Health Monitor and menu bar consume.
-        _optimizationViewModel = StateObject(
-            wrappedValue: OptimizationViewModel.live(systemStats: stats, preferences: prefs)
+        _optimizationViewModel = State(
+            initialValue: OptimizationViewModel.live(systemStats: stats, preferences: prefs)
         )
-        _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(service: stats))
+        _menuBarViewModel = State(initialValue: MenuBarViewModel(service: stats))
         // One NotificationManager for the whole app. Its init registers
         // itself as the `UNUserNotificationCenter` delegate (a weak property);
         // a second instance would silently steal that registration, so the
@@ -104,8 +104,8 @@ struct VaderCleanerApp: App {
         // Wired after `stats` so manual malware scans surface a detection
         // banner through the same dispatcher the threshold monitor uses, and
         // honour the same `notifyMalwareFound` preference.
-        _malwareViewModel = StateObject(
-            wrappedValue: MalwareViewModel.live(
+        _malwareViewModel = State(
+            initialValue: MalwareViewModel.live(
                 dispatcher: notificationManager,
                 preferences: prefs
             )
@@ -114,8 +114,8 @@ struct VaderCleanerApp: App {
         // collaborators behind one flow. It captures the same exclusions store
         // the standalone junk scanner uses and snapshots it per scan, so an
         // exclusion added in Preferences takes effect on the next Smart Scan.
-        _smartScanViewModel = StateObject(
-            wrappedValue: SmartScanViewModel.live(exclusions: exclusions)
+        _smartScanViewModel = State(
+            initialValue: SmartScanViewModel.live(exclusions: exclusions)
         )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
@@ -123,8 +123,8 @@ struct VaderCleanerApp: App {
         // request through `monitor.requestPermission()` after the FDA
         // onboarding sheet has settled — so we don't need a separate App-
         // level reference to the manager.
-        _notificationMonitor = StateObject(
-            wrappedValue: NotificationThresholdMonitor(
+        _notificationMonitor = State(
+            initialValue: NotificationThresholdMonitor(
                 stats: stats,
                 preferences: prefs,
                 dispatcher: notificationManager
@@ -198,12 +198,12 @@ struct VaderCleanerApp: App {
                 malwareViewModel: malwareViewModel,
                 smartScanViewModel: smartScanViewModel
             )
-                .environmentObject(appState)
-                .environmentObject(onboardingViewModel)
-                .environmentObject(preferences)
-                .environmentObject(exclusions)
-                .environmentObject(systemStats)
-                .environmentObject(notificationMonitor)
+                .environment(appState)
+                .environment(onboardingViewModel)
+                .environment(preferences)
+                .environment(exclusions)
+                .environment(systemStats)
+                .environment(notificationMonitor)
         }
         // Hide the title bar so no section title is drawn beside the traffic
         // lights; the controls float over the section's gradient and each
@@ -228,8 +228,8 @@ struct VaderCleanerApp: App {
         // `Window` scene above don't bleed across to `Settings`.
         Settings {
             PreferencesView()
-                .environmentObject(preferences)
-                .environmentObject(exclusions)
+                .environment(preferences)
+                .environment(exclusions)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user
@@ -238,11 +238,10 @@ struct VaderCleanerApp: App {
         // the preference takes effect immediately and survives relaunch.
         //
         // The `set` closure short-circuits identical writes. SwiftUI calls
-        // `MenuBarExtra(isInserted:)`'s setter back during scene layout — and
-        // because `@Published` always fires `objectWillChange.send()` even
-        // when the value is unchanged, an unguarded `$preferences.showMenuBar`
-        // produces a flood of "Publishing changes from within view updates"
-        // warnings and hangs the UI test runner.
+        // `MenuBarExtra(isInserted:)`'s setter back during scene layout, so an
+        // unguarded write would notify observers redundantly even when the
+        // value hasn't changed; the guard keeps the menu bar's insertion
+        // state from invalidating views that don't actually need to update.
         MenuBarExtra(
             isInserted: Binding(
                 get: { preferences.showMenuBar },
@@ -254,10 +253,10 @@ struct VaderCleanerApp: App {
             )
         ) {
             MenuBarContent()
-                .environmentObject(menuBarViewModel)
-                .environmentObject(preferences)
-                .environmentObject(exclusions)
-                .environmentObject(systemStats)
+                .environment(menuBarViewModel)
+                .environment(preferences)
+                .environment(exclusions)
+                .environment(systemStats)
         } label: {
             // Compact label rendered into the system menu bar. The format
             // (prefixes, separator, truncation rules) lives on

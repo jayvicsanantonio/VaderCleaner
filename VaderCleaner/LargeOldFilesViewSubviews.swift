@@ -61,7 +61,7 @@ struct LargeOldFilesResultsContent: View {
     @Binding var sortOrder: LargeOldFilesViewModel.SortOrder
     let totalSelectedSize: Int64
     let canDelete: Bool
-    @ObservedObject var fileIconCache: FileIconCache
+    var fileIconCache: FileIconCache
     let isSelected: (ScannedFile) -> Bool
     let onToggleSelection: (ScannedFile) -> Void
     let onRescan: () -> Void
@@ -99,7 +99,7 @@ struct LargeOldFilesResultsContent: View {
 struct LargeOldFilesTable: View {
     let files: [ScannedFile]
     @Binding var sortOrder: LargeOldFilesViewModel.SortOrder
-    @ObservedObject var fileIconCache: FileIconCache
+    var fileIconCache: FileIconCache
     let isSelected: (ScannedFile) -> Bool
     let onToggleSelection: (ScannedFile) -> Void
     let onShowInFinder: (ScannedFile) -> Void
@@ -203,7 +203,7 @@ struct LargeOldFilesTable: View {
 
 struct LargeOldFilesRowNameCell: View {
     let file: ScannedFile
-    @ObservedObject var fileIconCache: FileIconCache
+    var fileIconCache: FileIconCache
     let onShowInFinder: (ScannedFile) -> Void
     let onDelete: (ScannedFile) -> Void
     let onAddToExclusions: (ScannedFile) -> Void

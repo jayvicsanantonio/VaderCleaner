@@ -24,7 +24,8 @@ import os.log
 /// transition without touching the real filesystem. Production wiring lives
 /// in `LargeOldFilesViewModel.live(...)` below.
 @MainActor
-final class LargeOldFilesViewModel: ObservableObject {
+@Observable
+final class LargeOldFilesViewModel {
 
     /// Which step of the flow generated a `.failed` phase, so the view can
     /// pick the right heading. A delete failure must not be reported as
@@ -65,14 +66,14 @@ final class LargeOldFilesViewModel: ObservableObject {
     /// the surviving files stay in the table.
     typealias Deleter = ([URL]) async -> Set<URL>
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var selectedURLs: Set<URL> = []
+    private(set) var phase: Phase = .idle
+    private(set) var selectedURLs: Set<URL> = []
 
     /// Current sort axis. The setter recomputes `displayedFiles` so the view
     /// table re-orders without the caller doing the work. Defaults to size-
     /// descending — the first row should be the biggest forgotten thing on
     /// disk, which is the entire reason the user opened this feature.
-    @Published var sortOrder: SortOrder = .sizeDescending {
+    var sortOrder: SortOrder = .sizeDescending {
         didSet {
             guard oldValue != sortOrder else { return }
             recomputeDisplayedFiles()
@@ -82,17 +83,17 @@ final class LargeOldFilesViewModel: ObservableObject {
     /// Files currently shown in the table, post-sort. Held separately from
     /// `phase` so re-sorting and per-file deletes don't have to round-trip
     /// through a phase-replacement.
-    @Published private(set) var displayedFiles: [ScannedFile] = []
+    private(set) var displayedFiles: [ScannedFile] = []
 
-    private let scanner: Scanner
-    private let deleter: Deleter
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "LargeOldFilesViewModel")
+    @ObservationIgnored private let scanner: Scanner
+    @ObservationIgnored private let deleter: Deleter
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "LargeOldFilesViewModel")
 
     /// Running total of bytes for files in `selectedURLs`. Maintained
     /// incrementally on every `toggleSelection` so the footer label updates
     /// in O(1) rather than walking `displayedFiles` on every read.
-    @Published private(set) var totalSelectedSize: Int64 = 0
+    private(set) var totalSelectedSize: Int64 = 0
 
     init(scanner: @escaping Scanner, deleter: @escaping Deleter) {
         self.scanner = scanner

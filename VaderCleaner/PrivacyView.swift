@@ -12,7 +12,7 @@ import SwiftUI
 /// reports `.intro`, so the detail view is only built once a scan has started.
 struct PrivacyView: View {
 
-    @ObservedObject private var viewModel: PrivacyViewModel
+    private var viewModel: PrivacyViewModel
     @State private var showClearConfirmation = false
 
     init(viewModel: PrivacyViewModel) {
@@ -98,5 +98,5 @@ struct PrivacyView: View {
         clearRecentFiles: { }
     ))
     .frame(width: 700, height: 480)
-    .environmentObject(AppState(checker: { true }))
+    .environment(AppState(checker: { true }))
 }

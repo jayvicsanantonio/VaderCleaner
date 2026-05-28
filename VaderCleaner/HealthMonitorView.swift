@@ -13,10 +13,10 @@ import SwiftUI
 /// below the grid as a single info row, matching the spec.
 struct HealthMonitorView: View {
 
-    @StateObject private var viewModel: HealthMonitorViewModel
+    @State private var viewModel: HealthMonitorViewModel
 
     init(service: SystemStatsService) {
-        _viewModel = StateObject(wrappedValue: HealthMonitorViewModel(service: service))
+        _viewModel = State(initialValue: HealthMonitorViewModel(service: service))
     }
 
     private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]

@@ -4,21 +4,22 @@
 import Foundation
 
 /// One node in the disk-tree built by `DiskScanner`. Reference type because
-/// the treemap UI in Prompt 17 navigates the same node graph from multiple
-/// places (breadcrumb stack + currently-rendered tile) and needs identity-
-/// based equality so a re-render doesn't consider two snapshots of the
-/// "same" node distinct.
+/// the treemap UI navigates the same node graph from multiple places
+/// (breadcrumb stack + currently-rendered tile) and needs identity-based
+/// equality so a re-render doesn't consider two snapshots of the "same"
+/// node distinct.
 ///
 /// The node holds no I/O machinery — all enumeration happens in
-/// `DiskScanner` and the result is fixed once a scan finishes. The class
-/// adopts `ObservableObject` so future incremental-scan work (Prompt 17 may
-/// add live-update during a long scan) can republish without touching the
-/// public API.
+/// `DiskScanner` and the result is fixed once a scan finishes, so every
+/// stored property is `let` and the tree is observation-free. A Space Lens
+/// scan can instantiate thousands of nodes; opting into per-instance change
+/// tracking would tax every tile draw without buying anything because no
+/// view ever mutates a node.
 ///
 /// `size` is always pre-rolled-up by the scanner: a directory's value is
 /// the sum of its descendants. The treemap relies on this so it can size
 /// each tile from a single property read.
-final class DiskNode: Identifiable, ObservableObject {
+final class DiskNode: Identifiable {
 
     /// Stable identity for SwiftUI diffing. Generated per node so two
     /// scans of the same path produce different IDs — the UI treats them

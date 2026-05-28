@@ -38,7 +38,7 @@ struct AppUninstallerListPane: View {
     @Binding var includesSystemApps: Bool
     let onSelect: (AppInfo.ID?) -> Void
     let onAddToExclusions: (AppInfo) -> Void
-    @ObservedObject var iconCache: AppIconCache
+    var iconCache: AppIconCache
 
     var body: some View {
         VStack(spacing: 0) {
@@ -109,7 +109,7 @@ struct AppUninstallerSearchField: View {
 struct AppUninstallerListRow: View {
     let app: AppInfo
     let size: Int64?
-    @ObservedObject var iconCache: AppIconCache
+    var iconCache: AppIconCache
 
     var body: some View {
         HStack(spacing: 10) {
@@ -169,7 +169,7 @@ struct AppUninstallerDetailPane: View {
     let totalReclaimableSize: Int64
     let canUninstall: Bool
     let onUninstall: () -> Void
-    @ObservedObject var iconCache: AppIconCache
+    var iconCache: AppIconCache
 
     var body: some View {
         if let app {
@@ -208,7 +208,7 @@ struct AppUninstallerDetailPane: View {
 struct AppUninstallerDetailHeader: View {
     let app: AppInfo
     let bundleSize: Int64?
-    @ObservedObject var iconCache: AppIconCache
+    var iconCache: AppIconCache
 
     var body: some View {
         HStack(spacing: 14) {

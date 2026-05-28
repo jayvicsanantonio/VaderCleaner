@@ -13,7 +13,7 @@ import AppKit
 /// just look like a UI bug.
 struct MenuBarContent: View {
 
-    @EnvironmentObject private var menuBar: MenuBarViewModel
+    @Environment(MenuBarViewModel.self) private var menuBar
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -107,5 +107,5 @@ struct MenuBarContent: View {
 
 #Preview {
     MenuBarContent()
-        .environmentObject(MenuBarViewModel(service: SystemStatsService(autostart: false)))
+        .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
 }

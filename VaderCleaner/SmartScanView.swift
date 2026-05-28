@@ -12,7 +12,7 @@ import SwiftUI
 /// `onOpenOptimization` to jump to the standalone sidebar section.
 struct SmartScanView: View {
 
-    @ObservedObject private var viewModel: SmartScanViewModel
+    private var viewModel: SmartScanViewModel
     private let onOpenOptimization: () -> Void
 
     /// The tile whose Review screen is currently up, or `nil` if the

@@ -2,7 +2,7 @@
 // Observable user-preferences model — defaults, persistence, and dependency-injected UserDefaults for tests.
 
 import Foundation
-import Combine
+import Observation
 
 /// Single source of truth for user-tweakable settings (notifications, disk threshold,
 /// launch-at-login, menu bar visibility). Backed by `UserDefaults` so changes survive
@@ -15,11 +15,12 @@ import Combine
 /// Side effects that depend on these values are wired in via small handler
 /// closures injected at construction. Production wiring happens in
 /// `VaderCleanerApp` (e.g. `launchAtLoginHandler` calls `LoginItemManager`);
-/// unit tests omit the handlers so mutating a published property never
-/// triggers a system call. Menu-bar hide/show (Prompt 10) and notification
-/// dispatch (Prompt 11) follow the same pattern when added.
+/// unit tests omit the handlers so mutating a tracked property never
+/// triggers a system call. Menu-bar hide/show and notification
+/// dispatch follow the same pattern.
 @MainActor
-final class PreferencesStore: ObservableObject {
+@Observable
+final class PreferencesStore {
 
     /// Side-effect contract for the `launchAtLogin` toggle. Production passes
     /// `LoginItemManager.setEnabled`; tests pass `nil` so writing to
@@ -60,7 +61,7 @@ final class PreferencesStore: ObservableObject {
     /// Reads the current `showMenuBar` value out of an arbitrary `UserDefaults`
     /// suite without instantiating the full store. Used by `VaderCleanerAppDelegate`
     /// to decide the activation policy outside of any SwiftUI scene, where
-    /// constructing an `ObservableObject` would be overkill.
+    /// constructing an observation-tracked store would be overkill.
     ///
     /// Marked `nonisolated` because the read touches only the supplied
     /// `UserDefaults` (which is itself thread-safe) and no instance state on
@@ -71,44 +72,44 @@ final class PreferencesStore: ObservableObject {
         (defaults.object(forKey: Key.showMenuBar) as? Bool) ?? defaultShowMenuBar
     }
 
-    // MARK: - Published state
+    // MARK: - Tracked state
 
-    @Published var notifyLowDisk: Bool {
+    var notifyLowDisk: Bool {
         didSet { defaults.set(notifyLowDisk, forKey: Key.notifyLowDisk) }
     }
 
-    @Published var notifyHighRAM: Bool {
+    var notifyHighRAM: Bool {
         didSet { defaults.set(notifyHighRAM, forKey: Key.notifyHighRAM) }
     }
 
-    @Published var notifyMalwareFound: Bool {
+    var notifyMalwareFound: Bool {
         didSet { defaults.set(notifyMalwareFound, forKey: Key.notifyMalwareFound) }
     }
 
-    @Published var notifyLargeFilesFound: Bool {
+    var notifyLargeFilesFound: Bool {
         didSet { defaults.set(notifyLargeFilesFound, forKey: Key.notifyLargeFilesFound) }
     }
 
-    @Published var diskSpaceThresholdPercent: Double {
+    var diskSpaceThresholdPercent: Double {
         didSet { defaults.set(diskSpaceThresholdPercent, forKey: Key.diskSpaceThresholdPercent) }
     }
 
-    @Published var launchAtLogin: Bool {
+    var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
             applyLaunchAtLogin()
         }
     }
 
-    @Published var showMenuBar: Bool {
+    var showMenuBar: Bool {
         didSet { defaults.set(showMenuBar, forKey: Key.showMenuBar) }
     }
 
     // MARK: - Init
 
-    private let defaults: UserDefaults
-    private let launchAtLoginHandler: LaunchAtLoginHandler?
-    private let launchAtLoginErrorReporter: LaunchAtLoginErrorReporter?
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let launchAtLoginHandler: LaunchAtLoginHandler?
+    @ObservationIgnored private let launchAtLoginErrorReporter: LaunchAtLoginErrorReporter?
 
     init(
         defaults: UserDefaults = .standard,
@@ -119,55 +120,34 @@ final class PreferencesStore: ObservableObject {
         self.launchAtLoginHandler = launchAtLoginHandler
         self.launchAtLoginErrorReporter = launchAtLoginErrorReporter
 
-        // Initialise the @Published wrappers directly with `_property =
-        // Published(initialValue:)` instead of `self.property = …`. Going
-        // through the synthesized setter would fire `objectWillChange.send()`
-        // for every property — and because `MenuBarExtra(isInserted:
-        // $preferences.showMenuBar)` subscribes the App body to this store,
-        // SwiftUI evaluates `body` while the StateObject is still being
-        // initialised on first launch. Publisher notifications inside that
-        // window trigger "Publishing changes from within view updates is not
-        // allowed" and ultimately hang the UI test runner.
-        //
-        // Bonus: the `didSet` observers below would otherwise rewrite every
-        // default back to UserDefaults on every launch. Direct wrapper
-        // initialisation skips them.
+        // Assign each property exactly once here so the `didSet` observers
+        // above do *not* fire (Swift skips property observers for the first
+        // assignment inside an initializer before delegation). Without this
+        // discipline every default would be rewritten back to UserDefaults
+        // on every launch, defeating the "respect what the user picked"
+        // intent of `object(forKey:) as? T`.
         //
         // `UserDefaults.bool(forKey:)` returns `false` for missing keys, but
         // the spec defaults are mostly `true`. Reading via `object(forKey:)
         // as? T` and falling back to the spec default keeps fresh installs
         // aligned with what the user expects.
-        self._notifyLowDisk = Published(
-            initialValue: (defaults.object(forKey: Key.notifyLowDisk) as? Bool)
-                ?? Self.defaultNotifyLowDisk
-        )
-        self._notifyHighRAM = Published(
-            initialValue: (defaults.object(forKey: Key.notifyHighRAM) as? Bool)
-                ?? Self.defaultNotifyHighRAM
-        )
-        self._notifyMalwareFound = Published(
-            initialValue: (defaults.object(forKey: Key.notifyMalwareFound) as? Bool)
-                ?? Self.defaultNotifyMalwareFound
-        )
-        self._notifyLargeFilesFound = Published(
-            initialValue: (defaults.object(forKey: Key.notifyLargeFilesFound) as? Bool)
-                ?? Self.defaultNotifyLargeFilesFound
-        )
-        self._diskSpaceThresholdPercent = Published(
-            initialValue: (defaults.object(forKey: Key.diskSpaceThresholdPercent) as? Double)
-                ?? Self.defaultDiskSpaceThresholdPercent
-        )
-        self._launchAtLogin = Published(
-            initialValue: (defaults.object(forKey: Key.launchAtLogin) as? Bool)
-                ?? Self.defaultLaunchAtLogin
-        )
-        self._showMenuBar = Published(
-            initialValue: (defaults.object(forKey: Key.showMenuBar) as? Bool)
-                ?? Self.defaultShowMenuBar
-        )
+        self.notifyLowDisk = (defaults.object(forKey: Key.notifyLowDisk) as? Bool)
+            ?? Self.defaultNotifyLowDisk
+        self.notifyHighRAM = (defaults.object(forKey: Key.notifyHighRAM) as? Bool)
+            ?? Self.defaultNotifyHighRAM
+        self.notifyMalwareFound = (defaults.object(forKey: Key.notifyMalwareFound) as? Bool)
+            ?? Self.defaultNotifyMalwareFound
+        self.notifyLargeFilesFound = (defaults.object(forKey: Key.notifyLargeFilesFound) as? Bool)
+            ?? Self.defaultNotifyLargeFilesFound
+        self.diskSpaceThresholdPercent = (defaults.object(forKey: Key.diskSpaceThresholdPercent) as? Double)
+            ?? Self.defaultDiskSpaceThresholdPercent
+        self.launchAtLogin = (defaults.object(forKey: Key.launchAtLogin) as? Bool)
+            ?? Self.defaultLaunchAtLogin
+        self.showMenuBar = (defaults.object(forKey: Key.showMenuBar) as? Bool)
+            ?? Self.defaultShowMenuBar
 
         // Reconcile the persisted preference with launchd's actual state once
-        // the @Published wrappers are populated. The handler's presence is the
+        // the tracked properties are populated. The handler's presence is the
         // signal that we're in production wiring (tests pass nil); skipping in
         // tests keeps unit tests from mutating the host's login items.
         if launchAtLoginHandler != nil {

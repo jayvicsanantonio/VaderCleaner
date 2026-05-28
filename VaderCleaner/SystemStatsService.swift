@@ -2,10 +2,10 @@
 // Polling data layer behind the Health Monitor — reads CPU, RAM, disk, battery, SMART, and FileVault state from mach/IOKit/diskutil.
 
 import Foundation
-import Combine
 import Darwin
 import IOKit
 import IOKit.ps
+import Observation
 import os.log
 
 // MARK: - Value types
@@ -126,11 +126,11 @@ enum FileVaultState: Equatable {
 
 /// Publishes live system-health readings on a polling timer.
 ///
-/// All `@Published` properties are read by the Health Monitor (Prompt 9), the
-/// menu bar (Prompt 10), and the threshold-based notification dispatcher
-/// (Prompt 11). The service intentionally exposes raw value types — no
-/// formatting, no thresholds beyond `MemoryPressureLevel` — so each consumer
-/// can format / threshold differently without coupling.
+/// Every tracked property is read by the Health Monitor, the menu bar, and
+/// the threshold-based notification dispatcher. The service intentionally
+/// exposes raw value types — no formatting, no thresholds beyond
+/// `MemoryPressureLevel` — so each consumer can format / threshold
+/// differently without coupling.
 ///
 /// ## Cadence
 ///
@@ -154,21 +154,22 @@ enum FileVaultState: Equatable {
 /// `SystemStatsService()`; unit tests pass `autostart: false` and call
 /// `refresh()` directly to exercise invariants without burning a real timer.
 @MainActor
-final class SystemStatsService: ObservableObject {
+@Observable
+final class SystemStatsService {
 
-    // MARK: Published readings
+    // MARK: Tracked readings
 
-    @Published private(set) var cpuUsage: Double = 0
-    @Published private(set) var ramUsage: MemoryStats = .empty
-    @Published private(set) var diskSpace: DiskStats = .empty
-    @Published private(set) var batteryAvailability: BatteryAvailability = .unknown
-    @Published private(set) var diskSMARTStatus: SMARTStatus = .unknown
-    @Published private(set) var fileVaultState: FileVaultState = .unknown
+    private(set) var cpuUsage: Double = 0
+    private(set) var ramUsage: MemoryStats = .empty
+    private(set) var diskSpace: DiskStats = .empty
+    private(set) var batteryAvailability: BatteryAvailability = .unknown
+    private(set) var diskSMARTStatus: SMARTStatus = .unknown
+    private(set) var fileVaultState: FileVaultState = .unknown
 
     // MARK: Configuration
 
     /// Tick rate of the cheap-stats timer.
-    private let interval: TimeInterval
+    @ObservationIgnored private let interval: TimeInterval
 
     /// Slow timer cadence for SMART + FileVault. Five minutes is a compromise:
     /// the values are near-static, but a manual change (toggling FileVault,
@@ -178,8 +179,8 @@ final class SystemStatsService: ObservableObject {
 
     // MARK: State
 
-    private var timer: Timer?
-    private var deviceHealthTimer: Timer?
+    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var deviceHealthTimer: Timer?
     /// Tracks whether `stop()` has been called more recently than `start()`.
     /// In-flight background subprocess work (SMART, FileVault) hops back to
     /// the main actor *after* potentially tens of milliseconds; if `stop()`
@@ -187,19 +188,19 @@ final class SystemStatsService: ObservableObject {
     /// gates only the timer-driven and async-hop paths — the synchronous
     /// `refresh()` is still callable directly so unit tests with
     /// `autostart: false` keep working.
-    private var isStopped = false
-    private let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
+    @ObservationIgnored private var isStopped = false
+    @ObservationIgnored private let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
 
     /// Background queue for `Process` invocations. Serial so two ticks can't
     /// race a `diskutil` and an `fdesetup` against each other and confuse
     /// stdout interleaving in any future shared parser.
-    private let backgroundQueue = DispatchQueue(label: "com.personal.VaderCleaner.SystemStatsService.background")
+    @ObservationIgnored private let backgroundQueue = DispatchQueue(label: "com.personal.VaderCleaner.SystemStatsService.background")
 
     /// Previous CPU tick totals for delta computation. `host_processor_info`
     /// reports cumulative ticks since boot, so usage is `(busy_now -
     /// busy_then) / (total_now - total_then)`. Nil before the first sample;
     /// the first `refresh()` seeds it and publishes `cpuUsage = 0`.
-    private var previousCPUTotals: CPUTotals?
+    @ObservationIgnored private var previousCPUTotals: CPUTotals?
 
     // MARK: Init / lifecycle
 

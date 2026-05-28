@@ -2,13 +2,13 @@
 // View-model behind the Health Monitor — formats SystemStatsService values into card-ready display strings and traffic-light status colors.
 
 import Foundation
-import Combine
+import Observation
 
 /// Drives the Health Monitor feature view.
 ///
 /// The view-model is intentionally thin: it holds a reference to
 /// `SystemStatsService` (the live polling source) and exposes computed
-/// properties that render the published service state into card-ready strings
+/// properties that render the tracked service state into card-ready strings
 /// and `StatusColor` values.
 ///
 /// All formatting and color-mapping logic is exposed as `static` pure
@@ -16,32 +16,21 @@ import Combine
 /// or driving real CPU/RAM/disk telemetry. Instance properties simply forward
 /// the live service state through those formatters.
 @MainActor
-final class HealthMonitorViewModel: ObservableObject {
+@Observable
+final class HealthMonitorViewModel {
 
     /// Live data source. Held strongly. The service itself is app-scope
     /// (`VaderCleanerApp.systemStats`) and outlives every view-model derived
     /// from it, so the strong reference does not extend its lifetime.
+    ///
+    /// No manual republish bridge: under the Observation framework SwiftUI
+    /// tracks the read chain `view → vm.someComputed → service.someProperty`
+    /// transparently, so a service tick directly invalidates any view
+    /// reading the matching computed property here.
     let service: SystemStatsService
 
-    /// Holds the Combine subscription that re-publishes service ticks as
-    /// view-model changes. Stored so the sink lives as long as the VM does;
-    /// without retaining the cancellable the subscription would be torn down
-    /// at the end of `init` and the view would freeze on its first frame.
-    private var serviceCancellable: AnyCancellable?
-
-    /// `HealthMonitorViewModel` exposes only computed properties — none of
-    /// them are `@Published` themselves. SwiftUI does **not** automatically
-    /// propagate a nested `ObservableObject`'s `objectWillChange` through an
-    /// outer `ObservableObject`, so a `@StateObject` on the view bound to
-    /// this VM would never observe the service's 2-second polling ticks.
-    /// We bridge the two manually here so every service refresh fans out to
-    /// the view as a single VM change.
     init(service: SystemStatsService) {
         self.service = service
-        self.serviceCancellable = service.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
     }
 
     // MARK: - Live-bound display values

@@ -14,38 +14,39 @@ import SwiftUI
 /// whether a disc is currently on screen so the panel is ordered in or out to
 /// match.
 @MainActor
-final class ScanDiscWindowController: ObservableObject {
+@Observable
+final class ScanDiscWindowController {
 
     /// The section whose disc the panel currently shows — driven by ContentView.
-    @Published var section: NavigationSection = .smartScan
+    var section: NavigationSection = .smartScan
 
     // The seven scannable sections' coordinators. `ScanDiscHostView` switches
     // on `section` to drive the matching one.
-    let smartScanViewModel: SmartScanViewModel
-    let systemJunkViewModel: SystemJunkViewModel
-    let largeOldFilesViewModel: LargeOldFilesViewModel
-    let spaceLensViewModel: DiskScannerViewModel
-    let optimizationViewModel: OptimizationViewModel
-    let malwareViewModel: MalwareViewModel
-    let privacyViewModel: PrivacyViewModel
+    @ObservationIgnored let smartScanViewModel: SmartScanViewModel
+    @ObservationIgnored let systemJunkViewModel: SystemJunkViewModel
+    @ObservationIgnored let largeOldFilesViewModel: LargeOldFilesViewModel
+    @ObservationIgnored let spaceLensViewModel: DiskScannerViewModel
+    @ObservationIgnored let optimizationViewModel: OptimizationViewModel
+    @ObservationIgnored let malwareViewModel: MalwareViewModel
+    @ObservationIgnored let privacyViewModel: PrivacyViewModel
 
     /// Diameter of the disc itself — the single shared constant the disc, this
     /// panel, and the placement maths all key off.
-    private let discDiameter = FloatingScanButton.floatingDiameter
+    @ObservationIgnored private let discDiameter = FloatingScanButton.floatingDiameter
     /// Side length of the square panel. Wider than the disc so its breathing
     /// accent glow is not clipped by the panel bounds.
-    private let panelSize = FloatingScanButton.floatingDiameter + 100
+    @ObservationIgnored private let panelSize = FloatingScanButton.floatingDiameter + 100
     /// Gap kept below the disc panel when it is tucked fully inside
     /// (fullscreen, where there is no desktop below the window to straddle
     /// into).
-    private let fullScreenMargin: CGFloat = 36
+    @ObservationIgnored private let fullScreenMargin: CGFloat = 36
 
-    private var panel: NSPanel?
-    private weak var parentWindow: NSWindow?
-    private var appState: AppState?
-    private var railWidth: CGFloat = 0
-    private var isFullScreen = false
-    private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var panel: NSPanel?
+    @ObservationIgnored private weak var parentWindow: NSWindow?
+    @ObservationIgnored private var appState: AppState?
+    @ObservationIgnored private var railWidth: CGFloat = 0
+    @ObservationIgnored private var isFullScreen = false
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     init(
         smartScanViewModel: SmartScanViewModel,
@@ -132,7 +133,7 @@ final class ScanDiscWindowController: ObservableObject {
 
         panel.contentView = NSHostingView(
             rootView: ScanDiscHostView(controller: self)
-                .environmentObject(appState)
+                .environment(appState)
         )
         return panel
     }

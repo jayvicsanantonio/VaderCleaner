@@ -2,12 +2,13 @@
 // Lightweight NSWorkspace icon cache for table rows that need stable file-type icons without doing LaunchServices work while SwiftUI renders cells.
 
 import AppKit
-import Combine
 import Dispatch
+import Observation
 import UniformTypeIdentifiers
 
 @MainActor
-final class FileIconCache: ObservableObject {
+@Observable
+final class FileIconCache {
     enum CacheKey: Hashable {
         case directory
         case extensionless
@@ -27,13 +28,16 @@ final class FileIconCache: ObservableObject {
 
     typealias IconLoader = (CacheKey) -> NSImage
 
-    @Published private var revision = 0
+    /// Bumped once per `preloadIcons` batch so SwiftUI views that call
+    /// `cachedIcon(for:)` are invalidated together rather than once per
+    /// inserted icon.
+    private var revision = 0
 
-    private let cache = NSCache<NSString, NSImage>()
-    private let placeholderIcon: NSImage
-    private let iconLoader: IconLoader
-    private let workQueue = DispatchQueue(label: "com.personal.VaderCleaner.file-icon-cache",
-                                          qos: .userInitiated)
+    @ObservationIgnored private let cache = NSCache<NSString, NSImage>()
+    @ObservationIgnored private let placeholderIcon: NSImage
+    @ObservationIgnored private let iconLoader: IconLoader
+    @ObservationIgnored private let workQueue = DispatchQueue(label: "com.personal.VaderCleaner.file-icon-cache",
+                                                              qos: .userInitiated)
 
     init(
         placeholderIcon: NSImage = NSWorkspace.shared.icon(for: .item),
@@ -44,6 +48,10 @@ final class FileIconCache: ObservableObject {
     }
 
     func cachedIcon(for url: URL) -> NSImage {
+        // Observation framework only re-renders a view when it reads a
+        // tracked property; touching `revision` here subscribes any
+        // caller's body to the per-batch bump that `preloadIcons` issues.
+        _ = revision
         let key = Self.cacheKey(for: url)
         return cache.object(forKey: key.cacheIdentifier) ?? placeholderIcon
     }

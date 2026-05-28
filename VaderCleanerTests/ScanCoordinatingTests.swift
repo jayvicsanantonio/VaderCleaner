@@ -1,19 +1,21 @@
 // ScanCoordinatingTests.swift
-// Pins the coarse scan-state contract: ScanPresentation Equatable behavior and the ScanCoordinating protocol's beginScan() + observability surface.
+// Pins the coarse scan-state contract: ScanPresentation Equatable behavior and the ScanCoordinating protocol's beginScan() + Observation surface.
 
 import XCTest
-import Combine
+import Observation
 @testable import VaderCleaner
 
 @MainActor
 final class ScanCoordinatingTests: XCTestCase {
 
-    /// Minimal stand-in for the real scannable view models (which conform in a
-    /// later step). `@Published` satisfies the protocol's get-only
-    /// `scanPresentation` requirement and gives `objectWillChange` for free;
-    /// `beginScanCalled` records that the coordinator's entrypoint ran.
-    private final class FakeCoordinator: ScanCoordinating {
-        @Published var scanPresentation: ScanPresentation = .intro
+    /// Minimal stand-in for the real scannable view models. `@Observable`
+    /// satisfies the protocol's get-only `scanPresentation` requirement and
+    /// hooks the property into the Observation framework so views (and the
+    /// transition recorder below) re-render on mutation. `beginScanCalled`
+    /// records that the coordinator's entrypoint ran.
+    @Observable
+    fileprivate final class FakeCoordinator: ScanCoordinating {
+        var scanPresentation: ScanPresentation = .intro
         private(set) var beginScanCalled = false
 
         func beginScan() {
@@ -40,19 +42,25 @@ final class ScanCoordinatingTests: XCTestCase {
         XCTAssertTrue(fake.beginScanCalled, "beginScan() must record that it ran")
     }
 
-    func test_presentationChange_isObservableViaObjectWillChange() {
+    /// Mutating `scanPresentation` must register through the Observation
+    /// framework so any observing view (or `withObservationTracking` caller)
+    /// is notified. Replaces the older `objectWillChange.sink` assertion
+    /// that no longer applies under `@Observable`.
+    func test_presentationChange_firesObservationOnChange() {
         let fake = FakeCoordinator()
         var fired = false
-        let cancellable = fake.objectWillChange.sink { _ in fired = true }
+        withObservationTracking {
+            _ = fake.scanPresentation
+        } onChange: {
+            fired = true
+        }
 
         fake.scanPresentation = .working
 
-        withExtendedLifetime(cancellable) {
-            XCTAssertTrue(
-                fired,
-                "Mutating scanPresentation must publish through objectWillChange"
-            )
-        }
+        XCTAssertTrue(
+            fired,
+            "Mutating scanPresentation must invoke withObservationTracking's onChange"
+        )
         XCTAssertEqual(fake.scanPresentation, .working)
     }
 }

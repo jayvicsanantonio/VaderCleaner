@@ -8,7 +8,7 @@ import SwiftUI
 /// driven by `OptimizationViewModel`'s state machine.
 struct OptimizationView: View {
 
-    @ObservedObject private var viewModel: OptimizationViewModel
+    private var viewModel: OptimizationViewModel
     @State private var pendingRemoval: LaunchAgent?
 
     init(viewModel: OptimizationViewModel) {

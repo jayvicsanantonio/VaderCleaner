@@ -106,7 +106,8 @@ struct SmartScanSummary: Equatable {
 /// touching the real filesystem, ClamAV, or the privileged helper. Production
 /// wiring lives in `SmartScanViewModel.live(exclusions:)`.
 @MainActor
-final class SmartScanViewModel: ObservableObject {
+@Observable
+final class SmartScanViewModel {
 
     /// Discrete phases the view binds to. The happy path is
     /// `idle → scanning → results → cleaning → done`; `failed` carries a
@@ -163,56 +164,56 @@ final class SmartScanViewModel: ObservableObject {
     /// batch), so the return is the success set, not a failure set.
     typealias LargeFileDeleter = ([URL]) async -> Set<URL>
 
-    @Published private(set) var phase: Phase = .idle
+    private(set) var phase: Phase = .idle
 
     /// Which tiles on the dashboard are checked. Empty at `.idle`; seeded on
     /// the `.scanning → .results` transition to "every module that has
     /// actionable work" (matching the reference's default-all-on behavior),
     /// and cleared again on `reset()`. The Run pass iterates this set so a
     /// deselected tile is skipped entirely.
-    @Published private(set) var tileSelection: Set<SmartScanModule> = []
+    private(set) var tileSelection: Set<SmartScanModule> = []
 
     /// Per-category gate inside the System Junk tile's Review screen. Seeded
     /// to every category that actually has items in `result.junkResult`, so
     /// the default-all-on behavior matches the reference's manager view.
-    @Published private(set) var junkCategorySelection: Set<ScanCategory> = []
+    private(set) var junkCategorySelection: Set<ScanCategory> = []
 
     /// Per-threat gate inside the Malware tile's Review screen, keyed by
     /// `MalwareThreat.filePath`. Seeded to every detected threat. Run filters
     /// the threat list down to this set before handing it to the remover.
-    @Published private(set) var threatSelection: Set<URL> = []
+    private(set) var threatSelection: Set<URL> = []
 
     /// Per-update gate inside the Applications tile's Review screen, keyed by
     /// `UpdateInfo.bundleID`. Seeded to every available update; Run hands the
     /// selected updates to the opener one by one.
-    @Published private(set) var updateSelection: Set<String> = []
+    private(set) var updateSelection: Set<String> = []
 
     /// Per-file gate inside the My Clutter tile's Review screen, keyed by
     /// `ScannedFile.url`. Seeded *empty* — large-file deletion is destructive
     /// and irreversible, so parity with `LargeOldFilesViewModel` requires the
     /// user to opt each file in explicitly before Run can remove it.
-    @Published private(set) var largeFileSelection: Set<URL> = []
+    private(set) var largeFileSelection: Set<URL> = []
 
     /// `result.largeOldFiles` pre-sorted by size descending, so the My
     /// Clutter Review's list reads "biggest forgotten thing first" without
     /// the view re-sorting on every body re-evaluation. Recomputed once
     /// when results land; cleared on `reset()`.
-    @Published private(set) var sortedLargeOldFiles: [ScannedFile] = []
+    private(set) var sortedLargeOldFiles: [ScannedFile] = []
 
-    private let junkScanner: JunkScanner
-    private let malwareInstalled: MalwareInstalled
-    private let malwareScanner: MalwareScanner
-    private let loginItemsLoader: LoginItemsLoader
-    private let largeOldFilesScanner: ClutterScanner
-    private let updatesChecker: UpdatesChecker
-    private let junkCleaner: JunkCleaner
-    private let threatRemover: ThreatRemover
-    private let maintenanceRunner: MaintenanceRunner
-    private let updateOpener: UpdateOpener
-    private let largeFileDeleter: LargeFileDeleter
+    @ObservationIgnored private let junkScanner: JunkScanner
+    @ObservationIgnored private let malwareInstalled: MalwareInstalled
+    @ObservationIgnored private let malwareScanner: MalwareScanner
+    @ObservationIgnored private let loginItemsLoader: LoginItemsLoader
+    @ObservationIgnored private let largeOldFilesScanner: ClutterScanner
+    @ObservationIgnored private let updatesChecker: UpdatesChecker
+    @ObservationIgnored private let junkCleaner: JunkCleaner
+    @ObservationIgnored private let threatRemover: ThreatRemover
+    @ObservationIgnored private let maintenanceRunner: MaintenanceRunner
+    @ObservationIgnored private let updateOpener: UpdateOpener
+    @ObservationIgnored private let largeFileDeleter: LargeFileDeleter
 
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "SmartScanViewModel")
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "SmartScanViewModel")
 
     init(
         junkScanner: @escaping JunkScanner,
