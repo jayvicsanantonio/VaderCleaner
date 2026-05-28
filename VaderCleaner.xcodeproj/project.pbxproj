@@ -863,6 +863,7 @@
 			buildConfigurationList = 76201AA3F7629053AC19150D /* Build configuration list for PBXNativeTarget "VaderCleaner" */;
 			buildPhases = (
 				D61896638874031150B1DBA3 /* Sources */,
+				E18DA18EE91F391835346665 /* Stage bundled ClamAV */,
 				789DD6BBD4FECA89B890AEF3 /* Resources */,
 				0C5C5E5270D52EFEBF1EE933 /* CopyFiles */,
 				D37833ADC32F18DB4C339B74 /* Embed Dependencies */,
@@ -966,6 +967,32 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E18DA18EE91F391835346665 /* Stage bundled ClamAV */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Vendor/clamav/bin/clamscan",
+				"$(SRCROOT)/Vendor/clamav/bin/freshclam",
+			);
+			name = "Stage bundled ClamAV";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/clamscan",
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/freshclam",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/Scripts/stage-clamav.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1D19ACDB4F0FC941ECCB7272 /* Sources */ = {

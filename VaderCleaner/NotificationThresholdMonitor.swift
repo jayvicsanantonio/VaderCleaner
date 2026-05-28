@@ -145,17 +145,21 @@ final class NotificationThresholdMonitor {
     ) -> Task<Void, Never> {
         Task { @MainActor in
             while !Task.isCancelled {
-                let value: Value = await withCheckedContinuation { continuation in
+                // `onChange` fires synchronously during the mutation's
+                // `willSet`, so reading the value there would observe the old
+                // value. Resume the continuation without a payload and read
+                // afterwards — by then the new value is committed, and we skip
+                // the per-change `Task` allocation that would otherwise widen
+                // the window where a rapid second mutation goes unobserved.
+                await withCheckedContinuation { continuation in
                     withObservationTracking {
                         _ = read()
                     } onChange: {
-                        Task { @MainActor in
-                            continuation.resume(returning: read())
-                        }
+                        continuation.resume()
                     }
                 }
                 guard !Task.isCancelled else { return }
-                handler(value)
+                handler(read())
             }
         }
     }

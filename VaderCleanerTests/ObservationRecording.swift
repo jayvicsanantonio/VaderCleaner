@@ -15,20 +15,22 @@ import XCTest
 /// `let cancellable = vm.$phase.sink { phases.append($0) }` pattern they
 /// replaced.
 ///
-/// The final `await Task.yield()` lets any onChange-spawned main-actor hop
-/// land before the recorder stops re-arming — without it, a transition that
-/// fires during the very last instant of `work()` could be dropped because
-/// the recorder shut down before the appender ran.
+/// `onChange` fires synchronously during the mutation's `willSet`, *before*
+/// the new value is committed — so reading the key path inside the closure
+/// would capture the value being replaced, not the one that triggered the
+/// change. The closure therefore hops to a fresh `@MainActor` `Task`, which
+/// runs after the mutation completes, then reads the committed value and
+/// re-arms. Re-arming from the Task (rather than inside `onChange`) also keeps
+/// us from re-entering `withObservationTracking` from within its own change
+/// callback. Everything stays main-actor isolated, so the captures are
+/// race-free.
 ///
-/// **Known limitation.** The recorder can miss a transition that fires very
-/// close to a structured-concurrency suspension in `work()` — empirically,
-/// `SystemJunkViewModelTests.test_scan_transitionsIdleToScanningToPreview`
-/// hit this with a synchronous-returning `await scanner()` whose terminal
-/// `.preview` write landed between the re-arm and the recorder's
-/// shutdown. Tests asserting `phases.contains(...)` are robust to this; tests
-/// asserting on `phases.last` (the *final* transition) should use the
-/// `ScanGate` continuation pattern (`ScanCoordinatingConformanceTests`
-/// shows the idiom) instead of this helper.
+/// The trailing `await Task.yield()` calls drain the deferred appends before
+/// re-arming stops, so a change that fires in the last instant of `work()` is
+/// still captured. A test that depends on the *final* transition landing
+/// should still prefer a continuation gate (see the `ScanPhaseGate` idiom in
+/// `ScanCoordinatingConformanceTests`); this helper is meant for
+/// `phases.contains(...)` / `phases.first` style assertions.
 @MainActor
 func recordTransitions<Subject: AnyObject, Value>(
     of keyPath: KeyPath<Subject, Value>,
@@ -43,13 +45,9 @@ func recordTransitions<Subject: AnyObject, Value>(
         withObservationTracking {
             _ = subject[keyPath: keyPath]
         } onChange: {
-            // `onChange` fires synchronously from `willSet`, on whichever
-            // actor the mutation happens on. The subjects we record are
-            // `@MainActor` view models, so we are already isolated here —
-            // append synchronously rather than hopping to a Task, which
-            // would defer the append past the caller's next assertion and
-            // produce false negatives in tight tests.
-            MainActor.assumeIsolated {
+            // Defer to a fresh main-actor Task: `onChange` runs in `willSet`,
+            // so the read below must wait until the new value is committed.
+            Task { @MainActor in
                 guard keepRecording else { return }
                 captured.append(subject[keyPath: keyPath])
                 arm()
@@ -59,6 +57,9 @@ func recordTransitions<Subject: AnyObject, Value>(
     arm()
 
     await work()
+    // Two hops: the first lets a final-change Task enqueue, the second lets it
+    // run, before re-arming stops.
+    await Task.yield()
     await Task.yield()
     keepRecording = false
     return captured
