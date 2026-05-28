@@ -597,7 +597,6 @@ extension SmartScanViewModel {
         let scanner = ClamAVScanner(detector: detector)
         let remover = MalwareThreatRemover()
         let loginManager = LoginItemsManager.live()
-        let home = FileManager.default.homeDirectoryForCurrentUser
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "SmartScanViewModel.live")
 
@@ -611,9 +610,16 @@ extension SmartScanViewModel {
             // binary must not sink an otherwise-useful Smart Scan. We log the
             // failure (rather than swallow it silently) so an unexpectedly
             // empty Malware card is debuggable, then degrade to "no threats".
+            //
+            // Scope matches the standalone Malware screen's default Quick Scan
+            // — the high-risk home subdirectories (Downloads/Desktop/Documents)
+            // rather than all of $HOME. A full-home clamscan reads every file's
+            // contents and dominated Smart Scan's wall-clock time, since the
+            // dashboard waits for every sub-scan before it can render.
             malwareScanner: {
+                let quickPaths = MalwareViewModel.defaultQuickScanPaths()
                 do {
-                    return try await scanner.scan(paths: [home], progress: { _ in })
+                    return try await scanner.scan(paths: quickPaths, progress: { _ in })
                 } catch {
                     log.error("Smart Scan malware sub-scan failed, treating as no threats: \(String(describing: error), privacy: .public)")
                     return []
