@@ -37,6 +37,21 @@ targets:
       - target: VaderCleanerHelper
         copy:
           destination: executables
+    postCompileScripts:
+      # Copies the bundled ClamAV binaries, dylibs, and data into the built
+      # .app and code-signs them. Runs before the Embed/Copy phases and the
+      # final bundle signing, as stage-clamav.sh requires. alwaysOutOfDate
+      # (basedOnDependencyAnalysis: false) so it re-stages on every build.
+      - name: Stage bundled ClamAV
+        script: "\"${SRCROOT}/Scripts/stage-clamav.sh\"\n"
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - "$(SRCROOT)/Vendor/clamav/bin/clamscan"
+          - "$(SRCROOT)/Vendor/clamav/bin/freshclam"
+        outputFiles:
+          - "$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/clamscan"
+          - "$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/freshclam"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleaner

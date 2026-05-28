@@ -2,6 +2,7 @@
 // State machine behind the Extensions Manager view — runs the five discoverers concurrently, groups results by ExtensionType, and routes removal between FileManager (user paths) and the privileged helper (/Library paths).
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Extensions Manager feature view (discover → group → remove).
@@ -10,7 +11,8 @@ import os.log
 /// transition without touching real extension state. Production wiring lives
 /// in `ExtensionsManagerViewModel.live()` below.
 @MainActor
-final class ExtensionsManagerViewModel: ObservableObject {
+@Observable
+final class ExtensionsManagerViewModel {
 
     /// Which step produced a `.failed` phase, so the view can pick the
     /// right heading and recovery affordance.
@@ -31,18 +33,18 @@ final class ExtensionsManagerViewModel: ObservableObject {
     typealias Discover = () async throws -> [ExtensionItem]
     typealias Remove   = (ExtensionItem) async throws -> Void
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var items: [ExtensionItem] = []
+    private(set) var phase: Phase = .idle
+    private(set) var items: [ExtensionItem] = []
 
-    private let discover: Discover
-    private let removal: Remove
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "ExtensionsManagerViewModel")
+    @ObservationIgnored private let discover: Discover
+    @ObservationIgnored private let removal: Remove
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "ExtensionsManagerViewModel")
 
     /// Monotonically increasing token so a stale discovery pass that
     /// resolves after a newer `refresh()` can't clobber fresh state — same
     /// pattern as the other feature view-models.
-    private var loadGeneration = 0
+    @ObservationIgnored private var loadGeneration = 0
 
     init(
         discover: @escaping Discover,

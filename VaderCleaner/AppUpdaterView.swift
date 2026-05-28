@@ -5,7 +5,7 @@ import SwiftUI
 
 struct AppUpdaterView: View {
 
-    @ObservedObject private var viewModel: AppUpdaterViewModel
+    private var viewModel: AppUpdaterViewModel
 
     init(viewModel: AppUpdaterViewModel) {
         self.viewModel = viewModel

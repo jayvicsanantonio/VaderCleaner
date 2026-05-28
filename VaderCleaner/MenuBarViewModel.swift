@@ -2,7 +2,7 @@
 // View-model backing the menu bar extra — formats SystemStatsService values into menu-bar-ready strings and a compact label for `MenuBarExtra`.
 
 import Foundation
-import Combine
+import Observation
 
 /// Drives the `MenuBarExtra` label and popover.
 ///
@@ -13,32 +13,21 @@ import Combine
 /// or driving real telemetry; instance properties forward live service state
 /// through those formatters.
 ///
-/// SwiftUI does not propagate a nested `ObservableObject`'s `objectWillChange`
-/// through an outer `ObservableObject` automatically — without an explicit
-/// Combine bridge in `init`, the popover would freeze on its first frame.
-/// `serviceCancellable` retains the bridge subscription for the lifetime of
-/// the view-model so each 2-second service tick fans out as a single VM
-/// change.
+/// No Combine bridge: under the Observation framework SwiftUI tracks the
+/// read chain `view → vm.someComputed → service.someProperty` transparently,
+/// so each 2-second service tick directly invalidates any view reading the
+/// matching computed property here.
 @MainActor
-final class MenuBarViewModel: ObservableObject {
+@Observable
+final class MenuBarViewModel {
 
     /// Live data source. Held strongly. The service is app-scope
     /// (`VaderCleanerApp.systemStats`) and outlives every consumer derived
     /// from it, so the strong reference does not extend its lifetime.
     let service: SystemStatsService
 
-    /// Combine subscription that re-publishes service ticks as view-model
-    /// changes. Stored so the sink lives as long as the VM does; without
-    /// retaining the cancellable the subscription would be torn down at the
-    /// end of `init` and the popover would freeze on its first frame.
-    private var serviceCancellable: AnyCancellable?
-
     init(service: SystemStatsService) {
         self.service = service
-        self.serviceCancellable = service.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
     }
 
     // MARK: - Live-bound display values

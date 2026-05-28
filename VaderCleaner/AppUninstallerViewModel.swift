@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import Observation
 import os.log
 
 /// Drives the App Uninstaller feature view (load apps → select → uninstall → done).
@@ -12,7 +13,8 @@ import os.log
 /// touching real disk state. Production wiring lives in
 /// `AppUninstallerViewModel.live()` below.
 @MainActor
-final class AppUninstallerViewModel: ObservableObject {
+@Observable
+final class AppUninstallerViewModel {
 
     /// Which step of the flow generated a `.failed` phase, so the view can
     /// pick the right heading.
@@ -40,37 +42,37 @@ final class AppUninstallerViewModel: ObservableObject {
     /// residue). Returns the byte-count actually freed.
     typealias Recycle      = @Sendable (_ bundleURL: URL, _ associatedURLs: [URL]) async throws -> Int64
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var apps: [AppInfo] = []
-    @Published private(set) var selectedAppID: AppInfo.ID?
-    @Published private(set) var associatedFiles: [AssociatedFile] = []
-    @Published private(set) var isLoadingAssociatedFiles: Bool = false
+    private(set) var phase: Phase = .idle
+    private(set) var apps: [AppInfo] = []
+    private(set) var selectedAppID: AppInfo.ID?
+    private(set) var associatedFiles: [AssociatedFile] = []
+    private(set) var isLoadingAssociatedFiles: Bool = false
     /// Bundle size of the currently selected app, computed lazily on
     /// selection. `nil` until the per-app size measurement returns.
-    @Published private(set) var selectedAppBundleSize: Int64?
-    @Published var includesSystemApps: Bool = false
-    @Published var searchQuery: String = ""
+    private(set) var selectedAppBundleSize: Int64?
+    var includesSystemApps: Bool = false
+    var searchQuery: String = ""
 
-    private let discover: Discover
-    private let findFiles: FindFiles
-    private let measureSize: MeasureSize
-    private let recycle: Recycle
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "AppUninstallerViewModel")
+    @ObservationIgnored private let discover: Discover
+    @ObservationIgnored private let findFiles: FindFiles
+    @ObservationIgnored private let measureSize: MeasureSize
+    @ObservationIgnored private let recycle: Recycle
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "AppUninstallerViewModel")
 
     /// Cached associated-files results keyed by bundle URL path. Selecting
     /// the same app twice in a session doesn't re-walk the filesystem.
-    private var associatedFilesCache: [AppInfo.ID: [AssociatedFile]] = [:]
+    @ObservationIgnored private var associatedFilesCache: [AppInfo.ID: [AssociatedFile]] = [:]
 
     /// Cached bundle sizes keyed by bundle URL path. The size walk is
     /// expensive on apps with many bundled frameworks, so we avoid
     /// repeating it after the first selection.
-    private var bundleSizeCache: [AppInfo.ID: Int64] = [:]
+    @ObservationIgnored private var bundleSizeCache: [AppInfo.ID: Int64] = [:]
 
     /// Monotonically increasing token for in-flight operations — see the
     /// same pattern in `PrivacyViewModel` for the rationale.
-    private var loadGeneration: Int = 0
-    private var selectGeneration: Int = 0
+    @ObservationIgnored private var loadGeneration: Int = 0
+    @ObservationIgnored private var selectGeneration: Int = 0
 
     init(
         discover: @escaping Discover,

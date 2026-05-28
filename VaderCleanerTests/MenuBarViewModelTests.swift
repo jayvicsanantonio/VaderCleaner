@@ -2,7 +2,7 @@
 // Tests that MenuBarViewModel formats SystemStatsService values into menu-bar-ready strings and bridges service ticks to the popover.
 
 import XCTest
-import Combine
+import Observation
 @testable import VaderCleaner
 
 @MainActor
@@ -170,28 +170,32 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertTrue(sut.service === service)
     }
 
-    /// SwiftUI does not propagate a nested `ObservableObject`'s
-    /// `objectWillChange` through an outer `ObservableObject` automatically.
-    /// Without an explicit Combine bridge in `init`, the menu bar popover
-    /// would freeze on its first frame. Same invariant
-    /// `HealthMonitorViewModel` has — pinned here independently because the
-    /// menu bar has its own subscription path.
-    func test_serviceObjectWillChange_propagatesToViewModel() {
+    /// Under the Observation framework SwiftUI tracks the read chain
+    /// `view → vm.formattedRAMUsage → service.ramUsage` transparently — no
+    /// manual `objectWillChange` bridge is required. This test pins that
+    /// invariant: registering tracking on the VM's computed property and
+    /// then mutating the service via `refresh()` must invoke `onChange`,
+    /// the same signal SwiftUI uses to re-render the popover.
+    func test_servicePropertyChange_invalidatesViewModelDerivedReads() {
         let service = SystemStatsService(interval: 2.0, autostart: false)
         let sut = MenuBarViewModel(service: service)
 
-        let expectation = XCTestExpectation(description: "VM re-publishes service tick")
-        var cancellables = Set<AnyCancellable>()
-        sut.objectWillChange
-            .sink { _ in expectation.fulfill() }
-            .store(in: &cancellables)
+        var fired = false
+        withObservationTracking {
+            _ = sut.formattedRAMUsage
+        } onChange: {
+            fired = true
+        }
 
-        // Drive a refresh — the service's @Published setters fire
-        // objectWillChange, which our bridge must forward to the VM so the
-        // popover re-renders.
+        // Drive a refresh — the service's tracked-property setters fire
+        // Observation registrations on every view (or test) that read the
+        // chain, so the popover re-renders without any extra wiring.
         service.refresh()
 
-        wait(for: [expectation], timeout: 1.0)
+        XCTAssertTrue(
+            fired,
+            "Mutating service.ramUsage must invalidate views observing vm.formattedRAMUsage"
+        )
     }
 
     /// Live-bound display values forward the service state through the pure

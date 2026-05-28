@@ -134,13 +134,14 @@ final class SystemStatsServiceTests: XCTestCase {
     // MARK: - Timer wiring
 
     /// "Updates stats on a timer" — the spec test from plan.md. We don't mock
-    /// `Timer` itself; instead we configure a tiny interval, subscribe to the
-    /// `objectWillChange` publisher *before* starting, and verify it fires
-    /// within a deadline. That proves the timer fans publishes out without
-    /// coupling the test to any internal scheduling abstraction.
+    /// `Timer` itself; instead we configure a tiny interval, observe the
+    /// Observation-tracked `ramUsage` reading *before* starting, and verify
+    /// it changes within a deadline. That proves the timer fans tracked-
+    /// property writes out without coupling the test to any internal
+    /// scheduling abstraction.
     ///
     /// The service is built with `autostart: false` and started manually
-    /// after the sink is attached. Otherwise the auto-fired
+    /// after the observation arms. Otherwise the auto-fired
     /// `refreshDeviceHealth()` from the init can satisfy this expectation
     /// via its background subprocess path even when the cheap-stats timer is
     /// broken — making the test pass spuriously.
@@ -149,7 +150,12 @@ final class SystemStatsServiceTests: XCTestCase {
         let didPublish = expectation(description: "service publishes on timer tick")
 
         var fired = false
-        let cancellable: AnyCancellable = service.objectWillChange.sink {
+        // Observation onChange runs in the same actor context the mutation
+        // happens on; both this test and the timer callback are on the main
+        // actor, so the closure body executes without an explicit hop.
+        withObservationTracking {
+            _ = service.ramUsage
+        } onChange: {
             // First publish wins; subsequent ticks would over-fulfil the
             // expectation otherwise (which XCTest treats as a failure).
             guard !fired else { return }
@@ -159,44 +165,59 @@ final class SystemStatsServiceTests: XCTestCase {
 
         service.start()
         wait(for: [didPublish], timeout: 2.0)
-        cancellable.cancel()
         service.stop()
     }
 
     func test_stop_haltsFurtherUpdates() {
         let service = SystemStatsService(interval: 0.05, autostart: false)
-        // Let one tick land so the baseline is established. Sink-then-start
+        // Let one tick land so the baseline is established. Observe-then-start
         // ordering guarantees the first publish we observe is timer-driven,
         // not the slow-path device-health refresh that the autostart init
         // would otherwise kick off.
         let firstTick = expectation(description: "first tick")
         var firstFired = false
-        var cancellable: AnyCancellable? = service.objectWillChange.sink {
+        withObservationTracking {
+            _ = service.ramUsage
+        } onChange: {
             guard !firstFired else { return }
             firstFired = true
             firstTick.fulfill()
         }
         service.start()
         wait(for: [firstTick], timeout: 2.0)
-        cancellable?.cancel()
 
         service.stop()
 
-        // After stop(), no further objectWillChange should fire within the
-        // window. We use a manual counter rather than an inverted
-        // XCTestExpectation because the timer can otherwise emit several
-        // events before XCTest unwinds the wait, over-fulfilling the
-        // expectation and tripping its internal assertion.
-        var ticksAfterStop = 0
-        cancellable = service.objectWillChange.sink {
-            ticksAfterStop += 1
+        // After stop(), no further tracked mutation should fire within the
+        // window. Re-arm tracking and count any onChange callbacks; with the
+        // timer stopped the counter must stay at zero. The recursive arm
+        // pattern catches the second/third/etc. tick if a regression
+        // re-enabled the timer mid-test.
+        let counter = TickCounter()
+        func arm() {
+            withObservationTracking {
+                _ = service.ramUsage
+            } onChange: {
+                MainActor.assumeIsolated {
+                    counter.bump()
+                    arm()
+                }
+            }
         }
+        arm()
         let settle = expectation(description: "settle window")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             settle.fulfill()
         }
         wait(for: [settle], timeout: 1.0)
-        cancellable?.cancel()
-        XCTAssertEqual(ticksAfterStop, 0, "Service emitted \(ticksAfterStop) updates after stop()")
+        XCTAssertEqual(counter.count, 0, "Service emitted \(counter.count) updates after stop()")
     }
+}
+
+/// Reference-typed counter so the arming closure can mutate a shared count
+/// without falling foul of Swift's capture-by-value rules for `Int`.
+@MainActor
+private final class TickCounter {
+    private(set) var count = 0
+    func bump() { count += 1 }
 }

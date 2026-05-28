@@ -2,7 +2,7 @@
 // Tests that HealthMonitorViewModel formats SystemStatsService values into display strings and status colors the Health Monitor cards bind to.
 
 import XCTest
-import Combine
+import Observation
 @testable import VaderCleaner
 
 @MainActor
@@ -264,27 +264,38 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertTrue(sut.service === service)
     }
 
-    /// Critical end-to-end invariant: when the underlying service publishes
-    /// a tick, the view-model must re-publish so views bound via
-    /// `@StateObject` re-evaluate their computed properties. SwiftUI does
-    /// not propagate a nested `ObservableObject`'s changes through an outer
-    /// `ObservableObject` automatically — without an explicit Combine
-    /// bridge in `init`, the Health Monitor would freeze on its first
-    /// frame. This test pins the bridge.
-    func test_serviceObjectWillChange_propagatesToViewModel() {
+    /// Critical end-to-end invariant: when the underlying service mutates a
+    /// tracked property, any view (or test) observing the VM's derived
+    /// reading must be invalidated. Under the Observation framework SwiftUI
+    /// tracks the read chain `view → vm.ramUsage → service.ramUsage`
+    /// transparently, so the Health Monitor re-renders on each tick
+    /// without a manual `objectWillChange` bridge.
+    ///
+    /// `ramUsage` rather than `cpuUsage` because the first `refresh()` seeds
+    /// `previousCPUTotals` and re-publishes the existing `cpuUsage` value —
+    /// the setter still fires under Observation, but pinning the assertion
+    /// to a property that actually changes is more robust against future
+    /// Observation-optimisation changes.
+    func test_servicePropertyChange_invalidatesViewModelDerivedReads() {
         let service = SystemStatsService(interval: 2.0, autostart: false)
         let sut = HealthMonitorViewModel(service: service)
 
-        let expectation = XCTestExpectation(description: "VM re-publishes service tick")
-        var cancellables = Set<AnyCancellable>()
-        sut.objectWillChange
-            .sink { _ in expectation.fulfill() }
-            .store(in: &cancellables)
+        var fired = false
+        withObservationTracking {
+            _ = sut.ramUsage
+        } onChange: {
+            fired = true
+        }
 
-        // Drive a refresh — the service's @Published setters fire
-        // objectWillChange, which our bridge must forward to the VM.
+        // Drive a refresh — the service's tracked-property setters fire
+        // Observation registrations on every view (or test) reading the
+        // chain, so the Health Monitor card re-renders without any extra
+        // wiring.
         service.refresh()
 
-        wait(for: [expectation], timeout: 1.0)
+        XCTAssertTrue(
+            fired,
+            "Mutating service.ramUsage must invalidate views observing vm.ramUsage"
+        )
     }
 }

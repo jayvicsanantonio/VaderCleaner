@@ -1,14 +1,14 @@
 // ContentView.swift
-// Root view — NavigationSplitView with sidebar listing all 11 sections and placeholder detail views.
+// Root scene composition — the navigation rail plus a section-keyed detail pane, with the floating Scan disc panel attached to the host window.
 
 import SwiftUI
 import AppKit
 
 struct ContentView: View {
-    @EnvironmentObject private var appState: AppState
-    @EnvironmentObject private var onboarding: PermissionOnboardingViewModel
-    @EnvironmentObject private var systemStats: SystemStatsService
-    @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
+    @Environment(AppState.self) private var appState
+    @Environment(PermissionOnboardingViewModel.self) private var onboarding
+    @Environment(SystemStatsService.self) private var systemStats
+    @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
     @Environment(\.scenePhase) private var scenePhase
     private let systemJunkViewModel: SystemJunkViewModel
     private let largeOldFilesViewModel: LargeOldFilesViewModel
@@ -31,11 +31,6 @@ struct ContentView: View {
     /// rapid taps into one pending dispatch so the navigation lands on the
     /// final target — never an intermediate one — with the matching direction.
     @State private var pendingSelection: NavigationSection?
-    /// Namespace for the sliding selection pill in the custom rail.
-    @Namespace private var pillNamespace
-    /// The section the pointer is currently over, if any. Drives the rail's
-    /// hover highlight — a quieter pill than the selection's.
-    @State private var hoveredSection: NavigationSection?
     /// Latched once the notification permission prompt has been issued for the
     /// session. Without this, an `.onChange` flurry (FDA refresh tick + sheet
     /// dismissal in the same cycle) would request authorization twice — the
@@ -49,7 +44,7 @@ struct ContentView: View {
     /// Owns the borderless child panel that hosts the floating Scan disc so it
     /// can straddle the window's bottom edge. Created with the scannable view
     /// models; attached once the host window resolves.
-    @StateObject private var scanDiscController: ScanDiscWindowController
+    @State private var scanDiscController: ScanDiscWindowController
     init(
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
@@ -72,7 +67,7 @@ struct ContentView: View {
         self.optimizationViewModel = optimizationViewModel
         self.malwareViewModel = malwareViewModel
         self.smartScanViewModel = smartScanViewModel
-        _scanDiscController = StateObject(wrappedValue: ScanDiscWindowController(
+        _scanDiscController = State(initialValue: ScanDiscWindowController(
             smartScanViewModel: smartScanViewModel,
             systemJunkViewModel: systemJunkViewModel,
             largeOldFilesViewModel: largeOldFilesViewModel,
@@ -92,12 +87,11 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // A custom rail of buttons (not a List) so selection can be a soft
-            // inset glass pill with generous spacing instead of the system's
-            // full-bleed selection bar. The rail and detail share one
-            // continuous gradient — no sidebar material, no divider.
-            rail
-                .frame(width: railWidth)
+            NavigationRailView(
+                selectedSection: selectedSection,
+                onSelect: selectSection
+            )
+            .frame(width: railWidth)
 
             // Hosts `.navigationTitle` / `.toolbar` for the detail screens
             // without reintroducing a split divider.
@@ -172,8 +166,8 @@ struct ContentView: View {
         .toolbarBackground(.hidden, for: .windowToolbar)
         .sheet(isPresented: shouldShowOnboarding) {
             PermissionOnboardingView()
-                .environmentObject(appState)
-                .environmentObject(onboarding)
+                .environment(appState)
+                .environment(onboarding)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -196,141 +190,6 @@ struct ContentView: View {
         .onDisappear {
             spaceLensViewModel.cancelScan()
         }
-    }
-
-    /// The navigation rail: one button per section with a soft glass
-    /// selection pill that marks the active row. Arrow-key navigation between
-    /// rows is intentionally not reimplemented (it was a `List` affordance);
-    /// the rows are focusable buttons, so Tab / Space / Return and VoiceOver
-    /// still work.
-    private var rail: some View {
-        ScrollView {
-            VStack(spacing: 6) {
-                ForEach(NavigationSection.allCases) { section in
-                    railRow(section)
-                }
-            }
-            .padding(.horizontal, 10)
-            // The content extends under the hidden title bar, so inset the
-            // first row clear of the window's traffic-light controls. The top
-            // and bottom insets, the row gap, and the row height are tuned
-            // together so all eleven rows fit a default-height window without
-            // scrolling.
-            .padding(.top, 58)
-            .padding(.bottom, 12)
-        }
-        // No scroll indicator: at a typical window height the eleven rows sit
-        // statically with no visible scrolling. The ScrollView is retained so
-        // the bottom rows stay reachable when a short window or a larger
-        // Dynamic Type size overflows the column.
-        .scrollIndicators(.hidden)
-        // Anchor the rail to the true window top. Detail screens declare
-        // different toolbars, which changes the window's top safe-area inset;
-        // without this the rail would ride that inset and shift vertically
-        // between sections. The `.padding(.top, 44)` above clears the
-        // traffic-light controls measured from this fixed top.
-        .ignoresSafeArea(.container, edges: .top)
-    }
-
-    private func railRow(_ section: NavigationSection) -> some View {
-        let isSelected = selectedSection == section
-        let isHovering = hoveredSection == section
-        return Button {
-            selectSection(section)
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: section.icon)
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.title3)
-                    // The icon stays neutral — matching the inactive label —
-                    // until the row is active or hovered, when it lights up in
-                    // the section's accent.
-                    .foregroundStyle(
-                        isSelected || isHovering
-                            ? section.theme.accent
-                            : Color.white.opacity(0.62)
-                    )
-                    .frame(width: 26)
-                Text(section.title)
-                    .font(.body)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(isSelected || isHovering ? Color.white : Color.white.opacity(0.62))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-            .background {
-                if isSelected {
-                    // A translucent pill — the dark page shows through, lifted
-                    // by a soft horizontal sheen that is brightest at the left
-                    // and right edges and dims behind the label in the centre.
-                    // No accent tint: a saturated glass fill reads as a solid
-                    // button, not the see-through surface the reference uses.
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(0.22),
-                                    .white.opacity(0.07),
-                                    .white.opacity(0.22),
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .overlay {
-                            // A hairline rim in the section's accent, brightest
-                            // along the leading edge and fading across to the
-                            // trailing edge, so the active pill reads as a lit,
-                            // colour-keyed glass surface.
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [
-                                            section.theme.accent.opacity(0.85),
-                                            section.theme.accent.opacity(0.25),
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        }
-                        .matchedGeometryEffect(id: "selectionPill", in: pillNamespace)
-                } else if isHovering {
-                    // Hover highlight — a quieter pill than the selection: a
-                    // fainter flat fill and a dim hairline border, no top-lit
-                    // sheen, so the hover and active states stay clearly
-                    // distinct.
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
-                        }
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        // Suppress the macOS keyboard focus ring. Without this the first
-        // focusable row wears the system's blue halo on launch; the rail's
-        // selection pill is its own state indicator.
-        .focusEffectDisabled()
-        // Track the pointer so the row can show its hover highlight. Clearing
-        // only when *this* section is the one being left avoids a stale value
-        // when the pointer crosses straight from one row to the next.
-        .onHover { hovering in
-            if hovering {
-                hoveredSection = section
-            } else if hoveredSection == section {
-                hoveredSection = nil
-            }
-        }
-        .animation(.easeOut(duration: 0.15), value: isHovering)
-        .accessibilityIdentifier(section.accessibilityIdentifier)
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     /// Applies a sidebar selection, recording the travel direction first and
@@ -474,83 +333,6 @@ private extension AnyTransition {
     }
 }
 
-/// Gates a scannable section between the unified `SectionIntroView` and its
-/// own detail view. The coordinator is held as `@ObservedObject` here — not in
-/// ContentView, where the view models are plain `let`s — so the swap is
-/// reactive: tapping the floating Scan flips `scanPresentation` off `.intro`
-/// and this view rebuilds into the detail view. The detail closure is not
-/// evaluated while at `.intro`, so the section's auto-load `.task`/`.onAppear`
-/// stays gated behind Scan rather than firing under the intro.
-private struct ScannableSectionContent<Coordinator: ScanCoordinating, Detail: View>: View {
-    @ObservedObject var coordinator: Coordinator
-    let section: NavigationSection
-    @ViewBuilder let detail: () -> Detail
-
-    var body: some View {
-        // A plain ZStack so the body's root carries no `.transition` of its
-        // own. The intro↔scan crossfade lives one level in, on `content`;
-        // keeping it off the root lets the outer section-navigation slide
-        // (applied to this view by `ContentView`) act on a clean container
-        // instead of colliding with this wrapper's own transition.
-        ZStack {
-            content
-                // Reuse SmartScanView's phase-transition pattern so the
-                // intro → scan swap crossfades instead of hard-cutting.
-                .id(phaseTransitionID)
-                .transition(.opacity)
-                .animation(.smooth(duration: 0.35), value: phaseTransitionID)
-        }
-    }
-
-    /// Binary token: only the intro ↔ detail boundary crossfades. It is
-    /// deliberately *not* the full three-state `ScanPresentation` — `.working`
-    /// and `.results` both render `detail()`, so distinguishing them here
-    /// would change the view identity on the working → results boundary and
-    /// rebuild the live detail view mid-scan (re-running its `.task`/`onAppear`
-    /// and dropping in-progress state). The detail view owns its own
-    /// working → results transition; `SmartScanView` already crossfades its
-    /// internal phases with this same pattern.
-    private var phaseTransitionID: String {
-        coordinator.scanPresentation == .intro ? "intro" : "detail"
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if coordinator.scanPresentation == .intro,
-           let presentation = SectionPresentation.for(section) {
-            SectionIntroView(presentation: presentation, section: section)
-        } else {
-            // `.working`/`.results`, or the defensive case of a scannable
-            // section with no presentation metadata: the section's own
-            // detail view is the source of truth for every non-intro phase.
-            detail()
-        }
-    }
-}
-
-/// Resolves the `NSWindow` hosting a SwiftUI view. SwiftUI exposes no direct
-/// handle to its window, so this zero-size representable reads `view.window`
-/// once the view joins the hierarchy and hands it to `onResolve`. `onResolve`
-/// can be called more than once — across a window close/reopen, or on a later
-/// layout pass — so callers must treat it as idempotent.
-private struct WindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        // `view.window` is nil until the view joins the hierarchy; resolve on
-        // the next runloop tick, once it has a window.
-        DispatchQueue.main.async {
-            if let window = view.window { onResolve(window) }
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if let window = nsView.window { onResolve(window) }
-    }
-}
-
 #Preview {
     let stats = SystemStatsService(autostart: false)
     let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "preview")!)
@@ -571,10 +353,10 @@ private struct WindowAccessor: NSViewRepresentable {
         ),
         smartScanViewModel: SmartScanViewModel.live(exclusions: exclusions)
     )
-        .environmentObject(AppState(checker: { true }))
-        .environmentObject(PermissionOnboardingViewModel())
-        .environmentObject(stats)
-        .environmentObject(NotificationThresholdMonitor(
+        .environment(AppState(checker: { true }))
+        .environment(PermissionOnboardingViewModel())
+        .environment(stats)
+        .environment(NotificationThresholdMonitor(
             stats: stats,
             preferences: prefs,
             dispatcher: notificationManager

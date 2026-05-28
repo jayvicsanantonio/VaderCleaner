@@ -82,7 +82,6 @@ final class DiskScannerViewModelTests: XCTestCase {
             isDirectory: true,
             children: []
         )
-        var observed: [Double] = []
         let vm = DiskScannerViewModel(scanner: { _, progress in
             progress(10)   // 10% of 100
             await Task.yield()
@@ -93,11 +92,10 @@ final class DiskScannerViewModelTests: XCTestCase {
             return synthetic
         })
 
-        // Snapshot scanProgress every time the published value changes.
-        let cancellable = vm.$scanProgress.sink { observed.append($0) }
-        defer { cancellable.cancel() }
-
-        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 100)
+        // Snapshot scanProgress every time the observed value changes.
+        let observed = await recordTransitions(of: \.scanProgress, on: vm) {
+            await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 100)
+        }
 
         // Progress callback must have produced at least one value strictly
         // between 0 and 1 during the scan, never exceeding 1.0.

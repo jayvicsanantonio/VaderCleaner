@@ -3,6 +3,7 @@
 
 import Combine
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Optimization feature view. Collaborators are injected as
@@ -10,7 +11,8 @@ import os.log
 /// real login-item / launchd / privileged-helper state. Production wiring
 /// lives in `OptimizationViewModel.live()`.
 @MainActor
-final class OptimizationViewModel: ObservableObject {
+@Observable
+final class OptimizationViewModel {
 
     /// Discrete phases the view binds to. `working` covers any one-shot
     /// action (flush, maintenance, toggle, disable, remove); `failed` carries
@@ -32,33 +34,33 @@ final class OptimizationViewModel: ObservableObject {
     typealias FlushRAM = () async throws -> Void
     typealias RunMaintenance = () async throws -> String
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var loginItems: [LoginItem] = []
-    @Published private(set) var userAgents: [LaunchAgent] = []
-    @Published private(set) var systemAgents: [LaunchAgent] = []
-    @Published private(set) var memory: MemoryStats = .empty
-    @Published private(set) var ramResult: String?
-    @Published private(set) var maintenanceOutput: String?
+    private(set) var phase: Phase = .idle
+    private(set) var loginItems: [LoginItem] = []
+    private(set) var userAgents: [LaunchAgent] = []
+    private(set) var systemAgents: [LaunchAgent] = []
+    private(set) var memory: MemoryStats = .empty
+    private(set) var ramResult: String?
+    private(set) var maintenanceOutput: String?
 
-    private let loadLoginItems: LoadLoginItems
-    private let loadUserAgents: LoadAgents
-    private let loadSystemAgents: LoadAgents
-    private let readMemory: ReadMemory
-    private let setLoginItemEnabled: SetLoginItemEnabled
-    private let disableAgent: DisableAgent
-    private let removeAgent: RemoveAgent
-    private let flushRAMAction: FlushRAM
-    private let runMaintenance: RunMaintenance
+    @ObservationIgnored private let loadLoginItems: LoadLoginItems
+    @ObservationIgnored private let loadUserAgents: LoadAgents
+    @ObservationIgnored private let loadSystemAgents: LoadAgents
+    @ObservationIgnored private let readMemory: ReadMemory
+    @ObservationIgnored private let setLoginItemEnabled: SetLoginItemEnabled
+    @ObservationIgnored private let disableAgent: DisableAgent
+    @ObservationIgnored private let removeAgent: RemoveAgent
+    @ObservationIgnored private let flushRAMAction: FlushRAM
+    @ObservationIgnored private let runMaintenance: RunMaintenance
 
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "OptimizationViewModel")
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "OptimizationViewModel")
 
     /// Monotonic token so a stale load resolving after a newer `refresh()`
     /// can't clobber fresh state — same pattern as the other feature
     /// view-models.
-    private var loadGeneration = 0
+    @ObservationIgnored private var loadGeneration = 0
 
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     init(
         loadLoginItems: @escaping LoadLoginItems,
@@ -302,12 +304,40 @@ extension OptimizationViewModel {
             flushRAM: { try await ram.flush() },
             runMaintenance: { try await maintenance.run() },
             // Reflect a Preferences-side toggle in this view's row. See
-            // the `init` comment for why ordering matters here.
-            launchAtLoginChanges: preferences.$launchAtLogin
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher()
+            // the `init` comment for why ordering matters here. The bridge
+            // converts `PreferencesStore`'s Observation-tracked property
+            // into the `AnyPublisher` shape the view-model already consumes,
+            // so the test surface (mockable PassthroughSubject) stays intact.
+            launchAtLoginChanges: launchAtLoginChangePublisher(for: preferences)
         )
+    }
+
+    /// Bridges `PreferencesStore.launchAtLogin` (an Observation-tracked
+    /// property) into an `AnyPublisher<Void, Never>` so callers built around
+    /// the older Combine seam keep working unchanged. Each detected change
+    /// hops back to the main actor before re-arming the registration —
+    /// `withObservationTracking`'s `onChange` fires exactly once per
+    /// registration, so the closure that wants a continuous stream must
+    /// re-register itself after every emission. Exposed `internal` so the
+    /// integration test in `OptimizationViewModelTests` can wire up the
+    /// same bridge `live()` builds and pin the willSet/didSet ordering.
+    @MainActor
+    static func launchAtLoginChangePublisher(
+        for preferences: PreferencesStore
+    ) -> AnyPublisher<Void, Never> {
+        let subject = PassthroughSubject<Void, Never>()
+        func arm() {
+            withObservationTracking {
+                _ = preferences.launchAtLogin
+            } onChange: {
+                Task { @MainActor in
+                    subject.send(())
+                    arm()
+                }
+            }
+        }
+        arm()
+        return subject.eraseToAnyPublisher()
     }
 }
 

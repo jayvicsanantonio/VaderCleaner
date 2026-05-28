@@ -10,7 +10,7 @@ import SwiftUI
 /// Run disc has no Full Disk Access popover: FDA was already evaluated when
 /// the user kicked off the scan; Run just acts on items the user opted into.
 struct FloatingRunOverlay: View {
-    @ObservedObject var viewModel: SmartScanViewModel
+    var viewModel: SmartScanViewModel
     let section: NavigationSection
     /// Called whenever the disc's results-phase presence changes, so the
     /// owning window controller can order its panel in or out to match.

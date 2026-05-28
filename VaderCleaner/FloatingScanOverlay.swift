@@ -13,14 +13,14 @@ import AppKit
 /// whether the disc is currently on screen so the controller can show or hide
 /// that panel in step.
 struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
-    @ObservedObject var coordinator: Coordinator
+    let coordinator: Coordinator
     let section: NavigationSection
     /// Called whenever the disc's `.intro`-phase presence changes, so the
     /// owning window controller can order its panel in or out to match.
     var onIntroPresenceChanged: (Bool) -> Void = { _ in }
 
     /// Observed so a Scan tap can be gated on the live Full Disk Access flag.
-    @EnvironmentObject private var appState: AppState
+    @Environment(AppState.self) private var appState
 
     /// Drives the Full Disk Access popover anchored to the Scan disc. Set true
     /// when the user taps Scan on an FDA-sensitive section without access; the

@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import Observation
 import os.log
 
 /// Outcome of a single update-feed lookup. `.unreachable` is the
@@ -33,7 +34,8 @@ enum CheckResult<Payload: Sendable>: Sendable {
 /// every transition without touching real apps or the network. Production
 /// wiring lives in `AppUpdaterViewModel.live()`.
 @MainActor
-final class AppUpdaterViewModel: ObservableObject {
+@Observable
+final class AppUpdaterViewModel {
 
     /// Discrete phases the view binds to.
     enum Phase: Equatable {
@@ -48,20 +50,20 @@ final class AppUpdaterViewModel: ObservableObject {
     typealias CheckSparkle   = @Sendable (_ app: AppInfo) async -> CheckResult<SparkleAppcastItem>
     typealias Opener         = @Sendable (_ url: URL) async -> Void
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var availableUpdates: [UpdateInfo] = []
+    private(set) var phase: Phase = .idle
+    private(set) var availableUpdates: [UpdateInfo] = []
 
-    private let discover: Discover
-    private let checkAppStore: CheckAppStore
-    private let checkSparkle: CheckSparkle
-    private let opener: Opener
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "AppUpdaterViewModel")
+    @ObservationIgnored private let discover: Discover
+    @ObservationIgnored private let checkAppStore: CheckAppStore
+    @ObservationIgnored private let checkSparkle: CheckSparkle
+    @ObservationIgnored private let opener: Opener
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "AppUpdaterViewModel")
 
     /// Monotonic counter — a second `checkForUpdates()` invalidates the
     /// older results so a slow first pass can't overwrite a fresh second
     /// pass with stale data. Same pattern as `AppUninstallerViewModel`.
-    private var checkGeneration: Int = 0
+    @ObservationIgnored private var checkGeneration: Int = 0
 
     init(
         discover: @escaping Discover,

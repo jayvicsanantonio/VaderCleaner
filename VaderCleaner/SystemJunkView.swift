@@ -16,8 +16,8 @@ import SwiftUI
 /// can drive the flow without relying on label localisation.
 struct SystemJunkView: View {
 
-    @ObservedObject private var viewModel: SystemJunkViewModel
-    @EnvironmentObject private var appState: AppState
+    private var viewModel: SystemJunkViewModel
+    @Environment(AppState.self) private var appState
 
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
@@ -278,5 +278,5 @@ struct SystemJunkEmptyPreviewState: View {
         deleter: { _ in 0 }
     ))
     .frame(width: 700, height: 480)
-    .environmentObject(AppState(checker: { true }))
+    .environment(AppState(checker: { true }))
 }

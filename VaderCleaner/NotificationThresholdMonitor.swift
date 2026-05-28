@@ -2,7 +2,7 @@
 // Bridges SystemStatsService readings + PreferencesStore toggles to NotificationDispatching, with a per-kind cooldown to prevent spam.
 
 import Foundation
-import Combine
+import Observation
 
 /// Watches `SystemStatsService` and dispatches threshold-based notifications
 /// (low disk, high RAM) through a `NotificationDispatching` instance, gated by
@@ -28,7 +28,8 @@ import Combine
 /// across the cooldown boundary without sleeping. The dispatcher is protocol-
 /// backed so tests can record calls without scheduling real notifications.
 @MainActor
-final class NotificationThresholdMonitor: ObservableObject {
+@Observable
+final class NotificationThresholdMonitor {
 
     /// Notification kinds that share the cooldown table. Adding a new kind
     /// here requires updating the toggle gate in the `evaluate…` / `trigger…`
@@ -43,16 +44,16 @@ final class NotificationThresholdMonitor: ObservableObject {
 
     // MARK: - Dependencies
 
-    private let stats: SystemStatsService
-    private let preferences: PreferencesStore
-    private let dispatcher: NotificationDispatching
-    private let cooldown: TimeInterval
-    private let now: () -> Date
+    @ObservationIgnored private let stats: SystemStatsService
+    @ObservationIgnored private let preferences: PreferencesStore
+    @ObservationIgnored private let dispatcher: NotificationDispatching
+    @ObservationIgnored private let cooldown: TimeInterval
+    @ObservationIgnored private let now: () -> Date
 
     /// Last dispatch timestamp per `Kind`. A missing entry means "never fired",
     /// which the cooldown check treats as "elapsed" so the first eligible
     /// reading after launch always dispatches.
-    private var lastFired: [Kind: Date] = [:]
+    @ObservationIgnored private var lastFired: [Kind: Date] = [:]
 
     /// Flips to `true` once `requestPermission()` has resolved (the user
     /// either accepted or denied the system prompt). Until then, threshold
@@ -62,11 +63,14 @@ final class NotificationThresholdMonitor: ObservableObject {
     /// stamping a 5-minute cooldown against a notification that never
     /// surfaced would suppress the next genuine alert immediately after
     /// the user grants permission.
-    private var hasResolvedPermission: Bool
+    @ObservationIgnored private var hasResolvedPermission: Bool
 
-    /// Combine subscriptions from `SystemStatsService.$diskSpace` /
-    /// `$ramUsage`. Held in `cancellables` so they tear down with `self`.
-    private var cancellables: Set<AnyCancellable> = []
+    /// Observation re-arming tasks driving `evaluate(disk:)` / `evaluate(ram:)`
+    /// off `SystemStatsService.diskSpace` / `.ramUsage`. Held so they tear
+    /// down with `self`; `deinit` cancels each so the recursive
+    /// `withObservationTracking` registrations stop re-arming once the
+    /// monitor is gone.
+    @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
 
     // MARK: - Init
 
@@ -106,21 +110,58 @@ final class NotificationThresholdMonitor: ObservableObject {
         self.now = now
         self.hasResolvedPermission = assumesPermissionResolved
 
-        // Drop the first emission from each publisher because `@Published`
-        // sends the initial value immediately on subscription. That initial
-        // value is `DiskStats.empty` / `MemoryStats.empty` — both at zero —
-        // which would falsely register as "0% free, fire low-disk!" the
-        // moment the monitor is constructed. After the first real `refresh()`
-        // the publishers emit honest readings.
-        stats.$diskSpace
-            .dropFirst()
-            .sink { [weak self] disk in self?.evaluate(disk: disk) }
-            .store(in: &cancellables)
+        // Observation-only delivery (no initial value) is exactly the
+        // `.dropFirst()` semantics the old `@Published` subscription enforced
+        // by hand: the original initial `DiskStats.empty` / `MemoryStats.empty`
+        // readings would otherwise register as "0% free, fire low-disk!" the
+        // moment the monitor is constructed. `withObservationTracking`'s
+        // `onChange` fires only on actual mutations, so the first real
+        // `refresh()` is what wakes each task.
+        observationTasks.append(Self.observe(
+            { stats.diskSpace },
+            handler: { [weak self] disk in self?.evaluate(disk: disk) }
+        ))
+        observationTasks.append(Self.observe(
+            { stats.ramUsage },
+            handler: { [weak self] ram in self?.evaluate(ram: ram) }
+        ))
+    }
 
-        stats.$ramUsage
-            .dropFirst()
-            .sink { [weak self] ram in self?.evaluate(ram: ram) }
-            .store(in: &cancellables)
+    deinit {
+        for task in observationTasks {
+            task.cancel()
+        }
+    }
+
+    /// Drives `handler` once for every detected change of `read()`. Bridges the
+    /// single-shot `withObservationTracking { … } onChange:` registration into
+    /// a continuous stream by re-arming after each emission. Marked `static`
+    /// so it doesn't capture `self` — the handler is the only weakly-captured
+    /// reference back to the monitor.
+    @MainActor
+    private static func observe<Value>(
+        _ read: @escaping @MainActor () -> Value,
+        handler: @escaping @MainActor (Value) -> Void
+    ) -> Task<Void, Never> {
+        Task { @MainActor in
+            while !Task.isCancelled {
+                // `onChange` fires synchronously during the mutation's
+                // `willSet`, so reading the value there would observe the old
+                // value. Resume the continuation without a payload and read
+                // afterwards — by then the new value is committed, and we skip
+                // the per-change `Task` allocation that would otherwise widen
+                // the window where a rapid second mutation goes unobserved.
+                await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = read()
+                    } onChange: {
+                        continuation.resume()
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                handler(read())
+            }
+        }
     }
 
     // MARK: - Threshold evaluation (public for testability)

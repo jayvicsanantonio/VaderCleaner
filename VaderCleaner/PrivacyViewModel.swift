@@ -2,6 +2,7 @@
 // State machine and selection logic behind the Privacy feature view — drives idle/scanning/preview/clearing/complete transitions and routes the user's per-browser per-category selection through an injected clearer plus a recent-files manager.
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Privacy feature view (preview → clear → done).
@@ -22,7 +23,8 @@ import os.log
 /// every transition without touching real disk state. Production wiring
 /// lives in `PrivacyViewModel.live(...)`.
 @MainActor
-final class PrivacyViewModel: ObservableObject {
+@Observable
+final class PrivacyViewModel {
 
     /// Which step of the flow generated a `.failed` phase, so the view can
     /// pick the right heading. Mirrors `SystemJunkViewModel.FailureStage`.
@@ -53,38 +55,38 @@ final class PrivacyViewModel: ObservableObject {
     typealias Clearer              = @Sendable (Browser, PrivacyCategory) async throws -> Void
     typealias RecentFilesClearer   = @MainActor @Sendable () async throws -> Void
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var detectedBrowsers: [Browser] = []
-    @Published private(set) var checkedSelections: Set<Selection> = []
-    @Published private(set) var isClearRecentsChecked: Bool = true
+    private(set) var phase: Phase = .idle
+    private(set) var detectedBrowsers: [Browser] = []
+    private(set) var checkedSelections: Set<Selection> = []
+    private(set) var isClearRecentsChecked: Bool = true
 
-    private let detector: Detector
-    private let sizer: Sizer
-    private let pathsFor: PathsResolver
-    private let clearer: Clearer
-    private let clearRecentFiles: RecentFilesClearer
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "PrivacyViewModel")
+    @ObservationIgnored private let detector: Detector
+    @ObservationIgnored private let sizer: Sizer
+    @ObservationIgnored private let pathsFor: PathsResolver
+    @ObservationIgnored private let clearer: Clearer
+    @ObservationIgnored private let clearRecentFiles: RecentFilesClearer
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "PrivacyViewModel")
 
     /// Monotonically increasing token for preview / clear work. When a
     /// newer operation starts, older tasks can still finish winding down,
     /// but they must not publish stale results back into the UI.
-    private var operationGeneration: Int = 0
+    @ObservationIgnored private var operationGeneration: Int = 0
 
     /// Handle for the currently-running Privacy operation. A new preview,
     /// clear, reset, or view-model teardown cancels the old one so expensive
     /// browser-data filesystem work does not keep competing in the
     /// background after the user has moved on.
-    private var currentOperationTask: Task<Void, Never>?
+    @ObservationIgnored private var currentOperationTask: Task<Void, Never>?
 
     /// Cached per-cell sizes, populated at the end of `preview()` so the
     /// view's row labels and `totalSelectedSize` compute in O(1).
-    private var sizesByBrowserCategory: [Selection: Int64] = [:]
+    @ObservationIgnored private var sizesByBrowserCategory: [Selection: Int64] = [:]
 
     /// Cached per-cell paths, populated alongside preview sizes so SwiftUI
     /// rendering and checkbox toggles don't synchronously resolve browser
     /// profile directories on the main actor.
-    private var pathsByBrowserCategory: [Selection: [URL]] = [:]
+    @ObservationIgnored private var pathsByBrowserCategory: [Selection: [URL]] = [:]
 
     init(
         detector: @escaping Detector,

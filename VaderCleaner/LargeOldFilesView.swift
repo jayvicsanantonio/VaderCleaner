@@ -8,11 +8,11 @@ import SwiftUI
 /// dedicated subviews render each phase, the table, rows, and footer.
 struct LargeOldFilesView: View {
 
-    @ObservedObject private var viewModel: LargeOldFilesViewModel
-    @StateObject private var fileIconCache = FileIconCache()
-    @EnvironmentObject private var notificationMonitor: NotificationThresholdMonitor
-    @EnvironmentObject private var exclusions: ExclusionsStore
-    @EnvironmentObject private var appState: AppState
+    @Bindable private var viewModel: LargeOldFilesViewModel
+    @State private var fileIconCache = FileIconCache()
+    @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
+    @Environment(ExclusionsStore.self) private var exclusions
+    @Environment(AppState.self) private var appState
 
     /// Drives the "Are you sure?" alert before destructive actions. Held on
     /// the view rather than the VM so the confirmation copy can reference
@@ -161,6 +161,6 @@ private struct PendingDeletion: Identifiable {
         deleter: { _ in [] }
     ))
     .frame(width: 800, height: 520)
-    .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
-    .environmentObject(AppState(checker: { true }))
+    .environment(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
+    .environment(AppState(checker: { true }))
 }

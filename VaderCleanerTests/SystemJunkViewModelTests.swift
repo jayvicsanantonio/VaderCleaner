@@ -23,26 +23,70 @@ final class SystemJunkViewModelTests: XCTestCase {
     // MARK: - Scan transitions
 
     /// `scan()` must advance through `.scanning` and land on `.preview` once
-    /// the injected scanner closure resolves. We capture every emitted phase
-    /// from `$phase.sink` to assert the transient `.scanning` value really
-    /// appeared — without that subscription the test could pass even if the
-    /// VM jumped straight from `.idle` to `.preview`.
+    /// the injected scanner closure resolves. We assert the transient
+    /// `.scanning` value with a continuation-gated scanner — once the gate
+    /// suspends the scan, the test reads `phase` directly. Without that
+    /// gate the test would silently pass even if the VM jumped straight
+    /// from `.idle` to `.preview`. The post-gate assertion confirms the
+    /// terminal phase is `.preview(result)`. Same pattern
+    /// `ScanCoordinatingConformanceTests` uses to pin `.scanning`.
     func test_scan_transitionsIdleToScanningToPreview() async {
         let result = makeResult(
             (.userCache, [makeFile(name: "a", size: 100, category: .userCache)]),
             (.userLogs,  [makeFile(name: "b", size: 200, category: .userLogs)])
         )
-        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        let gate = ScanPhaseGate()
+        let vm = makeViewModel(
+            scanner: {
+                await gate.wait()
+                return result
+            },
+            deleter: noopDeleter
+        )
 
-        var phases: [SystemJunkViewModel.Phase] = []
-        let cancellable = vm.$phase.sink { phases.append($0) }
+        XCTAssertEqual(vm.phase, .idle, "Expected initial phase to be .idle")
 
-        await vm.scan()
-        cancellable.cancel()
+        let task = Task { await vm.scan() }
+        await yieldUntil({ vm.phase == .scanning }, "scan() advanced to .scanning")
+        XCTAssertEqual(vm.phase, .scanning)
 
-        XCTAssertEqual(phases.first, .idle, "Expected initial .idle to be replayed by sink")
-        XCTAssertTrue(phases.contains(.scanning), "Expected to observe .scanning during scan()")
-        XCTAssertEqual(phases.last, .preview(result))
+        await gate.open()
+        await task.value
+        XCTAssertEqual(vm.phase, .preview(result))
+    }
+
+    /// Single-shot continuation gate so the test can freeze `scan()` mid-flight
+    /// to observe `.scanning`, then resume to observe `.preview`. Mirrors
+    /// `ScanCoordinatingConformanceTests.ScanGate`; lives here so this file
+    /// stays self-contained.
+    @MainActor
+    private final class ScanPhaseGate {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var opened = false
+
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+
+        func open() {
+            opened = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    private func yieldUntil(
+        _ predicate: () -> Bool,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<2000 {
+            if predicate() { return }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for: \(message)", file: file, line: line)
     }
 
     /// All categories present in the scan result must be checked by default —

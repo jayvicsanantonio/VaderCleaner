@@ -2,7 +2,7 @@
 // Observable list of paths excluded from scanning — backed by UserDefaults, dedupes on add.
 
 import Foundation
-import Combine
+import Observation
 
 /// Holds the user's list of absolute paths that scanners must skip. Persisted as a
 /// single `[String]` value in `UserDefaults` so the list survives relaunch.
@@ -11,7 +11,8 @@ import Combine
 /// can never appear twice in the UI. Future prompts (notably Prompt 26) will
 /// inject this store into every scanner so exclusions take effect everywhere.
 @MainActor
-final class ExclusionsStore: ObservableObject {
+@Observable
+final class ExclusionsStore {
 
     private enum Key {
         static let exclusions = "exclusions.paths"
@@ -19,9 +20,9 @@ final class ExclusionsStore: ObservableObject {
 
     /// Current list of excluded absolute paths. Order is insertion order — the
     /// UI relies on this so adds appear at the end of the list.
-    @Published private(set) var exclusions: [String]
+    private(set) var exclusions: [String]
 
-    private let defaults: UserDefaults
+    @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

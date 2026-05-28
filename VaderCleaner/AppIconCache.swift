@@ -2,7 +2,7 @@
 // Per-bundle NSImage cache for the App Uninstaller list so rendering rows doesn't call NSWorkspace.shared.icon(forFile:) synchronously inside SwiftUI body.
 
 import AppKit
-import Combine
+import Observation
 
 /// Caches `NSWorkspace.shared.icon(forFile:)` results keyed by the
 /// `.app` bundle URL. The App Uninstaller list pre-loads icons on a
@@ -17,21 +17,25 @@ import Combine
 /// asset-catalog icon — there's no shared "kind" key the way `.png`
 /// or `.txt` share one.
 @MainActor
-final class AppIconCache: ObservableObject {
+@Observable
+final class AppIconCache {
     /// Bumped after every batch of pre-loaded icons so SwiftUI views
     /// observing the cache re-render and pick up the freshly cached
-    /// images.
-    @Published private(set) var revision: Int = 0
+    /// images. Read by `icon(for:)` so any view that asks for an icon
+    /// is automatically re-rendered on the next batch, while individual
+    /// `icons` writes inside the batch loop do not each trigger a
+    /// separate invalidation.
+    private(set) var revision: Int = 0
 
-    private var icons: [String: NSImage] = [:]
-    private let placeholderIcon: NSImage
-    private let loader: (URL) -> NSImage
-    private let workQueue = DispatchQueue(label: "com.personal.VaderCleaner.app-icon-cache",
-                                          qos: .userInitiated)
+    @ObservationIgnored private var icons: [String: NSImage] = [:]
+    @ObservationIgnored private let placeholderIcon: NSImage
+    @ObservationIgnored private let loader: (URL) -> NSImage
+    @ObservationIgnored private let workQueue = DispatchQueue(label: "com.personal.VaderCleaner.app-icon-cache",
+                                                              qos: .userInitiated)
 
     /// `nonisolated` so SwiftUI views (which initialize at non-isolated
-    /// scope) can construct the cache inline as a `@StateObject` default.
-    /// All published mutation flows through `preloadIcons(for:)`, which
+    /// scope) can construct the cache inline as a `@State` default. All
+    /// published mutation flows through `preloadIcons(for:)`, which
     /// remains main-actor isolated.
     nonisolated init(
         placeholderIcon: NSImage = NSWorkspace.shared.icon(for: .application),
@@ -47,7 +51,11 @@ final class AppIconCache: ObservableObject {
     /// application placeholder if the icon hasn't been pre-loaded yet.
     /// Safe to call from inside a SwiftUI `body`.
     func icon(for bundleURL: URL) -> NSImage {
-        icons[bundleURL.path] ?? placeholderIcon
+        // Observation framework only re-renders a view when it reads a
+        // tracked property; touching `revision` here subscribes any
+        // caller's body to the per-batch bump that `preloadIcons` issues.
+        _ = revision
+        return icons[bundleURL.path] ?? placeholderIcon
     }
 
     /// Pre-load icons for `urls` on a background queue. Idempotent —

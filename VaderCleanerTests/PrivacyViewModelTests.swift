@@ -30,11 +30,9 @@ final class PrivacyViewModelTests: XCTestCase {
             sizer: { _, _ in 100 }
         )
 
-        var phases: [PrivacyViewModel.Phase] = []
-        let cancellable = vm.$phase.sink { phases.append($0) }
-
-        await vm.preview()
-        cancellable.cancel()
+        let phases = await recordTransitions(of: \.phase, on: vm) {
+            await vm.preview()
+        }
 
         XCTAssertEqual(phases.first, .idle)
         XCTAssertTrue(phases.contains(.scanning))

@@ -2,6 +2,7 @@
 // State machine and progress tracker behind Space Lens — drives idle/scanning/ready/error transitions and clamps the injected scanner's progress callbacks into a 0–1 published value.
 
 import Foundation
+import Observation
 import os.log
 
 /// Drives the Space Lens detail view. Holds the discrete `Phase` the view
@@ -14,7 +15,8 @@ import os.log
 /// while unit tests inject a closure that returns a synthetic
 /// `DiskNode` and drives the progress callback at controlled points.
 @MainActor
-final class DiskScannerViewModel: ObservableObject {
+@Observable
+final class DiskScannerViewModel {
 
     /// Type of the injected scan closure. Async + throwing so the
     /// production wiring can wrap `DiskScanner.scan(root:progress:)` and
@@ -36,20 +38,20 @@ final class DiskScannerViewModel: ObservableObject {
         case error(String)
     }
 
-    @Published private(set) var phase: Phase = .idle
+    private(set) var phase: Phase = .idle
 
     /// 0.0 – 1.0 progress for the currently-running scan. Clamped to 1.0
     /// so an under-estimated `estimatedFileCount` (typical on volumes
     /// with more files than the default heuristic) doesn't push the bar
     /// past full. Resets to 0 when a new scan starts and on `.error`.
-    @Published private(set) var scanProgress: Double = 0
+    private(set) var scanProgress: Double = 0
 
     /// Breadcrumb stack the treemap (Prompt 17) will use to record the
     /// user's drill-down path. Kept here because the navigation state
     /// belongs with the scan it's navigating; the helper `drillDown(into:)`
     /// / `navigateUp()` methods land in Prompt 17 alongside the UI that
     /// invokes them.
-    @Published var navigationPath: [DiskNode] = []
+    var navigationPath: [DiskNode] = []
 
     /// Convenience accessor used by the upcoming view binding so the
     /// treemap doesn't have to pattern-match on `phase` to find the root.
@@ -154,7 +156,7 @@ final class DiskScannerViewModel: ObservableObject {
     /// depth — the generation token catches concurrent restarts, the
     /// phase guard catches in-flight progress callbacks that land after
     /// `.ready` / `.error` / `.idle`.
-    private var scanGeneration: Int = 0
+    @ObservationIgnored private var scanGeneration: Int = 0
 
     /// Handle on the currently-running scan so a fresh `startScan`
     /// (rescan, root switch) can actually cancel the previous walk
@@ -163,10 +165,10 @@ final class DiskScannerViewModel: ObservableObject {
     /// reading the entire disk in the background, doubling I/O during
     /// the overlap window. `Task.checkCancellation()` inside
     /// `buildNode` honors the cancel at every directory boundary.
-    private var currentScanTask: Task<Void, Never>?
+    @ObservationIgnored private var currentScanTask: Task<Void, Never>?
 
-    private let scanner: Scanner
-    private let log = Logger(
+    @ObservationIgnored private let scanner: Scanner
+    @ObservationIgnored private let log = Logger(
         subsystem: "com.personal.VaderCleaner",
         category: "DiskScannerViewModel"
     )

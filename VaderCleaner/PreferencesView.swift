@@ -38,9 +38,10 @@ struct PreferencesView: View {
 
 private struct NotificationsTab: View {
 
-    @EnvironmentObject private var preferences: PreferencesStore
+    @Environment(PreferencesStore.self) private var preferences
 
     var body: some View {
+        @Bindable var preferences = preferences
         Form {
             Section("Alert me when") {
                 Toggle("Disk space is running low", isOn: $preferences.notifyLowDisk)
@@ -77,7 +78,7 @@ private struct NotificationsTab: View {
 
 private struct ExclusionsTab: View {
 
-    @EnvironmentObject private var exclusions: ExclusionsStore
+    @Environment(ExclusionsStore.self) private var exclusions
     @State private var selection: String?
 
     var body: some View {
@@ -144,9 +145,10 @@ private struct ExclusionsTab: View {
 
 private struct StartupTab: View {
 
-    @EnvironmentObject private var preferences: PreferencesStore
+    @Environment(PreferencesStore.self) private var preferences
 
     var body: some View {
+        @Bindable var preferences = preferences
         Form {
             Section {
                 Toggle("Launch VaderCleaner at login", isOn: $preferences.launchAtLogin)
@@ -164,9 +166,10 @@ private struct StartupTab: View {
 
 private struct MenuBarTab: View {
 
-    @EnvironmentObject private var preferences: PreferencesStore
+    @Environment(PreferencesStore.self) private var preferences
 
     var body: some View {
+        @Bindable var preferences = preferences
         Form {
             Section {
                 Toggle("Show VaderCleaner in the menu bar", isOn: $preferences.showMenuBar)
@@ -183,6 +186,6 @@ private struct MenuBarTab: View {
 
 #Preview {
     PreferencesView()
-        .environmentObject(PreferencesStore())
-        .environmentObject(ExclusionsStore())
+        .environment(PreferencesStore())
+        .environment(ExclusionsStore())
 }

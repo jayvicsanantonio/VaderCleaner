@@ -8,7 +8,7 @@ import SwiftUI
 /// Remove control; the view-model owns the state machine and side-effects.
 struct ExtensionsManagerView: View {
 
-    @ObservedObject private var viewModel: ExtensionsManagerViewModel
+    private var viewModel: ExtensionsManagerViewModel
     @State private var pendingRemoval: ExtensionItem?
 
     init(viewModel: ExtensionsManagerViewModel) {

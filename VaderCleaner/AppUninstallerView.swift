@@ -9,14 +9,14 @@ import SwiftUI
 /// the state machine and the actual side-effects.
 struct AppUninstallerView: View {
 
-    @ObservedObject private var viewModel: AppUninstallerViewModel
-    @StateObject private var iconCache: AppIconCache
-    @EnvironmentObject private var exclusions: ExclusionsStore
+    private var viewModel: AppUninstallerViewModel
+    @State private var iconCache: AppIconCache
+    @Environment(ExclusionsStore.self) private var exclusions
     @State private var showUninstallConfirmation = false
 
     init(viewModel: AppUninstallerViewModel, iconCache: AppIconCache = AppIconCache()) {
         self.viewModel = viewModel
-        _iconCache = StateObject(wrappedValue: iconCache)
+        _iconCache = State(initialValue: iconCache)
     }
 
     var body: some View {
@@ -144,5 +144,5 @@ struct AppUninstallerView: View {
         recycle: { _, _ in 0 }
     ))
     .frame(width: 900, height: 600)
-    .environmentObject(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
+    .environment(ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!))
 }

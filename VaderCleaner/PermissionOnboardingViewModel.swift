@@ -3,7 +3,7 @@
 
 import Foundation
 import AppKit
-import Combine
+import Observation
 
 /// Drives `PermissionOnboardingView`. Holds the per-session dismissal flag and the URL
 /// that opens the Full Disk Access pane in System Settings.
@@ -11,7 +11,8 @@ import Combine
 /// `systemSettingsURL` is exposed as a static constant so tests can assert the URL
 /// string without having `openSystemSettings()` actually launch System Settings.
 @MainActor
-final class PermissionOnboardingViewModel: ObservableObject {
+@Observable
+final class PermissionOnboardingViewModel {
 
     /// Deep-link to System Settings → Privacy & Security → Full Disk Access.
     /// Uses the macOS 13+ identifier `com.apple.Settings.PrivacyAndSecurity.extension`,
@@ -25,7 +26,7 @@ final class PermissionOnboardingViewModel: ObservableObject {
     /// Set to `true` when the user chooses "Continue Without Access". Suppresses the
     /// sheet for the remainder of the session — feature views still surface inline
     /// FDA prompts where they need access (added in later prompts).
-    @Published var isDismissed: Bool = false
+    var isDismissed: Bool = false
 
     func dismiss() {
         isDismissed = true

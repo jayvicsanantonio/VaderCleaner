@@ -11,7 +11,7 @@ import SwiftUI
 /// transparent area never sits over — and intercepts clicks for — the main
 /// window.
 struct ScanDiscHostView: View {
-    @ObservedObject var controller: ScanDiscWindowController
+    var controller: ScanDiscWindowController
 
     var body: some View {
         content
@@ -69,7 +69,7 @@ struct ScanDiscHostView: View {
 /// Lifted out of the switch so it can hold the per-disc `@State` flags both
 /// sub-overlays write to.
 private struct SmartScanFloatingDisc: View {
-    @ObservedObject var viewModel: SmartScanViewModel
+    var viewModel: SmartScanViewModel
     var onPresenceChanged: (Bool) -> Void
 
     @State private var scanShown = false

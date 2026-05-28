@@ -151,16 +151,8 @@ final class OptimizationViewModelTests: XCTestCase {
         await vm.refresh()
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
 
-        let reloaded = expectation(description: "login items reloaded")
-        var cancellable: AnyCancellable? = vm.$loginItems
-            .dropFirst()
-            .sink { items in
-                if items.first?.isEnabled == true { reloaded.fulfill() }
-            }
         subject.send(())
-        await fulfillment(of: [reloaded], timeout: 2)
-        cancellable?.cancel()
-        cancellable = nil
+        await waitUntil { vm.loginItems.first?.isEnabled == true }
 
         XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
     }
@@ -215,25 +207,14 @@ final class OptimizationViewModelTests: XCTestCase {
                 [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled)]
             },
             setLoginItemEnabled: { enabled, _ in prefs.launchAtLogin = enabled },
-            launchAtLoginChanges: prefs.$launchAtLogin
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher()
+            launchAtLoginChanges: OptimizationViewModel.launchAtLoginChangePublisher(for: prefs)
         )
         await vm.refresh()
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
 
         // Preferences → Optimization.
-        let synced = expectation(description: "optimization reflects preferences toggle")
-        var cancellable: AnyCancellable? = vm.$loginItems
-            .dropFirst()
-            .sink { items in
-                if items.first?.isEnabled == true { synced.fulfill() }
-            }
         prefs.launchAtLogin = true
-        await fulfillment(of: [synced], timeout: 2)
-        cancellable?.cancel()
-        cancellable = nil
+        await waitUntil { vm.loginItems.first?.isEnabled == true }
         XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
         XCTAssertEqual(handlerCalls, 1, "exactly one SMAppService write via the single path")
 

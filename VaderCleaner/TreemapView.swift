@@ -22,7 +22,7 @@ import SwiftUI
 /// that scale and the user can drill in to see them.
 struct TreemapView: View {
 
-    @ObservedObject var viewModel: DiskScannerViewModel
+    var viewModel: DiskScannerViewModel
     let node: DiskNode
 
     /// Smallest tile dimension that still renders. Anything smaller is too
