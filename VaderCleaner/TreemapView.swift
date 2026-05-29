@@ -37,11 +37,22 @@ struct TreemapView: View {
     private static let tileStroke: CGFloat = 1
 
     var body: some View {
+        // Everything that depends only on `node` is derived once here, off
+        // the resize path. `GeometryReader`'s closure below re-runs on every
+        // layout pass (continuously while the window is dragged), but `body`
+        // does not — so the child filter, the weighted-item list, the id
+        // lookup, and the per-tile `formattedSize` strings survive a resize
+        // unchanged instead of being rebuilt each frame. Only the squarified
+        // layout, which genuinely depends on the bounds, runs per pass.
+        let models = tileModels
+        let weightedItems = models.map { (id: $0.id, weight: $0.weight) }
+        let modelsByID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+
         GeometryReader { geometry in
             let bounds = CGRect(origin: .zero, size: geometry.size)
-            let tiles = computeTiles(in: bounds)
+            let tiles = placeTiles(weightedItems: weightedItems, modelsByID: modelsByID, in: bounds)
             ZStack(alignment: .topLeading) {
-                ForEach(tiles, id: \.node.id) { entry in
+                ForEach(tiles) { entry in
                     tileView(for: entry)
                 }
             }
@@ -53,52 +64,83 @@ struct TreemapView: View {
 
     // MARK: - Tile rendering
 
-    /// Layout output paired back to the source node. Held as a struct so the
-    /// `ForEach` body can reach both the tile rect and the `DiskNode` it
-    /// came from in one keyed pass.
-    private struct TileEntry {
+    /// Size-independent per-tile data, derived once from `node`. Carries the
+    /// pre-formatted size string so a `ByteCountFormatter` call isn't paid per
+    /// layout pass, and the resolved `category` so the file-kind classification
+    /// isn't recomputed on every resize frame.
+    private struct TileModel: Identifiable {
+        let id: DiskNode.ID
         let node: DiskNode
-        let rect: CGRect
         let category: FileCategory
+        let formattedSize: String
+        let weight: Double
+
+        init(node: DiskNode, category: FileCategory) {
+            self.id = node.id
+            self.node = node
+            self.category = category
+            self.formattedSize = node.formattedSize
+            self.weight = Double(node.size)
+        }
     }
 
-    private func computeTiles(in bounds: CGRect) -> [TileEntry] {
-        // Filter out zero-byte children up front. A directory with a
-        // mixture of zero-byte and large files would otherwise spend
-        // half its strip budget on slivers that the
-        // `minRenderDimension` filter would discard anyway, leaving
-        // empty space inside the parent tile. Skipping them at the
-        // weight stage means the surviving tiles share the full area.
-        let children = node.children.filter { $0.size > 0 }
-        guard !children.isEmpty else { return [] }
+    /// A `TileModel` paired with the rectangle the layout assigned it for the
+    /// current bounds. Only `rect` changes across layout passes.
+    private struct PlacedTile: Identifiable {
+        let model: TileModel
+        let rect: CGRect
 
-        let weighted = children.map { (id: $0.id, weight: Double($0.size)) }
-        let layout = TreemapLayout.layout(items: weighted, in: bounds)
-        let nodeByID = Dictionary(uniqueKeysWithValues: children.map { ($0.id, $0) })
+        var id: DiskNode.ID { model.id }
+    }
 
-        return layout.compactMap { tile -> TileEntry? in
-            guard let child = nodeByID[tile.id] else { return nil }
+    /// The size-independent tile models for `node`'s displayable children.
+    ///
+    /// Filters out zero-byte children up front. A directory with a mixture of
+    /// zero-byte and large files would otherwise spend half its strip budget
+    /// on slivers that the `minRenderDimension` filter would discard anyway,
+    /// leaving empty space inside the parent tile. Skipping them at the weight
+    /// stage means the surviving tiles share the full area.
+    private var tileModels: [TileModel] {
+        node.children
+            .filter { $0.size > 0 }
+            .map { child in
+                TileModel(node: child, category: FileCategory.from(node: child))
+            }
+    }
+
+    /// Runs the squarified layout for the current bounds and pairs each result
+    /// rect back to its precomputed model. This is the only treemap work that
+    /// genuinely depends on the geometry, so it's the only part left inside the
+    /// `GeometryReader` closure.
+    private func placeTiles(
+        weightedItems: [(id: DiskNode.ID, weight: Double)],
+        modelsByID: [DiskNode.ID: TileModel],
+        in bounds: CGRect
+    ) -> [PlacedTile] {
+        guard !weightedItems.isEmpty else { return [] }
+
+        let layout = TreemapLayout.layout(items: weightedItems, in: bounds)
+
+        return layout.compactMap { tile -> PlacedTile? in
+            guard let model = modelsByID[tile.id] else { return nil }
             // Skip tiles that would render as a sliver. Below the
             // threshold the rectangle is just visual noise; the user can
             // drill into the parent if they need to see it.
             if tile.rect.width < Self.minRenderDimension || tile.rect.height < Self.minRenderDimension {
                 return nil
             }
-            return TileEntry(
-                node: child,
-                rect: tile.rect,
-                category: FileCategory.from(node: child)
-            )
+            return PlacedTile(model: model, rect: tile.rect)
         }
     }
 
     @ViewBuilder
-    private func tileView(for entry: TileEntry) -> some View {
+    private func tileView(for entry: PlacedTile) -> some View {
+        let model = entry.model
         let showLabel = entry.rect.width >= Self.minLabelDimension
             && entry.rect.height >= Self.minLabelDimension
 
         Rectangle()
-            .fill(entry.category.color.opacity(entry.node.isDirectory ? 0.55 : 0.7))
+            .fill(model.category.color.opacity(model.node.isDirectory ? 0.55 : 0.7))
             .overlay(
                 Rectangle()
                     .strokeBorder(Color.white.opacity(0.6), lineWidth: Self.tileStroke)
@@ -107,12 +149,12 @@ struct TreemapView: View {
                 Group {
                     if showLabel {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.node.name)
+                            Text(model.node.name)
                                 .font(.caption.weight(.semibold))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .foregroundStyle(.white)
-                            Text(entry.node.formattedSize)
+                            Text(model.formattedSize)
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.white.opacity(0.85))
                         }
@@ -131,11 +173,11 @@ struct TreemapView: View {
                 x: entry.rect.midX,
                 y: entry.rect.midY
             )
-            .help("\(entry.node.url.path)\n\(entry.node.formattedSize)")
+            .help("\(model.node.url.path)\n\(model.formattedSize)")
             .onTapGesture {
-                viewModel.drillDown(into: entry.node)
+                viewModel.drillDown(into: model.node)
             }
-            .accessibilityIdentifier("space-lens.tile.\(entry.node.url.lastPathComponent)")
-            .accessibilityLabel("\(entry.node.name), \(entry.node.formattedSize)")
+            .accessibilityIdentifier("space-lens.tile.\(model.node.url.lastPathComponent)")
+            .accessibilityLabel("\(model.node.name), \(model.formattedSize)")
     }
 }

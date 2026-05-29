@@ -82,12 +82,20 @@ struct FloatingScanButton: View {
         }
         .buttonStyle(PressableCircleButtonStyle())
         // Ambient accent glow that breathes so the primary action keeps drawing
-        // the eye even when the rest of the screen is still.
-        .shadow(
-            color: accent.opacity(pulsing ? 0.65 : 0.4),
-            radius: pulsing ? 30 : 18,
-            y: 8
-        )
+        // the eye even when the rest of the screen is still. The glow is a
+        // fixed-radius blurred disc whose *opacity* pulses: animating opacity
+        // composites the cached blur on the GPU, whereas animating a shadow's
+        // blur radius — the earlier approach — forced the gaussian blur to be
+        // re-rasterized every frame for as long as the disc was on screen.
+        .background {
+            Circle()
+                .fill(accent)
+                .frame(width: diameter, height: diameter)
+                .blur(radius: 24)
+                .opacity(pulsing ? 0.65 : 0.4)
+                .offset(y: 8)
+                .allowsHitTesting(false)
+        }
         .scaleEffect(hovering ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.6), value: hovering)
         .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: pulsing)
