@@ -63,7 +63,11 @@ struct LargeOldFilesView: View {
             // only to keep the switch exhaustive over `Phase`.
             EmptyView()
         case .scanning:
-            LargeOldFilesProgressState(label: "Scanning…", identifier: "large-old.scanning")
+            LargeOldFilesProgressState(
+                label: "Scanning…",
+                identifier: "large-old.scanning",
+                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+            )
         case .results:
             LargeOldFilesResultsContent(
                 files: viewModel.displayedFiles,
@@ -157,7 +161,7 @@ private struct PendingDeletion: Identifiable {
 
 #Preview("Idle") {
     LargeOldFilesView(viewModel: LargeOldFilesViewModel(
-        scanner: { [] },
+        scanner: { _ in [] },
         deleter: { _ in [] }
     ))
     .frame(width: 800, height: 520)

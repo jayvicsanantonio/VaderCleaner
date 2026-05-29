@@ -37,9 +37,12 @@ struct SystemJunkScanner {
     /// (covered in `FileScannerTests`) apply unchanged here, so a user who
     /// excluded `~/Library/Caches/com.apple.Safari` will see Safari's caches
     /// disappear from every category their parent path falls under.
-    func scan(excluding: [URL]) async throws -> ScanResult {
+    func scan(
+        excluding: [URL],
+        onProgress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> ScanResult {
         let roots = pathProvider.roots()
-        let files = try await fileScanner.scan(roots: roots, excluding: excluding)
+        let files = try await fileScanner.scan(roots: roots, excluding: excluding, onProgress: onProgress)
         return ScanResult(items: files)
     }
 }

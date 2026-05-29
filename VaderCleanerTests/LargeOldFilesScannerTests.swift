@@ -334,6 +334,24 @@ final class LargeOldFilesScannerTests: XCTestCase {
         XCTAssertEqual(files.first?.url.lastPathComponent, "kept-large.bin")
     }
 
+    // MARK: - Progress forwarding
+
+    /// The walked-count ticks emitted by the underlying `FileScanning` must
+    /// reach the caller's `onProgress` unchanged, so the Large & Old Files
+    /// view-model can show that an in-flight scan is advancing.
+    func test_scan_forwardsWalkedProgressFromUnderlyingScanner() async throws {
+        let scanner = LargeOldFilesScanner(
+            fileScanner: ProgressEmittingFakeFileScanner(progressTicks: [512, 1024, 1500]),
+            pathProvider: StubUserFilesPathProvider(roots: [tempRoot]),
+            now: { self.referenceNow }
+        )
+        let recorder = TestHelpers.ProgressRecorder()
+
+        _ = try await scanner.scan(excluding: [], onProgress: { recorder.record($0) })
+
+        XCTAssertEqual(recorder.snapshot, [512, 1024, 1500])
+    }
+
     // MARK: - Protected media stores
 
     /// TCC-protected photo-library bundles (`.photoslibrary`, `Photo Booth
@@ -528,6 +546,33 @@ private struct FakeFileScanner: FileScanning {
     ) async throws {
         for batch in emittedBatches {
             try await onBatch(batch)
+        }
+    }
+}
+
+/// Emits a fixed sequence of walked-count progress ticks and no files, so the
+/// progress-forwarding test can assert the scanner relays them verbatim.
+private struct ProgressEmittingFakeFileScanner: FileScanning {
+    let progressTicks: [Int]
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {}
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onProgress: (@Sendable (Int) -> Void)?,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        for tick in progressTicks {
+            onProgress?(tick)
         }
     }
 }

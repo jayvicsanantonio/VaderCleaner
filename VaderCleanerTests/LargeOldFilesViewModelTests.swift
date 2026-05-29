@@ -267,13 +267,64 @@ final class LargeOldFilesViewModelTests: XCTestCase {
         XCTAssertTrue(cache.cachedIcon(for: first) === cache.cachedIcon(for: second))
     }
 
+    // MARK: - Scan progress count
+
+    /// The scanner's progress callback must drive `scannedItemCount` so the
+    /// scanning screen can show the walk advancing.
+    func test_scan_reportsScannedItemCountFromProgress() async {
+        let vm = LargeOldFilesViewModel(
+            scanner: { progress in
+                progress(120)
+                await Task.yield()
+                progress(450)
+                await Task.yield()
+                return []
+            },
+            deleter: { Set($0) }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.scannedItemCount == 450 }
+
+        XCTAssertEqual(vm.scannedItemCount, 450)
+    }
+
+    /// Each scan must restart the counter from zero rather than carry the
+    /// previous run's total into the new scan's "Scanned N items…" line.
+    func test_scan_restartsScannedItemCountEachScan() async {
+        let vm = LargeOldFilesViewModel(
+            scanner: { progress in
+                progress(999)
+                await Task.yield()
+                return []
+            },
+            deleter: { Set($0) }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.scannedItemCount == 999 }
+
+        let observed = await recordTransitions(of: \.scannedItemCount, on: vm) {
+            await vm.scan()
+            await waitUntil { vm.scannedItemCount == 999 }
+        }
+
+        XCTAssertTrue(
+            observed.contains(0),
+            "A new scan must reset the counter to zero before counting up again, got \(observed)"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
         scanner: @escaping () async throws -> [ScannedFile] = { [] },
         deleter: @escaping ([URL]) async -> Set<URL> = { Set($0) }
     ) -> LargeOldFilesViewModel {
-        LargeOldFilesViewModel(scanner: scanner, deleter: deleter)
+        // Adapt the progress-free test closures to the production scanner
+        // signature; the count tests below construct the VM directly to drive
+        // the progress callback.
+        LargeOldFilesViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
     }
 
     private func makeFile(

@@ -46,12 +46,13 @@ final class SystemJunkViewModel {
     }
 
     /// Closure type for the scan source. Async + throwing so production can
-    /// wrap `SystemJunkScanner.scan(excluding:)` and tests can supply an
-    /// in-memory `ScanResult` (or throw to exercise the failure path).
-    /// Kept non-Sendable: every invocation flows through `@MainActor scan()`,
-    /// so the closure body inherits main-actor isolation and there is nothing
-    /// to gain by widening the contract.
-    typealias Scanner = () async throws -> ScanResult
+    /// wrap `SystemJunkScanner.scan(excluding:onProgress:)` and tests can
+    /// supply an in-memory `ScanResult` (or throw to exercise the failure
+    /// path). The outer closure stays non-Sendable — every invocation flows
+    /// through `@MainActor scan()` — while the `@Sendable (Int) -> Void`
+    /// parameter receives the running walked-item count from the scanner's
+    /// background walk so the scanning screen can show it advancing.
+    typealias Scanner = (@escaping @Sendable (Int) -> Void) async throws -> ScanResult
 
     /// Closure type for the deletion sink. Returns the number of bytes that
     /// were actually freed (not the byte sum of the input) so partial-failure
@@ -62,8 +63,19 @@ final class SystemJunkViewModel {
     private(set) var phase: Phase = .idle
     private(set) var checkedCategories: Set<ScanCategory> = []
 
+    /// Running count of filesystem items the in-flight scan has walked. Reset
+    /// to 0 at the start of each scan and fed by the scanner's progress
+    /// callback so the scanning screen can show "Scanned N items…" — proof the
+    /// open-ended walk is advancing rather than hung.
+    private(set) var scannedItemCount: Int = 0
+
     @ObservationIgnored private let scanner: Scanner
     @ObservationIgnored private let deleter: Deleter
+
+    /// Incremented at the start of every scan so a progress tick that hops back
+    /// to the main actor after a newer scan began is dropped rather than
+    /// corrupting the fresh count.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SystemJunkViewModel")
 
@@ -106,9 +118,19 @@ final class SystemJunkViewModel {
     /// Marks every category present in the result as checked so the user is
     /// at "select all" by default.
     func scan() async {
+        scanGeneration &+= 1
+        let generation = scanGeneration
         phase = .scanning
+        scannedItemCount = 0
         do {
-            let result = try await scanner()
+            let result = try await scanner { [weak self] count in
+                // The scanner runs off the main actor; hop back before touching
+                // the observable count, and drop ticks from a superseded scan.
+                Task { @MainActor in
+                    guard let self, self.scanGeneration == generation else { return }
+                    self.scannedItemCount = count
+                }
+            }
             self.latestResult = result
             self.checkedCategories = Set(result.itemsByCategory.keys)
             self.phase = .preview(result)
@@ -153,6 +175,7 @@ final class SystemJunkViewModel {
     func scanAgain() {
         latestResult = nil
         checkedCategories = []
+        scannedItemCount = 0
         phase = .idle
     }
 
@@ -182,15 +205,17 @@ extension SystemJunkViewModel {
     @MainActor
     static func live(exclusions: ExclusionsStore) -> SystemJunkViewModel {
         SystemJunkViewModel(
-            scanner: { [weak exclusions] in
+            scanner: { [weak exclusions] onProgress in
                 // Both `scan()` (the caller) and this closure inherit the
                 // enclosing `@MainActor` isolation, so the `exclusions`
                 // snapshot can be read directly without an explicit
                 // `MainActor.run` hop. The actual file walk happens inside
-                // `SystemJunkScanner.scan(excluding:)`, which is async and
-                // yields the main actor at its first internal `await`.
+                // `SystemJunkScanner.scan(excluding:onProgress:)`, which is
+                // async and yields the main actor at its first internal
+                // `await`; `onProgress` is forwarded so the walked-item count
+                // reaches the scanning screen.
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await SystemJunkScanner().scan(excluding: excluded)
+                return try await SystemJunkScanner().scan(excluding: excluded, onProgress: onProgress)
             },
             deleter: { files in
                 try await SystemJunkDeleter().delete(files)

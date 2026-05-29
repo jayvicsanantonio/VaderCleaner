@@ -42,6 +42,9 @@ enum LargeOldFilesActions {
 struct LargeOldFilesProgressState: View {
     let label: String
     let identifier: String
+    /// Optional live progress line (e.g. "Scanned 12,431 items…") shown beneath
+    /// the label so the user can see an open-ended scan advancing.
+    var detail: String? = nil
 
     var body: some View {
         VStack(spacing: 16) {
@@ -50,6 +53,13 @@ struct LargeOldFilesProgressState: View {
             Text(label)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            if let detail {
+                Text(detail)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier("\(identifier).count")
+            }
         }
         .padding()
         .accessibilityIdentifier(identifier)

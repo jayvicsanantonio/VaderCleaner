@@ -43,7 +43,11 @@ struct PrivacyView: View {
             // only to keep the switch exhaustive over `Phase`.
             EmptyView()
         case .scanning:
-            PrivacyProgressState(label: "Scanning…", identifier: "privacy.scanning")
+            PrivacyProgressState(
+                label: "Scanning…",
+                identifier: "privacy.scanning",
+                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+            )
         case .preview:
             PrivacyPreviewContent(
                 browsers: viewModel.detectedBrowsers,

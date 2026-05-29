@@ -33,7 +33,11 @@ struct SystemJunkView: View {
                 // arm stays only to keep the switch exhaustive over `Phase`.
                 EmptyView()
             case .scanning:
-                progressState(label: "Scanning…", identifier: "system-junk.scanning")
+                progressState(
+                    label: "Scanning…",
+                    identifier: "system-junk.scanning",
+                    detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+                )
             case .preview(let result):
                 previewState(result: result)
             case .cleaning:
@@ -50,13 +54,20 @@ struct SystemJunkView: View {
 
     // MARK: - States
 
-    private func progressState(label: String, identifier: String) -> some View {
+    private func progressState(label: String, identifier: String, detail: String? = nil) -> some View {
         VStack(spacing: 16) {
             ProgressView()
                 .controlSize(.large)
             Text(label)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            if let detail {
+                Text(detail)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier("\(identifier).count")
+            }
         }
         .padding()
         .accessibilityIdentifier(identifier)
@@ -274,7 +285,7 @@ struct SystemJunkEmptyPreviewState: View {
 
 #Preview("Idle") {
     SystemJunkView(viewModel: SystemJunkViewModel(
-        scanner: { ScanResult(items: []) },
+        scanner: { _ in ScanResult(items: []) },
         deleter: { _ in 0 }
     ))
     .frame(width: 700, height: 480)

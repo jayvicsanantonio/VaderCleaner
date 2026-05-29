@@ -269,13 +269,64 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTAssertTrue(vm.checkedCategories.isEmpty)
     }
 
+    // MARK: - Scan progress count
+
+    /// The scanner's progress callback must drive `scannedItemCount` so the
+    /// scanning screen can show the walk advancing.
+    func test_scan_reportsScannedItemCountFromProgress() async {
+        let vm = SystemJunkViewModel(
+            scanner: { progress in
+                progress(64)
+                await Task.yield()
+                progress(900)
+                await Task.yield()
+                return ScanResult(items: [])
+            },
+            deleter: { _ in 0 }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.scannedItemCount == 900 }
+
+        XCTAssertEqual(vm.scannedItemCount, 900)
+    }
+
+    /// Each scan must restart the counter from zero rather than carry the
+    /// previous run's total forward.
+    func test_scan_restartsScannedItemCountEachScan() async {
+        let vm = SystemJunkViewModel(
+            scanner: { progress in
+                progress(900)
+                await Task.yield()
+                return ScanResult(items: [])
+            },
+            deleter: { _ in 0 }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.scannedItemCount == 900 }
+
+        let observed = await recordTransitions(of: \.scannedItemCount, on: vm) {
+            await vm.scan()
+            await waitUntil { vm.scannedItemCount == 900 }
+        }
+
+        XCTAssertTrue(
+            observed.contains(0),
+            "A new scan must reset the counter to zero before counting up again, got \(observed)"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
         scanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         deleter: @escaping ([ScannedFile]) async throws -> Int64 = { _ in 0 }
     ) -> SystemJunkViewModel {
-        SystemJunkViewModel(scanner: scanner, deleter: deleter)
+        // Adapt the progress-free test closures to the production scanner
+        // signature; the count test constructs the VM directly to drive the
+        // progress callback.
+        SystemJunkViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
     }
 
     private func makeResult(_ groups: (ScanCategory, [ScannedFile])...) -> ScanResult {

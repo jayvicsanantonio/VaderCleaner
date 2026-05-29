@@ -86,4 +86,27 @@ enum TestHelpers {
         }
         return current
     }
+
+    // MARK: - Progress collection
+
+    /// Thread-safe collector for `@Sendable (Int) -> Void` progress callbacks.
+    /// Scanners invoke `onProgress` from whatever task awaits the scan, so the
+    /// backing array is guarded with a lock rather than assuming
+    /// single-threaded access.
+    final class ProgressRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [Int] = []
+
+        func record(_ value: Int) {
+            lock.lock()
+            values.append(value)
+            lock.unlock()
+        }
+
+        var snapshot: [Int] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
 }
