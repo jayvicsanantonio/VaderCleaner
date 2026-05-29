@@ -296,9 +296,13 @@ final class SmartScanViewModel {
         // monotonic walked count; sum them into one "Scanned N items…" tally.
         // The scanners run off the main actor, so hop back before touching the
         // observable count, and drop ticks from a superseded scan.
+        // These hops are unstructured, so they can land out of order; each
+        // sub-scan's walked count is monotonic, so ignore any tick that would
+        // move its counter backwards rather than let the combined total jitter.
         let onJunkProgress: @Sendable (Int) -> Void = { [weak self] count in
             Task { @MainActor in
                 guard let self, self.scanGeneration == generation else { return }
+                guard count > self.junkWalkCount else { return }
                 self.junkWalkCount = count
                 self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
             }
@@ -306,6 +310,7 @@ final class SmartScanViewModel {
         let onClutterProgress: @Sendable (Int) -> Void = { [weak self] count in
             Task { @MainActor in
                 guard let self, self.scanGeneration == generation else { return }
+                guard count > self.clutterWalkCount else { return }
                 self.clutterWalkCount = count
                 self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
             }

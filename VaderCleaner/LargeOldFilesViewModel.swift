@@ -155,6 +155,10 @@ final class LargeOldFilesViewModel {
                 // scan has since started.
                 Task { @MainActor in
                     guard let self, self.scanGeneration == generation else { return }
+                    // These hops are unstructured, so they can land out of
+                    // order; the walked count is monotonic, so ignore any tick
+                    // that would move it backwards rather than let it jitter.
+                    guard count > self.scannedItemCount else { return }
                     self.scannedItemCount = count
                 }
             }

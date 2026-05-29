@@ -46,7 +46,10 @@ struct TreemapView: View {
         // layout, which genuinely depends on the bounds, runs per pass.
         let models = tileModels
         let weightedItems = models.map { (id: $0.id, weight: $0.weight) }
-        let modelsByID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+        // Defend against duplicate ids (a corrupt scan record, or an
+        // unexpected id collision) rather than trapping: keep the first model
+        // for a given id. `uniqueKeysWithValues:` would crash on a duplicate.
+        let modelsByID = Dictionary(models.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         GeometryReader { geometry in
             let bounds = CGRect(origin: .zero, size: geometry.size)
