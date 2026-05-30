@@ -534,9 +534,22 @@ struct FileScanner: FileScanning {
                         continue
                     }
 
+                    // Forward progress through the package walk too. Without
+                    // this, sizing a large bundle (an `.app`, a photo library
+                    // in package-as-file mode) emits no interim ticks and the
+                    // final walked count omits everything inside it — so a scan
+                    // dominated by one big package would look stalled. Each
+                    // descendant counts toward the same `visitedCount`, fired on
+                    // the shared cancellation cadence.
                     let packageResult = try await PackageDirectorySizer.recursiveSizeResult(
                         of: url,
-                        excluding: canonicalExclusions
+                        excluding: canonicalExclusions,
+                        progress: {
+                            visitedCount += 1
+                            if visitedCount.isMultiple(of: Self.cancellationCheckInterval) {
+                                onProgress?(visitedCount)
+                            }
+                        }
                     )
                     batch.append(
                         ScannedFile(

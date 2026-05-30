@@ -301,16 +301,24 @@ final class SmartScanViewModel {
         // move its counter backwards rather than let the combined total jitter.
         let onJunkProgress: @Sendable (Int) -> Void = { [weak self] count in
             Task { @MainActor in
-                guard let self, self.scanGeneration == generation else { return }
-                guard count > self.junkWalkCount else { return }
+                // Drop the tick if a newer scan started, if it would move the
+                // count backwards, or if the scan has already left `.scanning`
+                // (a tick enqueued just before the terminal phase must not
+                // re-trigger observation once the dashboard is showing).
+                guard let self,
+                      self.scanGeneration == generation,
+                      case .scanning = self.phase,
+                      count > self.junkWalkCount else { return }
                 self.junkWalkCount = count
                 self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
             }
         }
         let onClutterProgress: @Sendable (Int) -> Void = { [weak self] count in
             Task { @MainActor in
-                guard let self, self.scanGeneration == generation else { return }
-                guard count > self.clutterWalkCount else { return }
+                guard let self,
+                      self.scanGeneration == generation,
+                      case .scanning = self.phase,
+                      count > self.clutterWalkCount else { return }
                 self.clutterWalkCount = count
                 self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
             }

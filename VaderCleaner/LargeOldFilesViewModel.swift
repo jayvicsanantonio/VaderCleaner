@@ -154,11 +154,15 @@ final class LargeOldFilesViewModel {
                 // touching the observable count. Drop the update if a newer
                 // scan has since started.
                 Task { @MainActor in
-                    guard let self, self.scanGeneration == generation else { return }
-                    // These hops are unstructured, so they can land out of
-                    // order; the walked count is monotonic, so ignore any tick
-                    // that would move it backwards rather than let it jitter.
-                    guard count > self.scannedItemCount else { return }
+                    // Drop the tick if a newer scan started, if the scan has
+                    // already left `.scanning` (a late tick must not re-trigger
+                    // observation once results are showing), or if it would move
+                    // the monotonic walked count backwards (the hops are
+                    // unstructured, so they can land out of order).
+                    guard let self,
+                          self.scanGeneration == generation,
+                          case .scanning = self.phase,
+                          count > self.scannedItemCount else { return }
                     self.scannedItemCount = count
                 }
             }

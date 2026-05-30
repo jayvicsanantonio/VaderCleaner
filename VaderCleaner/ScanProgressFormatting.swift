@@ -14,10 +14,18 @@ enum ScanProgressFormatting {
     /// locale via `Int.formatted()`.
     static func itemsScanned(_ count: Int) -> String {
         let formatted = count.formatted()
-        let template = String(
-            localized: "Scanned %@ items…",
-            comment: "Live progress line shown while an open-ended scan walks the file system; %@ is a localized item count."
-        )
+        // Pick a singular template at count == 1 — Privacy and the early
+        // ticks of any scan can land there — so the readout never says
+        // "Scanned 1 items…".
+        let template = count == 1
+            ? String(
+                localized: "Scanned %@ item…",
+                comment: "Live progress line, singular, shown while an open-ended scan walks the file system; %@ is a localized item count of one."
+            )
+            : String(
+                localized: "Scanned %@ items…",
+                comment: "Live progress line shown while an open-ended scan walks the file system; %@ is a localized item count."
+            )
         return String.localizedStringWithFormat(template, formatted)
     }
 
@@ -25,10 +33,17 @@ enum ScanProgressFormatting {
     /// a file ClamAV reported on rather than a generic filesystem item.
     static func filesScanned(_ count: Int) -> String {
         let formatted = count.formatted()
-        let template = String(
-            localized: "Scanned %@ files…",
-            comment: "Live progress line shown while the malware scanner checks files; %@ is a localized file count."
-        )
+        // Malware counts one file per ClamAV line, so the very first tick is
+        // count == 1 — use the singular template there.
+        let template = count == 1
+            ? String(
+                localized: "Scanned %@ file…",
+                comment: "Live progress line, singular, shown while the malware scanner checks files; %@ is a localized file count of one."
+            )
+            : String(
+                localized: "Scanned %@ files…",
+                comment: "Live progress line shown while the malware scanner checks files; %@ is a localized file count."
+            )
         return String.localizedStringWithFormat(template, formatted)
     }
 

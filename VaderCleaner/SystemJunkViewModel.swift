@@ -127,11 +127,15 @@ final class SystemJunkViewModel {
                 // The scanner runs off the main actor; hop back before touching
                 // the observable count, and drop ticks from a superseded scan.
                 Task { @MainActor in
-                    guard let self, self.scanGeneration == generation else { return }
-                    // These hops are unstructured, so they can land out of
-                    // order; the walked count is monotonic, so ignore any tick
-                    // that would move it backwards rather than let it jitter.
-                    guard count > self.scannedItemCount else { return }
+                    // Drop the tick if a newer scan started, if the scan has
+                    // already left `.scanning` (a late tick must not re-trigger
+                    // observation once the preview is showing), or if it would
+                    // move the monotonic walked count backwards (the hops are
+                    // unstructured, so they can land out of order).
+                    guard let self,
+                          self.scanGeneration == generation,
+                          case .scanning = self.phase,
+                          count > self.scannedItemCount else { return }
                     self.scannedItemCount = count
                 }
             }
