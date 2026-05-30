@@ -15,6 +15,10 @@ final class SpaceLensUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // Persist the Space Lens view mode to a throwaway UserDefaults suite so
+        // the toggle test doesn't leak the last-selected mode into the real
+        // app preference (or couple test runs through shared state).
+        app.launchEnvironment["UITEST_DEFAULTS_SUITE"] = "VaderCleanerUITests.SpaceLens.\(UUID().uuidString)"
         app.launch()
     }
 

@@ -77,7 +77,15 @@ struct VaderCleanerApp: App {
         _spaceLensViewModel = State(
             initialValue: DiskScannerViewModel.live(exclusions: exclusions)
         )
-        _spaceLensViewMode = State(initialValue: SpaceLensViewModeStore())
+        // UI tests pass an isolated UserDefaults suite name so toggling the
+        // Space Lens view mode during a test doesn't mutate the developer's
+        // real preference. Production never sets this, so it falls back to
+        // `.standard`. This is real persistence pointed at a scratch domain,
+        // not a mock.
+        let viewModeDefaults = ProcessInfo.processInfo
+            .environment["UITEST_DEFAULTS_SUITE"]
+            .flatMap { UserDefaults(suiteName: $0) } ?? .standard
+        _spaceLensViewMode = State(initialValue: SpaceLensViewModeStore(defaults: viewModeDefaults))
         _privacyViewModel = State(initialValue: PrivacyViewModel.live())
         _appUninstallerViewModel = State(
             initialValue: AppUninstallerViewModel.live(exclusions: exclusions)

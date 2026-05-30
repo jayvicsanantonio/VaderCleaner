@@ -167,6 +167,14 @@ struct SunburstLayout {
         let total = cleaned.reduce(0.0) { $0 + $1.weight }
         guard total > 0 else { return }
 
+        // Sliver pruning exists to drop a tiny child next to larger siblings —
+        // not to blank out a whole ring. When *no* child clears the threshold
+        // (a folder with hundreds of similarly-sized items), pruning them all
+        // would render an empty ring for a non-empty folder. In that case keep
+        // every child so the ring fills; they're drawn as leaves because
+        // recursing into a sliver only repeats the situation one ring out.
+        let anyClears = cleaned.contains { ($0.weight / total) * spanWidth >= minSegmentAngle }
+
         var cursor = spanStart
         for entry in cleaned {
             let arc = entry.weight / total * spanWidth
@@ -174,12 +182,15 @@ struct SunburstLayout {
             let segEnd = cursor + arc
             cursor = segEnd
 
-            // Prune slivers and everything beneath them.
-            guard arc >= minSegmentAngle else { continue }
+            // Prune individual slivers only when a non-sliver sibling exists.
+            if anyClears && arc < minSegmentAngle { continue }
 
             output.append(
                 Segment(id: id(entry.node), depth: depth, startAngle: segStart, endAngle: segEnd)
             )
+            // Only descend into segments wide enough to carry a readable inner
+            // ring; forced-visible slivers (the `!anyClears` case) stay leaves.
+            guard arc >= minSegmentAngle else { continue }
             place(
                 parentChildren: children(entry.node),
                 depth: depth + 1,
