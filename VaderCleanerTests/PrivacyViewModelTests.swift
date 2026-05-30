@@ -64,6 +64,20 @@ final class PrivacyViewModelTests: XCTestCase {
                       "Recent items toggle must default to checked")
     }
 
+    /// Each `(browser, category)` location sized must bump `scannedItemCount`
+    /// so the scanning screen can show "Scanned N items…" advancing. `preview()`
+    /// awaits its work, so the final tally is deterministic on return.
+    func test_preview_reportsScannedItemCount() async {
+        let vm = makeViewModel(
+            detected: [.safari, .chrome],
+            sizer: { _, _ in 100 }
+        )
+
+        await vm.preview()
+
+        XCTAssertEqual(vm.scannedItemCount, 2 * PrivacyCategory.allCases.count)
+    }
+
     /// Per-category sizes must be exposed for the view to render
     /// "20 MB"-style labels next to each checkbox without recomputing
     /// from scratch on every redraw.

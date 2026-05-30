@@ -8,6 +8,9 @@ import SwiftUI
 struct SmartScanProgressState: View {
     let label: String
     let identifier: String
+    /// Optional live progress line (e.g. "Scanned 12,431 items…") shown beneath
+    /// the stage label so the user sees the composite scan advancing.
+    var detail: String? = nil
 
     var body: some View {
         VStack(spacing: 16) {
@@ -18,6 +21,13 @@ struct SmartScanProgressState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
+            if let detail {
+                Text(detail)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier("\(identifier).count")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(identifier)

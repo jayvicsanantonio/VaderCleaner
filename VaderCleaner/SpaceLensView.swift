@@ -99,6 +99,13 @@ struct SpaceLensView: View {
             ProgressView(value: viewModel.scanProgress)
                 .progressViewStyle(.linear)
                 .frame(maxWidth: 360)
+            // Space Lens reports a real completion fraction, so show the live
+            // percentage — proof to the user the scan is moving toward done.
+            Text(ScanProgressFormatting.percent(viewModel.scanProgress))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .contentTransition(.numericText())
+                .accessibilityIdentifier("space-lens.scanning.percent")
             Text("Scanning…")
                 .font(.callout)
                 .foregroundStyle(.secondary)

@@ -25,6 +25,23 @@ protocol FileScanning {
         batchSize: Int,
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws
+
+    /// Progress-aware variant. `onProgress` receives the cumulative count of
+    /// filesystem items *walked* (not just matched), fired periodically so a
+    /// UI can show that an open-ended scan is advancing rather than hung.
+    ///
+    /// A default implementation in the extension below bridges this to the
+    /// non-progress method, dropping `onProgress`. Conformers that don't care
+    /// — including the test fakes — need not implement it; only `FileScanner`
+    /// overrides it to actually emit ticks.
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onProgress: (@Sendable (Int) -> Void)?,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws
 }
 
 struct FileScanOptions: Equatable {
@@ -66,13 +83,47 @@ enum ProtectedMediaStoreBundle {
 }
 
 extension FileScanning {
+    /// Bridges the progress-aware requirement to the plain one for conformers
+    /// that don't emit progress. Keeping this here means existing fakes — which
+    /// implement only the non-progress method — satisfy the new requirement for
+    /// free, and a `FileScanning` existential still dispatches to `FileScanner`'s
+    /// real implementation when it has one.
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onProgress: (@Sendable (Int) -> Void)?,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        try await scan(
+            roots: roots,
+            excluding: excluding,
+            options: options,
+            batchSize: batchSize,
+            onBatch: onBatch
+        )
+    }
+
     func scan(roots: [ScanRoot], excluding: [URL]) async throws -> [ScannedFile] {
+        try await scan(roots: roots, excluding: excluding, onProgress: nil)
+    }
+
+    /// Accumulating convenience that also forwards a walked-count progress
+    /// callback. Used by feature scanners that want the whole result array but
+    /// still need to surface "still scanning" feedback while the walk runs.
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        onProgress: (@Sendable (Int) -> Void)?
+    ) async throws -> [ScannedFile] {
         var results: [ScannedFile] = []
         try await scan(
             roots: roots,
             excluding: excluding,
             options: .default,
-            batchSize: FileScanner.defaultBatchSize
+            batchSize: FileScanner.defaultBatchSize,
+            onProgress: onProgress
         ) { batch in
             results.append(contentsOf: batch)
         }
@@ -358,6 +409,24 @@ struct FileScanner: FileScanning {
         batchSize: Int = defaultBatchSize,
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws {
+        try await scan(
+            roots: roots,
+            excluding: excluding,
+            options: options,
+            batchSize: batchSize,
+            onProgress: nil,
+            onBatch: onBatch
+        )
+    }
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions = .default,
+        batchSize: Int = defaultBatchSize,
+        onProgress: (@Sendable (Int) -> Void)?,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
         let batchLimit = max(1, batchSize)
         let canonicalExclusions = excluding.map(PathExclusionMatcher.canonicalize)
         let hasExclusions = !canonicalExclusions.isEmpty
@@ -411,6 +480,11 @@ struct FileScanner: FileScanning {
                 visitedCount += 1
                 if visitedCount.isMultiple(of: Self.cancellationCheckInterval) {
                     try Task.checkCancellation()
+                    // Publish the running walked-count on the same cadence we
+                    // already check cancellation, so a UI can show the scan is
+                    // advancing. Piggy-backing on the existing interval keeps
+                    // this free of any extra per-file cost.
+                    onProgress?(visitedCount)
                 }
 
                 let resourceValues = try? url.resourceValues(forKeys: Self.resourceKeySet)
@@ -460,9 +534,22 @@ struct FileScanner: FileScanning {
                         continue
                     }
 
+                    // Forward progress through the package walk too. Without
+                    // this, sizing a large bundle (an `.app`, a photo library
+                    // in package-as-file mode) emits no interim ticks and the
+                    // final walked count omits everything inside it — so a scan
+                    // dominated by one big package would look stalled. Each
+                    // descendant counts toward the same `visitedCount`, fired on
+                    // the shared cancellation cadence.
                     let packageResult = try await PackageDirectorySizer.recursiveSizeResult(
                         of: url,
-                        excluding: canonicalExclusions
+                        excluding: canonicalExclusions,
+                        progress: {
+                            visitedCount += 1
+                            if visitedCount.isMultiple(of: Self.cancellationCheckInterval) {
+                                onProgress?(visitedCount)
+                            }
+                        }
                     )
                     batch.append(
                         ScannedFile(
@@ -500,5 +587,9 @@ struct FileScanner: FileScanning {
         }
 
         try await flushBatch()
+        // Final tick so a short scan (fewer items than the cancellation
+        // interval) still reports a count, and a long one ends on its true
+        // total rather than the last interval boundary.
+        onProgress?(visitedCount)
     }
 }

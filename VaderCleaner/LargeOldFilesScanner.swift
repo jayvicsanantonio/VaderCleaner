@@ -36,11 +36,15 @@ struct LargeOldFilesScanner {
         self.now = now
     }
 
-    func scan(excluding: [URL]) async throws -> [ScannedFile] {
+    func scan(
+        excluding: [URL],
+        onProgress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> [ScannedFile] {
         var matches: [ScannedFile] = []
         try await scan(
             excluding: excluding,
-            batchSize: FileScanner.defaultBatchSize
+            batchSize: FileScanner.defaultBatchSize,
+            onProgress: onProgress
         ) { matchedBatch in
             matches.append(contentsOf: matchedBatch)
         }
@@ -60,6 +64,7 @@ struct LargeOldFilesScanner {
     func scan(
         excluding: [URL],
         batchSize: Int = FileScanner.defaultBatchSize,
+        onProgress: (@Sendable (Int) -> Void)? = nil,
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws {
         let roots = pathProvider.roots().map {
@@ -80,7 +85,8 @@ struct LargeOldFilesScanner {
             roots: roots,
             excluding: allExclusions,
             options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
-            batchSize: batchSize
+            batchSize: batchSize,
+            onProgress: onProgress
         ) { scannedBatch in
             let matchedBatch = scannedBatch.compactMap { Self.classify($0, cutoff: cutoff) }
             guard !matchedBatch.isEmpty else { return }

@@ -78,6 +78,7 @@
 		4156DAE09EB7579F22FA6959 /* MalwareViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDFA9AEE80D49DAD57BC670 /* MalwareViewModel.swift */; };
 		4453CD1C9BEA6DFD3C62E054 /* FloatingRunOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01BBF737C8160E8BA9C847B /* FloatingRunOverlay.swift */; };
 		4536F93FC837F56C61CDD236 /* spaceLens.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 785EECE3C6B84ECB7D0A3384 /* spaceLens.usdz */; };
+		45825BEE32AC83FC8B685E28 /* ScanProgressFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A3AE9EED81844B80CF3A1A /* ScanProgressFormatting.swift */; };
 		45FB850A603BCEE6C2B1CFF6 /* ScanAccessPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB5681FA35AB3189E0143A5 /* ScanAccessPopover.swift */; };
 		472FECDAABC513309987AA5E /* SmartScanJunkReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E67824DA18085247812F6E08 /* SmartScanJunkReview.swift */; };
 		483CE4B8CB180C13FC0934A6 /* LargeOldFilesViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1118EEB70EAD2A87D42A6605 /* LargeOldFilesViewSubviews.swift */; };
@@ -301,6 +302,7 @@
 		133467A06193C406B027D97C /* NavigationSectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationSectionTests.swift; sourceTree = "<group>"; };
 		13A5713F5928025F9FE34A43 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		13B8D75FB7A02DE3D470F0C4 /* ExtensionDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionDiscovery.swift; sourceTree = "<group>"; };
+		14A3AE9EED81844B80CF3A1A /* ScanProgressFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanProgressFormatting.swift; sourceTree = "<group>"; };
 		166C78AD4798A02F30D94BF4 /* HealthMonitorViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMonitorViewModelTests.swift; sourceTree = "<group>"; };
 		168266DA7B9E9A25E0B56A8C /* systemJunk.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = systemJunk.usdz; sourceTree = "<group>"; };
 		1683C13B4837D58AD519341C /* largeOldFiles.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = largeOldFiles.usdz; sourceTree = "<group>"; };
@@ -655,6 +657,7 @@
 				E75515819550B2B92260F57B /* ScanDiscWindowFrame.swift */,
 				374A11FF89347AF05A14498B /* ScannableSectionContent.swift */,
 				B0B017EBC3CA11CE939B3362 /* ScannedFile.swift */,
+				14A3AE9EED81844B80CF3A1A /* ScanProgressFormatting.swift */,
 				92759EA8E508BD5B87FCAAD6 /* ScanResult.swift */,
 				9EFF573646C7B3E43AD2A96E /* SectionIntroView.swift */,
 				2FA0DB8537E6A360F24AB03E /* SectionPresentation.swift */,
@@ -1200,6 +1203,7 @@
 				67B6E2F0F779AF28BBBA00C1 /* ScanDiscHostView.swift in Sources */,
 				BA47B242AAAE6EAD08CC7D23 /* ScanDiscWindowController.swift in Sources */,
 				4ED4E093FE7E2ADB381708F4 /* ScanDiscWindowFrame.swift in Sources */,
+				45825BEE32AC83FC8B685E28 /* ScanProgressFormatting.swift in Sources */,
 				8340A2D44E8B2BCD2500B867 /* ScanResult.swift in Sources */,
 				80111FB2EC8ED204B993FC21 /* ScannableSectionContent.swift in Sources */,
 				494DBF4AEF6D8730DF44147E /* ScannedFile.swift in Sources */,

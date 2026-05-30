@@ -57,9 +57,12 @@ final class LargeOldFilesViewModel {
     }
 
     /// Closure type for the scan source. Async + throwing so production can
-    /// wrap `LargeOldFilesScanner.scan(excluding:)` and tests can supply an
-    /// in-memory `[ScannedFile]` (or throw to exercise the failure path).
-    typealias Scanner = () async throws -> [ScannedFile]
+    /// wrap `LargeOldFilesScanner.scan(excluding:onProgress:)` and tests can
+    /// supply an in-memory `[ScannedFile]` (or throw to exercise the failure
+    /// path). The `@Sendable (Int) -> Void` parameter receives the running
+    /// walked-item count so the scanning screen can show the scan advancing;
+    /// callers that don't report progress simply never invoke it.
+    typealias Scanner = (@escaping @Sendable (Int) -> Void) async throws -> [ScannedFile]
 
     /// Closure type for the deletion sink. Returns the set of URLs that were
     /// **actually** removed — partial-failure cases (some files locked,
@@ -69,6 +72,12 @@ final class LargeOldFilesViewModel {
 
     private(set) var phase: Phase = .idle
     private(set) var selectedURLs: Set<URL> = []
+
+    /// Running count of filesystem items the in-flight scan has walked. Reset
+    /// to 0 at the start of each scan and fed by the scanner's progress
+    /// callback so the scanning screen can show "Scanned N items…" — proof the
+    /// open-ended walk is advancing rather than hung.
+    private(set) var scannedItemCount: Int = 0
 
     /// Current sort axis. The setter recomputes `displayedFiles` so the view
     /// table re-orders without the caller doing the work. Defaults to size-
@@ -88,6 +97,12 @@ final class LargeOldFilesViewModel {
 
     @ObservationIgnored private let scanner: Scanner
     @ObservationIgnored private let deleter: Deleter
+
+    /// Incremented at the start of every scan. The progress callback hops back
+    /// to the main actor asynchronously, so a tick from a superseded scan could
+    /// otherwise land after a newer scan reset the counter; the generation
+    /// check drops those stale updates.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "LargeOldFilesViewModel")
 
@@ -127,11 +142,30 @@ final class LargeOldFilesViewModel {
     /// `.failed`. Selection is cleared because the previous list is no
     /// longer valid.
     func scan() async {
+        scanGeneration &+= 1
+        let generation = scanGeneration
         phase = .scanning
+        scannedItemCount = 0
         selectedURLs = []
         totalSelectedSize = 0
         do {
-            let files = try await scanner()
+            let files = try await scanner { [weak self] count in
+                // The scanner runs off the main actor, so hop back before
+                // touching the observable count. Drop the update if a newer
+                // scan has since started.
+                Task { @MainActor in
+                    // Drop the tick if a newer scan started, if the scan has
+                    // already left `.scanning` (a late tick must not re-trigger
+                    // observation once results are showing), or if it would move
+                    // the monotonic walked count backwards (the hops are
+                    // unstructured, so they can land out of order).
+                    guard let self,
+                          self.scanGeneration == generation,
+                          case .scanning = self.phase,
+                          count > self.scannedItemCount else { return }
+                    self.scannedItemCount = count
+                }
+            }
             applyScanResult(files)
         } catch {
             log.error("Large & Old Files scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
@@ -176,6 +210,7 @@ final class LargeOldFilesViewModel {
         displayedFiles = []
         selectedURLs = []
         totalSelectedSize = 0
+        scannedItemCount = 0
         phase = .idle
     }
 
@@ -254,9 +289,9 @@ extension LargeOldFilesViewModel {
     @MainActor
     static func live(exclusions: ExclusionsStore) -> LargeOldFilesViewModel {
         LargeOldFilesViewModel(
-            scanner: { [weak exclusions] in
+            scanner: { [weak exclusions] onProgress in
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await LargeOldFilesScanner().scan(excluding: excluded)
+                return try await LargeOldFilesScanner().scan(excluding: excluded, onProgress: onProgress)
             },
             deleter: { urls in
                 await Self.removeUserFiles(at: urls)

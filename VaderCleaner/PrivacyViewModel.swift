@@ -56,6 +56,12 @@ final class PrivacyViewModel {
     typealias RecentFilesClearer   = @MainActor @Sendable () async throws -> Void
 
     private(set) var phase: Phase = .idle
+
+    /// Running count of `(browser, category)` locations sized so far during the
+    /// in-flight scan. Reset to 0 when a scan starts and surfaced as
+    /// "Scanned N items…" so the user sees the scan advancing.
+    private(set) var scannedItemCount: Int = 0
+
     private(set) var detectedBrowsers: [Browser] = []
     private(set) var checkedSelections: Set<Selection> = []
     private(set) var isClearRecentsChecked: Bool = true
@@ -210,6 +216,7 @@ final class PrivacyViewModel {
     func preview() async {
         let generation = beginOperation()
         phase = .scanning
+        scannedItemCount = 0
         let detector = detector
         let sizer = sizer
         let pathsFor = pathsFor
@@ -221,6 +228,7 @@ final class PrivacyViewModel {
                 var sizes: [Selection: Int64] = [:]
                 var pathsBySelection: [Selection: [URL]] = [:]
                 var checked: Set<Selection> = []
+                var processed = 0
                 for browser in browsers {
                     for category in PrivacyCategory.allCases {
                         try Task.checkCancellation()
@@ -228,6 +236,15 @@ final class PrivacyViewModel {
                         sizes[selection] = try await sizer(browser, category)
                         pathsBySelection[selection] = pathsFor(browser, category)
                         checked.insert(selection)
+                        // Surface the running tally so the scanning screen shows
+                        // the scan advancing. Hop to the main actor and drop the
+                        // update if a newer operation has superseded this one.
+                        processed += 1
+                        let current = processed
+                        await MainActor.run { [weak self] in
+                            guard let self, self.operationGeneration == generation else { return }
+                            self.scannedItemCount = current
+                        }
                     }
                 }
                 try Task.checkCancellation()

@@ -984,14 +984,55 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.willExecute(.myClutter))
     }
 
+    // MARK: - Scan progress count
+
+    /// The combined "Scanned N items…" tally must sum the walked counts of the
+    /// two concurrent file-walk sub-scans (System Junk + My Clutter).
+    func test_scan_reportsCombinedScannedItemCountAcrossFileWalkSubScans() async {
+        let vm = SmartScanViewModel(
+            junkScanner: { progress in
+                progress(100)
+                await Task.yield()
+                progress(300)
+                await Task.yield()
+                return ScanResult(items: [])
+            },
+            malwareInstalled: { false },
+            malwareScanner: { [] },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { progress in
+                progress(50)
+                await Task.yield()
+                progress(200)
+                await Task.yield()
+                return []
+            },
+            updatesChecker: { [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.scannedItemCount == 500 }
+
+        XCTAssertEqual(
+            vm.scannedItemCount,
+            500,
+            "Smart Scan count must sum the junk (300) and clutter (200) walk totals"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
-        junkScanner: @escaping SmartScanViewModel.JunkScanner = { ScanResult(items: []) },
+        junkScanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
         malwareScanner: @escaping SmartScanViewModel.MalwareScanner = { [] },
         loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
-        largeOldFilesScanner: @escaping SmartScanViewModel.ClutterScanner = { [] },
+        largeOldFilesScanner: @escaping () async -> [ScannedFile] = { [] },
         updatesChecker: @escaping SmartScanViewModel.UpdatesChecker = { [] },
         junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
         threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
@@ -999,12 +1040,15 @@ final class SmartScanViewModelTests: XCTestCase {
         updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
         largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] }
     ) -> SmartScanViewModel {
+        // Adapt the progress-free test closures to the production sub-scanner
+        // signatures; the count test below constructs the VM directly to drive
+        // the progress callbacks.
         SmartScanViewModel(
-            junkScanner: junkScanner,
+            junkScanner: { _ in try await junkScanner() },
             malwareInstalled: malwareInstalled,
             malwareScanner: malwareScanner,
             loginItemsLoader: loginItemsLoader,
-            largeOldFilesScanner: largeOldFilesScanner,
+            largeOldFilesScanner: { _ in await largeOldFilesScanner() },
             updatesChecker: updatesChecker,
             junkCleaner: junkCleaner,
             threatRemover: threatRemover,

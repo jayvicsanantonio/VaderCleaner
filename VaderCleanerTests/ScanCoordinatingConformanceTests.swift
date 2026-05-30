@@ -671,11 +671,11 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     // *ViewModelTests use so a test only overrides the closure it exercises.
 
     private func makeSmartScan(
-        junkScanner: @escaping SmartScanViewModel.JunkScanner = { ScanResult(items: []) },
+        junkScanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
         malwareScanner: @escaping SmartScanViewModel.MalwareScanner = { [] },
         loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
-        largeOldFilesScanner: @escaping SmartScanViewModel.ClutterScanner = { [] },
+        largeOldFilesScanner: @escaping () async -> [ScannedFile] = { [] },
         updatesChecker: @escaping SmartScanViewModel.UpdatesChecker = { [] },
         junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
         threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
@@ -684,11 +684,11 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] }
     ) -> SmartScanViewModel {
         SmartScanViewModel(
-            junkScanner: junkScanner,
+            junkScanner: { _ in try await junkScanner() },
             malwareInstalled: malwareInstalled,
             malwareScanner: malwareScanner,
             loginItemsLoader: loginItemsLoader,
-            largeOldFilesScanner: largeOldFilesScanner,
+            largeOldFilesScanner: { _ in await largeOldFilesScanner() },
             updatesChecker: updatesChecker,
             junkCleaner: junkCleaner,
             threatRemover: threatRemover,
@@ -699,17 +699,17 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     private func makeSystemJunk(
-        scanner: @escaping SystemJunkViewModel.Scanner = { ScanResult(items: []) },
+        scanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         deleter: @escaping SystemJunkViewModel.Deleter = { _ in 0 }
     ) -> SystemJunkViewModel {
-        SystemJunkViewModel(scanner: scanner, deleter: deleter)
+        SystemJunkViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
     }
 
     private func makeLargeOldFiles(
         scanner: @escaping () async throws -> [ScannedFile] = { [] },
         deleter: @escaping ([URL]) async -> Set<URL> = { Set($0) }
     ) -> LargeOldFilesViewModel {
-        LargeOldFilesViewModel(scanner: scanner, deleter: deleter)
+        LargeOldFilesViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
     }
 
     private func makeMalware(

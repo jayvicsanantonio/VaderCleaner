@@ -123,8 +123,10 @@ final class SmartScanViewModel {
     }
 
     /// System Junk scan source. Throwing: a failed junk scan fails the whole
-    /// Smart Scan, mirroring `SystemJunkViewModel.Scanner`.
-    typealias JunkScanner = () async throws -> ScanResult
+    /// Smart Scan, mirroring `SystemJunkViewModel.Scanner`. The
+    /// `@Sendable (Int) -> Void` parameter receives the running walked-item
+    /// count so Smart Scan can show its sub-scans advancing.
+    typealias JunkScanner = (@escaping @Sendable (Int) -> Void) async throws -> ScanResult
     /// Whether ClamAV is installed. When `false` the malware scan is skipped
     /// entirely and the Malware card hides its action.
     typealias MalwareInstalled = () -> Bool
@@ -139,8 +141,10 @@ final class SmartScanViewModel {
     /// fail the whole Smart Scan, so the live wiring catches and yields `[]`
     /// (same shape as the malware sub-scan). Named `ClutterScanner` rather
     /// than `LargeOldFilesScanner` to keep the typealias from colliding
-    /// with the underlying `LargeOldFilesScanner` *class* in `.live`.
-    typealias ClutterScanner = () async -> [ScannedFile]
+    /// with the underlying `LargeOldFilesScanner` *class* in `.live`. The
+    /// `@Sendable (Int) -> Void` parameter receives the running walked-item
+    /// count so Smart Scan can show its sub-scans advancing.
+    typealias ClutterScanner = (@escaping @Sendable (Int) -> Void) async -> [ScannedFile]
     /// App-update check source, fronting the Applications tile. Non-throwing
     /// and best-effort for the same reason as `ClutterScanner` — a
     /// network blip can't sink an otherwise-useful Smart Scan.
@@ -166,6 +170,12 @@ final class SmartScanViewModel {
     typealias LargeFileDeleter = ([URL]) async -> Set<URL>
 
     private(set) var phase: Phase = .idle
+
+    /// Combined count of filesystem items walked by the two file-walk sub-scans
+    /// (System Junk + My Clutter) during the in-flight Smart Scan. Reset to 0
+    /// at scan start and surfaced as "Scanned N items…" beneath the stage label
+    /// so the user sees the composite scan advancing.
+    private(set) var scannedItemCount: Int = 0
 
     /// Which tiles on the dashboard are checked. Empty at `.idle`; seeded on
     /// the `.scanning → .results` transition to "every module that has
@@ -200,6 +210,16 @@ final class SmartScanViewModel {
     /// the view re-sorting on every body re-evaluation. Recomputed once
     /// when results land; cleared on `reset()`.
     private(set) var sortedLargeOldFiles: [ScannedFile] = []
+
+    /// Per-source walked counts for the two concurrent file-walk sub-scans.
+    /// `scannedItemCount` is their sum; tracking them separately lets each
+    /// scanner's monotonic count update the combined total independently.
+    @ObservationIgnored private var junkWalkCount = 0
+    @ObservationIgnored private var clutterWalkCount = 0
+
+    /// Incremented at the start of every scan so a progress tick that hops back
+    /// to the main actor after a newer scan began is dropped.
+    @ObservationIgnored private var scanGeneration = 0
 
     @ObservationIgnored private let junkScanner: JunkScanner
     @ObservationIgnored private let malwareInstalled: MalwareInstalled
@@ -266,12 +286,50 @@ final class SmartScanViewModel {
             comment: "Progress label shown while the Smart Scan runs all five sub-scans — uses the user-facing tile names from the results dashboard."
         ))
 
+        scanGeneration &+= 1
+        let generation = scanGeneration
+        scannedItemCount = 0
+        junkWalkCount = 0
+        clutterWalkCount = 0
+
+        // The two file-walk sub-scans run concurrently and each report their own
+        // monotonic walked count; sum them into one "Scanned N items…" tally.
+        // The scanners run off the main actor, so hop back before touching the
+        // observable count, and drop ticks from a superseded scan.
+        // These hops are unstructured, so they can land out of order; each
+        // sub-scan's walked count is monotonic, so ignore any tick that would
+        // move its counter backwards rather than let the combined total jitter.
+        let onJunkProgress: @Sendable (Int) -> Void = { [weak self] count in
+            Task { @MainActor in
+                // Drop the tick if a newer scan started, if it would move the
+                // count backwards, or if the scan has already left `.scanning`
+                // (a tick enqueued just before the terminal phase must not
+                // re-trigger observation once the dashboard is showing).
+                guard let self,
+                      self.scanGeneration == generation,
+                      case .scanning = self.phase,
+                      count > self.junkWalkCount else { return }
+                self.junkWalkCount = count
+                self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
+            }
+        }
+        let onClutterProgress: @Sendable (Int) -> Void = { [weak self] count in
+            Task { @MainActor in
+                guard let self,
+                      self.scanGeneration == generation,
+                      case .scanning = self.phase,
+                      count > self.clutterWalkCount else { return }
+                self.clutterWalkCount = count
+                self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
+            }
+        }
+
         let clamAVAvailable = malwareInstalled()
 
-        async let junk = junkScanner()
+        async let junk = junkScanner(onJunkProgress)
         async let threats = scanForThreatsIfPossible(clamAVAvailable: clamAVAvailable)
         async let login = loginItemsLoader()
-        async let large = largeOldFilesScanner()
+        async let large = largeOldFilesScanner(onClutterProgress)
         async let updates = updatesChecker()
 
         do {
@@ -573,6 +631,7 @@ final class SmartScanViewModel {
         updateSelection = []
         largeFileSelection = []
         sortedLargeOldFiles = []
+        scannedItemCount = 0
     }
 }
 
@@ -601,9 +660,9 @@ extension SmartScanViewModel {
                          category: "SmartScanViewModel.live")
 
         return SmartScanViewModel(
-            junkScanner: { [weak exclusions] in
+            junkScanner: { [weak exclusions] onProgress in
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await SystemJunkScanner().scan(excluding: excluded)
+                return try await SystemJunkScanner().scan(excluding: excluded, onProgress: onProgress)
             },
             malwareInstalled: { detector.isInstalled() },
             // Best-effort: a missing signature database or a broken clamscan
@@ -631,10 +690,10 @@ extension SmartScanViewModel {
             // the whole Smart Scan, so failures are logged and degraded to
             // an empty list (same partial-degradation contract as the
             // malware scanner above).
-            largeOldFilesScanner: { [weak exclusions] in
+            largeOldFilesScanner: { [weak exclusions] onProgress in
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
                 do {
-                    return try await LargeOldFilesScanner().scan(excluding: excluded)
+                    return try await LargeOldFilesScanner().scan(excluding: excluded, onProgress: onProgress)
                 } catch {
                     log.error("Smart Scan large/old files sub-scan failed, treating as no files: \(String(describing: error), privacy: .public)")
                     return []

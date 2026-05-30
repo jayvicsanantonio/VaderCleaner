@@ -88,6 +88,27 @@ final class FileScannerTests: XCTestCase {
         XCTAssertEqual(batchSizes, [2, 2, 1])
     }
 
+    // MARK: - Progress
+
+    func test_scan_reportsWalkedItemProgress() async throws {
+        try TestHelpers.createDummyFiles(count: 5, size: 8, in: tempRoot)
+
+        let scanner = FileScanner()
+        let recorder = TestHelpers.ProgressRecorder()
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .userCache)],
+            excluding: [],
+            options: .default,
+            batchSize: FileScanner.defaultBatchSize,
+            onProgress: { recorder.record($0) }
+        ) { _ in }
+
+        let reported = recorder.snapshot
+        XCTAssertFalse(reported.isEmpty, "Expected at least the final progress tick")
+        XCTAssertEqual(reported, reported.sorted(), "Walked count must be non-decreasing")
+        XCTAssertEqual(reported.last, 5, "Final tick should report every walked item")
+    }
+
     func test_scan_stopsWhenBatchConsumerCancels() async throws {
         try TestHelpers.createDummyFiles(count: 20, size: 8, in: tempRoot)
 
@@ -319,6 +340,32 @@ final class FileScannerTests: XCTestCase {
         XCTAssertEqual(files.first?.url.resolvingSymlinksInPath().path, package.resolvingSymlinksInPath().path)
         XCTAssertEqual(files.first?.size, 96)
         XCTAssertEqual(files.first?.category, .largeFile)
+    }
+
+    func test_scan_packagesAsFilesCountsPackageDescendantsInProgress() async throws {
+        let package = tempRoot.appendingPathComponent("Demo.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFiles(count: 4, size: 16, in: contents)
+
+        let scanner = FileScanner()
+        let recorder = TestHelpers.ProgressRecorder()
+        try await scanner.scan(
+            roots: [ScanRoot(url: tempRoot, category: .largeFile)],
+            excluding: [],
+            options: FileScanOptions(packagesAsFiles: true),
+            batchSize: FileScanner.defaultBatchSize,
+            onProgress: { recorder.record($0) }
+        ) { _ in }
+
+        // The package's internal files are walked by PackageDirectorySizer; the
+        // final tick must include them, not just the rolled-up bundle root —
+        // otherwise a scan dominated by one big package would look stalled.
+        XCTAssertGreaterThanOrEqual(
+            recorder.snapshot.last ?? 0,
+            4,
+            "Walked count should include the files inside the package, not just the bundle root"
+        )
     }
 
     func test_scan_packagesAsFilesDescendsWhenExclusionTargetsPackageChild() async throws {

@@ -217,6 +217,25 @@ final class SystemJunkScannerTests: XCTestCase {
         )
     }
 
+    // MARK: - Progress forwarding
+
+    /// Walked-count ticks from the underlying `FileScanning` must reach the
+    /// caller's `onProgress` unchanged so the System Junk view-model can show
+    /// an in-flight scan advancing.
+    func test_scan_forwardsWalkedProgressFromUnderlyingScanner() async throws {
+        let scanner = SystemJunkScanner(
+            fileScanner: ProgressEmittingFakeFileScanner(progressTicks: [512, 1024, 2000]),
+            pathProvider: StubSystemPathProvider(roots: [
+                ScanRoot(url: tempRoot, category: .userCache)
+            ])
+        )
+        let recorder = TestHelpers.ProgressRecorder()
+
+        _ = try await scanner.scan(excluding: [], onProgress: { recorder.record($0) })
+
+        XCTAssertEqual(recorder.snapshot, [512, 1024, 2000])
+    }
+
     // MARK: - Helpers
 
     /// Creates a uniquely named subdirectory under `tempRoot` so each scan
@@ -237,4 +256,31 @@ private struct StubSystemPathProvider: SystemPathProviding {
     private let stubbedRoots: [ScanRoot]
     init(roots: [ScanRoot]) { self.stubbedRoots = roots }
     func roots() -> [ScanRoot] { stubbedRoots }
+}
+
+/// Emits a fixed sequence of walked-count progress ticks and no files, so the
+/// progress-forwarding test can assert the scanner relays them verbatim.
+private struct ProgressEmittingFakeFileScanner: FileScanning {
+    let progressTicks: [Int]
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {}
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onProgress: (@Sendable (Int) -> Void)?,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        for tick in progressTicks {
+            onProgress?(tick)
+        }
+    }
 }

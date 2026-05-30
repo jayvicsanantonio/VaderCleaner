@@ -80,7 +80,8 @@ struct SmartScanView: View {
         case .scanning(let phase):
             SmartScanProgressState(
                 label: phase,
-                identifier: "smartScan.scanning"
+                identifier: "smartScan.scanning",
+                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
             )
         case .results(let result):
             resultsContent(result: result)
@@ -154,7 +155,7 @@ struct SmartScanView: View {
 
 #Preview("Results") {
     let vm = SmartScanViewModel(
-        junkScanner: {
+        junkScanner: { _ in
             ScanResult(items: [
                 ScannedFile(
                     url: URL(fileURLWithPath: "/Users/me/Library/Caches/big"),
@@ -177,7 +178,7 @@ struct SmartScanView: View {
         loginItemsLoader: {
             [LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)]
         },
-        largeOldFilesScanner: { [] },
+        largeOldFilesScanner: { _ in [] },
         updatesChecker: { [] },
         junkCleaner: { _ in 1_500_000_000 },
         threatRemover: { _ in [] },
