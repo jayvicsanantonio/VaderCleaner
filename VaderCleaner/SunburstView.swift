@@ -217,16 +217,24 @@ struct SunburstView: View {
         return min(1.0, max(0.4, faded))
     }
 
-    /// Map every descendant within `maxDepth` back to its node so a laid-out
-    /// segment can recover its `DiskNode` for color, tooltip, and drill-down.
-    /// Built once per `node` (not per resize). Depth-bounded to match the
-    /// layout, so a huge subtree doesn't build a dictionary of nodes that are
-    /// never drawn.
+    /// Map the rendered descendants back to their nodes so a laid-out segment
+    /// can recover its `DiskNode` for color, tooltip, and drill-down.
+    ///
+    /// Pruned to exactly the set `SunburstLayout` draws. A node is drawn iff its
+    /// sweep ≥ `minSegmentAngle`, and because each ring's span telescopes —
+    /// sibling sizes sum to the parent's size, so a node's sweep reduces to
+    /// `node.size / root.size · 2π` — that becomes a single size threshold
+    /// against the current root: `node.size ≥ root.size · minSegmentAngle / 2π`.
+    /// A child below the threshold has only smaller descendants, so the walk
+    /// stops there. Without this, a directory with thousands of tiny files
+    /// would walk and allocate an entry for every one on each hover transition,
+    /// even though none of them render.
     private func nodeLookup() -> [DiskNode.ID: DiskNode] {
         var map: [DiskNode.ID: DiskNode] = [:]
+        let threshold = Double(node.size) * (SunburstLayout.minSegmentAngle / (2 * .pi))
         func walk(_ children: [DiskNode], depth: Int) {
             guard depth <= Self.maxDepth else { return }
-            for child in children {
+            for child in children where child.size > 0 && Double(child.size) >= threshold {
                 map[child.id] = child
                 walk(child.children, depth: depth + 1)
             }

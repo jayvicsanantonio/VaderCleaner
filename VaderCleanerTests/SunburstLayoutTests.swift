@@ -161,6 +161,43 @@ final class SunburstLayoutTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
+    /// The set of rendered segments equals a single global size threshold
+    /// against the root: a node is drawn iff `node.size ≥ root.size ·
+    /// minSegmentAngle / 2π`. This holds because each ring's span telescopes
+    /// (sibling sizes sum to the parent's size), and `SunburstView.nodeLookup`
+    /// relies on it to prune its traversal to exactly the drawn set. The
+    /// fixture keeps children summing to their parent, as a rolled-up scan does.
+    func test_segments_renderedSetMatchesGlobalSizeThreshold() {
+        let tree = Tree(0, 1000, [
+            Tree(1, 600, [Tree(11, 400), Tree(12, 200)]),
+            Tree(2, 300, [Tree(21, 298), Tree(22, 2)]),
+            Tree(3, 100)
+        ])
+        let maxDepth = 5
+        let rendered = Set(
+            SunburstLayout.segments(
+                root: tree, maxDepth: maxDepth,
+                id: { $0.id }, weight: { $0.weight }, children: { $0.children }
+            ).map(\.id)
+        )
+
+        let threshold = 1000.0 * (SunburstLayout.minSegmentAngle / (2 * .pi))
+        var expected = Set<Int>()
+        func walk(_ node: Tree, depth: Int) {
+            guard depth <= maxDepth else { return }
+            for child in node.children where Double(child.weight) >= threshold {
+                expected.insert(child.id)
+                walk(child, depth: depth + 1)
+            }
+        }
+        walk(tree, depth: 1)
+
+        XCTAssertEqual(rendered, expected,
+                       "Rendered segments must match the global size threshold the lookup prunes by")
+        XCTAssertFalse(rendered.contains(22),
+                       "The 0.2%-of-root node is below the 1.5° threshold and must be pruned")
+    }
+
     // MARK: - Hit testing (screen space)
 
     /// `segment(at:)` must map *pixel* positions to the visually-correct
