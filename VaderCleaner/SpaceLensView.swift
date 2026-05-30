@@ -21,9 +21,11 @@ import SwiftUI
 struct SpaceLensView: View {
 
     private var viewModel: DiskScannerViewModel
+    private var viewMode: SpaceLensViewModeStore
 
-    init(viewModel: DiskScannerViewModel) {
+    init(viewModel: DiskScannerViewModel, viewMode: SpaceLensViewModeStore) {
         self.viewModel = viewModel
+        self.viewMode = viewMode
     }
 
     var body: some View {
@@ -117,12 +119,54 @@ struct SpaceLensView: View {
 
     private func readyState(current: DiskNode) -> some View {
         VStack(spacing: 0) {
-            breadcrumb(current: current)
+            topBar(current: current)
             Divider()
             treemapOrEmpty(current: current)
             Divider()
             footer(current: current)
         }
+    }
+
+    /// The control row above the visualization: the breadcrumb on the leading
+    /// edge (taking the flexible width) and the treemap/sunburst toggle pinned
+    /// trailing. Lives above the `Divider` so it stays in reach in both the
+    /// populated and empty states.
+    private func topBar(current: DiskNode) -> some View {
+        HStack(spacing: 8) {
+            breadcrumb(current: current)
+            viewModeToggle
+                .padding(.trailing, 12)
+        }
+    }
+
+    /// Treemap / sunburst switch. Two distinct bordered buttons (rather than a
+    /// segmented `Picker`) so each carries a stable accessibility identifier
+    /// the UI test can tap directly; the active mode is tinted with the accent
+    /// color and marked selected for VoiceOver.
+    private var viewModeToggle: some View {
+        HStack(spacing: 4) {
+            ForEach(SpaceLensViewMode.allCases, id: \.self) { mode in
+                modeButton(mode)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("space-lens.viewMode")
+    }
+
+    private func modeButton(_ mode: SpaceLensViewMode) -> some View {
+        let isSelected = viewMode.mode == mode
+        return Button {
+            viewMode.mode = mode
+        } label: {
+            Image(systemName: mode.symbolName)
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.bordered)
+        .tint(isSelected ? Color.accentColor : Color.secondary)
+        .help(mode.displayName)
+        .accessibilityIdentifier("space-lens.viewMode.\(mode.rawValue)")
+        .accessibilityLabel(mode.displayName)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     /// Empty placeholder shown when the current node has no displayable
@@ -132,13 +176,25 @@ struct SpaceLensView: View {
     private func treemapOrEmpty(current: DiskNode) -> some View {
         Group {
             if hasDisplayableChildren(current) {
-                TreemapView(viewModel: viewModel, node: current)
+                switch viewMode.mode {
+                case .treemap:
+                    TreemapView(viewModel: viewModel, node: current)
+                case .sunburst:
+                    SunburstView(viewModel: viewModel, node: current)
+                }
             } else {
                 emptyTreemapPlaceholder
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Inset the visualization so it reads a touch smaller than the pane,
+        // with breathing room around the treemap edges and the sunburst's
+        // outer ring rather than running flush to the dividers.
+        .padding(Self.visualizationInset)
     }
+
+    /// Padding around the treemap / sunburst inside the detail pane.
+    private static let visualizationInset: CGFloat = 32
 
     private var emptyTreemapPlaceholder: some View {
         VStack(spacing: 12) {
@@ -296,7 +352,8 @@ struct SpaceLensView: View {
                 isDirectory: true,
                 children: []
             )
-        })
+        }),
+        viewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!)
     )
     .frame(width: 800, height: 520)
 }

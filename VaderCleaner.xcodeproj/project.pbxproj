@@ -29,6 +29,10 @@
 		161EB790ECA69115DBAC1B6F /* malwareRemoval.usdz in Resources */ = {isa = PBXBuildFile; fileRef = D1D5689879C5C19243A7AF1E /* malwareRemoval.usdz */; };
 		17B03ADF49ECF79F5C4CC38D /* HelperProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811E341D8E122FCF1C9CF68C /* HelperProtocolTests.swift */; };
 		1947460A68C713844C308694 /* TreemapLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3588FF5E9D8258268C2322 /* TreemapLayout.swift */; };
+		65FED5757882F56378BE1E5D /* SpaceLensViewMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49AF7388796118B18C97F45 /* SpaceLensViewMode.swift */; };
+		2B5D08DE02EC0F4548A037AF /* SunburstView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9FF58BEFFFB4D547C5749B9 /* SunburstView.swift */; };
+		68A1828E35374F73EA5D598D /* SpaceLensHoverCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1E33C927182B28BDBE65DF /* SpaceLensHoverCard.swift */; };
+		83089B096416267341C2EA8C /* SunburstLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D260D83F735F56606617A8 /* SunburstLayout.swift */; };
 		196F1CEAC86015854C7772D7 /* ProcessLineStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7174CD853A7D947268E17C33 /* ProcessLineStreamer.swift */; };
 		1B75D7EEFFDD8BBC248C628E /* PreferencesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6970B875C4CDF95000BB116C /* PreferencesStoreTests.swift */; };
 		1C8625B436085E36B99B5342 /* FinalPolishUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01C8CB7BE63B3851A6E8503 /* FinalPolishUITests.swift */; };
@@ -184,6 +188,8 @@
 		BCFA47EF8B1FBC4B3A67E4B5 /* NavigationSectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133467A06193C406B027D97C /* NavigationSectionTests.swift */; };
 		BD3B6E6F3732BC07EAEC9FA1 /* SystemPathProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CC391B523110720320AD89 /* SystemPathProviding.swift */; };
 		BD430047F461946B8AF82858 /* TreemapLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80802F3A6BA3E2094B87A97D /* TreemapLayoutTests.swift */; };
+		F55EB106F505A83D0683544C /* SpaceLensViewModeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EA4FCCD6881922F9CCBA421 /* SpaceLensViewModeStoreTests.swift */; };
+		F9AC9391D8126F241AF625F1 /* SunburstLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1081ECF8AC14D5DFE7974FD /* SunburstLayoutTests.swift */; };
 		BD7CE0EE2AA543E528587A90 /* VaderCleanerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25BE525CD287D91EE80A6CF /* VaderCleanerApp.swift */; };
 		BEFCD2F309C985449A2901F5 /* SmartScanMyClutterReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F498579A77E1DAED6AC00AF /* SmartScanMyClutterReview.swift */; };
 		C2542EE3974C2F9232EE74D1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5E978BB01AD677AEDE122B1C /* Assets.xcassets */; };
@@ -354,6 +360,10 @@
 		48F552ABB8AD311ED03743D9 /* ScanDiscWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanDiscWindowController.swift; sourceTree = "<group>"; };
 		49D62624319B764770F02292 /* AppUninstallerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUninstallerViewModel.swift; sourceTree = "<group>"; };
 		4B3588FF5E9D8258268C2322 /* TreemapLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreemapLayout.swift; sourceTree = "<group>"; };
+		D49AF7388796118B18C97F45 /* SpaceLensViewMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensViewMode.swift; sourceTree = "<group>"; };
+		E9FF58BEFFFB4D547C5749B9 /* SunburstView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunburstView.swift; sourceTree = "<group>"; };
+		1B1E33C927182B28BDBE65DF /* SpaceLensHoverCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensHoverCard.swift; sourceTree = "<group>"; };
+		C8D260D83F735F56606617A8 /* SunburstLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunburstLayout.swift; sourceTree = "<group>"; };
 		4B3FB5D1E4E24DA8CD36F774 /* ClamAVScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClamAVScanner.swift; sourceTree = "<group>"; };
 		4C0A3D2497CF28388945BB57 /* SystemJunkUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkUITests.swift; sourceTree = "<group>"; };
 		4D92F45290B56030CBFA83D3 /* Browser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Browser.swift; sourceTree = "<group>"; };
@@ -403,6 +413,8 @@
 		7ECD89431BD47AB75E415D87 /* PermissionOnboardingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionOnboardingViewModelTests.swift; sourceTree = "<group>"; };
 		7F30A757E0739FCBD68B3EE8 /* AppIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCache.swift; sourceTree = "<group>"; };
 		80802F3A6BA3E2094B87A97D /* TreemapLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreemapLayoutTests.swift; sourceTree = "<group>"; };
+		3EA4FCCD6881922F9CCBA421 /* SpaceLensViewModeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensViewModeStoreTests.swift; sourceTree = "<group>"; };
+		E1081ECF8AC14D5DFE7974FD /* SunburstLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunburstLayoutTests.swift; sourceTree = "<group>"; };
 		811E341D8E122FCF1C9CF68C /* HelperProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProtocolTests.swift; sourceTree = "<group>"; };
 		8277A67975EF073283C98450 /* LargeOldFilesScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldFilesScanner.swift; sourceTree = "<group>"; };
 		882E6C32BC5FC5028D921546 /* MalwareOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingView.swift; sourceTree = "<group>"; };
@@ -682,6 +694,10 @@
 				02167EA31F576ABDAC69EF9D /* SystemStatsFormatters.swift */,
 				4736E8C36A9E9F2ACADEE5EB /* SystemStatsService.swift */,
 				4B3588FF5E9D8258268C2322 /* TreemapLayout.swift */,
+				D49AF7388796118B18C97F45 /* SpaceLensViewMode.swift */,
+				E9FF58BEFFFB4D547C5749B9 /* SunburstView.swift */,
+				1B1E33C927182B28BDBE65DF /* SpaceLensHoverCard.swift */,
+				C8D260D83F735F56606617A8 /* SunburstLayout.swift */,
 				50BDB24525760C96625DD266 /* TreemapView.swift */,
 				2617BC26104D5196DEDB3589 /* UpdateInfo.swift */,
 				9DDDE766D46D79E2C23FB557 /* UserFilesPathProviding.swift */,
@@ -816,6 +832,8 @@
 				6B72F3BD5C48C77AE99F8D4E /* SystemStatsServiceTests.swift */,
 				46A5D22AFD4CA9BC39AB7225 /* TestHelpersTests.swift */,
 				80802F3A6BA3E2094B87A97D /* TreemapLayoutTests.swift */,
+				3EA4FCCD6881922F9CCBA421 /* SpaceLensViewModeStoreTests.swift */,
+				E1081ECF8AC14D5DFE7974FD /* SunburstLayoutTests.swift */,
 				B46943B264F72B3753075A8C /* UpdateInfoTests.swift */,
 				1C63552C9C84BCD29A3DE1F5 /* VersionComparatorTests.swift */,
 				E149BD1FE4E65D6589292B84 /* Helpers */,
@@ -1079,6 +1097,8 @@
 				C26E98922A61A57DB9369C60 /* TestHelpers.swift in Sources */,
 				109F26F16AF9EF6EA786DA0A /* TestHelpersTests.swift in Sources */,
 				BD430047F461946B8AF82858 /* TreemapLayoutTests.swift in Sources */,
+				F55EB106F505A83D0683544C /* SpaceLensViewModeStoreTests.swift in Sources */,
+				F9AC9391D8126F241AF625F1 /* SunburstLayoutTests.swift in Sources */,
 				218D346DC005B993AFE18957 /* UpdateInfoTests.swift in Sources */,
 				3FE9EA6ED869EDC70CA3241B /* VersionComparatorTests.swift in Sources */,
 			);
@@ -1230,6 +1250,10 @@
 				9A250FE3659363C1A7E4F1E9 /* SystemStatsFormatters.swift in Sources */,
 				094E458AFC6976D25693B106 /* SystemStatsService.swift in Sources */,
 				1947460A68C713844C308694 /* TreemapLayout.swift in Sources */,
+				65FED5757882F56378BE1E5D /* SpaceLensViewMode.swift in Sources */,
+				2B5D08DE02EC0F4548A037AF /* SunburstView.swift in Sources */,
+				68A1828E35374F73EA5D598D /* SpaceLensHoverCard.swift in Sources */,
+				83089B096416267341C2EA8C /* SunburstLayout.swift in Sources */,
 				35F306676A3412253929EF55 /* TreemapView.swift in Sources */,
 				7CE637E8DEECA40F849AF39F /* UpdateInfo.swift in Sources */,
 				6CAE5BEE91E8F09DDB87590F /* UserFilesPathProviding.swift in Sources */,
