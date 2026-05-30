@@ -19,20 +19,6 @@ struct OptimizationView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(NavigationSection.optimization.title)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task { await viewModel.refresh() }
-                    } label: {
-                        Label(String(
-                            localized: "Refresh",
-                            comment: "Toolbar button that reloads Optimization data."
-                        ), systemImage: "arrow.clockwise")
-                    }
-                    .disabled(viewModel.phase == .loading || viewModel.phase == .working)
-                    .accessibilityIdentifier("optimization.refresh")
-                }
-            }
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.refresh()
@@ -103,46 +89,60 @@ struct OptimizationView: View {
     }
 
     private var sections: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                OptimizationLoginItemsSection(
-                    items: viewModel.loginItems,
-                    onToggle: { item, enabled in
-                        Task { await viewModel.setLoginItem(item, enabled: enabled) }
-                    }
-                )
-                OptimizationLaunchAgentsSection(
-                    title: String(
-                        localized: "Launch Agents (User)",
-                        comment: "Section header for user launch agents."
-                    ),
-                    identifier: "optimization.userAgents",
-                    agents: viewModel.userAgents,
-                    onDisable: { agent in Task { await viewModel.disable(agent) } },
-                    onRemove: { pendingRemoval = $0 }
-                )
-                OptimizationLaunchAgentsSection(
-                    title: String(
-                        localized: "Launch Agents & Daemons (System)",
-                        comment: "Section header for system launch agents and daemons."
-                    ),
-                    identifier: "optimization.systemAgents",
-                    agents: viewModel.systemAgents,
-                    onDisable: { agent in Task { await viewModel.disable(agent) } },
-                    onRemove: { pendingRemoval = $0 }
-                )
-                OptimizationRAMSection(
-                    memory: viewModel.memory,
-                    result: viewModel.ramResult,
-                    onFlush: { Task { await viewModel.flushRAM() } }
-                )
-                OptimizationMaintenanceSection(
-                    output: viewModel.maintenanceOutput,
-                    onRun: { Task { await viewModel.runMaintenanceScripts() } }
-                )
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    OptimizationLoginItemsSection(
+                        items: viewModel.loginItems,
+                        onToggle: { item, enabled in
+                            Task { await viewModel.setLoginItem(item, enabled: enabled) }
+                        }
+                    )
+                    OptimizationLaunchAgentsSection(
+                        title: String(
+                            localized: "Launch Agents (User)",
+                            comment: "Section header for user launch agents."
+                        ),
+                        identifier: "optimization.userAgents",
+                        agents: viewModel.userAgents,
+                        onDisable: { agent in Task { await viewModel.disable(agent) } },
+                        onRemove: { pendingRemoval = $0 }
+                    )
+                    OptimizationLaunchAgentsSection(
+                        title: String(
+                            localized: "Launch Agents & Daemons (System)",
+                            comment: "Section header for system launch agents and daemons."
+                        ),
+                        identifier: "optimization.systemAgents",
+                        agents: viewModel.systemAgents,
+                        onDisable: { agent in Task { await viewModel.disable(agent) } },
+                        onRemove: { pendingRemoval = $0 }
+                    )
+                    OptimizationRAMSection(
+                        memory: viewModel.memory,
+                        result: viewModel.ramResult,
+                        onFlush: { Task { await viewModel.flushRAM() } }
+                    )
+                    OptimizationMaintenanceSection(
+                        output: viewModel.maintenanceOutput,
+                        onRun: { Task { await viewModel.runMaintenanceScripts() } }
+                    )
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            HStack {
+                Spacer()
+                Button(String(
+                    localized: "Refresh",
+                    comment: "Footer button that reloads Optimization data."
+                )) {
+                    Task { await viewModel.refresh() }
+                }
+                .accessibilityIdentifier("optimization.refresh")
+            }
+            .padding(16)
         }
     }
 

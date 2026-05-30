@@ -30,6 +30,8 @@ struct ExtensionsManagerProgressState: View {
 }
 
 struct ExtensionsManagerEmptyState: View {
+    let onRefresh: () -> Void
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "puzzlepiece.extension")
@@ -48,6 +50,12 @@ struct ExtensionsManagerEmptyState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
+            Button(String(
+                localized: "Refresh",
+                comment: "Button that re-runs Extensions Manager discovery."
+            ), action: onRefresh)
+                .controlSize(.large)
+                .accessibilityIdentifier("extensions.refresh")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("extensions.empty")
@@ -57,23 +65,36 @@ struct ExtensionsManagerEmptyState: View {
 struct ExtensionsManagerList: View {
     let groups: [(ExtensionType, [ExtensionItem])]
     let onRemove: (ExtensionItem) -> Void
+    let onRefresh: () -> Void
 
     var body: some View {
-        List {
-            ForEach(groups, id: \.0) { pair in
-                Section {
-                    ForEach(pair.1) { item in
-                        ExtensionsManagerRow(item: item) { onRemove(item) }
-                            .accessibilityIdentifier("extensions.row.\(pair.0.rawValue).\(item.path.lastPathComponent)")
+        VStack(spacing: 0) {
+            List {
+                ForEach(groups, id: \.0) { pair in
+                    Section {
+                        ForEach(pair.1) { item in
+                            ExtensionsManagerRow(item: item) { onRemove(item) }
+                                .accessibilityIdentifier("extensions.row.\(pair.0.rawValue).\(item.path.lastPathComponent)")
+                        }
+                    } header: {
+                        Text(LocalizedStringKey(pair.0.displayName))
+                            .font(.callout.weight(.semibold))
                     }
-                } header: {
-                    Text(LocalizedStringKey(pair.0.displayName))
-                        .font(.callout.weight(.semibold))
                 }
             }
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            Divider()
+            HStack {
+                Spacer()
+                Button(String(
+                    localized: "Refresh",
+                    comment: "Footer button that re-runs Extensions Manager discovery."
+                ), action: onRefresh)
+                    .accessibilityIdentifier("extensions.refresh")
+            }
+            .padding(16)
         }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
     }
 }
 
