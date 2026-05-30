@@ -193,6 +193,49 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertTrue(vm.navigationPath.last === dirChild)
     }
 
+    /// Drilling into a deeper descendant (as the sunburst allows when the user
+    /// taps a 2nd-or-deeper ring) must record every intermediate folder, not
+    /// just the tapped node — otherwise the breadcrumb skips levels and
+    /// `navigateUp` jumps back too far.
+    func test_drillDown_pushesFullAncestorChainForDescendant() async {
+        let grandchild = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root/sub/deep"),
+            name: "deep",
+            size: 10,
+            isDirectory: true,
+            children: []
+        )
+        let child = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root/sub"),
+            name: "sub",
+            size: 10,
+            isDirectory: true,
+            children: [grandchild]
+        )
+        let root = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/root"),
+            name: "root",
+            size: 10,
+            isDirectory: true,
+            children: [child]
+        )
+        let vm = DiskScannerViewModel(scanner: { _, _ in root })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+
+        // Tapping the grandchild directly, as a deep sunburst ring would.
+        vm.drillDown(into: grandchild)
+
+        XCTAssertEqual(vm.navigationPath.count, 2)
+        XCTAssertTrue(vm.navigationPath.first === child,
+                      "The intermediate folder must be recorded, not skipped")
+        XCTAssertTrue(vm.navigationPath.last === grandchild)
+        XCTAssertTrue(vm.currentNode === grandchild)
+
+        vm.navigateUp()
+        XCTAssertTrue(vm.currentNode === child,
+                      "Up must step back exactly one real level, to the intermediate folder")
+    }
+
     /// Files cannot be drilled into — the treemap renders `node.children`,
     /// and a file has none, so a misplaced drill-down would land the UI on
     /// an empty rectangle. The VM must reject the call instead of trusting

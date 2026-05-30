@@ -72,17 +72,49 @@ final class DiskScannerViewModel {
 
     // MARK: - Navigation
 
-    /// Drill into a directory child. Pushes onto `navigationPath` so the
-    /// treemap re-renders the child's contents and the breadcrumb grows
-    /// by one entry.
+    /// Drill into a directory the user clicked. Pushes onto `navigationPath`
+    /// so the visualization re-renders the target's contents and the
+    /// breadcrumb grows.
+    ///
+    /// **Records the full ancestor chain.** The treemap's tiles are always
+    /// direct children of the current node, but the sunburst surfaces several
+    /// rings of descendants at once — tapping a deeper ring hands us a node
+    /// that is *not* a direct child. Appending only that node would skip the
+    /// folders in between, so the breadcrumb would read `root > descendant`
+    /// and `navigateUp` would jump back too far. Instead we append every node
+    /// from the current node down to the target. For a direct child this is a
+    /// single-element chain, so the treemap path is unchanged.
     ///
     /// **No-op for non-directories** — files have no children, so a
     /// drill-down would land the view on an empty rectangle. Centralising
     /// the guard here means the view layer doesn't have to check before
-    /// every tile click.
+    /// every click.
     func drillDown(into node: DiskNode) {
         guard node.isDirectory else { return }
-        navigationPath.append(node)
+        guard let current = currentNode,
+              let chain = Self.ancestryChain(from: current, to: node),
+              !chain.isEmpty else {
+            // `node` is the current node itself (empty chain) or not within its
+            // subtree (nil) — nothing new to navigate into.
+            return
+        }
+        navigationPath.append(contentsOf: chain)
+    }
+
+    /// The chain of nodes from `ancestor`'s matching child down to `target`
+    /// (inclusive), or `nil` when `target` isn't in `ancestor`'s subtree.
+    /// Returns an empty array when `target` *is* `ancestor`. Identity-based
+    /// (`===`) because two scans produce distinct nodes for the same path
+    /// (see the `DiskNode` doc comment).
+    private static func ancestryChain(from ancestor: DiskNode, to target: DiskNode) -> [DiskNode]? {
+        if ancestor === target { return [] }
+        for child in ancestor.children {
+            if child === target { return [child] }
+            if let deeper = ancestryChain(from: child, to: target) {
+                return [child] + deeper
+            }
+        }
+        return nil
     }
 
     /// Pop the breadcrumb stack by one entry. No-op when already at root,
