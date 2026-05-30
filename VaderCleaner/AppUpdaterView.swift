@@ -15,18 +15,6 @@ struct AppUpdaterView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(NavigationSection.appUpdater.title)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: { Task { await viewModel.checkForUpdates() } }) {
-                        Label(String(
-                            localized: "Check for Updates",
-                            comment: "Toolbar button on the App Updater that re-checks for updates."
-                        ), systemImage: "arrow.clockwise")
-                    }
-                    .disabled(viewModel.phase == .checking)
-                    .accessibilityIdentifier("appUpdater.check")
-                }
-            }
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.checkForUpdates()
@@ -41,14 +29,17 @@ struct AppUpdaterView: View {
             AppUpdaterProgressState()
         case .ready:
             if viewModel.availableUpdates.isEmpty {
-                AppUpdaterUpToDateState()
+                AppUpdaterUpToDateState(
+                    onCheckAgain: { Task { await viewModel.checkForUpdates() } }
+                )
             } else {
                 AppUpdaterListState(
                     updates: viewModel.availableUpdates,
                     onUpdate: { info in
                         Task { await viewModel.update(info) }
                     },
-                    onUpdateAll: { Task { await viewModel.updateAll() } }
+                    onUpdateAll: { Task { await viewModel.updateAll() } },
+                    onCheckAgain: { Task { await viewModel.checkForUpdates() } }
                 )
             }
         case .failed(let message):
@@ -80,6 +71,8 @@ private struct AppUpdaterProgressState: View {
 }
 
 private struct AppUpdaterUpToDateState: View {
+    let onCheckAgain: () -> Void
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal.fill")
@@ -98,6 +91,12 @@ private struct AppUpdaterUpToDateState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
+            Button(String(
+                localized: "Check for Updates",
+                comment: "Button on the App Updater that re-checks for updates."
+            ), action: onCheckAgain)
+                .controlSize(.large)
+                .accessibilityIdentifier("appUpdater.check")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("appUpdater.upToDate")
@@ -108,6 +107,7 @@ private struct AppUpdaterListState: View {
     let updates: [UpdateInfo]
     let onUpdate: (UpdateInfo) -> Void
     let onUpdateAll: () -> Void
+    let onCheckAgain: () -> Void
 
     /// Above this many pending updates, "Update All" asks for
     /// confirmation first — each entry opens an App Store page or a
@@ -132,6 +132,11 @@ private struct AppUpdaterListState: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button(String(
+                    localized: "Check for Updates",
+                    comment: "Footer button on the App Updater that re-checks for updates."
+                ), action: onCheckAgain)
+                    .accessibilityIdentifier("appUpdater.check")
                 Button(String(
                     localized: "Update All",
                     comment: "Footer button on the App Updater that opens every available update."

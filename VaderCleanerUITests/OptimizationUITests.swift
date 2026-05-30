@@ -1,5 +1,5 @@
 // OptimizationUITests.swift
-// End-to-end UI test for Optimization — navigates to the section, taps the floating Scan on the unified intro, and asserts the view renders (toolbar + a ready-state section) so the sidebar → view-model → view wiring is exercised against the real app process.
+// End-to-end UI test for Optimization — navigates to the section, taps the floating Scan on the unified intro, and asserts the view renders (a ready-state section + its in-content Refresh control) so the sidebar → view-model → view wiring is exercised against the real app process.
 
 import XCTest
 
@@ -24,7 +24,7 @@ final class OptimizationUITests: XCTestCase {
         app = nil
     }
 
-    func test_navigateToOptimization_scan_revealsToolbarAndContent() throws {
+    func test_navigateToOptimization_scan_revealsRefreshAndContent() throws {
         dismissOnboardingIfNeeded()
 
         let sidebarRow = app.buttons["sidebar.optimization"].firstMatch
@@ -47,18 +47,20 @@ final class OptimizationUITests: XCTestCase {
                       "Expected the floating Scan button on the Optimization intro")
         floatingScan.click()
 
-        // The refresh toolbar button is present whenever the view renders,
-        // independent of phase — strongest "view did not crash" signal.
-        let refresh = app.buttons["optimization.refresh"]
-        XCTAssertTrue(refresh.waitForExistence(timeout: 10),
-                      "Expected Optimization toolbar to render")
-
         // Loading runs automatically on first appearance; landing on the
         // ready state surfaces the RAM usage label. Generous timeout because
-        // discovery shells out to `launchctl list`.
+        // discovery shells out to `launchctl list`. Assert ready first: the
+        // Refresh control now lives in the ready-state footer, so it cannot
+        // appear before the section renders.
         let ramUsage = app.staticTexts["optimization.ramUsage"]
         XCTAssertTrue(ramUsage.waitForExistence(timeout: 30),
                       "Expected Optimization to reach its ready state")
+
+        // The in-content Refresh button renders alongside the ready state —
+        // strongest "view did not crash" signal once the section is shown.
+        let refresh = app.buttons["optimization.refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5),
+                      "Expected Optimization Refresh control to render")
     }
 
     // MARK: - Helpers

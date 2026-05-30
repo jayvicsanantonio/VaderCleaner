@@ -19,20 +19,6 @@ struct ExtensionsManagerView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(NavigationSection.extensions.title)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task { await viewModel.refresh() }
-                    } label: {
-                        Label(String(
-                            localized: "Refresh",
-                            comment: "Toolbar button that re-runs Extensions Manager discovery."
-                        ), systemImage: "arrow.clockwise")
-                    }
-                    .disabled(viewModel.phase == .loading || viewModel.phase == .removing)
-                    .accessibilityIdentifier("extensions.refresh")
-                }
-            }
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.refresh()
@@ -86,11 +72,14 @@ struct ExtensionsManagerView: View {
             )
         case .ready:
             if viewModel.groupedByType.isEmpty {
-                ExtensionsManagerEmptyState()
+                ExtensionsManagerEmptyState(
+                    onRefresh: { Task { await viewModel.refresh() } }
+                )
             } else {
                 ExtensionsManagerList(
                     groups: viewModel.groupedByType,
-                    onRemove: { pendingRemoval = $0 }
+                    onRemove: { pendingRemoval = $0 },
+                    onRefresh: { Task { await viewModel.refresh() } }
                 )
             }
         case .failed(let stage, let message):
