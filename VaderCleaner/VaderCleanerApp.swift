@@ -29,6 +29,7 @@ struct VaderCleanerApp: App {
     @State private var systemJunkViewModel: SystemJunkViewModel
     @State private var largeOldFilesViewModel: LargeOldFilesViewModel
     @State private var spaceLensViewModel: DiskScannerViewModel
+    @State private var spaceLensViewMode: SpaceLensViewModeStore
     @State private var privacyViewModel: PrivacyViewModel
     @State private var appUninstallerViewModel: AppUninstallerViewModel
     @State private var appUpdaterViewModel: AppUpdaterViewModel
@@ -76,6 +77,7 @@ struct VaderCleanerApp: App {
         _spaceLensViewModel = State(
             initialValue: DiskScannerViewModel.live(exclusions: exclusions)
         )
+        _spaceLensViewMode = State(initialValue: SpaceLensViewModeStore())
         _privacyViewModel = State(initialValue: PrivacyViewModel.live())
         _appUninstallerViewModel = State(
             initialValue: AppUninstallerViewModel.live(exclusions: exclusions)
@@ -190,6 +192,7 @@ struct VaderCleanerApp: App {
                 systemJunkViewModel: systemJunkViewModel,
                 largeOldFilesViewModel: largeOldFilesViewModel,
                 spaceLensViewModel: spaceLensViewModel,
+                spaceLensViewMode: spaceLensViewMode,
                 privacyViewModel: privacyViewModel,
                 appUninstallerViewModel: appUninstallerViewModel,
                 appUpdaterViewModel: appUpdaterViewModel,

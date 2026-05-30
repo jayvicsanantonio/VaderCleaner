@@ -13,6 +13,7 @@ struct ContentView: View {
     private let systemJunkViewModel: SystemJunkViewModel
     private let largeOldFilesViewModel: LargeOldFilesViewModel
     private let spaceLensViewModel: DiskScannerViewModel
+    private let spaceLensViewMode: SpaceLensViewModeStore
     private let privacyViewModel: PrivacyViewModel
     private let appUninstallerViewModel: AppUninstallerViewModel
     private let appUpdaterViewModel: AppUpdaterViewModel
@@ -49,6 +50,7 @@ struct ContentView: View {
         systemJunkViewModel: SystemJunkViewModel,
         largeOldFilesViewModel: LargeOldFilesViewModel,
         spaceLensViewModel: DiskScannerViewModel,
+        spaceLensViewMode: SpaceLensViewModeStore,
         privacyViewModel: PrivacyViewModel,
         appUninstallerViewModel: AppUninstallerViewModel,
         appUpdaterViewModel: AppUpdaterViewModel,
@@ -60,6 +62,7 @@ struct ContentView: View {
         self.systemJunkViewModel = systemJunkViewModel
         self.largeOldFilesViewModel = largeOldFilesViewModel
         self.spaceLensViewModel = spaceLensViewModel
+        self.spaceLensViewMode = spaceLensViewMode
         self.privacyViewModel = privacyViewModel
         self.appUninstallerViewModel = appUninstallerViewModel
         self.appUpdaterViewModel = appUpdaterViewModel
@@ -263,7 +266,7 @@ struct ContentView: View {
             }
         case .spaceLens:
             ScannableSectionContent(coordinator: spaceLensViewModel, section: section) {
-                SpaceLensView(viewModel: spaceLensViewModel)
+                SpaceLensView(viewModel: spaceLensViewModel, viewMode: spaceLensViewMode)
             }
         case .privacy:
             ScannableSectionContent(coordinator: privacyViewModel, section: section) {
@@ -342,6 +345,7 @@ private extension AnyTransition {
         systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
         largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
         spaceLensViewModel: DiskScannerViewModel.live(exclusions: exclusions),
+        spaceLensViewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!),
         privacyViewModel: PrivacyViewModel.live(),
         appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),

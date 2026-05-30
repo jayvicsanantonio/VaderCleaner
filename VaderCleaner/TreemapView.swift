@@ -25,6 +25,11 @@ struct TreemapView: View {
     var viewModel: DiskScannerViewModel
     let node: DiskNode
 
+    /// Identity of the tile currently under the pointer, or `nil` when the
+    /// pointer is outside every tile. Drives both the per-tile hover highlight
+    /// and the floating details card.
+    @State private var hoveredID: DiskNode.ID?
+
     /// Smallest tile dimension that still renders. Anything smaller is too
     /// thin to recognize and would just clutter the canvas.
     private static let minRenderDimension: CGFloat = 4
@@ -60,9 +65,48 @@ struct TreemapView: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            // Rectangular content shape so the pointer is tracked across the
+            // whole canvas (including the gaps left by skipped slivers); the
+            // tiles in front keep their own drill-down taps.
+            .contentShape(Rectangle())
+            .onContinuousHover(coordinateSpace: .local) { phase in
+                switch phase {
+                case .active(let location):
+                    let id = tiles.first { $0.rect.contains(location) }?.id
+                    if hoveredID != id { hoveredID = id }
+                case .ended:
+                    if hoveredID != nil { hoveredID = nil }
+                }
+            }
+            .overlay {
+                hoverCard(tiles: tiles, bounds: geometry.size)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.treemap")
+    }
+
+    /// Details card for the hovered tile, positioned over the tile it
+    /// describes (not the cursor — anchoring to the item keeps re-renders to
+    /// hover *transitions*, so the squarified layout isn't recomputed on every
+    /// pointer move). Clamped to stay fully on-canvas. Renders nothing when no
+    /// tile is hovered.
+    @ViewBuilder
+    private func hoverCard(tiles: [PlacedTile], bounds: CGSize) -> some View {
+        if let hoveredID, let placed = tiles.first(where: { $0.id == hoveredID }) {
+            let model = placed.model
+            let anchor = CGPoint(x: placed.rect.midX, y: placed.rect.midY)
+            SpaceLensHoverCard(
+                name: model.node.name,
+                formattedSize: model.formattedSize,
+                fraction: node.size > 0 ? Double(model.node.size) / Double(node.size) : 0,
+                path: model.node.url.path
+            )
+            .frame(width: SpaceLensHoverCard.preferredWidth)
+            .fixedSize(horizontal: false, vertical: true)
+            .position(SpaceLensHoverCard.clampedCenter(anchor: anchor, in: bounds))
+            .allowsHitTesting(false)
+        }
     }
 
     // MARK: - Tile rendering
@@ -141,12 +185,17 @@ struct TreemapView: View {
         let model = entry.model
         let showLabel = entry.rect.width >= Self.minLabelDimension
             && entry.rect.height >= Self.minLabelDimension
+        let isHovered = hoveredID == model.id
+        let baseOpacity = model.node.isDirectory ? 0.55 : 0.7
 
         Rectangle()
-            .fill(model.category.color.opacity(model.node.isDirectory ? 0.55 : 0.7))
+            .fill(model.category.color.opacity(isHovered ? min(1.0, baseOpacity + 0.25) : baseOpacity))
             .overlay(
                 Rectangle()
-                    .strokeBorder(Color.white.opacity(0.6), lineWidth: Self.tileStroke)
+                    .strokeBorder(
+                        Color.white.opacity(isHovered ? 0.95 : 0.6),
+                        lineWidth: isHovered ? Self.tileStroke + 1 : Self.tileStroke
+                    )
             )
             .overlay(
                 Group {
