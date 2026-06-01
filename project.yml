@@ -15,9 +15,13 @@ settings:
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     ENABLE_HARDENED_RUNTIME: NO
-    CODE_SIGN_STYLE: Manual
-    CODE_SIGNING_REQUIRED: NO
-    DEVELOPMENT_TEAM: ""
+
+# Signing lives in Signing.xcconfig (team-agnostic defaults) with an optional,
+# gitignored Signing.local.xcconfig override, so no personal Team ID is
+# committed and any checkout / CI can still build. See Signing.xcconfig.
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
 
 targets:
   VaderCleaner:
@@ -52,6 +56,17 @@ targets:
         outputFiles:
           - "$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/clamscan"
           - "$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/clamav/bin/freshclam"
+    postBuildScripts:
+      # Ad-hoc signs the embedded helper and the app so SMAppService can register
+      # the privileged helper on local, unsigned development builds (the
+      # Optimization actions need it). Runs last — after the helper is embedded
+      # and ClamAV is staged — and no-ops when a real Developer ID identity is
+      # configured, so release signing is untouched. alwaysOutOfDate so it
+      # re-signs on every build.
+      - name: Ad-hoc sign for local development
+        script: "\"${SRCROOT}/Scripts/sign-dev.sh\"\n"
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleaner
@@ -87,6 +102,13 @@ targets:
         PRODUCT_NAME: VaderCleanerHelper
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleaner.helper
         SKIP_INSTALL: YES
+        # Embed an Info.plist in the tool's Mach-O so codesign uses its bundle id
+        # (com.personal.VaderCleaner.helper) as the signing identifier. Without
+        # this a command-line tool signs under its executable name
+        # (VaderCleanerHelper), which fails the app's XPC code-signing
+        # requirement and the connection is rejected.
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
 
   VaderCleanerTests:
     type: bundle.unit-test

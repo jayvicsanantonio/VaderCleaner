@@ -1,0 +1,12 @@
+// Signing.local.xcconfig.example
+// Copy this to Signing.local.xcconfig (gitignored) and set your own Apple
+// Development Team ID to give the privileged helper a stable signing identity
+// so SMAppService can launch it locally. Then run `xcodegen generate` (or just
+// rebuild) and Build & Run from Xcode.
+//
+// Find your Team ID with:  security find-identity -v -p codesigning
+// (it's the 10-character code in the "Apple Development: …" certificate).
+
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGNING_REQUIRED = YES
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

@@ -24,7 +24,7 @@ final class OptimizationUITests: XCTestCase {
         app = nil
     }
 
-    func test_navigateToOptimization_scan_revealsRefreshAndContent() throws {
+    func test_navigateToOptimization_scan_revealsDashboardAndCatalog() throws {
         dismissOnboardingIfNeeded()
 
         let sidebarRow = app.buttons["sidebar.optimization"].firstMatch
@@ -47,20 +47,28 @@ final class OptimizationUITests: XCTestCase {
                       "Expected the floating Scan button on the Optimization intro")
         floatingScan.click()
 
-        // Loading runs automatically on first appearance; landing on the
-        // ready state surfaces the RAM usage label. Generous timeout because
-        // discovery shells out to `launchctl list`. Assert ready first: the
-        // Refresh control now lives in the ready-state footer, so it cannot
-        // appear before the section renders.
-        let ramUsage = app.staticTexts["optimization.ramUsage"]
-        XCTAssertTrue(ramUsage.waitForExistence(timeout: 30),
-                      "Expected Optimization to reach its ready state")
+        // Landing on the ready state surfaces the recommendation dashboard.
+        // Generous timeout because discovery shells out to `launchctl list`.
+        // "View All Tasks" is always present on the dashboard (even when there
+        // are no recommendations), so it is the stable "section rendered" signal.
+        let viewAllTasks = app.buttons["optimization.viewAllTasks"]
+        XCTAssertTrue(viewAllTasks.waitForExistence(timeout: 30),
+                      "Expected the Optimization dashboard to reach its ready state")
 
-        // The in-content Refresh button renders alongside the ready state —
-        // strongest "view did not crash" signal once the section is shown.
+        // The in-content Refresh button renders alongside the ready state.
         let refresh = app.buttons["optimization.refresh"]
         XCTAssertTrue(refresh.waitForExistence(timeout: 5),
                       "Expected Optimization Refresh control to render")
+
+        // Opening "View All Tasks" reveals the catalog with the maintenance
+        // tasks — proves the dashboard → catalog swap wiring works.
+        viewAllTasks.click()
+        let catalog = app.descendants(matching: .any)["optimization.catalog"]
+        XCTAssertTrue(catalog.waitForExistence(timeout: 5),
+                      "Expected the task catalog after tapping View All Tasks")
+        let flushDNSRow = app.descendants(matching: .any)["optimization.task.flushDNS"]
+        XCTAssertTrue(flushDNSRow.waitForExistence(timeout: 5),
+                      "Expected the Flush DNS task row in the catalog")
     }
 
     // MARK: - Helpers

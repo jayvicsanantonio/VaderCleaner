@@ -984,6 +984,40 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.willExecute(.myClutter))
     }
 
+    // MARK: - Maintenance-scripts availability (periodic removed in macOS 26)
+
+    func test_optimization_isActionableAndSelectedWhenMaintenanceAvailable() async {
+        let vm = makeViewModel(maintenanceScriptsAvailable: true)
+        await vm.scan()
+        XCTAssertTrue(vm.isModuleSelected(.optimization), "Optimization seeds on when maintenance is available")
+        XCTAssertTrue(vm.willExecute(.optimization))
+    }
+
+    func test_optimization_isNotActionableOrSelectedWhenMaintenanceUnavailable() async {
+        let vm = makeViewModel(maintenanceScriptsAvailable: false)
+        await vm.scan()
+        XCTAssertFalse(vm.isModuleSelected(.optimization),
+                       "Optimization must not auto-select when periodic is gone")
+        XCTAssertFalse(vm.willExecute(.optimization),
+                       "Optimization has no Run work when maintenance scripts are unavailable")
+    }
+
+    func test_run_skipsMaintenanceWhenUnavailableEvenIfTileSelected() async {
+        var ran = false
+        let vm = makeViewModel(
+            maintenanceRunner: { ran = true; return "ran" },
+            maintenanceScriptsAvailable: false
+        )
+        await vm.scan()
+        // Force the tile on to prove the run-time guard, not just the seed.
+        vm.toggleModule(.optimization)
+        XCTAssertTrue(vm.isModuleSelected(.optimization))
+
+        await vm.run()
+
+        XCTAssertFalse(ran, "The removed periodic maintenance must never be invoked")
+    }
+
     // MARK: - Scan progress count
 
     /// The combined "Scanned N items…" tally must sum the walked counts of the
@@ -1038,7 +1072,8 @@ final class SmartScanViewModelTests: XCTestCase {
         threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
         maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
         updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
-        largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] }
+        largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] },
+        maintenanceScriptsAvailable: Bool = true
     ) -> SmartScanViewModel {
         // Adapt the progress-free test closures to the production sub-scanner
         // signatures; the count test below constructs the VM directly to drive
@@ -1054,7 +1089,8 @@ final class SmartScanViewModelTests: XCTestCase {
             threatRemover: threatRemover,
             maintenanceRunner: maintenanceRunner,
             updateOpener: updateOpener,
-            largeFileDeleter: largeFileDeleter
+            largeFileDeleter: largeFileDeleter,
+            maintenanceScriptsAvailable: maintenanceScriptsAvailable
         )
     }
 

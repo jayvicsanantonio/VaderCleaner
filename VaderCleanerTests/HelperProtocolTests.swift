@@ -66,7 +66,10 @@ final class HelperProtocolTests: XCTestCase {
             "runMaintenanceScriptsWithReply:",
             "removeLoginItemAtPath:reply:",
             "removeLaunchAgentAtPath:reply:",
-            "flushInactiveMemoryWithReply:"
+            "flushInactiveMemoryWithReply:",
+            "flushDNSCacheWithReply:",
+            "reindexSpotlightWithReply:",
+            "thinTimeMachineSnapshotsWithReply:"
         ]
 
         for selectorName in expectedSelectors {

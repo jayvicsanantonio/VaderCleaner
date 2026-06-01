@@ -232,6 +232,10 @@ final class SmartScanViewModel {
     @ObservationIgnored private let maintenanceRunner: MaintenanceRunner
     @ObservationIgnored private let updateOpener: UpdateOpener
     @ObservationIgnored private let largeFileDeleter: LargeFileDeleter
+    /// Whether `/usr/sbin/periodic` exists — false on macOS 26+, where Apple
+    /// removed it. When false the Optimization tile's maintenance-scripts action
+    /// has nothing to run, so it is not auto-selected and Run skips it.
+    @ObservationIgnored private let maintenanceScriptsAvailable: Bool
 
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
@@ -247,7 +251,8 @@ final class SmartScanViewModel {
         threatRemover: @escaping ThreatRemover,
         maintenanceRunner: @escaping MaintenanceRunner,
         updateOpener: @escaping UpdateOpener,
-        largeFileDeleter: @escaping LargeFileDeleter
+        largeFileDeleter: @escaping LargeFileDeleter,
+        maintenanceScriptsAvailable: Bool = true
     ) {
         self.junkScanner = junkScanner
         self.malwareInstalled = malwareInstalled
@@ -260,6 +265,7 @@ final class SmartScanViewModel {
         self.maintenanceRunner = maintenanceRunner
         self.updateOpener = updateOpener
         self.largeFileDeleter = largeFileDeleter
+        self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
     }
 
     // MARK: - Scan
@@ -347,7 +353,10 @@ final class SmartScanViewModel {
                 availableUpdates: foundUpdates,
                 clamAVAvailable: clamAVAvailable
             )
-            tileSelection = Self.defaultTileSelection(for: result)
+            tileSelection = Self.defaultTileSelection(
+                for: result,
+                maintenanceScriptsAvailable: maintenanceScriptsAvailable
+            )
             junkCategorySelection = Set(result.junkResult.itemsByCategory.keys)
             threatSelection = Set(foundThreats.map(\.filePath))
             updateSelection = Set(foundUpdates.map(\.bundleID))
@@ -428,7 +437,10 @@ final class SmartScanViewModel {
             }
         }
 
-        if tileSelection.contains(.optimization) {
+        // `maintenanceScriptsAvailable` guards the run even if the tile is
+        // somehow selected — periodic was removed in macOS 26, so running it
+        // would only surface "The file 'periodic' doesn't exist."
+        if tileSelection.contains(.optimization), maintenanceScriptsAvailable {
             do {
                 maintenanceOutput = try await maintenanceRunner()
             } catch {
@@ -561,9 +573,9 @@ final class SmartScanViewModel {
 
     /// Whether the given module would actually produce work if Run were
     /// pressed right now. The tile must be selected, *and* its sub-selection
-    /// must filter down to at least one item. Optimization is the exception
-    /// — its action is to run the system maintenance scripts, which is
-    /// always available, so being selected is sufficient.
+    /// must filter down to at least one item. Optimization's only Run work is
+    /// the system maintenance scripts, so it produces work iff those scripts are
+    /// available on this macOS (`periodic` was removed in macOS 26).
     ///
     /// Read by both the dashboard's per-tile caption decisions and the
     /// floating Run disc's visibility gate, so the two surfaces share one
@@ -585,7 +597,7 @@ final class SmartScanViewModel {
                 threatSelection.contains($0.filePath)
             }
         case .optimization:
-            return true
+            return maintenanceScriptsAvailable
         case .applications:
             return result.availableUpdates.contains {
                 updateSelection.contains($0.bundleID)
@@ -602,14 +614,22 @@ final class SmartScanViewModel {
         SmartScanModule.allCases.contains { willExecute($0) }
     }
 
+    /// Whether the system maintenance scripts can run on this macOS — false on
+    /// macOS 26+, where Apple removed `periodic`. Exposed so the Performance
+    /// Review can phrase its explainer accurately.
+    var maintenanceScriptsSupported: Bool { maintenanceScriptsAvailable }
+
     /// Default tile-selection seed for a freshly-landed `.results` payload.
     /// A module starts checked iff it has actionable work for Run. Optimization
-    /// is *always* on because its action — running the system maintenance
-    /// scripts — is available on every macOS install (there is nothing to
-    /// "find" the way junk or threats are found). The user can still
-    /// deselect it on the dashboard.
-    private static func defaultTileSelection(for result: SmartScanResult) -> Set<SmartScanModule> {
-        var selection: Set<SmartScanModule> = [.optimization]
+    /// starts on only when the system maintenance scripts are available — its
+    /// Run action has nothing to do otherwise (`periodic` was removed in macOS
+    /// 26). The user can still deselect it on the dashboard.
+    private static func defaultTileSelection(
+        for result: SmartScanResult,
+        maintenanceScriptsAvailable: Bool
+    ) -> Set<SmartScanModule> {
+        var selection: Set<SmartScanModule> = []
+        if maintenanceScriptsAvailable { selection.insert(.optimization) }
         if result.totalJunkBytes > 0 { selection.insert(.systemJunk) }
         if !result.threats.isEmpty { selection.insert(.malware) }
         if !result.availableUpdates.isEmpty { selection.insert(.applications) }
@@ -728,7 +748,11 @@ extension SmartScanViewModel {
             // dashboard if Run is re-run.
             largeFileDeleter: { urls in
                 await Self.removeClutterFiles(at: urls, log: log)
-            }
+            },
+            // `periodic` was removed in macOS 26; when it's absent the
+            // Performance tile's maintenance action is skipped rather than
+            // erroring with "The file 'periodic' doesn't exist."
+            maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic")
         )
     }
 

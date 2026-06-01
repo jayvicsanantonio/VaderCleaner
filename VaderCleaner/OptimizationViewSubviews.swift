@@ -25,6 +25,9 @@ struct OptimizationProgressState: View {
 struct OptimizationFailedState: View {
     let message: String
     let onDismiss: () -> Void
+    /// When set, the failure is recoverable by granting Full Disk Access — the
+    /// screen offers a button that jumps straight to that Settings pane.
+    var onOpenFullDiskAccess: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 16) {
@@ -42,12 +45,21 @@ struct OptimizationFailedState: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
                 .accessibilityIdentifier("optimization.errorMessage")
+            if let onOpenFullDiskAccess {
+                Button(String(
+                    localized: "Open Full Disk Access Settings",
+                    comment: "Recovery button that opens the Full Disk Access settings pane."
+                ), action: onOpenFullDiskAccess)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("optimization.failureOpenFullDiskAccess")
+            }
             Button(String(
                 localized: "Back to Optimization",
                 comment: "Return button on the Optimization failure screen."
             ), action: onDismiss)
                 .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(onOpenFullDiskAccess == nil ? .defaultAction : nil)
                 .accessibilityIdentifier("optimization.failurePrimary")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -201,13 +213,12 @@ struct OptimizationLaunchAgentRow: View {
             .buttonStyle(.bordered)
             // System daemons live in launchd's privileged domain; `launchctl
             // unload` from the user session can't touch them, so the control
-            // is offered only for user agents. Removal still works for system
-            // agents (it routes through the privileged helper).
+            // is offered only for user agents.
             .disabled(!agent.isEnabled || agent.domain == .system)
             .help(agent.domain == .system
                   ? String(
-                        localized: "System agents can't be unloaded from here. Use Remove to delete the plist.",
-                        comment: "Tooltip explaining why Disable is unavailable for system launch agents."
+                        localized: "System daemons are managed by macOS or the app that installed them and can't be changed here.",
+                        comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
                     )
                   : "")
             .accessibilityIdentifier("\(identifier).disable.\(agent.path.lastPathComponent)")
@@ -219,87 +230,17 @@ struct OptimizationLaunchAgentRow: View {
                 ))
             }
             .buttonStyle(.bordered)
+            // System daemons are protected from removal — deleting one can break
+            // macOS or the app that installed it. Only user agents can be removed.
+            .disabled(agent.domain == .system)
+            .help(agent.domain == .system
+                  ? String(
+                        localized: "Protected: system daemons can't be removed here. Disable it in System Settings or its app instead.",
+                        comment: "Tooltip explaining why a system launch daemon can't be removed."
+                    )
+                  : "")
             .accessibilityIdentifier("\(identifier).remove.\(agent.path.lastPathComponent)")
         }
         .padding(.vertical, 4)
-    }
-}
-
-// MARK: - RAM
-
-struct OptimizationRAMSection: View {
-    let memory: MemoryStats
-    let result: String?
-    let onFlush: () -> Void
-
-    var body: some View {
-        OptimizationSection(title: String(
-            localized: "RAM",
-            comment: "Optimization section header for memory."
-        )) {
-            HStack {
-                Text(SystemStatsFormatters.memoryUsageString(memory))
-                    .font(.body.monospacedDigit())
-                    .accessibilityIdentifier("optimization.ramUsage")
-                Spacer()
-                Button(action: onFlush) {
-                    Text(String(
-                        localized: "Free Up RAM",
-                        comment: "Button that flushes inactive memory."
-                    ))
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("optimization.freeRAM")
-            }
-            if let result {
-                Text(result)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("optimization.ramResult")
-            }
-        }
-    }
-}
-
-// MARK: - Maintenance
-
-struct OptimizationMaintenanceSection: View {
-    let output: String?
-    let onRun: () -> Void
-
-    var body: some View {
-        OptimizationSection(title: String(
-            localized: "Maintenance Scripts",
-            comment: "Optimization section header for maintenance scripts."
-        )) {
-            HStack {
-                Text(String(
-                    localized: "Runs the system periodic daily, weekly, and monthly scripts.",
-                    comment: "Explanatory text for the maintenance scripts action."
-                ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                Spacer()
-                Button(action: onRun) {
-                    Text(String(
-                        localized: "Run Maintenance Scripts",
-                        comment: "Button that runs the system maintenance scripts."
-                    ))
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("optimization.runMaintenance")
-            }
-            if let output {
-                Text(output)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .accessibilityIdentifier("optimization.maintenanceOutput")
-            }
-        }
     }
 }

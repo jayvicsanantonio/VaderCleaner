@@ -1,0 +1,20 @@
+// Signing.xcconfig
+// Team-agnostic signing defaults so any checkout (and CI) can build. The app
+// builds unsigned here and Scripts/sign-dev.sh ad-hoc signs it as a post-build
+// step.
+//
+// The privileged helper (an SMAppService daemon) needs a STABLE Team identity
+// to launch — ad-hoc has no team and its cdhash churns each build, which
+// SMAppService rejects (EX_CONFIG). To run the helper-backed Optimization
+// actions locally, copy Signing.local.xcconfig.example to Signing.local.xcconfig
+// (gitignored) and set your own Apple Development Team ID. Without it the app
+// still builds and runs; only the helper-backed actions are unavailable.
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY =
+CODE_SIGNING_REQUIRED = NO
+CODE_SIGNING_ALLOWED = YES
+DEVELOPMENT_TEAM =
+
+// Optional, per-developer override — not committed (see .gitignore).
+#include? "Signing.local.xcconfig"

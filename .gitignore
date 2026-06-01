@@ -36,3 +36,9 @@ Podfile.lock
 
 # Local developer tooling — per-machine config, not shared
 .claude/settings.local.json
+
+# Code coverage artifacts
+*.profraw
+
+# Per-developer signing override (not shared)
+Signing.local.xcconfig

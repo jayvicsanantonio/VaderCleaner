@@ -70,6 +70,9 @@ private final class SpyFlushHelper: NSObject, VaderCleanerHelperProtocol {
         flushCalled = true
         reply(replyError)
     }
+    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
 }
 
 private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol {
@@ -78,4 +81,7 @@ private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol {
     func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
     func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
     func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
+    func flushDNSCache(reply: @escaping (Error?) -> Void) {}
+    func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
+    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
 }
