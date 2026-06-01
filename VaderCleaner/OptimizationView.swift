@@ -9,7 +9,15 @@ import SwiftUI
 struct OptimizationView: View {
 
     private var viewModel: OptimizationViewModel
+    @Environment(\.openURL) private var openURL
     @State private var pendingRemoval: LaunchAgent?
+    /// Toggles the ready surface between the recommendation dashboard and the
+    /// full "View All Tasks" catalog.
+    @State private var showAllTasks = false
+    /// Which catalog pane to show. Owned here (not inside the catalog) so it
+    /// survives the brief "Working…" remount and so a recommendation card can
+    /// open the catalog on the matching pane — e.g. Review → Background Items.
+    @State private var catalogPane: OptimizationTaskCatalogView.Pane = .maintenanceTasks
 
     init(viewModel: OptimizationViewModel) {
         self.viewModel = viewModel
@@ -73,76 +81,100 @@ struct OptimizationView: View {
             )
         case .working:
             OptimizationProgressState(
-                label: String(
-                    localized: "Working…",
-                    comment: "Progress label while an Optimization action runs."
-                ),
+                label: workingLabel,
                 identifier: "optimization.working"
             )
         case .ready:
-            sections
+            readyContent
         case .failed(let message):
-            OptimizationFailedState(message: message) {
-                viewModel.dismissResult()
+            OptimizationFailedState(
+                message: message,
+                onDismiss: { viewModel.dismissResult() },
+                onOpenFullDiskAccess: viewModel.failureNeedsFullDiskAccess
+                    ? { openURL(PermissionOnboardingViewModel.systemSettingsURL) }
+                    : nil
+            )
+        }
+    }
+
+    /// Names the running action on the progress screen, falling back to a
+    /// generic label for loads that don't set a title.
+    private var workingLabel: String {
+        if let title = viewModel.workingTitle {
+            return "\(title)…"
+        }
+        return String(
+            localized: "Working…",
+            comment: "Progress label while an Optimization action runs."
+        )
+    }
+
+    @ViewBuilder
+    private var readyContent: some View {
+        if showAllTasks {
+            // The catalog owns its full-height layout (sub-nav + scrolling pane
+            // + pinned Run bar), so it is not wrapped in the dashboard's
+            // ScrollView / Refresh footer.
+            OptimizationTaskCatalogView(
+                pane: $catalogPane,
+                tasks: viewModel.tasks,
+                results: viewModel.taskResults,
+                loginItems: viewModel.loginItems,
+                userAgents: viewModel.userAgents,
+                systemAgents: viewModel.systemAgents,
+                onRunSelected: { tasks in Task { await viewModel.run(tasks) } },
+                onToggleLoginItem: { item, enabled in
+                    Task { await viewModel.setLoginItem(item, enabled: enabled) }
+                },
+                onDisableAgent: { agent in Task { await viewModel.disable(agent) } },
+                onRemoveAgent: { pendingRemoval = $0 },
+                onBack: { showAllTasks = false }
+            )
+        } else {
+            VStack(spacing: 0) {
+                ScrollView {
+                    OptimizationDashboardView(
+                        recommendations: viewModel.recommendations,
+                        completedKinds: viewModel.completedRecommendations,
+                        onAction: handleRecommendation,
+                        onViewAllTasks: {
+                            catalogPane = .maintenanceTasks
+                            showAllTasks = true
+                        }
+                    )
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Divider()
+                HStack {
+                    Spacer()
+                    Button(String(
+                        localized: "Refresh",
+                        comment: "Footer button that reloads Optimization data."
+                    )) {
+                        Task { await viewModel.refresh() }
+                    }
+                    .accessibilityIdentifier("optimization.refresh")
+                }
+                .padding(16)
             }
         }
     }
 
-    private var sections: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    OptimizationLoginItemsSection(
-                        items: viewModel.loginItems,
-                        onToggle: { item, enabled in
-                            Task { await viewModel.setLoginItem(item, enabled: enabled) }
-                        }
-                    )
-                    OptimizationLaunchAgentsSection(
-                        title: String(
-                            localized: "Launch Agents (User)",
-                            comment: "Section header for user launch agents."
-                        ),
-                        identifier: "optimization.userAgents",
-                        agents: viewModel.userAgents,
-                        onDisable: { agent in Task { await viewModel.disable(agent) } },
-                        onRemove: { pendingRemoval = $0 }
-                    )
-                    OptimizationLaunchAgentsSection(
-                        title: String(
-                            localized: "Launch Agents & Daemons (System)",
-                            comment: "Section header for system launch agents and daemons."
-                        ),
-                        identifier: "optimization.systemAgents",
-                        agents: viewModel.systemAgents,
-                        onDisable: { agent in Task { await viewModel.disable(agent) } },
-                        onRemove: { pendingRemoval = $0 }
-                    )
-                    OptimizationRAMSection(
-                        memory: viewModel.memory,
-                        result: viewModel.ramResult,
-                        onFlush: { Task { await viewModel.flushRAM() } }
-                    )
-                    OptimizationMaintenanceSection(
-                        output: viewModel.maintenanceOutput,
-                        onRun: { Task { await viewModel.runMaintenanceScripts() } }
-                    )
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Divider()
-            HStack {
-                Spacer()
-                Button(String(
-                    localized: "Refresh",
-                    comment: "Footer button that reloads Optimization data."
-                )) {
-                    Task { await viewModel.refresh() }
-                }
-                .accessibilityIdentifier("optimization.refresh")
-            }
-            .padding(16)
+    /// Routes a recommendation card's primary action: the RAM, maintenance, and
+    /// snapshot cards run their task directly; the background-items card opens
+    /// the catalog where those items are managed.
+    private func handleRecommendation(_ recommendation: PerformanceRecommendation) {
+        switch recommendation.kind {
+        case .backgroundItems:
+            // Open the catalog directly on the Background Items pane, where
+            // login items and launch agents are managed.
+            catalogPane = .backgroundItems
+            showAllTasks = true
+        case .freeUpRAM, .maintenanceTasks, .thinSnapshots:
+            // Runnable tiles route through the view model, which marks the tile
+            // complete on success so it shows a green check.
+            Task { await viewModel.runRecommendation(recommendation) }
         }
     }
 

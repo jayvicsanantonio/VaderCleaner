@@ -126,6 +126,7 @@ struct SmartScanView: View {
             case .optimization:
                 SmartScanOptimizationReview(
                     result: result,
+                    maintenanceScriptsAvailable: viewModel.maintenanceScriptsSupported,
                     onBack: { self.review = nil },
                     onOpenOptimization: onOpenOptimization
                 )

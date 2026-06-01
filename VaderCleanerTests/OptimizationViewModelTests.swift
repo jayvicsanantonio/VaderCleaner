@@ -95,6 +95,207 @@ final class OptimizationViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: - Maintenance task catalog
+
+    func test_runTask_flushDNS_invokesRunnerStampsResultAndReady() async {
+        var ran = false
+        let vm = makeViewModel(flushDNS: { ran = true; return "Flushed DNS." })
+        await vm.refresh()
+
+        await vm.run(Self.task(.flushDNS))
+
+        XCTAssertTrue(ran, "run(.flushDNS) must invoke its runner")
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertEqual(vm.taskResults["flushDNS"], "Flushed DNS.")
+    }
+
+    func test_runTask_speedUpMail_failureTransitionsToFailed() async {
+        struct Boom: Error {}
+        let vm = makeViewModel(speedUpMail: { throw Boom() })
+        await vm.refresh()
+
+        await vm.run(Self.task(.speedUpMail))
+
+        guard case .failed = vm.phase else {
+            return XCTFail("Expected .failed, got \(vm.phase)")
+        }
+        XCTAssertFalse(vm.failureNeedsFullDiskAccess, "A generic failure is not an FDA recovery case")
+    }
+
+    func test_runTask_speedUpMail_fullDiskAccessFailureFlagsRecovery() async {
+        let vm = makeViewModel(speedUpMail: { throw MailReindexerError.fullDiskAccessRequired })
+        await vm.refresh()
+
+        await vm.run(Self.task(.speedUpMail))
+
+        guard case .failed = vm.phase else {
+            return XCTFail("Expected .failed, got \(vm.phase)")
+        }
+        XCTAssertTrue(vm.failureNeedsFullDiskAccess,
+                      "A Full Disk Access failure must flag the recovery affordance")
+    }
+
+    func test_runTask_recordsLastRunSoTaskIsNoLongerStale() async {
+        let defaults = UserDefaults(suiteName: "OptVMRunLog.\(UUID().uuidString)")!
+        let log = MaintenanceRunLog(defaults: defaults)
+        let vm = makeViewModel(flushDNS: { "ok" }, runLog: log)
+        await vm.refresh()
+        XCTAssertNil(log.lastRun(for: "flushDNS"))
+
+        await vm.run(Self.task(.flushDNS))
+
+        XCTAssertNotNil(log.lastRun(for: "flushDNS"))
+        defaults.removePersistentDomain(forName: "OptVMRunLog")
+    }
+
+    func test_run_clearsWorkingTitleWhenFinished() async {
+        let vm = makeViewModel(flushDNS: { "Flushed the DNS resolver cache." })
+        await vm.refresh()
+
+        await vm.run(Self.task(.flushDNS))
+
+        XCTAssertNil(vm.workingTitle, "The progress title clears when the action finishes")
+    }
+
+    func test_runRecommendation_marksTileCompletedOnSuccess() async {
+        var freed = false
+        let vm = makeViewModel(flushRAM: { freed = true })
+        await vm.refresh()
+
+        await vm.runRecommendation(Self.recommendation(.freeUpRAM))
+
+        XCTAssertTrue(freed, "Running the Free Up RAM tile must invoke the RAM flush")
+        XCTAssertTrue(vm.completedRecommendations.contains(.freeUpRAM))
+    }
+
+    func test_runRecommendation_failureDoesNotMarkCompleted() async {
+        struct Boom: Error {}
+        let vm = makeViewModel(flushRAM: { throw Boom() })
+        await vm.refresh()
+
+        await vm.runRecommendation(Self.recommendation(.freeUpRAM))
+
+        XCTAssertFalse(vm.completedRecommendations.contains(.freeUpRAM),
+                       "A failed action must not mark the tile complete")
+    }
+
+    func test_runRecommendation_backgroundItems_isNavigationOnly() async {
+        var flushed = false
+        let vm = makeViewModel(flushRAM: { flushed = true })
+        await vm.refresh()
+
+        await vm.runRecommendation(Self.recommendation(.backgroundItems))
+
+        XCTAssertFalse(flushed, "The background-items tile only navigates; it runs nothing")
+        XCTAssertFalse(vm.completedRecommendations.contains(.backgroundItems))
+    }
+
+    func test_refresh_clearsCompletedRecommendations() async {
+        let vm = makeViewModel(flushRAM: {})
+        await vm.refresh()
+        await vm.runRecommendation(Self.recommendation(.freeUpRAM))
+        XCTAssertTrue(vm.completedRecommendations.contains(.freeUpRAM))
+
+        await vm.refresh()
+
+        XCTAssertTrue(vm.completedRecommendations.isEmpty, "A refresh clears completed-tile marks")
+    }
+
+    func test_tasks_excludeMaintenanceScriptsWhenPeriodicUnavailable() async {
+        let vm = makeViewModel(maintenanceScriptsAvailable: false)
+        await vm.refresh()
+
+        XCTAssertFalse(
+            vm.tasks.contains { $0.kind == .runMaintenanceScripts },
+            "Run Maintenance Scripts must be hidden when /usr/sbin/periodic is absent"
+        )
+        // The other tasks remain.
+        XCTAssertTrue(vm.tasks.contains { $0.kind == .flushDNS })
+    }
+
+    func test_runDueMaintenance_skipsMaintenanceScriptsWhenUnavailable() async {
+        var ranScripts = false
+        var ranDNS = false
+        let vm = makeViewModel(
+            runMaintenance: { ranScripts = true; return "scripts" },
+            flushDNS: { ranDNS = true; return "dns" },
+            maintenanceScriptsAvailable: false
+        )
+        await vm.refresh()
+
+        await vm.runDueMaintenance()
+
+        XCTAssertFalse(ranScripts, "The removed periodic task must never be invoked")
+        XCTAssertTrue(ranDNS, "The available cocktail tasks still run")
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    func test_runDueMaintenance_runsEveryDueCocktailTask() async {
+        // Fresh run log → every cocktail task is due. Each runner records that
+        // it ran; RAM and Thin TM are excluded from the cocktail.
+        var ranScripts = false, ranDNS = false, ranSpotlight = false, ranMail = false
+        let vm = makeViewModel(
+            runMaintenance: { ranScripts = true; return "scripts" },
+            flushDNS: { ranDNS = true; return "dns" },
+            reindexSpotlight: { ranSpotlight = true; return "spotlight" },
+            speedUpMail: { ranMail = true; return "mail" }
+        )
+        await vm.refresh()
+
+        await vm.runDueMaintenance()
+
+        XCTAssertTrue(ranScripts && ranDNS && ranSpotlight && ranMail,
+                      "runDueMaintenance() must run every due cocktail task")
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    func test_runTasks_runsEverySelectedTaskInOrder() async {
+        var ranDNS = false, ranSpotlight = false
+        let vm = makeViewModel(
+            flushDNS: { ranDNS = true; return "dns" },
+            reindexSpotlight: { ranSpotlight = true; return "spotlight" }
+        )
+        await vm.refresh()
+
+        await vm.run([Self.task(.flushDNS), Self.task(.reindexSpotlight)])
+
+        XCTAssertTrue(ranDNS && ranSpotlight, "Both selected tasks must run")
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertEqual(vm.taskResults["flushDNS"], "dns")
+        XCTAssertEqual(vm.taskResults["reindexSpotlight"], "spotlight")
+    }
+
+    func test_runTasks_stopsAtFirstFailure() async {
+        struct Boom: Error {}
+        var ranSpotlight = false
+        let vm = makeViewModel(
+            flushDNS: { throw Boom() },
+            reindexSpotlight: { ranSpotlight = true; return "spotlight" }
+        )
+        await vm.refresh()
+
+        await vm.run([Self.task(.flushDNS), Self.task(.reindexSpotlight)])
+
+        guard case .failed = vm.phase else {
+            return XCTFail("Expected .failed, got \(vm.phase)")
+        }
+        XCTAssertFalse(ranSpotlight, "A failure must halt the remaining tasks")
+    }
+
+    func test_refresh_buildsRecommendationsFromSystemState() async {
+        let vm = makeViewModel(
+            loadLoginItems: { [Self.loginItem(name: "A")] },
+            readMemory: { MemoryStats(usedBytes: 15, totalBytes: 16) }, // high pressure
+            readSnapshotCount: { 3 }
+        )
+
+        await vm.refresh()
+
+        XCTAssertTrue(vm.recommendations.contains { $0.kind == .freeUpRAM })
+        XCTAssertTrue(vm.recommendations.contains { $0.kind == .backgroundItems })
+        XCTAssertTrue(vm.recommendations.contains { $0.kind == .thinSnapshots })
+    }
+
     // MARK: - Login items
 
     func test_setLoginItem_forwardsRequestedStateToCollaborator() async {
@@ -277,6 +478,23 @@ final class OptimizationViewModelTests: XCTestCase {
         XCTAssertEqual(vm.userAgents.map(\.label), ["com.user.doomed"])
     }
 
+    func test_removeAgent_systemDaemonIsProtectedAndNotRemoved() async {
+        var removeCalled = false
+        let systemDaemon = Self.agent(label: "com.apple.somethingImportant", domain: .system)
+        let vm = makeViewModel(
+            loadSystemAgents: { [systemDaemon] },
+            removeAgent: { _ in removeCalled = true }
+        )
+        await vm.refresh()
+
+        await vm.remove(systemDaemon)
+
+        XCTAssertFalse(removeCalled, "System daemons must never be removed")
+        XCTAssertEqual(vm.systemAgents.map(\.label), ["com.apple.somethingImportant"],
+                       "The protected system daemon must remain in the list")
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
     func test_dismissResult_returnsToReady() async {
         struct Boom: Error {}
         let vm = makeViewModel(flushRAM: { throw Boom() })
@@ -300,9 +518,21 @@ final class OptimizationViewModelTests: XCTestCase {
         removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
         flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
         runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" },
+        flushDNS: @escaping OptimizationViewModel.RunTask = { "" },
+        reindexSpotlight: @escaping OptimizationViewModel.RunTask = { "" },
+        thinSnapshots: @escaping OptimizationViewModel.RunTask = { "" },
+        speedUpMail: @escaping OptimizationViewModel.RunTask = { "" },
+        readSnapshotCount: @escaping OptimizationViewModel.ReadSnapshotCount = { 0 },
+        runLog: MaintenanceRunLog? = nil,
+        maintenanceScriptsAvailable: Bool = true,
         launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
     ) -> OptimizationViewModel {
-        OptimizationViewModel(
+        // Default to an isolated, empty UserDefaults suite so the run log never
+        // touches `.standard` or leaks state between tests.
+        let isolatedLog = runLog ?? MaintenanceRunLog(
+            defaults: UserDefaults(suiteName: "OptimizationViewModelTests.\(UUID().uuidString)")!
+        )
+        return OptimizationViewModel(
             loadLoginItems: loadLoginItems,
             loadUserAgents: loadUserAgents,
             loadSystemAgents: loadSystemAgents,
@@ -312,7 +542,24 @@ final class OptimizationViewModelTests: XCTestCase {
             removeAgent: removeAgent,
             flushRAM: flushRAM,
             runMaintenance: runMaintenance,
+            flushDNS: flushDNS,
+            reindexSpotlight: reindexSpotlight,
+            thinSnapshots: thinSnapshots,
+            speedUpMail: speedUpMail,
+            readSnapshotCount: readSnapshotCount,
+            runLog: isolatedLog,
+            maintenanceScriptsAvailable: maintenanceScriptsAvailable,
             launchAtLoginChanges: launchAtLoginChanges
+        )
+    }
+
+    private static func task(_ kind: MaintenanceTask.Kind) -> MaintenanceTask {
+        MaintenanceTask.catalog.first { $0.kind == kind }!
+    }
+
+    private static func recommendation(_ kind: PerformanceRecommendation.Kind) -> PerformanceRecommendation {
+        PerformanceRecommendation(
+            kind: kind, title: "", detail: "", icon: "", actionLabel: "", isHero: kind == .freeUpRAM
         )
     }
 

@@ -86,4 +86,19 @@ protocol VaderCleanerHelperProtocol {
     /// Frees inactive memory by invoking the system `purge` command.
     @objc(flushInactiveMemoryWithReply:)
     func flushInactiveMemory(reply: @escaping (Error?) -> Void)
+
+    /// Flushes the DNS resolver cache (`dscacheutil -flushcache` followed by
+    /// `killall -HUP mDNSResponder`).
+    @objc(flushDNSCacheWithReply:)
+    func flushDNSCache(reply: @escaping (Error?) -> Void)
+
+    /// Erases and rebuilds the Spotlight index for the boot volume
+    /// (`mdutil -E /`).
+    @objc(reindexSpotlightWithReply:)
+    func reindexSpotlight(reply: @escaping (Error?) -> Void)
+
+    /// Thins local Time Machine snapshots on the boot volume
+    /// (`tmutil thinlocalsnapshots / <bytes> 4`).
+    @objc(thinTimeMachineSnapshotsWithReply:)
+    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void)
 }

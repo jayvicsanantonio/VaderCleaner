@@ -33,6 +33,9 @@ final class OptimizationViewModel {
     typealias RemoveAgent = (LaunchAgent) async throws -> Void
     typealias FlushRAM = () async throws -> Void
     typealias RunMaintenance = () async throws -> String
+    /// A maintenance task that performs its work and returns a result line.
+    typealias RunTask = () async throws -> String
+    typealias ReadSnapshotCount = () async -> Int
 
     private(set) var phase: Phase = .idle
     private(set) var loginItems: [LoginItem] = []
@@ -41,6 +44,44 @@ final class OptimizationViewModel {
     private(set) var memory: MemoryStats = .empty
     private(set) var ramResult: String?
     private(set) var maintenanceOutput: String?
+
+    /// Count of local Time Machine snapshots, refreshed alongside the rest of
+    /// the section state and fed into the recommendation engine.
+    private(set) var localSnapshotCount: Int = 0
+    /// Curated dashboard cards derived from the current system state.
+    private(set) var recommendations: [PerformanceRecommendation] = []
+    /// Most recent result line per task id, surfaced in the task catalog.
+    private(set) var taskResults: [String: String] = [:]
+
+    /// Human-readable title of the action currently running, so the progress
+    /// screen can name it ("Free Up RAM…") instead of a bare spinner.
+    private(set) var workingTitle: String?
+    /// Recommendation kinds whose action completed successfully, so the matching
+    /// dashboard tile can show a green check. Cleared on the next refresh, or
+    /// when that tile's action is run again.
+    private(set) var completedRecommendations: Set<PerformanceRecommendation.Kind> = []
+
+    /// Set when the current failure is specifically a missing Full Disk Access
+    /// (Speed Up Mail), so the failure screen can offer an "Open Settings"
+    /// recovery instead of a dead end.
+    private(set) var failureNeedsFullDiskAccess = false
+
+    /// The maintenance-task catalog shown in "View All Tasks", with tasks that
+    /// can't run on this system filtered out — Run Maintenance Scripts relies on
+    /// `/usr/sbin/periodic`, which Apple removed in macOS 26.
+    var tasks: [MaintenanceTask] {
+        MaintenanceTask.catalog.filter { task in
+            task.kind != .runMaintenanceScripts || maintenanceScriptsAvailable
+        }
+    }
+
+    /// Cocktail task ids that are actually available, for the recommendation
+    /// count and the "Run Tasks" action.
+    private var availableCocktailIDs: [String] {
+        tasks
+            .filter { MaintenanceTask.maintenanceCocktailKinds.contains($0.kind) }
+            .map(\.id)
+    }
 
     @ObservationIgnored private let loadLoginItems: LoadLoginItems
     @ObservationIgnored private let loadUserAgents: LoadAgents
@@ -51,6 +92,15 @@ final class OptimizationViewModel {
     @ObservationIgnored private let removeAgent: RemoveAgent
     @ObservationIgnored private let flushRAMAction: FlushRAM
     @ObservationIgnored private let runMaintenance: RunMaintenance
+    @ObservationIgnored private let flushDNSAction: RunTask
+    @ObservationIgnored private let reindexSpotlightAction: RunTask
+    @ObservationIgnored private let thinSnapshotsAction: RunTask
+    @ObservationIgnored private let speedUpMailAction: RunTask
+    @ObservationIgnored private let readSnapshotCount: ReadSnapshotCount
+    @ObservationIgnored private let runLog: MaintenanceRunLog
+    /// Whether `/usr/sbin/periodic` exists — false on macOS 26+, where Apple
+    /// removed it, so Run Maintenance Scripts is hidden and never run.
+    @ObservationIgnored private let maintenanceScriptsAvailable: Bool
 
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "OptimizationViewModel")
@@ -72,6 +122,13 @@ final class OptimizationViewModel {
         removeAgent: @escaping RemoveAgent,
         flushRAM: @escaping FlushRAM,
         runMaintenance: @escaping RunMaintenance,
+        flushDNS: @escaping RunTask = { "" },
+        reindexSpotlight: @escaping RunTask = { "" },
+        thinSnapshots: @escaping RunTask = { "" },
+        speedUpMail: @escaping RunTask = { "" },
+        readSnapshotCount: @escaping ReadSnapshotCount = { 0 },
+        runLog: MaintenanceRunLog = MaintenanceRunLog(),
+        maintenanceScriptsAvailable: Bool = true,
         launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
     ) {
         self.loadLoginItems = loadLoginItems
@@ -83,6 +140,13 @@ final class OptimizationViewModel {
         self.removeAgent = removeAgent
         self.flushRAMAction = flushRAM
         self.runMaintenance = runMaintenance
+        self.flushDNSAction = flushDNS
+        self.reindexSpotlightAction = reindexSpotlight
+        self.thinSnapshotsAction = thinSnapshots
+        self.speedUpMailAction = speedUpMail
+        self.readSnapshotCount = readSnapshotCount
+        self.runLog = runLog
+        self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
 
         // The host app's launch-at-login state has a second entry point:
         // the Preferences "Launch at Login" toggle, which mutates
@@ -117,7 +181,9 @@ final class OptimizationViewModel {
         async let login = loadLoginItems()
         async let user = loadUserAgents()
         async let system = loadSystemAgents()
-        let (loadedLogin, loadedUser, loadedSystem) = await (login, user, system)
+        async let snapshots = readSnapshotCount()
+        let (loadedLogin, loadedUser, loadedSystem, loadedSnapshots) =
+            await (login, user, system, snapshots)
         let mem = readMemory()
 
         guard loadGeneration == generation else { return }
@@ -125,7 +191,133 @@ final class OptimizationViewModel {
         userAgents = loadedUser
         systemAgents = loadedSystem
         memory = mem
+        localSnapshotCount = loadedSnapshots
+        completedRecommendations.removeAll()
+        rebuildRecommendations()
         phase = .ready
+    }
+
+    // MARK: - Recommendations
+
+    /// Runs the action behind a dashboard recommendation tile and, on success,
+    /// marks that tile complete so the view can show a green check on it. The
+    /// background-items tile only navigates (handled by the view), so it never
+    /// reaches here.
+    func runRecommendation(_ recommendation: PerformanceRecommendation) async {
+        completedRecommendations.remove(recommendation.kind)
+        switch recommendation.kind {
+        case .freeUpRAM:
+            if let task = MaintenanceTask.catalog.first(where: { $0.kind == .freeUpRAM }) {
+                await run(task)
+            }
+        case .maintenanceTasks:
+            await runDueMaintenance()
+        case .thinSnapshots:
+            if let task = MaintenanceTask.catalog.first(where: { $0.kind == .thinTimeMachineSnapshots }) {
+                await run(task)
+            }
+        case .backgroundItems:
+            return
+        }
+        if phase == .ready {
+            completedRecommendations.insert(recommendation.kind)
+        }
+    }
+
+    // MARK: - Maintenance tasks
+
+    /// Runs a catalog task. Free up RAM and the maintenance scripts route
+    /// through their existing methods (which keep their own result lines and
+    /// memory re-read); the newer system tasks run through the shared `perform`
+    /// path. On success the task is stamped in the run log and the
+    /// recommendation cards are rebuilt.
+    func run(_ task: MaintenanceTask) async {
+        // Name the running action for the progress screen, and clear any prior
+        // FDA-recovery flag so it only reflects this run's outcome.
+        workingTitle = task.title
+        failureNeedsFullDiskAccess = false
+        switch task.kind {
+        case .freeUpRAM:
+            await flushRAM()
+            finishTask(task.kind, result: ramResult)
+        case .runMaintenanceScripts:
+            await runMaintenanceScripts()
+            finishTask(task.kind, result: maintenanceOutput)
+        case .flushDNS:
+            await perform(task.kind, action: flushDNSAction)
+        case .reindexSpotlight:
+            await perform(task.kind, action: reindexSpotlightAction)
+        case .thinTimeMachineSnapshots:
+            await perform(task.kind, action: thinSnapshotsAction)
+        case .speedUpMail:
+            await perform(task.kind, action: speedUpMailAction)
+        }
+        workingTitle = nil
+    }
+
+    /// Shared run path for the system maintenance tasks: drive `.working`, run
+    /// the action, capture its result line, stamp the run log, and rebuild
+    /// recommendations. Surfaces `.failed` on any error.
+    private func perform(_ kind: MaintenanceTask.Kind, action: RunTask) async {
+        phase = .working
+        do {
+            let result = try await action()
+            taskResults[kind.rawValue] = result
+            runLog.record(kind.rawValue)
+            localSnapshotCount = await readSnapshotCount()
+            rebuildRecommendations()
+            phase = .ready
+        } catch {
+            log.error("Maintenance task \(kind.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            if case MailReindexerError.fullDiskAccessRequired = error {
+                failureNeedsFullDiskAccess = true
+            }
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
+        }
+    }
+
+    /// Post-success bookkeeping for the tasks that route through their existing
+    /// methods. Skips when the underlying method left a non-ready phase (e.g. a
+    /// flush failure already surfaced `.failed`).
+    private func finishTask(_ kind: MaintenanceTask.Kind, result: String?) {
+        guard phase == .ready else { return }
+        if let result {
+            taskResults[kind.rawValue] = result
+        }
+        runLog.record(kind.rawValue)
+        rebuildRecommendations()
+    }
+
+    /// Runs the given tasks in order — the action behind the catalog's
+    /// multi-select "Run" bar. Stops at the first failure, which surfaces
+    /// `.failed` so the user sees what went wrong.
+    func run(_ tasks: [MaintenanceTask]) async {
+        for task in tasks {
+            await run(task)
+            if case .failed = phase { return }
+        }
+    }
+
+    /// Runs every due maintenance-cocktail task (the action behind the
+    /// "Maintenance Tasks Recommended" card), so the card's count and its "Run
+    /// Tasks" action cover the same set.
+    func runDueMaintenance() async {
+        let dueIDs = runLog.staleTaskIDs(among: availableCocktailIDs)
+        let dueTasks = tasks.filter { dueIDs.contains($0.id) }
+        await run(dueTasks)
+    }
+
+    /// Recomputes the curated recommendation cards from current section state.
+    /// The maintenance count is scoped to the cocktail tasks so it matches what
+    /// `runDueMaintenance()` actually runs.
+    private func rebuildRecommendations() {
+        let snapshot = PerformanceSnapshot(
+            memory: memory,
+            localSnapshotCount: localSnapshotCount,
+            backgroundItemCount: loginItems.count + userAgents.count + systemAgents.count,
+            staleTaskCount: runLog.staleTaskCount(among: availableCocktailIDs)
+        )
+        recommendations = PerformanceRecommendationEngine.recommendations(for: snapshot)
     }
 
     // MARK: - RAM
@@ -218,7 +410,16 @@ final class OptimizationViewModel {
 
     /// Removes an agent's plist. On success the row is dropped; on failure
     /// the lists are left intact so the user can retry.
+    ///
+    /// System daemons are protected: they live in launchd's privileged domain
+    /// and removing one can break macOS or the app that installed it, so the
+    /// request is refused here regardless of how it was triggered. The UI also
+    /// hides the control for system agents — this guard is the backstop.
     func remove(_ agent: LaunchAgent) async {
+        guard agent.domain != .system else {
+            log.error("Refused to remove protected system daemon: \(agent.label, privacy: .public)")
+            return
+        }
         phase = .working
         do {
             try await removeAgent(agent)
@@ -263,6 +464,11 @@ extension OptimizationViewModel {
         let agentManager = LaunchAgentManager()
         let ram = RAMManager()
         let maintenance = MaintenanceScriptRunner()
+        let dnsFlusher = DNSCacheFlusher()
+        let spotlight = SpotlightReindexer()
+        let snapshotThinner = TimeMachineSnapshotThinner()
+        let mail = MailReindexer()
+        let snapshotCounter = LocalSnapshotCounter()
 
         return OptimizationViewModel(
             loadLoginItems: { loginManager.items() },
@@ -303,6 +509,20 @@ extension OptimizationViewModel {
             removeAgent: { try await agentManager.remove($0) },
             flushRAM: { try await ram.flush() },
             runMaintenance: { try await maintenance.run() },
+            flushDNS: { try await dnsFlusher.run() },
+            reindexSpotlight: { try await spotlight.run() },
+            thinSnapshots: { try await snapshotThinner.run() },
+            speedUpMail: { try await mail.run() },
+            // Listing snapshots shells out to `tmutil`; keep it off the main
+            // actor so the dashboard refresh never blocks on the process.
+            readSnapshotCount: {
+                await Task.detached(priority: .userInitiated) {
+                    snapshotCounter.count()
+                }.value
+            },
+            // `periodic` was removed in macOS 26; when it's absent, Run
+            // Maintenance Scripts is hidden and excluded from "Run Tasks".
+            maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic"),
             // Reflect a Preferences-side toggle in this view's row. See
             // the `init` comment for why ordering matters here. The bridge
             // converts `PreferencesStore`'s Observation-tracked property

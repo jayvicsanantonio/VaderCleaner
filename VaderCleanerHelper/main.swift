@@ -56,7 +56,53 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         runProcess(executable: "/usr/sbin/purge", arguments: [], reply: reply)
     }
 
+    func flushDNSCache(reply: @escaping (Error?) -> Void) {
+        // Flushing the resolver cache is two steps: clear the directory-service
+        // cache, then signal mDNSResponder to drop its own. Run them in sequence
+        // and surface the first failure.
+        runProcesses(
+            commands: [
+                (executable: "/usr/bin/dscacheutil", arguments: ["-flushcache"]),
+                (executable: "/usr/bin/killall", arguments: ["-HUP", "mDNSResponder"])
+            ],
+            reply: reply
+        )
+    }
+
+    func reindexSpotlight(reply: @escaping (Error?) -> Void) {
+        runProcess(executable: "/usr/bin/mdutil", arguments: ["-E", "/"], reply: reply)
+    }
+
+    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {
+        // Ask Time Machine to reclaim up to 20 GiB of local snapshot space at
+        // the highest urgency (4). macOS removes only as much as it safely can.
+        runProcess(
+            executable: "/usr/bin/tmutil",
+            arguments: ["thinlocalsnapshots", "/", "21474836480", "4"],
+            reply: reply
+        )
+    }
+
     // MARK: - Private
+
+    /// Runs each command in order and replies with the first failure, or `nil`
+    /// once all succeed. A non-zero exit or launch error short-circuits the rest.
+    private func runProcesses(
+        commands: [(executable: String, arguments: [String])],
+        reply: @escaping (Error?) -> Void
+    ) {
+        for command in commands {
+            var commandError: Error?
+            runProcess(executable: command.executable, arguments: command.arguments) { error in
+                commandError = error
+            }
+            if let commandError {
+                reply(commandError)
+                return
+            }
+        }
+        reply(nil)
+    }
 
     private func runProcess(
         executable: String,

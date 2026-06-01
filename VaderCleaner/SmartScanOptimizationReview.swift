@@ -10,8 +10,24 @@ import SwiftUI
 /// standalone screen to manage login items / launch agents / RAM in detail.
 struct SmartScanOptimizationReview: View {
     let result: SmartScanResult
+    /// Whether the maintenance scripts can run — false on macOS 26+, where
+    /// `periodic` was removed. Drives the explainer wording.
+    var maintenanceScriptsAvailable: Bool = true
     let onBack: () -> Void
     let onOpenOptimization: () -> Void
+
+    private var explainer: String {
+        if maintenanceScriptsAvailable {
+            return String(
+                localized: "Run will execute the system maintenance scripts (periodic daily, weekly, monthly).",
+                comment: "Explainer at the top of the Smart Scan Performance Review screen."
+            )
+        }
+        return String(
+            localized: "System maintenance scripts aren't available on this version of macOS. The login items below are shown for review.",
+            comment: "Explainer shown when periodic maintenance scripts are unavailable (macOS 26+)."
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,10 +40,7 @@ struct SmartScanOptimizationReview: View {
             )
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(String(
-                        localized: "Run will execute the system maintenance scripts (periodic daily, weekly, monthly).",
-                        comment: "Explainer at the top of the Smart Scan Performance Review screen."
-                    ))
+                    Text(explainer)
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
