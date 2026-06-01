@@ -39,3 +39,6 @@ Podfile.lock
 
 # Code coverage artifacts
 *.profraw
+
+# Per-developer signing override (not shared)
+Signing.local.xcconfig

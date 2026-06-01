@@ -15,16 +15,13 @@ settings:
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     ENABLE_HARDENED_RUNTIME: NO
-    # Sign with the Apple Development certificate so the privileged helper has a
-    # stable Team identity that launchd will spawn (ad-hoc signing has no team
-    # and its cdhash churns every build, which SMAppService rejects with
-    # EX_CONFIG). The app's entitlements need no provisioned capabilities, so
-    # manual signing with the dev cert works without a provisioning profile.
-    CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: "Apple Development"
-    CODE_SIGNING_REQUIRED: YES
-    CODE_SIGNING_ALLOWED: YES
-    DEVELOPMENT_TEAM: XGQ94CMBTN
+
+# Signing lives in Signing.xcconfig (team-agnostic defaults) with an optional,
+# gitignored Signing.local.xcconfig override, so no personal Team ID is
+# committed and any checkout / CI can still build. See Signing.xcconfig.
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
 
 targets:
   VaderCleaner:

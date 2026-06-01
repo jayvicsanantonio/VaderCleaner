@@ -36,11 +36,14 @@ struct LocalSnapshotCounter {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return ""
         }
+        // Drain the pipe before waiting: if `tmutil`'s output exceeded the pipe
+        // buffer, waiting first would deadlock (the process blocks writing while
+        // we block waiting).
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     }
 }

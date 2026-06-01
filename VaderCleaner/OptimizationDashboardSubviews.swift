@@ -186,6 +186,9 @@ struct OptimizationTaskCatalogView: View {
     /// Which pane is shown. Bound to the owning view so the selection survives
     /// the "Working…" remount and so a dashboard card can open a specific pane.
     @Binding var pane: Pane
+    /// Selected task ids, bound to the owning view so the selection persists
+    /// across the progress screen and a completed run.
+    @Binding var selectedTaskIDs: Set<String>
     let tasks: [MaintenanceTask]
     let results: [String: String]
     let loginItems: [LoginItem]
@@ -196,8 +199,6 @@ struct OptimizationTaskCatalogView: View {
     let onDisableAgent: (LaunchAgent) -> Void
     let onRemoveAgent: (LaunchAgent) -> Void
     let onBack: () -> Void
-
-    @State private var selectedTaskIDs: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {

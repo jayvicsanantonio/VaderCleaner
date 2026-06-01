@@ -87,6 +87,11 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
 
     /// Runs each command in order and replies with the first failure, or `nil`
     /// once all succeed. A non-zero exit or launch error short-circuits the rest.
+    ///
+    /// `runProcess` is synchronous — it calls `waitUntilExit()` and then invokes
+    /// its reply *before returning* — so this loop runs the commands strictly
+    /// sequentially and `commandError` is always populated by the time it is
+    /// checked. (No recursion/continuation needed; the reply block is not async.)
     private func runProcesses(
         commands: [(executable: String, arguments: [String])],
         reply: @escaping (Error?) -> Void

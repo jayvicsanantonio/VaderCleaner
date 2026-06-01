@@ -18,6 +18,9 @@ struct OptimizationView: View {
     /// survives the brief "Working…" remount and so a recommendation card can
     /// open the catalog on the matching pane — e.g. Review → Background Items.
     @State private var catalogPane: OptimizationTaskCatalogView.Pane = .maintenanceTasks
+    /// Selected task ids for the catalog's multi-select Run. Owned here so the
+    /// selection persists across the progress screen and a completed run.
+    @State private var selectedTaskIDs: Set<String> = []
 
     init(viewModel: OptimizationViewModel) {
         self.viewModel = viewModel
@@ -64,6 +67,18 @@ struct OptimizationView: View {
 
     @ViewBuilder
     private var content: some View {
+        // A multi-task batch flips each task's phase between .working and .ready;
+        // keep the progress screen up for the whole batch so the view doesn't
+        // flicker between progress and the catalog.
+        if viewModel.isRunningBatch {
+            OptimizationProgressState(label: workingLabel, identifier: "optimization.working")
+        } else {
+            phaseContent
+        }
+    }
+
+    @ViewBuilder
+    private var phaseContent: some View {
         switch viewModel.phase {
         case .idle:
             // Unreachable: ContentView shows the unified SectionIntroView
@@ -117,6 +132,7 @@ struct OptimizationView: View {
             // ScrollView / Refresh footer.
             OptimizationTaskCatalogView(
                 pane: $catalogPane,
+                selectedTaskIDs: $selectedTaskIDs,
                 tasks: viewModel.tasks,
                 results: viewModel.taskResults,
                 loginItems: viewModel.loginItems,

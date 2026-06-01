@@ -56,6 +56,12 @@ final class OptimizationViewModel {
     /// Human-readable title of the action currently running, so the progress
     /// screen can name it ("Free Up RAM…") instead of a bare spinner.
     private(set) var workingTitle: String?
+
+    /// True while a multi-task batch ("Run Tasks" / catalog multi-select) is in
+    /// flight. The view holds the progress screen for the whole batch so it
+    /// doesn't flicker between progress and the catalog as each task's phase
+    /// flips `.working`→`.ready`.
+    private(set) var isRunningBatch = false
     /// Recommendation kinds whose action completed successfully, so the matching
     /// dashboard tile can show a green check. Cleared on the next refresh, or
     /// when that tile's action is run again.
@@ -292,6 +298,10 @@ final class OptimizationViewModel {
     /// multi-select "Run" bar. Stops at the first failure, which surfaces
     /// `.failed` so the user sees what went wrong.
     func run(_ tasks: [MaintenanceTask]) async {
+        // Hold the progress screen for the whole batch so the UI doesn't flicker
+        // as each task's phase flips between .working and .ready.
+        isRunningBatch = true
+        defer { isRunningBatch = false }
         for task in tasks {
             await run(task)
             if case .failed = phase { return }

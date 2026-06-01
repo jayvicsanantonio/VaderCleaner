@@ -431,6 +431,7 @@
 		811E341D8E122FCF1C9CF68C /* HelperProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProtocolTests.swift; sourceTree = "<group>"; };
 		8277A67975EF073283C98450 /* LargeOldFilesScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldFilesScanner.swift; sourceTree = "<group>"; };
 		82FFEBA3FB7EB4DCAC300B14 /* LocalSnapshotCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSnapshotCounter.swift; sourceTree = "<group>"; };
+		869E8D8A460A998AA0E6B854 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		882E6C32BC5FC5028D921546 /* MalwareOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingView.swift; sourceTree = "<group>"; };
 		88A38D3CACCA30ED5C202225 /* FloatingScanOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingScanOverlay.swift; sourceTree = "<group>"; };
 		897C2A71D7CABB3FA25241A2 /* SpaceLensView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensView.swift; sourceTree = "<group>"; };
@@ -578,6 +579,7 @@
 			children = (
 				E64E279A077DB78FF7F39BDD /* Shared */,
 				82214E451FF2D64A74A4B196 /* VaderCleaner */,
+				89BDE2EE038F8B5544BF44FE /* VaderCleaner */,
 				DD23DA844162EC496E4C0C1D /* VaderCleanerHelper */,
 				E90D4526947C1F261F963425 /* VaderCleanerTests */,
 				6A2D96C9C63AD506553F0BE0 /* VaderCleanerUITests */,
@@ -744,6 +746,15 @@
 				1316773A7836F762A217D5E2 /* Resources */,
 			);
 			path = VaderCleaner;
+			sourceTree = "<group>";
+		};
+		89BDE2EE038F8B5544BF44FE /* VaderCleaner */ = {
+			isa = PBXGroup;
+			children = (
+				869E8D8A460A998AA0E6B854 /* Signing.xcconfig */,
+			);
+			name = VaderCleaner;
+			path = .;
 			sourceTree = "<group>";
 		};
 		D1CA1C4B91CA064A86FEE9DA /* Models */ = {
@@ -969,19 +980,19 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					0A2954465B4713F8951601A1 = {
-						DevelopmentTeam = XGQ94CMBTN;
+						DevelopmentTeam = "";
 						ProvisioningStyle = Manual;
 					};
 					8309E530B1256636F6042A29 = {
-						DevelopmentTeam = XGQ94CMBTN;
+						DevelopmentTeam = "";
 						ProvisioningStyle = Manual;
 					};
 					AECD709401424A144DA3AD4A = {
-						DevelopmentTeam = XGQ94CMBTN;
+						DevelopmentTeam = "";
 						ProvisioningStyle = Manual;
 					};
 					F6D57048ED0E43FEADC2CFAF = {
-						DevelopmentTeam = XGQ94CMBTN;
+						DevelopmentTeam = "";
 						ProvisioningStyle = Manual;
 						TestTargetID = AECD709401424A144DA3AD4A;
 					};
@@ -1447,6 +1458,7 @@
 		};
 		6FC5B4C07B6F4D2470E81C20 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 869E8D8A460A998AA0E6B854 /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1478,13 +1490,8 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGNING_ALLOWED = YES;
-				CODE_SIGNING_REQUIRED = YES;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = XGQ94CMBTN;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1516,6 +1523,7 @@
 		};
 		7AC507F3249F5A68448657EF /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 869E8D8A460A998AA0E6B854 /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1547,13 +1555,8 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGNING_ALLOWED = YES;
-				CODE_SIGNING_REQUIRED = YES;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = XGQ94CMBTN;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

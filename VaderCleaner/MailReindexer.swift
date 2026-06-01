@@ -70,7 +70,9 @@ struct MailReindexer {
         } catch CocoaError.fileReadNoPermission {
             throw MailReindexerError.fullDiskAccessRequired
         } catch let error as NSError where error.domain == NSPOSIXErrorDomain
-            && error.code == Int(EPERM) {
+            && (error.code == Int(EPERM) || error.code == Int(EACCES)) {
+            // TCC/sandbox denials surface as EPERM or EACCES depending on the
+            // API and macOS version — treat both as "needs Full Disk Access".
             throw MailReindexerError.fullDiskAccessRequired
         } catch {
             // No Mail folder (never set up) or some other read error — treat as
@@ -81,7 +83,9 @@ struct MailReindexer {
         // Mail's index lives at V<n>/MailData/Envelope Index on current macOS;
         // the bare V<n>/Envelope Index covers older layouts.
         var found: [URL] = []
-        for dir in versionDirs where dir.lastPathComponent.hasPrefix("V") {
+        // Match version dirs like "V10" — "V" followed by digits — so unrelated
+        // folders (e.g. a hypothetical "Vendor") aren't treated as Mail data.
+        for dir in versionDirs where isMailVersionDirectory(dir.lastPathComponent) {
             for relative in ["MailData/Envelope Index", "Envelope Index"] {
                 let candidate = dir.appendingPathComponent(relative)
                 if FileManager.default.fileExists(atPath: candidate.path) {
@@ -90,6 +94,13 @@ struct MailReindexer {
             }
         }
         return found
+    }
+
+    /// A Mail account-format version directory is "V" followed by one or more
+    /// digits (V2…V10…). The digit check avoids matching unrelated folders.
+    private static func isMailVersionDirectory(_ name: String) -> Bool {
+        let suffix = name.dropFirst()
+        return name.hasPrefix("V") && !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
     }
 
     /// Runs `/usr/bin/sqlite3 <index> "VACUUM; REINDEX;"`. Throws on a non-zero
