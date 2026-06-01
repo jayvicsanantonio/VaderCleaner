@@ -133,9 +133,9 @@ scripts may rarely run on their own. Running them manually catches up the backlo
 - The effect is mostly invisible; you won't see a dramatic speed‑up.
 - Can take a little while and use some CPU while it runs.
 
-**Availability.** Apple removed the `periodic` mechanism in **macOS 26**, so this
-task only appears on macOS versions that still include it (Ventura and earlier).
-On macOS 26+ it won't show, because the system handles this maintenance itself.
+**Availability.** This task only appears on Macs that still include the system
+`periodic` tool. Apple has removed it from recent macOS, where the system handles
+this upkeep itself — on those Macs the task simply won't show.
 
 **Bottom line.** Good occasional housekeeping, especially if your Mac doesn't stay
 awake overnight. Low risk.

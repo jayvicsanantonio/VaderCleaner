@@ -58,6 +58,11 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
 
+    func test_spotlightReindexer_throwsWhenHelperUnavailable() async {
+        let runner = SpotlightReindexer(helperProvider: { _ in nil })
+        await XCTAssertThrowsErrorAsync(try await runner.run())
+    }
+
     // MARK: - Time Machine
 
     func test_tmThinner_invokesSelectorAndReturnsResult() async throws {
@@ -73,6 +78,11 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
     func test_tmThinner_throwsWhenHelperRepliesError() async {
         let helper = RecordingHelper(replyError: Boom())
         let runner = TimeMachineSnapshotThinner(helperProvider: { _ in helper })
+        await XCTAssertThrowsErrorAsync(try await runner.run())
+    }
+
+    func test_tmThinner_throwsWhenHelperUnavailable() async {
+        let runner = TimeMachineSnapshotThinner(helperProvider: { _ in nil })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
 }

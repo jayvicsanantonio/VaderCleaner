@@ -136,7 +136,9 @@ final class OptimizationViewModelTests: XCTestCase {
     }
 
     func test_runTask_recordsLastRunSoTaskIsNoLongerStale() async {
-        let defaults = UserDefaults(suiteName: "OptVMRunLog.\(UUID().uuidString)")!
+        let suiteName = "OptVMRunLog.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let log = MaintenanceRunLog(defaults: defaults)
         let vm = makeViewModel(flushDNS: { "ok" }, runLog: log)
         await vm.refresh()
@@ -145,7 +147,6 @@ final class OptimizationViewModelTests: XCTestCase {
         await vm.run(Self.task(.flushDNS))
 
         XCTAssertNotNil(log.lastRun(for: "flushDNS"))
-        defaults.removePersistentDomain(forName: "OptVMRunLog")
     }
 
     func test_run_clearsWorkingTitleWhenFinished() async {
