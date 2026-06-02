@@ -93,7 +93,7 @@ final class LaunchAgentManagerTests: XCTestCase {
         XCTAssertTrue(manager.userAgents().isEmpty)
     }
 
-    // MARK: - disable
+    // MARK: - enable / disable
 
     func test_disable_invokesLaunchctlUnloadWithAgentPath() throws {
         try writePlist(named: "a.plist", label: "a", program: "/bin/a")
@@ -103,7 +103,22 @@ final class LaunchAgentManagerTests: XCTestCase {
 
         try manager.disable(agent)
 
-        XCTAssertEqual(captured, ["unload", agent.path.path])
+        // `-w` persists the disabled state in the plist's Disabled key so the
+        // agent stays off across logins, not just for the current session.
+        XCTAssertEqual(captured, ["unload", "-w", agent.path.path])
+    }
+
+    func test_enable_invokesLaunchctlLoadWithAgentPath() throws {
+        try writePlist(named: "a.plist", label: "a", program: "/bin/a")
+        var captured: [String]?
+        let manager = makeManager(loaded: [], launchctl: { captured = $0 })
+        let agent = try XCTUnwrap(manager.userAgents().first)
+
+        try manager.enable(agent)
+
+        // `-w` clears the Disabled key so `load` reliably re-registers the
+        // agent even when it was previously disabled on disk.
+        XCTAssertEqual(captured, ["load", "-w", agent.path.path])
     }
 
     // MARK: - remove

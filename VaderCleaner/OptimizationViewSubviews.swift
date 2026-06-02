@@ -141,7 +141,7 @@ struct OptimizationLaunchAgentsSection: View {
     let title: String
     let identifier: String
     let agents: [LaunchAgent]
-    let onDisable: (LaunchAgent) -> Void
+    let onSetEnabled: (LaunchAgent, Bool) -> Void
     let onRemove: (LaunchAgent) -> Void
 
     var body: some View {
@@ -157,7 +157,7 @@ struct OptimizationLaunchAgentsSection: View {
                     OptimizationLaunchAgentRow(
                         agent: agent,
                         identifier: identifier,
-                        onDisable: { onDisable(agent) },
+                        onSetEnabled: { onSetEnabled(agent, $0) },
                         onRemove: { onRemove(agent) }
                     )
                     .accessibilityIdentifier("\(identifier).row.\(agent.path.lastPathComponent)")
@@ -171,7 +171,7 @@ struct OptimizationLaunchAgentsSection: View {
 struct OptimizationLaunchAgentRow: View {
     let agent: LaunchAgent
     let identifier: String
-    let onDisable: () -> Void
+    let onSetEnabled: (Bool) -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -225,17 +225,27 @@ struct OptimizationLaunchAgentRow: View {
                 ))
                 .accessibilityIdentifier("\(identifier).managed.\(agent.path.lastPathComponent)")
             } else {
-                Button(action: onDisable) {
-                    Text(String(
-                        localized: "Disable",
-                        comment: "Per-row button that unloads a launch agent via launchctl."
-                    ))
-                }
-                .buttonStyle(.bordered)
-                // "Disable" unloads the agent via launchctl; when it is already
-                // not loaded there is nothing to unload, so the control is inert.
-                .disabled(!agent.isEnabled)
-                .accessibilityIdentifier("\(identifier).disable.\(agent.path.lastPathComponent)")
+                // The toggle is the agent's loaded state: on loads it via
+                // `launchctl load -w`, off unloads it via `unload -w`. Unlike a
+                // one-way "Disable" button it never greys into a dead control —
+                // a not-loaded agent simply shows the switch in its off
+                // position, which the user can flip back on.
+                Toggle("", isOn: Binding(
+                    get: { agent.isEnabled },
+                    set: { onSetEnabled($0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .help(agent.isEnabled
+                      ? String(
+                            localized: "Loaded. Turn off to unload this agent and keep it off across logins.",
+                            comment: "Tooltip for an enabled user launch-agent toggle."
+                        )
+                      : String(
+                            localized: "Not loaded. Turn on to load this agent and keep it on across logins.",
+                            comment: "Tooltip for a disabled user launch-agent toggle."
+                        ))
+                .accessibilityIdentifier("\(identifier).toggle.\(agent.path.lastPathComponent)")
 
                 Button(role: .destructive, action: onRemove) {
                     Text(String(

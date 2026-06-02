@@ -30,6 +30,7 @@ final class OptimizationViewModel {
     typealias ReadMemory = @MainActor () -> MemoryStats
     typealias SetLoginItemEnabled = (Bool, LoginItem) async throws -> Void
     typealias DisableAgent = (LaunchAgent) async throws -> Void
+    typealias EnableAgent = (LaunchAgent) async throws -> Void
     typealias RemoveAgent = (LaunchAgent) async throws -> Void
     typealias FlushRAM = () async throws -> Void
     typealias RunMaintenance = () async throws -> String
@@ -95,6 +96,7 @@ final class OptimizationViewModel {
     @ObservationIgnored private let readMemory: ReadMemory
     @ObservationIgnored private let setLoginItemEnabled: SetLoginItemEnabled
     @ObservationIgnored private let disableAgent: DisableAgent
+    @ObservationIgnored private let enableAgent: EnableAgent
     @ObservationIgnored private let removeAgent: RemoveAgent
     @ObservationIgnored private let flushRAMAction: FlushRAM
     @ObservationIgnored private let runMaintenance: RunMaintenance
@@ -125,6 +127,7 @@ final class OptimizationViewModel {
         readMemory: @escaping ReadMemory,
         setLoginItemEnabled: @escaping SetLoginItemEnabled,
         disableAgent: @escaping DisableAgent,
+        enableAgent: @escaping EnableAgent,
         removeAgent: @escaping RemoveAgent,
         flushRAM: @escaping FlushRAM,
         runMaintenance: @escaping RunMaintenance,
@@ -143,6 +146,7 @@ final class OptimizationViewModel {
         self.readMemory = readMemory
         self.setLoginItemEnabled = setLoginItemEnabled
         self.disableAgent = disableAgent
+        self.enableAgent = enableAgent
         self.removeAgent = removeAgent
         self.flushRAMAction = flushRAM
         self.runMaintenance = runMaintenance
@@ -400,6 +404,24 @@ final class OptimizationViewModel {
 
     // MARK: - Launch agents
 
+    /// Loads an agent into launchd, then reloads both agent lists so the
+    /// loaded/enabled state is refreshed.
+    func enable(_ agent: LaunchAgent) async {
+        phase = .working
+        do {
+            try await enableAgent(agent)
+            async let user = loadUserAgents()
+            async let system = loadSystemAgents()
+            let (reloadedUser, reloadedSystem) = await (user, system)
+            userAgents = reloadedUser
+            systemAgents = reloadedSystem
+            phase = .ready
+        } catch {
+            log.error("Agent enable failed: \(error.localizedDescription, privacy: .public)")
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
+        }
+    }
+
     /// Unloads an agent from launchd, then reloads both agent lists so the
     /// loaded/enabled state is refreshed.
     func disable(_ agent: LaunchAgent) async {
@@ -514,6 +536,11 @@ extension OptimizationViewModel {
             disableAgent: { agent in
                 try await Task.detached(priority: .userInitiated) {
                     try agentManager.disable(agent)
+                }.value
+            },
+            enableAgent: { agent in
+                try await Task.detached(priority: .userInitiated) {
+                    try agentManager.enable(agent)
                 }.value
             },
             removeAgent: { try await agentManager.remove($0) },

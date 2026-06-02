@@ -196,7 +196,7 @@ struct OptimizationTaskCatalogView: View {
     let systemAgents: [LaunchAgent]
     let onRunSelected: ([MaintenanceTask]) -> Void
     let onToggleLoginItem: (LoginItem, Bool) -> Void
-    let onDisableAgent: (LaunchAgent) -> Void
+    let onSetAgentEnabled: (LaunchAgent, Bool) -> Void
     let onRemoveAgent: (LaunchAgent) -> Void
     let onBack: () -> Void
 
@@ -303,7 +303,7 @@ struct OptimizationTaskCatalogView: View {
                     ),
                     identifier: "optimization.userAgents",
                     agents: userAgents,
-                    onDisable: onDisableAgent,
+                    onSetEnabled: onSetAgentEnabled,
                     onRemove: onRemoveAgent
                 )
                 OptimizationLaunchAgentsSection(
@@ -313,7 +313,7 @@ struct OptimizationTaskCatalogView: View {
                     ),
                     identifier: "optimization.systemAgents",
                     agents: systemAgents,
-                    onDisable: onDisableAgent,
+                    onSetEnabled: onSetAgentEnabled,
                     onRemove: onRemoveAgent
                 )
             }

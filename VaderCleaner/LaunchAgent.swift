@@ -131,13 +131,24 @@ struct LaunchAgentManager {
         return result
     }
 
-    // MARK: - Disable
+    // MARK: - Enable / disable
 
-    /// Unloads the job from launchd via `launchctl unload <path>`. User agents
-    /// live in the caller's own launchd domain, so this needs no privilege
-    /// escalation.
+    /// Loads the job into launchd via `launchctl load -w <path>`. The `-w`
+    /// flag clears the plist's `Disabled` key, so an agent that was previously
+    /// disabled on disk reliably re-registers instead of silently no-opping.
+    /// User agents live in the caller's own launchd domain, so this needs no
+    /// privilege escalation.
+    func enable(_ agent: LaunchAgent) throws {
+        try launchctl(["load", "-w", agent.path.path])
+    }
+
+    /// Unloads the job from launchd via `launchctl unload -w <path>`. The `-w`
+    /// flag persists the disabled state in the plist's `Disabled` key so the
+    /// agent stays off across logins rather than reloading on the next session.
+    /// User agents live in the caller's own launchd domain, so this needs no
+    /// privilege escalation.
     func disable(_ agent: LaunchAgent) throws {
-        try launchctl(["unload", agent.path.path])
+        try launchctl(["unload", "-w", agent.path.path])
     }
 
     // MARK: - Remove

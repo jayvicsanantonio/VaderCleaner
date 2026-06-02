@@ -447,6 +447,21 @@ final class OptimizationViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .ready)
     }
 
+    func test_enableAgent_invokesCollaboratorAndReloads() async {
+        var enabled: String?
+        let agent = Self.agent(label: "com.user.a", domain: .user)
+        let vm = makeViewModel(
+            loadUserAgents: { [agent] },
+            enableAgent: { enabled = $0.label }
+        )
+        await vm.refresh()
+
+        await vm.enable(agent)
+
+        XCTAssertEqual(enabled, "com.user.a")
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
     func test_removeAgent_dropsRowAndReturnsToReady() async {
         let target = Self.agent(label: "com.user.doomed", domain: .user)
         let keep = Self.agent(label: "com.user.keep", domain: .user)
@@ -516,6 +531,7 @@ final class OptimizationViewModelTests: XCTestCase {
         readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
         setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
         disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
+        enableAgent: @escaping OptimizationViewModel.EnableAgent = { _ in },
         removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
         flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
         runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" },
@@ -540,6 +556,7 @@ final class OptimizationViewModelTests: XCTestCase {
             readMemory: readMemory,
             setLoginItemEnabled: setLoginItemEnabled,
             disableAgent: disableAgent,
+            enableAgent: enableAgent,
             removeAgent: removeAgent,
             flushRAM: flushRAM,
             runMaintenance: runMaintenance,
