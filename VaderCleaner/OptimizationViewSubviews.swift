@@ -209,16 +209,19 @@ struct OptimizationLaunchAgentRow: View {
             // can break macOS or the app that installed it. Rather than offer
             // dead controls, surface a read-only "Managed by macOS" indicator.
             if agent.domain == .system {
-                Label(
-                    String(
+                // An explicit HStack rather than `Label`: SwiftUI's `.help()`
+                // tooltip only tracks a `Label`'s glyph area and often fails to
+                // appear, whereas a plain Image+Text row hovers reliably.
+                HStack(spacing: 4) {
+                    Image(systemName: "lock.fill")
+                    Text(String(
                         localized: "Managed by macOS",
                         comment: "Read-only indicator shown for system launch agents and daemons that can't be changed in the app."
-                    ),
-                    systemImage: "lock.fill"
-                )
+                    ))
+                }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .labelStyle(.titleAndIcon)
+                .contentShape(Rectangle())
                 .help(String(
                     localized: "This item is controlled by macOS or the app that installed it, so it can't be turned off or removed here. To change it, use System Settings or that app's own settings.",
                     comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
@@ -229,16 +232,19 @@ struct OptimizationLaunchAgentRow: View {
                     // A stub plist with no runnable job can never be loaded, so a
                     // toggle would only ever bounce back to off. Mark it as a
                     // leftover file the user can remove instead.
-                    Label(
-                        String(
+                    // An explicit HStack rather than `Label`: SwiftUI's `.help()`
+                    // tooltip only tracks a `Label`'s glyph area and often fails
+                    // to appear, whereas a plain Image+Text row hovers reliably.
+                    HStack(spacing: 4) {
+                        Image(systemName: "questionmark.circle")
+                        Text(String(
                             localized: "Orphaned",
                             comment: "Indicator for a launch-agent plist that defines no runnable job and can only be removed."
-                        ),
-                        systemImage: "questionmark.circle"
-                    )
+                        ))
+                    }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
+                    .contentShape(Rectangle())
                     .help(String(
                         localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
                         comment: "Tooltip explaining what an orphaned launch agent is and why it shows no toggle."
