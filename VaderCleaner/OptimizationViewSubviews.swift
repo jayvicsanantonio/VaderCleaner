@@ -220,7 +220,7 @@ struct OptimizationLaunchAgentRow: View {
                 .foregroundStyle(.secondary)
                 .labelStyle(.titleAndIcon)
                 .help(String(
-                    localized: "System daemons are managed by macOS or the app that installed them. Disable them in System Settings or the owning app instead.",
+                    localized: "This item is controlled by macOS or the app that installed it, so it can't be turned off or removed here. To change it, use System Settings or that app's own settings.",
                     comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
                 ))
                 .accessibilityIdentifier("\(identifier).managed.\(agent.path.lastPathComponent)")
@@ -240,8 +240,8 @@ struct OptimizationLaunchAgentRow: View {
                     .foregroundStyle(.secondary)
                     .labelStyle(.titleAndIcon)
                     .help(String(
-                        localized: "This launch agent's plist has no program to run — a leftover file you can remove. Note: the app that left it may recreate it.",
-                        comment: "Tooltip explaining why an orphaned launch agent shows no toggle."
+                        localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
+                        comment: "Tooltip explaining what an orphaned launch agent is and why it shows no toggle."
                     ))
                     .accessibilityIdentifier("\(identifier).orphaned.\(agent.path.lastPathComponent)")
                 } else {
