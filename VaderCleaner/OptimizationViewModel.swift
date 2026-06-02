@@ -30,6 +30,7 @@ final class OptimizationViewModel {
     typealias ReadMemory = @MainActor () -> MemoryStats
     typealias SetLoginItemEnabled = (Bool, LoginItem) async throws -> Void
     typealias DisableAgent = (LaunchAgent) async throws -> Void
+    typealias EnableAgent = (LaunchAgent) async throws -> Void
     typealias RemoveAgent = (LaunchAgent) async throws -> Void
     typealias FlushRAM = () async throws -> Void
     typealias RunMaintenance = () async throws -> String
@@ -95,6 +96,7 @@ final class OptimizationViewModel {
     @ObservationIgnored private let readMemory: ReadMemory
     @ObservationIgnored private let setLoginItemEnabled: SetLoginItemEnabled
     @ObservationIgnored private let disableAgent: DisableAgent
+    @ObservationIgnored private let enableAgent: EnableAgent
     @ObservationIgnored private let removeAgent: RemoveAgent
     @ObservationIgnored private let flushRAMAction: FlushRAM
     @ObservationIgnored private let runMaintenance: RunMaintenance
@@ -125,6 +127,7 @@ final class OptimizationViewModel {
         readMemory: @escaping ReadMemory,
         setLoginItemEnabled: @escaping SetLoginItemEnabled,
         disableAgent: @escaping DisableAgent,
+        enableAgent: @escaping EnableAgent,
         removeAgent: @escaping RemoveAgent,
         flushRAM: @escaping FlushRAM,
         runMaintenance: @escaping RunMaintenance,
@@ -143,6 +146,7 @@ final class OptimizationViewModel {
         self.readMemory = readMemory
         self.setLoginItemEnabled = setLoginItemEnabled
         self.disableAgent = disableAgent
+        self.enableAgent = enableAgent
         self.removeAgent = removeAgent
         self.flushRAMAction = flushRAM
         self.runMaintenance = runMaintenance
@@ -400,20 +404,40 @@ final class OptimizationViewModel {
 
     // MARK: - Launch agents
 
-    /// Unloads an agent from launchd, then reloads both agent lists so the
-    /// loaded/enabled state is refreshed.
+    /// Loads an agent into launchd. Only user agents have a toggle, so the
+    /// row updates in place via `setLoaded` rather than reloading the section.
+    func enable(_ agent: LaunchAgent) async {
+        await setLoaded(agent, to: true, via: enableAgent)
+    }
+
+    /// Unloads an agent from launchd. Only user agents have a toggle, so the
+    /// row updates in place via `setLoaded` rather than reloading the section.
     func disable(_ agent: LaunchAgent) async {
-        phase = .working
+        await setLoaded(agent, to: false, via: disableAgent)
+    }
+
+    /// Toggles a user agent's loaded state with an optimistic, in-place update:
+    /// the switch flips immediately and neither a progress screen nor a list
+    /// reload disturbs the rest of the section, so only the affected row
+    /// animates. If the launchctl call can't even be spawned the action throws
+    /// and the row is restored to its prior state.
+    private func setLoaded(
+        _ agent: LaunchAgent,
+        to enabled: Bool,
+        via action: (LaunchAgent) async throws -> Void
+    ) async {
+        guard let index = userAgents.firstIndex(where: { $0.id == agent.id }) else { return }
+        let original = userAgents[index]
+        userAgents[index] = original.settingEnabled(enabled)
         do {
-            try await disableAgent(agent)
-            async let user = loadUserAgents()
-            async let system = loadSystemAgents()
-            let (reloadedUser, reloadedSystem) = await (user, system)
-            userAgents = reloadedUser
-            systemAgents = reloadedSystem
-            phase = .ready
+            try await action(agent)
         } catch {
-            log.error("Agent disable failed: \(error.localizedDescription, privacy: .public)")
+            // Re-find by id: a refresh() may have replaced the array while the
+            // launchctl call was in flight.
+            if let current = userAgents.firstIndex(where: { $0.id == agent.id }) {
+                userAgents[current] = original
+            }
+            log.error("Agent loaded-state change failed: \(error.localizedDescription, privacy: .public)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
@@ -514,6 +538,11 @@ extension OptimizationViewModel {
             disableAgent: { agent in
                 try await Task.detached(priority: .userInitiated) {
                     try agentManager.disable(agent)
+                }.value
+            },
+            enableAgent: { agent in
+                try await Task.detached(priority: .userInitiated) {
+                    try agentManager.enable(agent)
                 }.value
             },
             removeAgent: { try await agentManager.remove($0) },

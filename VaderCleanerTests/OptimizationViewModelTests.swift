@@ -432,19 +432,63 @@ final class OptimizationViewModelTests: XCTestCase {
 
     // MARK: - Agent disable / remove
 
-    func test_disableAgent_invokesCollaboratorAndReloads() async {
+    func test_disableAgent_flipsRowOptimisticallyWithoutReloadingOrWorkingPhase() async {
         var disabled: String?
+        var userLoads = 0
+        // Self.agent starts enabled; disabling should flip just this row.
         let agent = Self.agent(label: "com.user.a", domain: .user)
         let vm = makeViewModel(
-            loadUserAgents: { [agent] },
+            loadUserAgents: { userLoads += 1; return [agent] },
             disableAgent: { disabled = $0.label }
+        )
+        await vm.refresh()
+        let loadsAfterRefresh = userLoads
+
+        await vm.disable(agent)
+
+        XCTAssertEqual(disabled, "com.user.a")
+        XCTAssertEqual(vm.userAgents.first?.isEnabled, false, "row flips in place")
+        XCTAssertEqual(userLoads, loadsAfterRefresh, "no list reload")
+        XCTAssertEqual(vm.phase, .ready, "no progress screen")
+    }
+
+    func test_enableAgent_flipsRowOptimisticallyWithoutReloadingOrWorkingPhase() async {
+        var enabled: String?
+        var userLoads = 0
+        let agent = LaunchAgent(
+            label: "com.user.a", path: URL(fileURLWithPath: "/tmp/com.user.a.plist"),
+            programPath: "/bin/true", isEnabled: false, domain: .user
+        )
+        let vm = makeViewModel(
+            loadUserAgents: { userLoads += 1; return [agent] },
+            enableAgent: { enabled = $0.label }
+        )
+        await vm.refresh()
+        let loadsAfterRefresh = userLoads
+
+        await vm.enable(agent)
+
+        XCTAssertEqual(enabled, "com.user.a")
+        XCTAssertEqual(vm.userAgents.first?.isEnabled, true, "row flips in place")
+        XCTAssertEqual(userLoads, loadsAfterRefresh, "no list reload")
+        XCTAssertEqual(vm.phase, .ready, "no progress screen")
+    }
+
+    func test_disableAgent_revertsRowAndFailsWhenActionThrows() async {
+        struct ToggleError: Error {}
+        let agent = Self.agent(label: "com.user.a", domain: .user) // enabled
+        let vm = makeViewModel(
+            loadUserAgents: { [agent] },
+            disableAgent: { _ in throw ToggleError() }
         )
         await vm.refresh()
 
         await vm.disable(agent)
 
-        XCTAssertEqual(disabled, "com.user.a")
-        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertEqual(vm.userAgents.first?.isEnabled, true, "row reverts on failure")
+        guard case .failed = vm.phase else {
+            return XCTFail("expected .failed phase, got \(vm.phase)")
+        }
     }
 
     func test_removeAgent_dropsRowAndReturnsToReady() async {
@@ -516,6 +560,7 @@ final class OptimizationViewModelTests: XCTestCase {
         readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
         setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
         disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
+        enableAgent: @escaping OptimizationViewModel.EnableAgent = { _ in },
         removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
         flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
         runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" },
@@ -540,6 +585,7 @@ final class OptimizationViewModelTests: XCTestCase {
             readMemory: readMemory,
             setLoginItemEnabled: setLoginItemEnabled,
             disableAgent: disableAgent,
+            enableAgent: enableAgent,
             removeAgent: removeAgent,
             flushRAM: flushRAM,
             runMaintenance: runMaintenance,

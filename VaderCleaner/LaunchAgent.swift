@@ -22,6 +22,22 @@ struct LaunchAgent: Identifiable, Equatable {
     let programPath: String?
     let isEnabled: Bool
     let domain: Domain
+
+    /// True for a stub plist that defines no runnable job — no `Program` or
+    /// `ProgramArguments` to exec — and isn't currently loaded. These are
+    /// leftover files (e.g. retired Keystone tombstones) that can never be
+    /// toggled on, so the UI offers only removal rather than a dead switch.
+    var isOrphaned: Bool { programPath == nil && !isEnabled }
+
+    /// A copy with `isEnabled` set to `value`. Used for the optimistic,
+    /// in-place row update when toggling an agent, so the switch responds
+    /// immediately without reloading the whole list.
+    func settingEnabled(_ value: Bool) -> LaunchAgent {
+        LaunchAgent(
+            label: label, path: path, programPath: programPath,
+            isEnabled: value, domain: domain
+        )
+    }
 }
 
 /// Discovers and manages launchd jobs for the Optimization feature.
@@ -131,13 +147,25 @@ struct LaunchAgentManager {
         return result
     }
 
-    // MARK: - Disable
+    // MARK: - Enable / disable
 
-    /// Unloads the job from launchd via `launchctl unload <path>`. User agents
-    /// live in the caller's own launchd domain, so this needs no privilege
-    /// escalation.
+    /// Loads the job into launchd via `launchctl load -w <path>`. The `-w`
+    /// flag clears the agent's entry in launchd's per-user override database
+    /// (`/var/db/com.apple.xpc.launchd`), so an agent that was previously
+    /// disabled there reliably re-registers instead of silently no-opping.
+    /// User agents live in the caller's own launchd domain, so this needs no
+    /// privilege escalation.
+    func enable(_ agent: LaunchAgent) throws {
+        try launchctl(["load", "-w", agent.path.path])
+    }
+
+    /// Unloads the job from launchd via `launchctl unload -w <path>`. The `-w`
+    /// flag records the agent as disabled in launchd's per-user override
+    /// database (`/var/db/com.apple.xpc.launchd`) so it stays off across logins
+    /// rather than reloading on the next session. User agents live in the
+    /// caller's own launchd domain, so this needs no privilege escalation.
     func disable(_ agent: LaunchAgent) throws {
-        try launchctl(["unload", agent.path.path])
+        try launchctl(["unload", "-w", agent.path.path])
     }
 
     // MARK: - Remove

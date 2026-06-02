@@ -739,6 +739,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
         setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
         disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
+        enableAgent: @escaping OptimizationViewModel.EnableAgent = { _ in },
         removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
         flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
         runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" }
@@ -750,6 +751,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
             readMemory: readMemory,
             setLoginItemEnabled: setLoginItemEnabled,
             disableAgent: disableAgent,
+            enableAgent: enableAgent,
             removeAgent: removeAgent,
             flushRAM: flushRAM,
             runMaintenance: runMaintenance,

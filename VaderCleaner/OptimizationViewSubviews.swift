@@ -141,7 +141,7 @@ struct OptimizationLaunchAgentsSection: View {
     let title: String
     let identifier: String
     let agents: [LaunchAgent]
-    let onDisable: (LaunchAgent) -> Void
+    let onSetEnabled: (LaunchAgent, Bool) -> Void
     let onRemove: (LaunchAgent) -> Void
 
     var body: some View {
@@ -157,7 +157,7 @@ struct OptimizationLaunchAgentsSection: View {
                     OptimizationLaunchAgentRow(
                         agent: agent,
                         identifier: identifier,
-                        onDisable: { onDisable(agent) },
+                        onSetEnabled: { onSetEnabled(agent, $0) },
                         onRemove: { onRemove(agent) }
                     )
                     .accessibilityIdentifier("\(identifier).row.\(agent.path.lastPathComponent)")
@@ -171,7 +171,7 @@ struct OptimizationLaunchAgentsSection: View {
 struct OptimizationLaunchAgentRow: View {
     let agent: LaunchAgent
     let identifier: String
-    let onDisable: () -> Void
+    let onSetEnabled: (Bool) -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -185,7 +185,7 @@ struct OptimizationLaunchAgentRow: View {
                     // see system daemons, so a "Not loaded" badge there would
                     // be a false negative. Only user agents have an
                     // authoritative loaded status to badge.
-                    if !agent.isEnabled && agent.domain == .user {
+                    if !agent.isEnabled && agent.domain == .user && !agent.isOrphaned {
                         Text(String(
                             localized: "Not loaded",
                             comment: "Badge shown next to a user launch agent that launchctl does not list as loaded."
@@ -204,43 +204,116 @@ struct OptimizationLaunchAgentRow: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Button(action: onDisable) {
-                Text(String(
-                    localized: "Disable",
-                    comment: "Per-row button that unloads a launch agent via launchctl."
-                ))
-            }
-            .buttonStyle(.bordered)
-            // System daemons live in launchd's privileged domain; `launchctl
-            // unload` from the user session can't touch them, so the control
-            // is offered only for user agents.
-            .disabled(!agent.isEnabled || agent.domain == .system)
-            .help(agent.domain == .system
-                  ? String(
-                        localized: "System daemons are managed by macOS or the app that installed them and can't be changed here.",
-                        comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
+            // System daemons live in launchd's privileged domain: `launchctl
+            // unload` from the user session can't touch them and deleting one
+            // can break macOS or the app that installed it. Rather than offer
+            // dead controls, surface a read-only "Managed by macOS" indicator.
+            if agent.domain == .system {
+                // System daemons live in launchd's privileged domain and can't
+                // be changed here. The info button explains why on click, since
+                // hover tooltips don't fire reliably in this window.
+                HStack(spacing: 4) {
+                    OptimizationInfoButton(
+                        message: String(
+                            localized: "This item is controlled by macOS or the app that installed it, so it can't be turned off or removed here. To change it, use System Settings or that app's own settings.",
+                            comment: "Popover explaining why a system launch daemon can't be disabled or removed."
+                        ),
+                        accessibilityIdentifier: "\(identifier).managed.info.\(agent.path.lastPathComponent)"
                     )
-                  : "")
-            .accessibilityIdentifier("\(identifier).disable.\(agent.path.lastPathComponent)")
+                    Text(String(
+                        localized: "Managed by macOS",
+                        comment: "Read-only indicator shown for system launch agents and daemons that can't be changed in the app."
+                    ))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("\(identifier).managed.\(agent.path.lastPathComponent)")
+            } else {
+                if agent.isOrphaned {
+                    // A stub plist with no runnable job can never be loaded, so a
+                    // toggle would only ever bounce back to off. Mark it as a
+                    // leftover file the user can remove instead, with an info
+                    // button explaining the "Orphaned" term on click.
+                    HStack(spacing: 4) {
+                        OptimizationInfoButton(
+                            message: String(
+                                localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
+                                comment: "Popover explaining what an orphaned launch agent is and why it shows no toggle."
+                            ),
+                            accessibilityIdentifier: "\(identifier).orphaned.info.\(agent.path.lastPathComponent)"
+                        )
+                        Text(String(
+                            localized: "Orphaned",
+                            comment: "Indicator for a launch-agent plist that defines no runnable job and can only be removed."
+                        ))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("\(identifier).orphaned.\(agent.path.lastPathComponent)")
+                } else {
+                    // The toggle is the agent's loaded state: on loads it via
+                    // `launchctl load -w`, off unloads it via `unload -w`. Unlike
+                    // a one-way "Disable" button it never greys into a dead
+                    // control — a not-loaded agent simply shows the switch in its
+                    // off position, which the user can flip back on.
+                    Toggle("", isOn: Binding(
+                        get: { agent.isEnabled },
+                        set: { onSetEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .help(agent.isEnabled
+                          ? String(
+                                localized: "Loaded. Turn off to unload this agent and keep it off across logins.",
+                                comment: "Tooltip for an enabled user launch-agent toggle."
+                            )
+                          : String(
+                                localized: "Not loaded. Turn on to load this agent and keep it on across logins.",
+                                comment: "Tooltip for a disabled user launch-agent toggle."
+                            ))
+                    .accessibilityIdentifier("\(identifier).toggle.\(agent.path.lastPathComponent)")
+                }
 
-            Button(role: .destructive, action: onRemove) {
-                Text(String(
-                    localized: "Remove",
-                    comment: "Per-row button that deletes a launch-agent plist."
-                ))
+                Button(role: .destructive, action: onRemove) {
+                    Text(String(
+                        localized: "Remove",
+                        comment: "Per-row button that deletes a launch-agent plist."
+                    ))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("\(identifier).remove.\(agent.path.lastPathComponent)")
             }
-            .buttonStyle(.bordered)
-            // System daemons are protected from removal — deleting one can break
-            // macOS or the app that installed it. Only user agents can be removed.
-            .disabled(agent.domain == .system)
-            .help(agent.domain == .system
-                  ? String(
-                        localized: "Protected: system daemons can't be removed here. Disable it in System Settings or its app instead.",
-                        comment: "Tooltip explaining why a system launch daemon can't be removed."
-                    )
-                  : "")
-            .accessibilityIdentifier("\(identifier).remove.\(agent.path.lastPathComponent)")
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// A small "ⓘ" button that reveals an explanatory message in a popover on
+/// click. Used in place of hover tooltips, which don't fire reliably in this
+/// app's window; a click-triggered popover always works and is testable.
+struct OptimizationInfoButton: View {
+    let message: String
+    let accessibilityIdentifier: String
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "info.circle")
+                .imageScale(.medium)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(14)
+                .frame(width: 300)
+        }
     }
 }

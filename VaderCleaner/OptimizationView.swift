@@ -142,7 +142,15 @@ struct OptimizationView: View {
                 onToggleLoginItem: { item, enabled in
                     Task { await viewModel.setLoginItem(item, enabled: enabled) }
                 },
-                onDisableAgent: { agent in Task { await viewModel.disable(agent) } },
+                onSetAgentEnabled: { agent, enabled in
+                    Task {
+                        if enabled {
+                            await viewModel.enable(agent)
+                        } else {
+                            await viewModel.disable(agent)
+                        }
+                    }
+                },
                 onRemoveAgent: { pendingRemoval = $0 },
                 onBack: { showAllTasks = false }
             )
@@ -235,6 +243,7 @@ struct OptimizationView: View {
         readMemory: { MemoryStats(usedBytes: 12_000_000_000, totalBytes: 16_000_000_000) },
         setLoginItemEnabled: { _, _ in },
         disableAgent: { _ in },
+        enableAgent: { _ in },
         removeAgent: { _ in },
         flushRAM: {},
         runMaintenance: { "Ran maintenance scripts." }
