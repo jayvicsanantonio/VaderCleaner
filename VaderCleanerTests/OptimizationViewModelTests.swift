@@ -333,6 +333,15 @@ final class OptimizationViewModelTests: XCTestCase {
         }
     }
 
+    func test_openLoginItemsSettings_invokesInjectedOpener() {
+        var opened = 0
+        let vm = makeViewModel(openLoginItemsSettings: { opened += 1 })
+
+        vm.openLoginItemsSettings()
+
+        XCTAssertEqual(opened, 1)
+    }
+
     // MARK: - Launch-at-login cross-update (issue #65)
 
     /// An external change to the launch-at-login preference (the
@@ -408,7 +417,7 @@ final class OptimizationViewModelTests: XCTestCase {
             loadLoginItems: {
                 [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled)]
             },
-            setLoginItemEnabled: { enabled, _ in prefs.launchAtLogin = enabled },
+            setLoginItemEnabled: { enabled, _ in try prefs.setLaunchAtLogin(enabled) },
             launchAtLoginChanges: OptimizationViewModel.launchAtLoginChangePublisher(for: prefs)
         )
         await vm.refresh()
@@ -559,6 +568,7 @@ final class OptimizationViewModelTests: XCTestCase {
         loadSystemAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
         readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
         setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
+        openLoginItemsSettings: @escaping OptimizationViewModel.OpenLoginItemsSettings = {},
         disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
         enableAgent: @escaping OptimizationViewModel.EnableAgent = { _ in },
         removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
@@ -584,6 +594,7 @@ final class OptimizationViewModelTests: XCTestCase {
             loadSystemAgents: loadSystemAgents,
             readMemory: readMemory,
             setLoginItemEnabled: setLoginItemEnabled,
+            openLoginItemsSettings: openLoginItemsSettings,
             disableAgent: disableAgent,
             enableAgent: enableAgent,
             removeAgent: removeAgent,

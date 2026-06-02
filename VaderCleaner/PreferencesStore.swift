@@ -97,6 +97,13 @@ final class PreferencesStore {
     var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
+            // The property setter is the Preferences-toggle entry point, which
+            // has no inline failure UI, so apply the change and route any
+            // failure to the global alert reporter. `setLaunchAtLogin(_:)`
+            // applies the side effect itself before updating the tracked value,
+            // so it sets `isApplyingLaunchAtLogin` to skip this path and avoid a
+            // duplicate SMAppService write (issue #65).
+            guard !isApplyingLaunchAtLogin else { return }
             applyLaunchAtLogin()
         }
     }
@@ -110,6 +117,9 @@ final class PreferencesStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let launchAtLoginHandler: LaunchAtLoginHandler?
     @ObservationIgnored private let launchAtLoginErrorReporter: LaunchAtLoginErrorReporter?
+    /// Set while `setLaunchAtLogin(_:)` updates the tracked value, so the
+    /// property's `didSet` skips re-applying a side effect it has already run.
+    @ObservationIgnored private var isApplyingLaunchAtLogin = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -156,6 +166,25 @@ final class PreferencesStore {
     }
 
     // MARK: - Side effects
+
+    /// Throwing entry point for surfaces that present their own inline failure
+    /// (the Optimization view's Login Items row). Applies the launch-at-login
+    /// change through the same handler the property setter uses — keeping
+    /// `SMAppService` access in one place (issue #65) — but rethrows any failure
+    /// to the caller instead of routing it to the global alert reporter, so the
+    /// error can be shown inline without double-reporting. On success it updates
+    /// and persists the tracked value, keeping the Preferences toggle in lockstep.
+    func setLaunchAtLogin(_ enabled: Bool) throws {
+        // Apply first so a failure propagates before the model changes. The
+        // tracked-value update below would otherwise re-apply via `didSet`, so
+        // guard it to keep the handler running exactly once per change.
+        if let handler = launchAtLoginHandler {
+            try handler(enabled)
+        }
+        isApplyingLaunchAtLogin = true
+        launchAtLogin = enabled
+        isApplyingLaunchAtLogin = false
+    }
 
     /// Pushes the current `launchAtLogin` value through the injected handler
     /// (in production, `LoginItemManager.setEnabled`). Errors are forwarded to

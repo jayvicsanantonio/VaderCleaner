@@ -142,6 +142,7 @@ struct OptimizationView: View {
                 onToggleLoginItem: { item, enabled in
                     Task { await viewModel.setLoginItem(item, enabled: enabled) }
                 },
+                onApproveLoginItem: { viewModel.openLoginItemsSettings() },
                 onSetAgentEnabled: { agent, enabled in
                     Task {
                         if enabled {

@@ -196,6 +196,7 @@ struct OptimizationTaskCatalogView: View {
     let systemAgents: [LaunchAgent]
     let onRunSelected: ([MaintenanceTask]) -> Void
     let onToggleLoginItem: (LoginItem, Bool) -> Void
+    let onApproveLoginItem: () -> Void
     let onSetAgentEnabled: (LaunchAgent, Bool) -> Void
     let onRemoveAgent: (LaunchAgent) -> Void
     let onBack: () -> Void
@@ -292,7 +293,11 @@ struct OptimizationTaskCatalogView: View {
             maintenanceTasksPane
         case .loginItems:
             paneScroll {
-                OptimizationLoginItemsSection(items: loginItems, onToggle: onToggleLoginItem)
+                OptimizationLoginItemsSection(
+                    items: loginItems,
+                    onToggle: onToggleLoginItem,
+                    onApprove: onApproveLoginItem
+                )
             }
         case .backgroundItems:
             paneScroll {
@@ -310,6 +315,10 @@ struct OptimizationTaskCatalogView: View {
                     title: String(
                         localized: "Launch Agents & Daemons (System)",
                         comment: "Section header for system launch agents and daemons."
+                    ),
+                    subtitle: String(
+                        localized: "Managed by macOS · change these in System Settings or the app that installed them",
+                        comment: "Note under the system launch-agents header explaining the whole group is read-only here."
                     ),
                     identifier: "optimization.systemAgents",
                     agents: systemAgents,
