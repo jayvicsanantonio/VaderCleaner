@@ -134,8 +134,9 @@ struct LaunchAgentManager {
     // MARK: - Enable / disable
 
     /// Loads the job into launchd via `launchctl load -w <path>`. The `-w`
-    /// flag clears the plist's `Disabled` key, so an agent that was previously
-    /// disabled on disk reliably re-registers instead of silently no-opping.
+    /// flag clears the agent's entry in launchd's per-user override database
+    /// (`/var/db/com.apple.xpc.launchd`), so an agent that was previously
+    /// disabled there reliably re-registers instead of silently no-opping.
     /// User agents live in the caller's own launchd domain, so this needs no
     /// privilege escalation.
     func enable(_ agent: LaunchAgent) throws {
@@ -143,10 +144,10 @@ struct LaunchAgentManager {
     }
 
     /// Unloads the job from launchd via `launchctl unload -w <path>`. The `-w`
-    /// flag persists the disabled state in the plist's `Disabled` key so the
-    /// agent stays off across logins rather than reloading on the next session.
-    /// User agents live in the caller's own launchd domain, so this needs no
-    /// privilege escalation.
+    /// flag records the agent as disabled in launchd's per-user override
+    /// database (`/var/db/com.apple.xpc.launchd`) so it stays off across logins
+    /// rather than reloading on the next session. User agents live in the
+    /// caller's own launchd domain, so this needs no privilege escalation.
     func disable(_ agent: LaunchAgent) throws {
         try launchctl(["unload", "-w", agent.path.path])
     }

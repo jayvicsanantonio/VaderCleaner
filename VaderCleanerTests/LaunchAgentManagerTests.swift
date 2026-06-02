@@ -103,8 +103,8 @@ final class LaunchAgentManagerTests: XCTestCase {
 
         try manager.disable(agent)
 
-        // `-w` persists the disabled state in the plist's Disabled key so the
-        // agent stays off across logins, not just for the current session.
+        // `-w` records the agent as disabled in launchd's per-user override
+        // database so it stays off across logins, not just for the session.
         XCTAssertEqual(captured, ["unload", "-w", agent.path.path])
     }
 
@@ -116,8 +116,8 @@ final class LaunchAgentManagerTests: XCTestCase {
 
         try manager.enable(agent)
 
-        // `-w` clears the Disabled key so `load` reliably re-registers the
-        // agent even when it was previously disabled on disk.
+        // `-w` clears the agent's launchd override entry so `load` reliably
+        // re-registers it even when it was previously disabled.
         XCTAssertEqual(captured, ["load", "-w", agent.path.path])
     }
 
