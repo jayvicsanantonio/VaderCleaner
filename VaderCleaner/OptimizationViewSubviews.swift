@@ -98,6 +98,7 @@ private struct OptimizationEmptyRow: View {
 struct OptimizationLoginItemsSection: View {
     let items: [LoginItem]
     let onToggle: (LoginItem, Bool) -> Void
+    let onApprove: () -> Void
 
     var body: some View {
         OptimizationSection(title: String(
@@ -117,6 +118,32 @@ struct OptimizationLoginItemsSection: View {
                             Text(item.id)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
+                            // launchd holds the registration but it isn't active
+                            // until the user approves it in System Settings —
+                            // macOS grants that approval nowhere else. The
+                            // caption explains the state and the link deep-links
+                            // to the Login Items pane so it's one click. The
+                            // wording reads correctly whether this is a brand-new
+                            // registration awaiting first approval or one the
+                            // user switched off there.
+                            if item.requiresApproval {
+                                HStack(spacing: 6) {
+                                    Text(String(
+                                        localized: "Pending — not active until approved",
+                                        comment: "Hint shown when the app is registered for launch at login but the user must still approve it in System Settings."
+                                    ))
+                                    .foregroundStyle(.orange)
+                                    Button(action: onApprove) {
+                                        Text(String(
+                                            localized: "Approve in Settings →",
+                                            comment: "Link that opens System Settings to the Login Items pane so the user can approve the pending registration."
+                                        ))
+                                    }
+                                    .buttonStyle(.link)
+                                    .accessibilityIdentifier("optimization.loginItem.\(item.id).approve")
+                                }
+                                .font(.caption2)
+                            }
                         }
                         Spacer()
                         Toggle("", isOn: Binding(

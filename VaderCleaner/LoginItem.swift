@@ -9,6 +9,19 @@ struct LoginItem: Identifiable, Equatable {
     let id: String
     let name: String
     let isEnabled: Bool
+    /// `true` when launchd holds the registration but it is not yet active —
+    /// the user must finish enabling it in System Settings → Login Items.
+    /// SMAppService reports this as `.requiresApproval`; it is treated as
+    /// enabled so a fresh `register()` doesn't read as "off", while the view
+    /// shows a "finish in System Settings" hint.
+    let requiresApproval: Bool
+
+    init(id: String, name: String, isEnabled: Bool, requiresApproval: Bool = false) {
+        self.id = id
+        self.name = name
+        self.isEnabled = isEnabled
+        self.requiresApproval = requiresApproval
+    }
 }
 
 /// Surfaces and toggles login items through `SMAppService`.
@@ -45,11 +58,17 @@ struct LoginItemsManager {
     /// The host app's login item, reflecting the live `SMAppService` status so
     /// a change made in System Settings → Login Items is picked up on refresh.
     func items() -> [LoginItem] {
-        [
+        let status = statusProvider()
+        return [
             LoginItem(
                 id: identifier,
                 name: displayName,
-                isEnabled: statusProvider() == .enabled
+                // `.requiresApproval` means launchd holds the registration but
+                // it is not active yet; treat it as enabled so a fresh
+                // `register()` — which lands in `.requiresApproval` pending the
+                // user's approval — doesn't snap the toggle back to off.
+                isEnabled: status == .enabled || status == .requiresApproval,
+                requiresApproval: status == .requiresApproval
             )
         ]
     }

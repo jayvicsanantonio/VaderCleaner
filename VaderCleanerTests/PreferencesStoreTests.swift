@@ -138,6 +138,49 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(received, [false])
     }
 
+    // MARK: - Inline launch-at-login entry point
+
+    func test_setLaunchAtLogin_appliesHandlerOnceAndPersists() throws {
+        var received: [Bool] = []
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { received.append($0) }
+        )
+        // Drop the init reconcile so the assertion counts only this call.
+        received.removeAll()
+
+        try sut.setLaunchAtLogin(false)
+
+        // Exactly one SMAppService write per change — the issue #65 single-path
+        // invariant — even though the tracked value is updated and persisted too.
+        XCTAssertEqual(received, [false])
+        XCTAssertFalse(sut.launchAtLogin)
+
+        let reader = PreferencesStore(defaults: defaults)
+        XCTAssertFalse(reader.launchAtLogin)
+    }
+
+    func test_setLaunchAtLogin_rethrowsHandlerErrorWithoutReporting() {
+        struct StubError: Error, Equatable {}
+        var reported: [StubError] = []
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { _ in throw StubError() },
+            launchAtLoginErrorReporter: { error in
+                if let stub = error as? StubError { reported.append(stub) }
+            }
+        )
+        // Drop the init reconcile's throw before exercising the entry point.
+        reported.removeAll()
+
+        // Unlike the property setter — which routes failures to the global
+        // alert reporter — this entry point rethrows so a caller with its own
+        // inline failure UI (the Optimization row) can surface the error
+        // without double-reporting it.
+        XCTAssertThrowsError(try sut.setLaunchAtLogin(!sut.launchAtLogin))
+        XCTAssertTrue(reported.isEmpty)
+    }
+
     func test_init_skipsReconcile_whenHandlerNil() {
         // Pins the nil-handler contract that all the other PreferencesStore
         // tests depend on: constructing the store with no handler must not

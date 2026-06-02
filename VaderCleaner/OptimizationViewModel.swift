@@ -4,6 +4,7 @@
 import Combine
 import Foundation
 import Observation
+import ServiceManagement
 import os.log
 
 /// Drives the Optimization feature view. Collaborators are injected as
@@ -29,6 +30,9 @@ final class OptimizationViewModel {
     typealias LoadAgents = () async -> [LaunchAgent]
     typealias ReadMemory = @MainActor () -> MemoryStats
     typealias SetLoginItemEnabled = (Bool, LoginItem) async throws -> Void
+    /// Opens System Settings to the Login Items pane, so a row pending the
+    /// user's approval can deep-link there instead of asking them to navigate.
+    typealias OpenLoginItemsSettings = @MainActor () -> Void
     typealias DisableAgent = (LaunchAgent) async throws -> Void
     typealias EnableAgent = (LaunchAgent) async throws -> Void
     typealias RemoveAgent = (LaunchAgent) async throws -> Void
@@ -95,6 +99,7 @@ final class OptimizationViewModel {
     @ObservationIgnored private let loadSystemAgents: LoadAgents
     @ObservationIgnored private let readMemory: ReadMemory
     @ObservationIgnored private let setLoginItemEnabled: SetLoginItemEnabled
+    @ObservationIgnored private let openLoginItemsSettingsAction: OpenLoginItemsSettings
     @ObservationIgnored private let disableAgent: DisableAgent
     @ObservationIgnored private let enableAgent: EnableAgent
     @ObservationIgnored private let removeAgent: RemoveAgent
@@ -126,6 +131,7 @@ final class OptimizationViewModel {
         loadSystemAgents: @escaping LoadAgents,
         readMemory: @escaping ReadMemory,
         setLoginItemEnabled: @escaping SetLoginItemEnabled,
+        openLoginItemsSettings: @escaping OpenLoginItemsSettings = {},
         disableAgent: @escaping DisableAgent,
         enableAgent: @escaping EnableAgent,
         removeAgent: @escaping RemoveAgent,
@@ -145,6 +151,7 @@ final class OptimizationViewModel {
         self.loadSystemAgents = loadSystemAgents
         self.readMemory = readMemory
         self.setLoginItemEnabled = setLoginItemEnabled
+        self.openLoginItemsSettingsAction = openLoginItemsSettings
         self.disableAgent = disableAgent
         self.enableAgent = enableAgent
         self.removeAgent = removeAgent
@@ -389,6 +396,14 @@ final class OptimizationViewModel {
         }
     }
 
+    /// Opens System Settings to the Login Items pane. Used by a row that is
+    /// registered but pending the user's approval — macOS grants that approval
+    /// only in System Settings, so this is the closest we can get to an in-app
+    /// approval: a one-click deep link instead of manual navigation.
+    func openLoginItemsSettings() {
+        openLoginItemsSettingsAction()
+    }
+
     /// Reloads only the login-items row after the launch-at-login
     /// preference was changed elsewhere (the Preferences toggle). Unlike
     /// `refresh()` this does not touch `phase` — it is a background
@@ -531,10 +546,16 @@ extension OptimizationViewModel {
             // preference, and reports failures (issue #65). The reload
             // after this closure returns then reflects the new state, and
             // the Preferences toggle — bound to the same published value —
-            // updates in lockstep.
+            // updates in lockstep. The throwing variant rethrows a failed
+            // registration so `setLoginItem` can surface it inline instead of
+            // the global "Launch at Login" alert.
             setLoginItemEnabled: { enabled, _ in
-                preferences.launchAtLogin = enabled
+                try preferences.setLaunchAtLogin(enabled)
             },
+            // A login item macOS holds in `.requiresApproval` can only be
+            // approved by the user in System Settings; deep-link straight to
+            // the Login Items pane so that's one click, not a manual hunt.
+            openLoginItemsSettings: { SMAppService.openSystemSettingsLoginItems() },
             disableAgent: { agent in
                 try await Task.detached(priority: .userInitiated) {
                     try agentManager.disable(agent)

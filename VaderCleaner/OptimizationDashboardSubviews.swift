@@ -196,6 +196,7 @@ struct OptimizationTaskCatalogView: View {
     let systemAgents: [LaunchAgent]
     let onRunSelected: ([MaintenanceTask]) -> Void
     let onToggleLoginItem: (LoginItem, Bool) -> Void
+    let onApproveLoginItem: () -> Void
     let onSetAgentEnabled: (LaunchAgent, Bool) -> Void
     let onRemoveAgent: (LaunchAgent) -> Void
     let onBack: () -> Void
@@ -292,7 +293,11 @@ struct OptimizationTaskCatalogView: View {
             maintenanceTasksPane
         case .loginItems:
             paneScroll {
-                OptimizationLoginItemsSection(items: loginItems, onToggle: onToggleLoginItem)
+                OptimizationLoginItemsSection(
+                    items: loginItems,
+                    onToggle: onToggleLoginItem,
+                    onApprove: onApproveLoginItem
+                )
             }
         case .backgroundItems:
             paneScroll {
