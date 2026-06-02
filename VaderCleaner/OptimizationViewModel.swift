@@ -404,38 +404,40 @@ final class OptimizationViewModel {
 
     // MARK: - Launch agents
 
-    /// Loads an agent into launchd, then reloads both agent lists so the
-    /// loaded/enabled state is refreshed.
+    /// Loads an agent into launchd. Only user agents have a toggle, so the
+    /// row updates in place via `setLoaded` rather than reloading the section.
     func enable(_ agent: LaunchAgent) async {
-        phase = .working
-        do {
-            try await enableAgent(agent)
-            async let user = loadUserAgents()
-            async let system = loadSystemAgents()
-            let (reloadedUser, reloadedSystem) = await (user, system)
-            userAgents = reloadedUser
-            systemAgents = reloadedSystem
-            phase = .ready
-        } catch {
-            log.error("Agent enable failed: \(error.localizedDescription, privacy: .public)")
-            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
-        }
+        await setLoaded(agent, to: true, via: enableAgent)
     }
 
-    /// Unloads an agent from launchd, then reloads both agent lists so the
-    /// loaded/enabled state is refreshed.
+    /// Unloads an agent from launchd. Only user agents have a toggle, so the
+    /// row updates in place via `setLoaded` rather than reloading the section.
     func disable(_ agent: LaunchAgent) async {
-        phase = .working
+        await setLoaded(agent, to: false, via: disableAgent)
+    }
+
+    /// Toggles a user agent's loaded state with an optimistic, in-place update:
+    /// the switch flips immediately and neither a progress screen nor a list
+    /// reload disturbs the rest of the section, so only the affected row
+    /// animates. If the launchctl call can't even be spawned the action throws
+    /// and the row is restored to its prior state.
+    private func setLoaded(
+        _ agent: LaunchAgent,
+        to enabled: Bool,
+        via action: (LaunchAgent) async throws -> Void
+    ) async {
+        guard let index = userAgents.firstIndex(where: { $0.id == agent.id }) else { return }
+        let original = userAgents[index]
+        userAgents[index] = original.settingEnabled(enabled)
         do {
-            try await disableAgent(agent)
-            async let user = loadUserAgents()
-            async let system = loadSystemAgents()
-            let (reloadedUser, reloadedSystem) = await (user, system)
-            userAgents = reloadedUser
-            systemAgents = reloadedSystem
-            phase = .ready
+            try await action(agent)
         } catch {
-            log.error("Agent disable failed: \(error.localizedDescription, privacy: .public)")
+            // Re-find by id: a refresh() may have replaced the array while the
+            // launchctl call was in flight.
+            if let current = userAgents.firstIndex(where: { $0.id == agent.id }) {
+                userAgents[current] = original
+            }
+            log.error("Agent loaded-state change failed: \(error.localizedDescription, privacy: .public)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }

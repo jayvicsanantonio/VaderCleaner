@@ -28,6 +28,16 @@ struct LaunchAgent: Identifiable, Equatable {
     /// leftover files (e.g. retired Keystone tombstones) that can never be
     /// toggled on, so the UI offers only removal rather than a dead switch.
     var isOrphaned: Bool { programPath == nil && !isEnabled }
+
+    /// A copy with `isEnabled` set to `value`. Used for the optimistic,
+    /// in-place row update when toggling an agent, so the switch responds
+    /// immediately without reloading the whole list.
+    func settingEnabled(_ value: Bool) -> LaunchAgent {
+        LaunchAgent(
+            label: label, path: path, programPath: programPath,
+            isEnabled: value, domain: domain
+        )
+    }
 }
 
 /// Discovers and manages launchd jobs for the Optimization feature.
