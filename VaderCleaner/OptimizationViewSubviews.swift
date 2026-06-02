@@ -204,42 +204,48 @@ struct OptimizationLaunchAgentRow: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Button(action: onDisable) {
-                Text(String(
-                    localized: "Disable",
-                    comment: "Per-row button that unloads a launch agent via launchctl."
+            // System daemons live in launchd's privileged domain: `launchctl
+            // unload` from the user session can't touch them and deleting one
+            // can break macOS or the app that installed it. Rather than offer
+            // dead controls, surface a read-only "Managed by macOS" indicator.
+            if agent.domain == .system {
+                Label(
+                    String(
+                        localized: "Managed by macOS",
+                        comment: "Read-only indicator shown for system launch agents and daemons that can't be changed in the app."
+                    ),
+                    systemImage: "lock.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .labelStyle(.titleAndIcon)
+                .help(String(
+                    localized: "System daemons are managed by macOS or the app that installed them. Disable them in System Settings or the owning app instead.",
+                    comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
                 ))
-            }
-            .buttonStyle(.bordered)
-            // System daemons live in launchd's privileged domain; `launchctl
-            // unload` from the user session can't touch them, so the control
-            // is offered only for user agents.
-            .disabled(!agent.isEnabled || agent.domain == .system)
-            .help(agent.domain == .system
-                  ? String(
-                        localized: "System daemons are managed by macOS or the app that installed them and can't be changed here.",
-                        comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
-                    )
-                  : "")
-            .accessibilityIdentifier("\(identifier).disable.\(agent.path.lastPathComponent)")
+                .accessibilityIdentifier("\(identifier).managed.\(agent.path.lastPathComponent)")
+            } else {
+                Button(action: onDisable) {
+                    Text(String(
+                        localized: "Disable",
+                        comment: "Per-row button that unloads a launch agent via launchctl."
+                    ))
+                }
+                .buttonStyle(.bordered)
+                // "Disable" unloads the agent via launchctl; when it is already
+                // not loaded there is nothing to unload, so the control is inert.
+                .disabled(!agent.isEnabled)
+                .accessibilityIdentifier("\(identifier).disable.\(agent.path.lastPathComponent)")
 
-            Button(role: .destructive, action: onRemove) {
-                Text(String(
-                    localized: "Remove",
-                    comment: "Per-row button that deletes a launch-agent plist."
-                ))
+                Button(role: .destructive, action: onRemove) {
+                    Text(String(
+                        localized: "Remove",
+                        comment: "Per-row button that deletes a launch-agent plist."
+                    ))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("\(identifier).remove.\(agent.path.lastPathComponent)")
             }
-            .buttonStyle(.bordered)
-            // System daemons are protected from removal — deleting one can break
-            // macOS or the app that installed it. Only user agents can be removed.
-            .disabled(agent.domain == .system)
-            .help(agent.domain == .system
-                  ? String(
-                        localized: "Protected: system daemons can't be removed here. Disable it in System Settings or its app instead.",
-                        comment: "Tooltip explaining why a system launch daemon can't be removed."
-                    )
-                  : "")
-            .accessibilityIdentifier("\(identifier).remove.\(agent.path.lastPathComponent)")
         }
         .padding(.vertical, 4)
     }
