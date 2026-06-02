@@ -316,6 +316,10 @@ struct OptimizationTaskCatalogView: View {
                         localized: "Launch Agents & Daemons (System)",
                         comment: "Section header for system launch agents and daemons."
                     ),
+                    subtitle: String(
+                        localized: "Managed by macOS · change these in System Settings or the app that installed them",
+                        comment: "Note under the system launch-agents header explaining the whole group is read-only here."
+                    ),
                     identifier: "optimization.systemAgents",
                     agents: systemAgents,
                     onSetEnabled: onSetAgentEnabled,
