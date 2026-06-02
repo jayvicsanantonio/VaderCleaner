@@ -209,46 +209,48 @@ struct OptimizationLaunchAgentRow: View {
             // can break macOS or the app that installed it. Rather than offer
             // dead controls, surface a read-only "Managed by macOS" indicator.
             if agent.domain == .system {
-                // An explicit HStack rather than `Label`: SwiftUI's `.help()`
-                // tooltip only tracks a `Label`'s glyph area and often fails to
-                // appear, whereas a plain Image+Text row hovers reliably.
+                // System daemons live in launchd's privileged domain and can't
+                // be changed here. The info button explains why on click, since
+                // hover tooltips don't fire reliably in this window.
                 HStack(spacing: 4) {
                     Image(systemName: "lock.fill")
                     Text(String(
                         localized: "Managed by macOS",
                         comment: "Read-only indicator shown for system launch agents and daemons that can't be changed in the app."
                     ))
+                    OptimizationInfoButton(
+                        message: String(
+                            localized: "This item is controlled by macOS or the app that installed it, so it can't be turned off or removed here. To change it, use System Settings or that app's own settings.",
+                            comment: "Popover explaining why a system launch daemon can't be disabled or removed."
+                        ),
+                        accessibilityIdentifier: "\(identifier).managed.info.\(agent.path.lastPathComponent)"
+                    )
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
-                .help(String(
-                    localized: "This item is controlled by macOS or the app that installed it, so it can't be turned off or removed here. To change it, use System Settings or that app's own settings.",
-                    comment: "Tooltip explaining why a system launch daemon can't be disabled or removed."
-                ))
                 .accessibilityIdentifier("\(identifier).managed.\(agent.path.lastPathComponent)")
             } else {
                 if agent.isOrphaned {
                     // A stub plist with no runnable job can never be loaded, so a
                     // toggle would only ever bounce back to off. Mark it as a
-                    // leftover file the user can remove instead.
-                    // An explicit HStack rather than `Label`: SwiftUI's `.help()`
-                    // tooltip only tracks a `Label`'s glyph area and often fails
-                    // to appear, whereas a plain Image+Text row hovers reliably.
+                    // leftover file the user can remove instead, with an info
+                    // button explaining the "Orphaned" term on click.
                     HStack(spacing: 4) {
                         Image(systemName: "questionmark.circle")
                         Text(String(
                             localized: "Orphaned",
                             comment: "Indicator for a launch-agent plist that defines no runnable job and can only be removed."
                         ))
+                        OptimizationInfoButton(
+                            message: String(
+                                localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
+                                comment: "Popover explaining what an orphaned launch agent is and why it shows no toggle."
+                            ),
+                            accessibilityIdentifier: "\(identifier).orphaned.info.\(agent.path.lastPathComponent)"
+                        )
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
-                    .help(String(
-                        localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
-                        comment: "Tooltip explaining what an orphaned launch agent is and why it shows no toggle."
-                    ))
                     .accessibilityIdentifier("\(identifier).orphaned.\(agent.path.lastPathComponent)")
                 } else {
                     // The toggle is the agent's loaded state: on loads it via
@@ -285,5 +287,35 @@ struct OptimizationLaunchAgentRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// A small "ⓘ" button that reveals an explanatory message in a popover on
+/// click. Used in place of hover tooltips, which don't fire reliably in this
+/// app's window; a click-triggered popover always works and is testable.
+struct OptimizationInfoButton: View {
+    let message: String
+    let accessibilityIdentifier: String
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "info.circle")
+                .imageScale(.medium)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(14)
+                .frame(width: 300)
+        }
     }
 }
