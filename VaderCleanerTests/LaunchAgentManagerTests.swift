@@ -45,6 +45,47 @@ final class LaunchAgentManagerTests: XCTestCase {
         XCTAssertNil(LaunchAgentManager.programPath(from: [:]))
     }
 
+    // MARK: - Orphaned (no loadable job)
+
+    func test_isOrphaned_trueWhenNoProgramAndNotLoaded() {
+        let agent = LaunchAgent(
+            label: "com.example.empty", path: URL(fileURLWithPath: "/tmp/x.plist"),
+            programPath: nil, isEnabled: false, domain: .user
+        )
+        XCTAssertTrue(agent.isOrphaned)
+    }
+
+    func test_isOrphaned_falseWhenProgramPresent() {
+        let agent = LaunchAgent(
+            label: "com.example.real", path: URL(fileURLWithPath: "/tmp/x.plist"),
+            programPath: "/bin/true", isEnabled: false, domain: .user
+        )
+        XCTAssertFalse(agent.isOrphaned)
+    }
+
+    func test_isOrphaned_falseWhenLoadedEvenWithoutProgram() {
+        // A job that launchctl reports as loaded is live regardless of how we
+        // parsed its program, so it is never treated as an orphaned stub.
+        let agent = LaunchAgent(
+            label: "com.example.live", path: URL(fileURLWithPath: "/tmp/x.plist"),
+            programPath: nil, isEnabled: true, domain: .user
+        )
+        XCTAssertFalse(agent.isOrphaned)
+    }
+
+    func test_userAgents_emptyPlistIsOrphaned() throws {
+        let url = tempDir.appendingPathComponent("com.vendor.stub.plist")
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: [String: Any](), format: .xml, options: 0
+        )
+        try data.write(to: url)
+
+        let agent = try XCTUnwrap(makeManager(loaded: []).userAgents().first)
+
+        XCTAssertNil(agent.programPath)
+        XCTAssertTrue(agent.isOrphaned)
+    }
+
     // MARK: - userAgents discovery
 
     func test_userAgents_parsesLabelProgramAndLoadedStatus() throws {

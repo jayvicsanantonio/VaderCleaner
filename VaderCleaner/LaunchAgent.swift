@@ -22,6 +22,12 @@ struct LaunchAgent: Identifiable, Equatable {
     let programPath: String?
     let isEnabled: Bool
     let domain: Domain
+
+    /// True for a stub plist that defines no runnable job — no `Program` or
+    /// `ProgramArguments` to exec — and isn't currently loaded. These are
+    /// leftover files (e.g. retired Keystone tombstones) that can never be
+    /// toggled on, so the UI offers only removal rather than a dead switch.
+    var isOrphaned: Bool { programPath == nil && !isEnabled }
 }
 
 /// Discovers and manages launchd jobs for the Optimization feature.

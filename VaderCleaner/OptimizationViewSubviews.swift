@@ -185,7 +185,7 @@ struct OptimizationLaunchAgentRow: View {
                     // see system daemons, so a "Not loaded" badge there would
                     // be a false negative. Only user agents have an
                     // authoritative loaded status to badge.
-                    if !agent.isEnabled && agent.domain == .user {
+                    if !agent.isEnabled && agent.domain == .user && !agent.isOrphaned {
                         Text(String(
                             localized: "Not loaded",
                             comment: "Badge shown next to a user launch agent that launchctl does not list as loaded."
@@ -225,27 +225,48 @@ struct OptimizationLaunchAgentRow: View {
                 ))
                 .accessibilityIdentifier("\(identifier).managed.\(agent.path.lastPathComponent)")
             } else {
-                // The toggle is the agent's loaded state: on loads it via
-                // `launchctl load -w`, off unloads it via `unload -w`. Unlike a
-                // one-way "Disable" button it never greys into a dead control —
-                // a not-loaded agent simply shows the switch in its off
-                // position, which the user can flip back on.
-                Toggle("", isOn: Binding(
-                    get: { agent.isEnabled },
-                    set: { onSetEnabled($0) }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .help(agent.isEnabled
-                      ? String(
-                            localized: "Loaded. Turn off to unload this agent and keep it off across logins.",
-                            comment: "Tooltip for an enabled user launch-agent toggle."
-                        )
-                      : String(
-                            localized: "Not loaded. Turn on to load this agent and keep it on across logins.",
-                            comment: "Tooltip for a disabled user launch-agent toggle."
-                        ))
-                .accessibilityIdentifier("\(identifier).toggle.\(agent.path.lastPathComponent)")
+                if agent.isOrphaned {
+                    // A stub plist with no runnable job can never be loaded, so a
+                    // toggle would only ever bounce back to off. Mark it as a
+                    // leftover file the user can remove instead.
+                    Label(
+                        String(
+                            localized: "Orphaned",
+                            comment: "Indicator for a launch-agent plist that defines no runnable job and can only be removed."
+                        ),
+                        systemImage: "questionmark.circle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+                    .help(String(
+                        localized: "This launch agent's plist has no program to run — a leftover file you can remove. Note: the app that left it may recreate it.",
+                        comment: "Tooltip explaining why an orphaned launch agent shows no toggle."
+                    ))
+                    .accessibilityIdentifier("\(identifier).orphaned.\(agent.path.lastPathComponent)")
+                } else {
+                    // The toggle is the agent's loaded state: on loads it via
+                    // `launchctl load -w`, off unloads it via `unload -w`. Unlike
+                    // a one-way "Disable" button it never greys into a dead
+                    // control — a not-loaded agent simply shows the switch in its
+                    // off position, which the user can flip back on.
+                    Toggle("", isOn: Binding(
+                        get: { agent.isEnabled },
+                        set: { onSetEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .help(agent.isEnabled
+                          ? String(
+                                localized: "Loaded. Turn off to unload this agent and keep it off across logins.",
+                                comment: "Tooltip for an enabled user launch-agent toggle."
+                            )
+                          : String(
+                                localized: "Not loaded. Turn on to load this agent and keep it on across logins.",
+                                comment: "Tooltip for a disabled user launch-agent toggle."
+                            ))
+                    .accessibilityIdentifier("\(identifier).toggle.\(agent.path.lastPathComponent)")
+                }
 
                 Button(role: .destructive, action: onRemove) {
                     Text(String(
