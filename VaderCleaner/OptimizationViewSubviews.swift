@@ -213,11 +213,6 @@ struct OptimizationLaunchAgentRow: View {
                 // be changed here. The info button explains why on click, since
                 // hover tooltips don't fire reliably in this window.
                 HStack(spacing: 4) {
-                    Image(systemName: "lock.fill")
-                    Text(String(
-                        localized: "Managed by macOS",
-                        comment: "Read-only indicator shown for system launch agents and daemons that can't be changed in the app."
-                    ))
                     OptimizationInfoButton(
                         message: String(
                             localized: "This item is controlled by macOS or the app that installed it, so it can't be turned off or removed here. To change it, use System Settings or that app's own settings.",
@@ -225,6 +220,10 @@ struct OptimizationLaunchAgentRow: View {
                         ),
                         accessibilityIdentifier: "\(identifier).managed.info.\(agent.path.lastPathComponent)"
                     )
+                    Text(String(
+                        localized: "Managed by macOS",
+                        comment: "Read-only indicator shown for system launch agents and daemons that can't be changed in the app."
+                    ))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -236,11 +235,6 @@ struct OptimizationLaunchAgentRow: View {
                     // leftover file the user can remove instead, with an info
                     // button explaining the "Orphaned" term on click.
                     HStack(spacing: 4) {
-                        Image(systemName: "questionmark.circle")
-                        Text(String(
-                            localized: "Orphaned",
-                            comment: "Indicator for a launch-agent plist that defines no runnable job and can only be removed."
-                        ))
                         OptimizationInfoButton(
                             message: String(
                                 localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
@@ -248,6 +242,10 @@ struct OptimizationLaunchAgentRow: View {
                             ),
                             accessibilityIdentifier: "\(identifier).orphaned.info.\(agent.path.lastPathComponent)"
                         )
+                        Text(String(
+                            localized: "Orphaned",
+                            comment: "Indicator for a launch-agent plist that defines no runnable job and can only be removed."
+                        ))
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
