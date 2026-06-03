@@ -384,6 +384,10 @@ struct AppUninstallerDetailFooter: View {
 
 struct AppUninstallerCompleteState: View {
     let bytesFreed: Int64
+    /// True when the app bundle was permanently removed (App Store / root-owned
+    /// app) rather than moved to the Trash, so the copy stays truthful about
+    /// whether it can be restored.
+    var isPermanentRemoval: Bool = false
     let onContinue: () -> Void
 
     var body: some View {
@@ -394,10 +398,7 @@ struct AppUninstallerCompleteState: View {
             Text(bytesFreedText)
                 .font(.title2.weight(.semibold))
                 .accessibilityIdentifier("appUninstaller.bytesFreed")
-            Text(String(
-                localized: "Items were moved to the Trash. Empty the Trash to reclaim the space.",
-                comment: "Detail shown on the App Uninstaller complete screen."
-            ))
+            Text(detailText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -415,13 +416,31 @@ struct AppUninstallerCompleteState: View {
     }
 
     private var bytesFreedText: String {
-        let format = String(
-            localized: "%@ moved to Trash",
-            comment: "Summary of disk space that will be reclaimed after emptying the Trash."
-        )
+        let format = isPermanentRemoval
+            ? String(
+                localized: "%@ removed",
+                comment: "Summary of disk space reclaimed after permanently removing an App Store app."
+            )
+            : String(
+                localized: "%@ moved to Trash",
+                comment: "Summary of disk space that will be reclaimed after emptying the Trash."
+            )
         return String.localizedStringWithFormat(
             format,
             AppUninstallerFormatting.byteFormatter.string(fromByteCount: bytesFreed)
+        )
+    }
+
+    private var detailText: String {
+        if isPermanentRemoval {
+            return String(
+                localized: "The app was permanently removed. Its associated files were moved to the Trash where possible.",
+                comment: "Detail shown on the App Uninstaller complete screen after permanently removing an App Store app."
+            )
+        }
+        return String(
+            localized: "Items were moved to the Trash. Empty the Trash to reclaim the space.",
+            comment: "Detail shown on the App Uninstaller complete screen."
         )
     }
 }
@@ -429,6 +448,10 @@ struct AppUninstallerCompleteState: View {
 struct AppUninstallerFailedState: View {
     let stage: AppUninstallerViewModel.FailureStage
     let message: String
+    /// When true the failure was the privileged helper being unreachable, so
+    /// a "Reinstall Helper" recovery is offered in addition to a plain retry.
+    var canReinstallHelper: Bool = false
+    var onReinstallHelper: () -> Void = {}
     let onTryAgain: () -> Void
 
     var body: some View {
@@ -446,13 +469,42 @@ struct AppUninstallerFailedState: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
                 .accessibilityIdentifier("appUninstaller.errorMessage")
-            Button(String(
-                localized: "Try Again",
-                comment: "Retry action on the App Uninstaller failure screen."
-            ), action: onTryAgain)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("appUninstaller.tryAgain")
+            if canReinstallHelper {
+                // The daemon is unreachable — re-registering it (and approving
+                // it in Login Items) is the actual fix, so lead with it.
+                Text(String(
+                    localized: "Reinstalling the helper re-registers it with the system. You may need to approve VaderCleaner in Login Items, then try again.",
+                    comment: "Guidance shown when the App Uninstaller can't reach the privileged helper."
+                ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 460)
+                HStack(spacing: 12) {
+                    Button(String(
+                        localized: "Reinstall Helper",
+                        comment: "Recovery action that re-registers the privileged helper daemon."
+                    ), action: onReinstallHelper)
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("appUninstaller.reinstallHelper")
+                    Button(String(
+                        localized: "Try Again",
+                        comment: "Retry action on the App Uninstaller failure screen."
+                    ), action: onTryAgain)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("appUninstaller.tryAgain")
+                }
+            } else {
+                Button(String(
+                    localized: "Try Again",
+                    comment: "Retry action on the App Uninstaller failure screen."
+                ), action: onTryAgain)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("appUninstaller.tryAgain")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()

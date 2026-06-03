@@ -55,4 +55,27 @@ final class HelperConnectionErrorTests: XCTestCase {
             "You don't have permission."
         )
     }
+
+    /// `isConnectionFailure` recognises the helper-unavailable sentinel and the
+    /// three NSXPC connection-class codes — the signal a caller uses to offer a
+    /// "Reinstall Helper" recovery.
+    func test_isConnectionFailure_trueForHelperErrorAndXPCConnectionCodes() {
+        XCTAssertTrue(HelperConnectionError.isConnectionFailure(HelperConnectionError.unavailable))
+        for code in [4097, 4099, 4101] {
+            XCTAssertTrue(
+                HelperConnectionError.isConnectionFailure(NSError(domain: NSCocoaErrorDomain, code: code)),
+                "Expected XPC NSCocoaError \(code) to count as a connection failure"
+            )
+        }
+    }
+
+    /// A substantive error (e.g. a permission denial) is NOT a connection
+    /// failure — reinstalling the helper wouldn't help, so it must read false.
+    func test_isConnectionFailure_falseForSubstantiveError() {
+        let permission = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+        XCTAssertFalse(HelperConnectionError.isConnectionFailure(permission))
+        let otherDomain = NSError(domain: "com.example.other", code: 4097)
+        XCTAssertFalse(HelperConnectionError.isConnectionFailure(otherDomain),
+                       "Connection codes only count in NSCocoaErrorDomain")
+    }
 }
