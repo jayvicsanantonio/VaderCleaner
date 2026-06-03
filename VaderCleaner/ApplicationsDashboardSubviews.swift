@@ -13,6 +13,7 @@ struct ApplicationsDashboardView: View {
     let onOpenUpdates: () -> Void
     let onOpenManage: () -> Void
     let onOpenInstallationFiles: () -> Void
+    let onOpenUnsupported: () -> Void
     let onRescan: () -> Void
 
     var body: some View {
@@ -70,6 +71,17 @@ struct ApplicationsDashboardView: View {
                 ),
                 identifier: "applications.card.updates",
                 action: onOpenUpdates
+            )
+            ApplicationsCard(
+                title: unsupportedTitle,
+                detail: unsupportedDetail,
+                icon: "exclamationmark.triangle",
+                actionLabel: String(
+                    localized: "Review",
+                    comment: "Applications Unsupported card action that opens the unsupported-app list."
+                ),
+                identifier: "applications.card.unsupported",
+                action: onOpenUnsupported
             )
             ApplicationsCard(
                 title: installationFilesTitle,
@@ -171,6 +183,33 @@ struct ApplicationsDashboardView: View {
             comment: "Applications Installation Files card detail; %@ is the reclaimable size."
         )
         return String.localizedStringWithFormat(format, size)
+    }
+
+    private var unsupportedTitle: String {
+        if result.unsupportedAppsCount == 0 {
+            return String(
+                localized: "No Unsupported Applications",
+                comment: "Applications Unsupported card title when none are found."
+            )
+        }
+        let format = String(
+            localized: "%lld Unsupported Applications Found",
+            comment: "Applications Unsupported card title; %lld is the count."
+        )
+        return String.localizedStringWithFormat(format, Int64(result.unsupportedAppsCount))
+    }
+
+    private var unsupportedDetail: String {
+        if result.unsupportedAppsCount == 0 {
+            return String(
+                localized: "Every installed app can run on this version of macOS.",
+                comment: "Applications Unsupported card detail when none are found."
+            )
+        }
+        return String(
+            localized: "These apps won't run on this version of macOS — their code is built only for older architectures.",
+            comment: "Applications Unsupported card detail when some are found."
+        )
     }
 }
 
@@ -395,6 +434,178 @@ private struct InstallationFileRow: View {
             return String(localized: "Disk image", comment: "Installation file kind label.")
         case .package:
             return String(localized: "Installer package", comment: "Installation file kind label.")
+        }
+    }
+}
+
+// MARK: - Unsupported Applications review
+
+/// The Unsupported Applications detail screen: a multi-select list of apps that
+/// can't run on the current macOS, with a pinned Move to Trash bar. Only the
+/// `.app` bundle is removed here; full associated-file cleanup is available via
+/// Manage (the uninstaller).
+struct UnsupportedAppsReviewView: View {
+    let apps: [UnsupportedApp]
+    let isSelected: (UnsupportedApp) -> Bool
+    let onToggle: (UnsupportedApp) -> Void
+    let onSelectAll: () -> Void
+    let onClear: () -> Void
+    let isRemoving: Bool
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    private var selectedCount: Int { apps.filter(isSelected).count }
+    private var allSelected: Bool { !apps.isEmpty && selectedCount == apps.count }
+
+    var body: some View {
+        if apps.isEmpty {
+            emptyState
+        } else {
+            VStack(spacing: 0) {
+                selectAllBar
+                Divider()
+                List {
+                    ForEach(apps) { entry in
+                        UnsupportedAppRow(
+                            entry: entry,
+                            isSelected: isSelected(entry),
+                            onToggle: { onToggle(entry) }
+                        )
+                        .accessibilityIdentifier("applications.unsupported.row.\(entry.app.bundleID)")
+                    }
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                Divider()
+                removeBar
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("applications.unsupported")
+        }
+    }
+
+    private var selectAllBar: some View {
+        HStack {
+            Toggle(isOn: Binding(
+                get: { allSelected },
+                set: { $0 ? onSelectAll() : onClear() }
+            )) {
+                Text(String(
+                    localized: "Select All",
+                    comment: "Toggle that selects/deselects every unsupported app."
+                ))
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("applications.unsupported.selectAll")
+            Spacer()
+            Text(headerCountText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+    }
+
+    private var removeBar: some View {
+        HStack(spacing: 12) {
+            Text(selectionSummary)
+                .font(.callout.weight(.medium))
+            Spacer()
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            }
+            Button(String(
+                localized: "Move to Trash",
+                comment: "Button that moves the selected unsupported apps to the Trash."
+            ), action: onRemove)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canRemove)
+                .accessibilityIdentifier("applications.unsupported.remove")
+        }
+        .padding(16)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text(String(
+                localized: "No unsupported applications",
+                comment: "Empty state on the Unsupported Applications review."
+            ))
+            .font(.title3.weight(.semibold))
+            Text(String(
+                localized: "Every installed app can run on this version of macOS.",
+                comment: "Empty-state detail on the Unsupported Applications review."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("applications.unsupported.empty")
+    }
+
+    private var headerCountText: String {
+        let format = String(
+            localized: "%lld apps",
+            comment: "Unsupported Applications header count."
+        )
+        return String.localizedStringWithFormat(format, Int64(apps.count))
+    }
+
+    private var selectionSummary: String {
+        let format = String(
+            localized: "%lld selected",
+            comment: "Unsupported Applications remove-bar summary; %lld is the selected count."
+        )
+        return String.localizedStringWithFormat(format, Int64(selectedCount))
+    }
+}
+
+/// One unsupported-app row: a checkbox, an alert badge, the app name, and the
+/// reason it can't run.
+private struct UnsupportedAppRow: View {
+    let entry: UnsupportedApp
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.orange)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.app.name)
+                    .font(.body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(reasonText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+        .padding(.vertical, 4)
+    }
+
+    private var reasonText: String {
+        switch entry.reason {
+        case .incompatibleArchitecture:
+            return String(
+                localized: "Won't run on this macOS — built for an older architecture",
+                comment: "Reason label for an unsupported app with no runnable architecture."
+            )
         }
     }
 }

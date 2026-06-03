@@ -28,6 +28,7 @@ struct ApplicationsView: View {
         case updates
         case manage
         case installationFiles
+        case unsupported
     }
 
     init(
@@ -77,6 +78,7 @@ struct ApplicationsView: View {
                     onOpenUpdates: { detail = .updates },
                     onOpenManage: { detail = .manage },
                     onOpenInstallationFiles: { detail = .installationFiles },
+                    onOpenUnsupported: { detail = .unsupported },
                     onRescan: { Task { await viewModel.scan() } }
                 )
                 .padding(24)
@@ -116,6 +118,24 @@ struct ApplicationsView: View {
                     isRemoving: viewModel.isRemovingInstallationFiles,
                     canRemove: viewModel.canRemoveInstallationFiles,
                     onRemove: { Task { await viewModel.deleteSelectedInstallationFiles() } }
+                )
+            }
+        case .unsupported:
+            detailScreen(
+                title: String(
+                    localized: "Unsupported Applications",
+                    comment: "Title of the Applications Unsupported detail screen."
+                )
+            ) {
+                UnsupportedAppsReviewView(
+                    apps: result.unsupportedApps,
+                    isSelected: viewModel.isUnsupportedAppSelected,
+                    onToggle: viewModel.toggleUnsupportedApp,
+                    onSelectAll: viewModel.selectAllUnsupportedApps,
+                    onClear: viewModel.clearUnsupportedAppSelection,
+                    isRemoving: viewModel.isRemovingUnsupportedApps,
+                    canRemove: viewModel.canRemoveUnsupportedApps,
+                    onRemove: { Task { await viewModel.deleteSelectedUnsupportedApps() } }
                 )
             }
         }
@@ -165,6 +185,7 @@ struct ApplicationsView: View {
             discoverApps: { [] },
             checkUpdates: { _ in [] },
             scanInstallationFiles: { [] },
+            scanUnsupportedApps: { _ in [] },
             recycleFiles: { Set($0) }
         ),
         uninstallerViewModel: AppUninstallerViewModel(

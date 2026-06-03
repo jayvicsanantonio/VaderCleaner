@@ -46,19 +46,34 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
-    /// Builds a view-model with injected collaborators. Installation-file
-    /// scanning defaults to empty and recycling to "removes everything asked"
-    /// so the existing tests stay focused on the discover → update path.
+    nonisolated private func makeUnsupported(name: String, bundleID: String) -> UnsupportedApp {
+        UnsupportedApp(
+            app: AppInfo(
+                name: name,
+                bundleID: bundleID,
+                version: "1.0",
+                bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
+                isAppStore: false
+            ),
+            reason: .incompatibleArchitecture
+        )
+    }
+
+    /// Builds a view-model with injected collaborators. Sub-scans default to
+    /// empty and recycling to "removes everything asked" so the existing tests
+    /// stay focused on the discover → update path.
     private func makeViewModel(
         discover: @escaping ApplicationsViewModel.DiscoverApps,
         check: @escaping ApplicationsViewModel.CheckUpdates = { _ in [] },
         installers: @escaping ApplicationsViewModel.ScanInstallationFiles = { [] },
+        unsupported: @escaping ApplicationsViewModel.ScanUnsupportedApps = { _ in [] },
         recycle: @escaping ApplicationsViewModel.RecycleFiles = { Set($0) }
     ) -> ApplicationsViewModel {
         ApplicationsViewModel(
             discoverApps: discover,
             checkUpdates: check,
             scanInstallationFiles: installers,
+            scanUnsupportedApps: unsupported,
             recycleFiles: recycle
         )
     }
@@ -172,12 +187,18 @@ final class ApplicationsViewModelTests: XCTestCase {
 
         let first = Task { await vm.scan() }
         while vm.phase != .scanning { await Task.yield() }
-        // A second scan while the first is in flight must be a no-op.
+        // A second scan while the first is in flight must be a no-op — the
+        // phase is still `.scanning` and it returns without starting work.
         await vm.scan()
-        XCTAssertEqual(discoverCalls, 1, "A re-entrant scan must not start a second discovery")
+        XCTAssertEqual(vm.phase, .scanning, "A re-entrant scan must not change the phase")
 
         await gate.open()
         await first.value
+
+        // Asserted after completion (not mid-flight) so it doesn't depend on
+        // exactly when the first scan reaches discovery: across both calls,
+        // discovery must have run exactly once.
+        XCTAssertEqual(discoverCalls, 1, "A re-entrant scan must not start a second discovery")
     }
 
     // MARK: - Reset
@@ -304,6 +325,116 @@ final class ApplicationsViewModelTests: XCTestCase {
         await vm.deleteSelectedInstallationFiles()
 
         XCTAssertEqual(recycleCalls, 0, "Nothing selected → the recycler is never called")
+    }
+
+    // MARK: - Unsupported apps
+
+    func test_scan_carriesUnsupportedAppsIntoResults() async {
+        let unsupported = [
+            makeUnsupported(name: "Old32Bit", bundleID: "com.legacy.app"),
+        ]
+        let vm = makeViewModel(discover: { [] }, unsupported: { _ in unsupported })
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.unsupportedApps, unsupported)
+        XCTAssertEqual(result.unsupportedAppsCount, 1)
+    }
+
+    func test_scan_passesDiscoveredAppsToTheUnsupportedScan() async {
+        let apps = [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
+        var received: [AppInfo] = []
+        let vm = makeViewModel(
+            discover: { apps },
+            unsupported: { discovered in
+                received = discovered
+                return []
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(received, apps, "The unsupported scan must receive the discovered apps")
+    }
+
+    func test_unsupportedAppSelection_isEmptyAfterScan() async {
+        let vm = makeViewModel(
+            discover: { [] },
+            unsupported: { _ in [self.makeUnsupported(name: "Old", bundleID: "com.old.app")] }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.unsupportedAppSelection.isEmpty)
+        XCTAssertFalse(vm.canRemoveUnsupportedApps)
+    }
+
+    func test_deleteSelectedUnsupportedApps_recyclesBundlesAndRebuildsPayload() async {
+        let a = makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let b = makeUnsupported(name: "Ancient", bundleID: "com.ancient.app")
+        var recycled: [URL] = []
+        let vm = makeViewModel(
+            discover: { [] },
+            unsupported: { _ in [a, b] },
+            recycle: { urls in recycled = urls; return Set(urls) }
+        )
+        await vm.scan()
+        vm.toggleUnsupportedApp(a)
+
+        await vm.deleteSelectedUnsupportedApps()
+
+        XCTAssertEqual(recycled, [a.app.bundleURL], "Only the selected app bundle is recycled")
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.unsupportedApps, [b],
+                       "The recycled app must be dropped from the payload")
+        XCTAssertFalse(vm.isRemovingUnsupportedApps)
+    }
+
+    func test_deleteSelectedUnsupportedApps_keepsBundlesThatFailedToRecycle() async {
+        let a = makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let b = makeUnsupported(name: "Ancient", bundleID: "com.ancient.app")
+        let vm = makeViewModel(
+            discover: { [] },
+            unsupported: { _ in [a, b] },
+            // The recycler (e.g. a root-owned bundle) only manages to move one.
+            recycle: { _ in [a.app.bundleURL] }
+        )
+        await vm.scan()
+        vm.selectAllUnsupportedApps()
+
+        await vm.deleteSelectedUnsupportedApps()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.unsupportedApps, [b],
+                       "A bundle the recycler couldn't move must stay in the list")
+        XCTAssertTrue(vm.unsupportedAppSelection.contains(b.app.bundleURL))
+    }
+
+    func test_installationFileDelete_preservesUnsupportedApps() async {
+        // Removing an installer must not drop the unsupported-apps payload.
+        let installer = makeInstaller(name: "A.dmg", size: 5_000)
+        let unsupported = makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let vm = makeViewModel(
+            discover: { [] },
+            installers: { [installer] },
+            unsupported: { _ in [unsupported] }
+        )
+        await vm.scan()
+        vm.toggleInstallationFile(installer)
+
+        await vm.deleteSelectedInstallationFiles()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertTrue(result.installationFiles.isEmpty)
+        XCTAssertEqual(result.unsupportedApps, [unsupported],
+                       "Unrelated payload must survive an installer delete")
     }
 }
 

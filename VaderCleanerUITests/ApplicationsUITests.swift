@@ -58,6 +58,8 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the Manage card on the dashboard")
         XCTAssertTrue(app.buttons["applications.card.installationFiles"].exists,
                       "Expected the Installation Files card on the dashboard")
+        XCTAssertTrue(app.buttons["applications.card.unsupported"].exists,
+                      "Expected the Unsupported Applications card on the dashboard")
     }
 
     /// The Installation Files card opens its review screen, and Back returns to
