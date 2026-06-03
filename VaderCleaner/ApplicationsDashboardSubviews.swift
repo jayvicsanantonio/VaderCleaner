@@ -74,55 +74,68 @@ struct ApplicationsDashboardView: View {
         String(localized: "Review", comment: "Applications card action that opens a review list.")
     }
 
-    private var cardSpecs: [CardSpec] {
-        [
-            CardSpec(id: "applications.card.updates", title: updatesTitle, detail: updatesDetail,
-                     icon: "arrow.triangle.2.circlepath", actionLabel: reviewLabel, action: onOpenUpdates),
-            CardSpec(id: "applications.card.unused", title: unusedTitle, detail: unusedDetail,
-                     icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused),
-            CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, detail: unsupportedDetail,
-                     icon: "exclamationmark.triangle", actionLabel: reviewLabel, action: onOpenUnsupported),
-            CardSpec(id: "applications.card.leftovers", title: leftoversTitle, detail: leftoversDetail,
-                     icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers),
-            CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
-                     detail: installationFilesDetail, icon: "shippingbox", actionLabel: reviewLabel,
-                     action: onOpenInstallationFiles),
-            CardSpec(id: "applications.card.manage",
-                     title: String(localized: "Manage Applications", comment: "Applications management card title."),
-                     detail: manageDetail, icon: "square.grid.2x2",
-                     actionLabel: String(localized: "Manage", comment: "Applications management card action."),
-                     action: onOpenManage),
-        ]
+    /// Height of a standard card, and of a tall card — a tall card spans
+    /// exactly two standard cards plus the gap between them, so the two columns
+    /// stay the same total height (each is one tall + two standard + two gaps).
+    private let standardCardHeight: CGFloat = 150
+    private var tallCardHeight: CGFloat { standardCardHeight * 2 + 16 }
+
+    private var updatesSpec: CardSpec {
+        CardSpec(id: "applications.card.updates", title: updatesTitle, detail: updatesDetail,
+                 icon: "arrow.triangle.2.circlepath", actionLabel: reviewLabel, action: onOpenUpdates)
+    }
+    private var unusedSpec: CardSpec {
+        CardSpec(id: "applications.card.unused", title: unusedTitle, detail: unusedDetail,
+                 icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused)
+    }
+    private var unsupportedSpec: CardSpec {
+        CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, detail: unsupportedDetail,
+                 icon: "exclamationmark.triangle", actionLabel: reviewLabel, action: onOpenUnsupported)
+    }
+    private var leftoversSpec: CardSpec {
+        CardSpec(id: "applications.card.leftovers", title: leftoversTitle, detail: leftoversDetail,
+                 icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers)
+    }
+    private var installationFilesSpec: CardSpec {
+        CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
+                 detail: installationFilesDetail, icon: "shippingbox", actionLabel: reviewLabel,
+                 action: onOpenInstallationFiles)
+    }
+    private var manageSpec: CardSpec {
+        CardSpec(id: "applications.card.manage",
+                 title: String(localized: "Manage Applications", comment: "Applications management card title."),
+                 detail: manageDetail, icon: "square.grid.2x2",
+                 actionLabel: String(localized: "Manage", comment: "Applications management card action."),
+                 action: onOpenManage)
     }
 
-    /// A tall hero card on the left (the first spec) beside an adaptive grid of
-    /// the remaining cards, so the cards no longer all share one size.
+    /// Two-column masonry. The left column leads with the tall Updates card
+    /// over two standard cards; the right column mirrors it with two standard
+    /// cards over the tall Leftovers card — so the two tall tiles sit on a
+    /// diagonal and the columns stay equal height.
     private var grid: some View {
         HStack(alignment: .top, spacing: 16) {
-            if let hero = cardSpecs.first {
-                card(hero, isHero: true)
-                    .frame(maxWidth: 320)
+            VStack(spacing: 16) {
+                card(updatesSpec, height: tallCardHeight)
+                card(installationFilesSpec, height: standardCardHeight)
+                card(manageSpec, height: standardCardHeight)
             }
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
-                alignment: .leading,
-                spacing: 16
-            ) {
-                ForEach(Array(cardSpecs.dropFirst())) { spec in
-                    card(spec, isHero: false)
-                }
+            VStack(spacing: 16) {
+                card(unusedSpec, height: standardCardHeight)
+                card(unsupportedSpec, height: standardCardHeight)
+                card(leftoversSpec, height: tallCardHeight)
             }
         }
     }
 
-    private func card(_ spec: CardSpec, isHero: Bool) -> some View {
+    private func card(_ spec: CardSpec, height: CGFloat) -> some View {
         ApplicationsCard(
             title: spec.title,
             detail: spec.detail,
             icon: spec.icon,
             actionLabel: spec.actionLabel,
             identifier: spec.id,
-            isHero: isHero,
+            height: height,
             action: spec.action
         )
     }
@@ -294,9 +307,10 @@ struct ApplicationsCard: View {
     let icon: String
     let actionLabel: String
     let identifier: String
-    /// Hero cards render taller (matching the Optimization dashboard's lead
-    /// card) so the grid isn't a uniform row of equal-size tiles.
-    var isHero: Bool = false
+    /// Fixed card height set by the layout — tall cards span two standard cards
+    /// so the grid isn't a uniform row of equal-size tiles. A fixed height (not
+    /// a min) keeps the card from stretching to fill its column.
+    let height: CGFloat
     let action: () -> Void
 
     var body: some View {
@@ -323,7 +337,7 @@ struct ApplicationsCard: View {
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: isHero ? 260 : 150, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 }
