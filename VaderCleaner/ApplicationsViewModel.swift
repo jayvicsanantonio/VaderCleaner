@@ -19,6 +19,7 @@ struct ApplicationsScanResult: Equatable {
     var installationFiles: [InstallationFile]
     var unsupportedApps: [UnsupportedApp]
     var unusedApps: [UnusedApp]
+    var leftovers: [LeftoverGroup]
 
     /// "We've found N apps on your Mac." headline figure.
     var installedCount: Int { installedApps.count }
@@ -35,6 +36,13 @@ struct ApplicationsScanResult: Equatable {
     var unsupportedAppsCount: Int { unsupportedApps.count }
     /// Unused Applications card count.
     var unusedAppsCount: Int { unusedApps.count }
+    /// App Leftovers card count (one per orphaned bundle ID).
+    var leftoversCount: Int { leftovers.count }
+    /// Sum of every leftover group's size — the Leftovers card's reclaimable
+    /// figure.
+    var leftoversTotalBytes: Int64 {
+        leftovers.reduce(Int64(0)) { $0 + $1.totalBytes }
+    }
 }
 
 /// Drives the Applications feature view (scan → results). Collaborators are
@@ -75,6 +83,10 @@ final class ApplicationsViewModel {
     /// Unused-app scan source over the discovered apps. Non-throwing and
     /// best-effort, same partial-degradation contract as `CheckUpdates`.
     typealias ScanUnusedApps = @Sendable ([AppInfo]) async -> [UnusedApp]
+    /// Leftover scan source. Takes the installed bundle IDs so the scan can
+    /// tell orphaned support files from installed apps'. Non-throwing and
+    /// best-effort, same partial-degradation contract as `CheckUpdates`.
+    typealias ScanLeftovers = @Sendable (Set<String>) async -> [LeftoverGroup]
     /// Moves the given files to the Trash and returns the set of URLs actually
     /// recycled. Partial success is the norm (a locked file must not abort the
     /// batch), so the return is the success set — mirroring
@@ -103,11 +115,18 @@ final class ApplicationsViewModel {
     /// True while an unused-app recycle batch is in flight.
     private(set) var isRemovingUnusedApps = false
 
+    /// Per-group gate for the App Leftovers review screen, keyed by the
+    /// orphaned bundle ID. Seeded *empty* — removal is destructive and opt-in.
+    private(set) var leftoverSelection: Set<String> = []
+    /// True while a leftover recycle batch is in flight.
+    private(set) var isRemovingLeftovers = false
+
     @ObservationIgnored private let discoverApps: DiscoverApps
     @ObservationIgnored private let checkUpdates: CheckUpdates
     @ObservationIgnored private let scanInstallationFiles: ScanInstallationFiles
     @ObservationIgnored private let scanUnsupportedApps: ScanUnsupportedApps
     @ObservationIgnored private let scanUnusedApps: ScanUnusedApps
+    @ObservationIgnored private let scanLeftovers: ScanLeftovers
     @ObservationIgnored private let recycleFiles: RecycleFiles
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "ApplicationsViewModel")
@@ -122,6 +141,7 @@ final class ApplicationsViewModel {
         scanInstallationFiles: @escaping ScanInstallationFiles,
         scanUnsupportedApps: @escaping ScanUnsupportedApps,
         scanUnusedApps: @escaping ScanUnusedApps,
+        scanLeftovers: @escaping ScanLeftovers,
         recycleFiles: @escaping RecycleFiles
     ) {
         self.discoverApps = discoverApps
@@ -129,6 +149,7 @@ final class ApplicationsViewModel {
         self.scanInstallationFiles = scanInstallationFiles
         self.scanUnsupportedApps = scanUnsupportedApps
         self.scanUnusedApps = scanUnusedApps
+        self.scanLeftovers = scanLeftovers
         self.recycleFiles = recycleFiles
     }
 
@@ -153,6 +174,7 @@ final class ApplicationsViewModel {
         installationFileSelection = []
         unsupportedAppSelection = []
         unusedAppSelection = []
+        leftoverSelection = []
 
         do {
             // The installer scan is independent of app discovery, so run it
@@ -160,21 +182,27 @@ final class ApplicationsViewModel {
             async let installersAsync = scanInstallationFiles()
             let apps = try await discoverApps()
             // The update check and the per-app scans all need the discovered
-            // apps, so fan them out concurrently once they're known.
+            // apps, so fan them out concurrently once they're known. The
+            // leftover scan needs the installed bundle IDs to tell orphans
+            // from installed apps' support files.
+            let installedBundleIDs = Set(apps.map(\.bundleID))
             async let updatesAsync = checkUpdates(apps)
             async let unsupportedAsync = scanUnsupportedApps(apps)
             async let unusedAsync = scanUnusedApps(apps)
+            async let leftoversAsync = scanLeftovers(installedBundleIDs)
             let installers = await installersAsync
             let updates = await updatesAsync
             let unsupported = await unsupportedAsync
             let unused = await unusedAsync
+            let leftovers = await leftoversAsync
             guard scanGeneration == generation else { return }
             phase = .results(ApplicationsScanResult(
                 installedApps: apps,
                 availableUpdates: updates,
                 installationFiles: installers,
                 unsupportedApps: unsupported,
-                unusedApps: unused
+                unusedApps: unused,
+                leftovers: leftovers
             ))
         } catch {
             // Privacy: errors may include user-specific paths.
@@ -191,6 +219,7 @@ final class ApplicationsViewModel {
         installationFileSelection = []
         unsupportedAppSelection = []
         unusedAppSelection = []
+        leftoverSelection = []
     }
 
     // MARK: - Installation files selection
@@ -354,6 +383,68 @@ final class ApplicationsViewModel {
         phase = .results(current)
         unusedAppSelection.subtract(removed)
     }
+
+    // MARK: - Leftovers selection
+
+    func isLeftoverSelected(_ group: LeftoverGroup) -> Bool {
+        leftoverSelection.contains(group.bundleID)
+    }
+
+    func toggleLeftover(_ group: LeftoverGroup) {
+        if leftoverSelection.contains(group.bundleID) {
+            leftoverSelection.remove(group.bundleID)
+        } else {
+            leftoverSelection.insert(group.bundleID)
+        }
+    }
+
+    func selectAllLeftovers() {
+        guard case .results(let result) = phase else { return }
+        leftoverSelection = Set(result.leftovers.map(\.bundleID))
+    }
+
+    func clearLeftoverSelection() {
+        leftoverSelection = []
+    }
+
+    /// Whether a Remove press would actually recycle anything right now.
+    var canRemoveLeftovers: Bool {
+        !leftoverSelection.isEmpty && !isRemovingLeftovers
+    }
+
+    // MARK: - Leftovers removal
+
+    /// Moves every file in the selected leftover groups to the Trash and
+    /// rebuilds the payload: a group whose files were all recycled is dropped;
+    /// a partially-recycled group keeps its surviving files (so the user can
+    /// retry). A no-op unless results are showing and at least one group is
+    /// selected.
+    func deleteSelectedLeftovers() async {
+        guard case .results(let result) = phase else { return }
+        let targets = result.leftovers.filter { leftoverSelection.contains($0.bundleID) }
+        guard !targets.isEmpty, !isRemovingLeftovers else { return }
+
+        isRemovingLeftovers = true
+        let removed = await recycleFiles(targets.flatMap { $0.urls })
+        isRemovingLeftovers = false
+
+        guard case .results(var current) = phase else { return }
+        current.leftovers = current.leftovers.compactMap { group in
+            let survivingURLs = group.urls.filter { !removed.contains($0) }
+            if survivingURLs.isEmpty { return nil }
+            if survivingURLs.count == group.urls.count { return group }
+            // Some files moved, some didn't — keep the group with what's left.
+            return LeftoverGroup(
+                bundleID: group.bundleID,
+                displayName: group.displayName,
+                urls: survivingURLs,
+                totalBytes: group.totalBytes
+            )
+        }
+        phase = .results(current)
+        // Drop selections for groups that fully disappeared.
+        leftoverSelection = leftoverSelection.intersection(Set(current.leftovers.map(\.bundleID)))
+    }
 }
 
 // MARK: - Production wiring
@@ -372,6 +463,7 @@ extension ApplicationsViewModel {
         let installerScanner = DefaultInstallationFileScanner()
         let unsupportedScanner = DefaultUnsupportedAppScanner()
         let unusedScanner = DefaultUnusedAppScanner()
+        let leftoverScanner = DefaultAppLeftoverScanner()
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "ApplicationsViewModel.live")
         return ApplicationsViewModel(
@@ -389,6 +481,9 @@ extension ApplicationsViewModel {
             },
             scanUnusedApps: { apps in
                 await unusedScanner.scan(apps: apps)
+            },
+            scanLeftovers: { installedBundleIDs in
+                await leftoverScanner.scan(installedBundleIDs: installedBundleIDs)
             },
             recycleFiles: { urls in
                 await Self.recycle(urls, log: log)

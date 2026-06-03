@@ -62,6 +62,8 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the Unsupported Applications card on the dashboard")
         XCTAssertTrue(app.buttons["applications.card.unused"].exists,
                       "Expected the Unused Applications card on the dashboard")
+        XCTAssertTrue(app.buttons["applications.card.leftovers"].exists,
+                      "Expected the App Leftovers card on the dashboard")
     }
 
     /// The Installation Files card opens its review screen, and Back returns to

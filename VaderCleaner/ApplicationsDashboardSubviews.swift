@@ -15,6 +15,7 @@ struct ApplicationsDashboardView: View {
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
     let onOpenUnused: () -> Void
+    let onOpenLeftovers: () -> Void
     let onRescan: () -> Void
 
     var body: some View {
@@ -94,6 +95,17 @@ struct ApplicationsDashboardView: View {
                 ),
                 identifier: "applications.card.unsupported",
                 action: onOpenUnsupported
+            )
+            ApplicationsCard(
+                title: leftoversTitle,
+                detail: leftoversDetail,
+                icon: "trash",
+                actionLabel: String(
+                    localized: "Review",
+                    comment: "Applications Leftovers card action that opens the leftover list."
+                ),
+                identifier: "applications.card.leftovers",
+                action: onOpenLeftovers
             )
             ApplicationsCard(
                 title: installationFilesTitle,
@@ -222,6 +234,35 @@ struct ApplicationsDashboardView: View {
             localized: "These apps haven't been opened in over 60 days. Remove the ones you no longer need.",
             comment: "Applications Unused card detail when some are found."
         )
+    }
+
+    private var leftoversTitle: String {
+        if result.leftoversCount == 0 {
+            return String(
+                localized: "No App Leftovers",
+                comment: "Applications Leftovers card title when none are found."
+            )
+        }
+        let format = String(
+            localized: "Leftovers From %lld Apps Found",
+            comment: "Applications Leftovers card title; %lld is the orphaned-app count."
+        )
+        return String.localizedStringWithFormat(format, Int64(result.leftoversCount))
+    }
+
+    private var leftoversDetail: String {
+        if result.leftoversCount == 0 {
+            return String(
+                localized: "No support files from uninstalled apps were found.",
+                comment: "Applications Leftovers card detail when none are found."
+            )
+        }
+        let size = smartScanByteFormatter.string(fromByteCount: result.leftoversTotalBytes)
+        let format = String(
+            localized: "Support files left behind by apps you've removed are using %@.",
+            comment: "Applications Leftovers card detail; %@ is the reclaimable size."
+        )
+        return String.localizedStringWithFormat(format, size)
     }
 
     private var unsupportedTitle: String {
@@ -819,6 +860,184 @@ private struct UnusedAppRow: View {
             comment: "Unused-app row subtitle; %@ is a relative date like \"3 months ago\"."
         )
         return String.localizedStringWithFormat(format, relative)
+    }
+}
+
+// MARK: - App Leftovers review
+
+/// The App Leftovers detail screen: a multi-select list of orphaned support-file
+/// groups (one per uninstalled app's bundle ID), with a pinned Move to Trash
+/// bar. Removal is opt-in and restorable (Trash).
+struct AppLeftoversReviewView: View {
+    let groups: [LeftoverGroup]
+    let isSelected: (LeftoverGroup) -> Bool
+    let onToggle: (LeftoverGroup) -> Void
+    let onSelectAll: () -> Void
+    let onClear: () -> Void
+    let isRemoving: Bool
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    private var selected: [LeftoverGroup] { groups.filter(isSelected) }
+    private var selectedBytes: Int64 { selected.reduce(Int64(0)) { $0 + $1.totalBytes } }
+    private var allSelected: Bool { !groups.isEmpty && selected.count == groups.count }
+
+    var body: some View {
+        if groups.isEmpty {
+            emptyState
+        } else {
+            VStack(spacing: 0) {
+                selectAllBar
+                Divider()
+                List {
+                    ForEach(groups) { group in
+                        LeftoverRow(
+                            group: group,
+                            isSelected: isSelected(group),
+                            onToggle: { onToggle(group) }
+                        )
+                        .accessibilityIdentifier("applications.leftovers.row.\(group.bundleID)")
+                    }
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                Divider()
+                removeBar
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("applications.leftovers")
+        }
+    }
+
+    private var selectAllBar: some View {
+        HStack {
+            Toggle(isOn: Binding(
+                get: { allSelected },
+                set: { $0 ? onSelectAll() : onClear() }
+            )) {
+                Text(String(
+                    localized: "Select All",
+                    comment: "Toggle that selects/deselects every leftover group."
+                ))
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("applications.leftovers.selectAll")
+            Spacer()
+            Text(headerCountText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+    }
+
+    private var removeBar: some View {
+        HStack(spacing: 12) {
+            Text(selectionSummary)
+                .font(.callout.weight(.medium))
+            Spacer()
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            }
+            Button(String(
+                localized: "Move to Trash",
+                comment: "Button that moves the selected leftover files to the Trash."
+            ), action: onRemove)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canRemove)
+                .accessibilityIdentifier("applications.leftovers.remove")
+        }
+        .padding(16)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text(String(
+                localized: "No app leftovers",
+                comment: "Empty state on the App Leftovers review."
+            ))
+            .font(.title3.weight(.semibold))
+            Text(String(
+                localized: "No support files from uninstalled apps were found.",
+                comment: "Empty-state detail on the App Leftovers review."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("applications.leftovers.empty")
+    }
+
+    private var headerCountText: String {
+        let total = smartScanByteFormatter.string(fromByteCount: groups.reduce(Int64(0)) { $0 + $1.totalBytes })
+        let format = String(
+            localized: "%lld apps · %@",
+            comment: "App Leftovers header count; %lld is the orphaned-app count, %@ the total size."
+        )
+        return String.localizedStringWithFormat(format, Int64(groups.count), total)
+    }
+
+    private var selectionSummary: String {
+        let size = smartScanByteFormatter.string(fromByteCount: selectedBytes)
+        let format = String(
+            localized: "%lld selected · %@",
+            comment: "App Leftovers remove-bar summary; %lld is the selected count, %@ the selected size."
+        )
+        return String.localizedStringWithFormat(format, Int64(selected.count), size)
+    }
+}
+
+/// One leftover-group row: a checkbox, a folder badge, the derived app name,
+/// the bundle ID and file count, and the reclaimable size.
+private struct LeftoverRow: View {
+    let group: LeftoverGroup
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            Image(systemName: "folder.badge.minus")
+                .font(.system(size: 18))
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.displayName)
+                    .font(.body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+
+            Text(smartScanByteFormatter.string(fromByteCount: group.totalBytes))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+        .padding(.vertical, 4)
+    }
+
+    private var subtitle: String {
+        let format = String(
+            localized: "%1$@ · %2$lld items",
+            comment: "Leftover row subtitle; %1$@ is the bundle ID, %2$lld the file count."
+        )
+        return String.localizedStringWithFormat(format, group.bundleID, Int64(group.urls.count))
     }
 }
 

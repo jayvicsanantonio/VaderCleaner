@@ -30,6 +30,7 @@ struct ApplicationsView: View {
         case installationFiles
         case unsupported
         case unused
+        case leftovers
     }
 
     init(
@@ -81,6 +82,7 @@ struct ApplicationsView: View {
                     onOpenInstallationFiles: { detail = .installationFiles },
                     onOpenUnsupported: { detail = .unsupported },
                     onOpenUnused: { detail = .unused },
+                    onOpenLeftovers: { detail = .leftovers },
                     onRescan: { Task { await viewModel.scan() } }
                 )
                 .padding(24)
@@ -158,6 +160,24 @@ struct ApplicationsView: View {
                     onRemove: { Task { await viewModel.deleteSelectedUnusedApps() } }
                 )
             }
+        case .leftovers:
+            detailScreen(
+                title: String(
+                    localized: "App Leftovers",
+                    comment: "Title of the Applications Leftovers detail screen."
+                )
+            ) {
+                AppLeftoversReviewView(
+                    groups: result.leftovers,
+                    isSelected: viewModel.isLeftoverSelected,
+                    onToggle: viewModel.toggleLeftover,
+                    onSelectAll: viewModel.selectAllLeftovers,
+                    onClear: viewModel.clearLeftoverSelection,
+                    isRemoving: viewModel.isRemovingLeftovers,
+                    canRemove: viewModel.canRemoveLeftovers,
+                    onRemove: { Task { await viewModel.deleteSelectedLeftovers() } }
+                )
+            }
         }
     }
 
@@ -207,6 +227,7 @@ struct ApplicationsView: View {
             scanInstallationFiles: { [] },
             scanUnsupportedApps: { _ in [] },
             scanUnusedApps: { _ in [] },
+            scanLeftovers: { _ in [] },
             recycleFiles: { Set($0) }
         ),
         uninstallerViewModel: AppUninstallerViewModel(

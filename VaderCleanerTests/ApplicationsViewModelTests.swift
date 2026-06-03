@@ -72,6 +72,15 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
+    nonisolated private func makeLeftover(bundleID: String, paths: [String], bytes: Int64) -> LeftoverGroup {
+        LeftoverGroup(
+            bundleID: bundleID,
+            displayName: bundleID.components(separatedBy: ".").last ?? bundleID,
+            urls: paths.map { URL(fileURLWithPath: $0) },
+            totalBytes: bytes
+        )
+    }
+
     /// Builds a view-model with injected collaborators. Sub-scans default to
     /// empty and recycling to "removes everything asked" so the existing tests
     /// stay focused on the discover → update path.
@@ -81,6 +90,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         installers: @escaping ApplicationsViewModel.ScanInstallationFiles = { [] },
         unsupported: @escaping ApplicationsViewModel.ScanUnsupportedApps = { _ in [] },
         unused: @escaping ApplicationsViewModel.ScanUnusedApps = { _ in [] },
+        leftovers: @escaping ApplicationsViewModel.ScanLeftovers = { _ in [] },
         recycle: @escaping ApplicationsViewModel.RecycleFiles = { Set($0) }
     ) -> ApplicationsViewModel {
         ApplicationsViewModel(
@@ -89,6 +99,7 @@ final class ApplicationsViewModelTests: XCTestCase {
             scanInstallationFiles: installers,
             scanUnsupportedApps: unsupported,
             scanUnusedApps: unused,
+            scanLeftovers: leftovers,
             recycleFiles: recycle
         )
     }
@@ -528,6 +539,91 @@ final class ApplicationsViewModelTests: XCTestCase {
         XCTAssertTrue(result.unusedApps.isEmpty)
         XCTAssertEqual(result.installationFiles, [installer])
         XCTAssertEqual(result.unsupportedApps, [unsupported])
+    }
+
+    // MARK: - Leftovers
+
+    func test_scan_passesInstalledBundleIDsToLeftoverScan() async {
+        let apps = [
+            makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app"),
+            makeApp(name: "Beta", bundleID: "com.beta.app", path: "/Applications/Beta.app"),
+        ]
+        var received: Set<String> = []
+        let vm = makeViewModel(
+            discover: { apps },
+            leftovers: { installed in
+                received = installed
+                return []
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(received, ["com.acme.app", "com.beta.app"],
+                       "The leftover scan must receive the installed bundle IDs")
+    }
+
+    func test_scan_carriesLeftoversIntoResults() async {
+        let group = makeLeftover(bundleID: "com.orphan.app",
+                                 paths: ["/L/com.orphan.app"], bytes: 2_048)
+        let vm = makeViewModel(discover: { [] }, leftovers: { _ in [group] })
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.leftovers, [group])
+        XCTAssertEqual(result.leftoversCount, 1)
+        XCTAssertEqual(result.leftoversTotalBytes, 2_048)
+    }
+
+    func test_deleteSelectedLeftovers_recyclesAllGroupURLsAndDropsGroup() async {
+        let a = makeLeftover(bundleID: "com.a.app", paths: ["/L/com.a.app", "/P/com.a.app.plist"], bytes: 100)
+        let b = makeLeftover(bundleID: "com.b.app", paths: ["/L/com.b.app"], bytes: 50)
+        var recycled: [URL] = []
+        let vm = makeViewModel(
+            discover: { [] },
+            leftovers: { _ in [a, b] },
+            recycle: { urls in recycled = urls; return Set(urls) }
+        )
+        await vm.scan()
+        vm.toggleLeftover(a)
+
+        await vm.deleteSelectedLeftovers()
+
+        XCTAssertEqual(Set(recycled), Set(a.urls), "Every file in the selected group is recycled")
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.leftovers, [b], "A fully-recycled group is dropped")
+        XCTAssertFalse(vm.leftoverSelection.contains("com.a.app"))
+    }
+
+    func test_deleteSelectedLeftovers_keepsPartiallyRemovedGroupWithSurvivors() async {
+        let kept = URL(fileURLWithPath: "/L/com.a.app")
+        let gone = URL(fileURLWithPath: "/P/com.a.app.plist")
+        let a = LeftoverGroup(bundleID: "com.a.app", displayName: "app",
+                              urls: [kept, gone], totalBytes: 100)
+        let vm = makeViewModel(
+            discover: { [] },
+            leftovers: { _ in [a] },
+            // Only one of the two files could be Trashed.
+            recycle: { _ in [gone] }
+        )
+        await vm.scan()
+        vm.selectAllLeftovers()
+
+        await vm.deleteSelectedLeftovers()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.leftovers.count, 1)
+        XCTAssertEqual(result.leftovers.first?.urls, [kept],
+                       "A partially-removed group keeps only its surviving files")
+        XCTAssertTrue(vm.leftoverSelection.contains("com.a.app"),
+                      "The still-present group stays selected so the user can retry")
     }
 }
 
