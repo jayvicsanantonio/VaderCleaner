@@ -14,11 +14,19 @@ import os.log
 struct ApplicationsScanResult: Equatable {
     let installedApps: [AppInfo]
     let availableUpdates: [UpdateInfo]
+    let installationFiles: [InstallationFile]
 
     /// "We've found N apps on your Mac." headline figure.
     var installedCount: Int { installedApps.count }
     /// Updates card count.
     var updatesCount: Int { availableUpdates.count }
+    /// Installation Files card count.
+    var installationFilesCount: Int { installationFiles.count }
+    /// Sum of the leftover installers' sizes — the Installation Files card's
+    /// "reclaimable" figure.
+    var installationFilesTotalBytes: Int64 {
+        installationFiles.reduce(Int64(0)) { $0 + $1.sizeBytes }
+    }
 }
 
 /// Drives the Applications feature view (scan → results). Collaborators are
@@ -50,11 +58,29 @@ final class ApplicationsViewModel {
     /// `[]` rather than sinking an otherwise-useful scan (the production wiring
     /// swallows per-app failures), matching the Smart Scan Applications tile.
     typealias CheckUpdates = @Sendable ([AppInfo]) async -> [UpdateInfo]
+    /// Installation-file scan source. Non-throwing and best-effort, same
+    /// partial-degradation contract as `CheckUpdates`.
+    typealias ScanInstallationFiles = @Sendable () async -> [InstallationFile]
+    /// Moves the given files to the Trash and returns the set of URLs actually
+    /// recycled. Partial success is the norm (a locked file must not abort the
+    /// batch), so the return is the success set — mirroring
+    /// `LargeOldFilesViewModel.Deleter`.
+    typealias RecycleFiles = @Sendable ([URL]) async -> Set<URL>
 
     private(set) var phase: Phase = .idle
 
+    /// Per-file gate for the Installation Files review screen, keyed by URL.
+    /// Seeded *empty* — removal is destructive, so the user opts each installer
+    /// in explicitly, matching `LargeOldFilesViewModel`.
+    private(set) var installationFileSelection: Set<URL> = []
+    /// True while a recycle batch is in flight, so the review screen can show a
+    /// spinner and disable its Remove button.
+    private(set) var isRemovingInstallationFiles = false
+
     @ObservationIgnored private let discoverApps: DiscoverApps
     @ObservationIgnored private let checkUpdates: CheckUpdates
+    @ObservationIgnored private let scanInstallationFiles: ScanInstallationFiles
+    @ObservationIgnored private let recycleFiles: RecycleFiles
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "ApplicationsViewModel")
 
@@ -64,10 +90,14 @@ final class ApplicationsViewModel {
 
     init(
         discoverApps: @escaping DiscoverApps,
-        checkUpdates: @escaping CheckUpdates
+        checkUpdates: @escaping CheckUpdates,
+        scanInstallationFiles: @escaping ScanInstallationFiles,
+        recycleFiles: @escaping RecycleFiles
     ) {
         self.discoverApps = discoverApps
         self.checkUpdates = checkUpdates
+        self.scanInstallationFiles = scanInstallationFiles
+        self.recycleFiles = recycleFiles
     }
 
     // MARK: - Scan
@@ -88,14 +118,20 @@ final class ApplicationsViewModel {
         phase = .scanning
         scanGeneration &+= 1
         let generation = scanGeneration
+        installationFileSelection = []
 
         do {
+            // The installer scan is independent of app discovery, so run it
+            // concurrently with the discover → update-check chain.
+            async let installersAsync = scanInstallationFiles()
             let apps = try await discoverApps()
             let updates = await checkUpdates(apps)
+            let installers = await installersAsync
             guard scanGeneration == generation else { return }
             phase = .results(ApplicationsScanResult(
                 installedApps: apps,
-                availableUpdates: updates
+                availableUpdates: updates,
+                installationFiles: installers
             ))
         } catch {
             // Privacy: errors may include user-specific paths.
@@ -109,6 +145,69 @@ final class ApplicationsViewModel {
     /// the intro screen.
     func reset() {
         phase = .idle
+        installationFileSelection = []
+    }
+
+    // MARK: - Installation files selection
+
+    func isInstallationFileSelected(_ file: InstallationFile) -> Bool {
+        installationFileSelection.contains(file.url)
+    }
+
+    func toggleInstallationFile(_ file: InstallationFile) {
+        if installationFileSelection.contains(file.url) {
+            installationFileSelection.remove(file.url)
+        } else {
+            installationFileSelection.insert(file.url)
+        }
+    }
+
+    /// Opt every found installer in for removal in one write to the selection
+    /// set, so SwiftUI observes a single publish instead of N.
+    func selectAllInstallationFiles() {
+        guard case .results(let result) = phase else { return }
+        installationFileSelection = Set(result.installationFiles.map(\.url))
+    }
+
+    /// Opt every installer back out — single-write counterpart to
+    /// `selectAllInstallationFiles()`.
+    func clearInstallationFileSelection() {
+        installationFileSelection = []
+    }
+
+    /// Whether a Remove press would actually recycle anything right now.
+    var canRemoveInstallationFiles: Bool {
+        !installationFileSelection.isEmpty && !isRemovingInstallationFiles
+    }
+
+    // MARK: - Installation files removal
+
+    /// Moves the selected installers to the Trash and rebuilds the results
+    /// payload with the survivors, so the dashboard card count and the review
+    /// list both reflect what was actually removed. A no-op unless results are
+    /// showing and at least one installer is selected.
+    func deleteSelectedInstallationFiles() async {
+        guard case .results(let result) = phase else { return }
+        let targets = result.installationFiles.filter {
+            installationFileSelection.contains($0.url)
+        }
+        guard !targets.isEmpty, !isRemovingInstallationFiles else { return }
+
+        isRemovingInstallationFiles = true
+        let removed = await recycleFiles(targets.map(\.url))
+        isRemovingInstallationFiles = false
+
+        // The recycle hop is async; only rewrite the payload if we are still
+        // showing the same kind of results (a `reset()` / rescan during the
+        // batch supersedes it).
+        guard case .results(let current) = phase else { return }
+        let survivors = current.installationFiles.filter { !removed.contains($0.url) }
+        phase = .results(ApplicationsScanResult(
+            installedApps: current.installedApps,
+            availableUpdates: current.availableUpdates,
+            installationFiles: survivors
+        ))
+        installationFileSelection.subtract(removed)
     }
 }
 
@@ -125,6 +224,7 @@ extension ApplicationsViewModel {
         let discovery = DefaultAppDiscovery()
         let appStore = DefaultAppStoreUpdateChecker()
         let sparkle = DefaultSparkleUpdateChecker()
+        let installerScanner = DefaultInstallationFileScanner()
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "ApplicationsViewModel.live")
         return ApplicationsViewModel(
@@ -133,8 +233,32 @@ extension ApplicationsViewModel {
             },
             checkUpdates: { apps in
                 await Self.fetchUpdates(for: apps, appStore: appStore, sparkle: sparkle, log: log)
+            },
+            scanInstallationFiles: {
+                await installerScanner.scan()
+            },
+            recycleFiles: { urls in
+                await Self.recycle(urls, log: log)
             }
         )
+    }
+
+    /// Default deleter: move each installer to the user's Trash via
+    /// `NSWorkspace.recycle` (restorable) and return the set of URLs that
+    /// actually moved. `NSWorkspace.recycle` Trashes what it can and reports an
+    /// error only when the whole batch fails, so the success set comes from the
+    /// returned original→Trash URL map. Marked `nonisolated` so the batch runs
+    /// off the main actor.
+    nonisolated private static func recycle(_ urls: [URL], log: Logger) async -> Set<URL> {
+        guard !urls.isEmpty else { return [] }
+        return await withCheckedContinuation { continuation in
+            NSWorkspace.shared.recycle(urls) { newURLs, error in
+                if let error {
+                    log.error("Installation-file recycle reported an error: \(String(describing: error), privacy: .public)")
+                }
+                continuation.resume(returning: Set(newURLs.keys.map { $0 }))
+            }
+        }
     }
 
     /// Bounded-concurrency (≤6 in-flight HTTPS requests) discover-and-probe

@@ -37,12 +37,30 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
-    /// Builds a view-model with injected discovery + update collaborators.
+    nonisolated private func makeInstaller(name: String, size: Int64, kind: InstallationFileKind = .diskImage) -> InstallationFile {
+        InstallationFile(
+            url: URL(fileURLWithPath: "/Users/test/Downloads/\(name)"),
+            name: name,
+            sizeBytes: size,
+            kind: kind
+        )
+    }
+
+    /// Builds a view-model with injected collaborators. Installation-file
+    /// scanning defaults to empty and recycling to "removes everything asked"
+    /// so the existing tests stay focused on the discover → update path.
     private func makeViewModel(
         discover: @escaping ApplicationsViewModel.DiscoverApps,
-        check: @escaping ApplicationsViewModel.CheckUpdates = { _ in [] }
+        check: @escaping ApplicationsViewModel.CheckUpdates = { _ in [] },
+        installers: @escaping ApplicationsViewModel.ScanInstallationFiles = { [] },
+        recycle: @escaping ApplicationsViewModel.RecycleFiles = { Set($0) }
     ) -> ApplicationsViewModel {
-        ApplicationsViewModel(discoverApps: discover, checkUpdates: check)
+        ApplicationsViewModel(
+            discoverApps: discover,
+            checkUpdates: check,
+            scanInstallationFiles: installers,
+            recycleFiles: recycle
+        )
     }
 
     // MARK: - Initial state
@@ -173,6 +191,119 @@ final class ApplicationsViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.phase, .idle)
         XCTAssertEqual(vm.scanPresentation, .intro)
+    }
+
+    // MARK: - Installation files
+
+    func test_scan_carriesInstallationFilesIntoResults() async {
+        let installers = [
+            makeInstaller(name: "Big.dmg", size: 5_000),
+            makeInstaller(name: "Small.pkg", size: 100, kind: .package),
+        ]
+        let vm = makeViewModel(discover: { [] }, installers: { installers })
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.installationFiles, installers)
+        XCTAssertEqual(result.installationFilesCount, 2)
+        XCTAssertEqual(result.installationFilesTotalBytes, 5_100)
+    }
+
+    func test_installationFileSelection_isEmptyAfterScan() async {
+        let vm = makeViewModel(
+            discover: { [] },
+            installers: { [self.makeInstaller(name: "Big.dmg", size: 5_000)] }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.installationFileSelection.isEmpty,
+                      "Destructive removal is opt-in, so nothing starts selected")
+        XCTAssertFalse(vm.canRemoveInstallationFiles)
+    }
+
+    func test_toggleAndSelectAll_driveSelection() async {
+        let a = makeInstaller(name: "A.dmg", size: 5_000)
+        let b = makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        let vm = makeViewModel(discover: { [] }, installers: { [a, b] })
+        await vm.scan()
+
+        vm.toggleInstallationFile(a)
+        XCTAssertTrue(vm.isInstallationFileSelected(a))
+        XCTAssertFalse(vm.isInstallationFileSelected(b))
+        XCTAssertTrue(vm.canRemoveInstallationFiles)
+
+        vm.selectAllInstallationFiles()
+        XCTAssertTrue(vm.isInstallationFileSelected(a))
+        XCTAssertTrue(vm.isInstallationFileSelected(b))
+
+        vm.clearInstallationFileSelection()
+        XCTAssertTrue(vm.installationFileSelection.isEmpty)
+    }
+
+    func test_deleteSelectedInstallationFiles_removesRecycledAndRebuildsPayload() async {
+        let a = makeInstaller(name: "A.dmg", size: 5_000)
+        let b = makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        var recycled: [URL] = []
+        let vm = makeViewModel(
+            discover: { [] },
+            installers: { [a, b] },
+            recycle: { urls in
+                recycled = urls
+                return Set(urls)
+            }
+        )
+        await vm.scan()
+        vm.toggleInstallationFile(a)
+
+        await vm.deleteSelectedInstallationFiles()
+
+        XCTAssertEqual(recycled, [a.url], "Only the selected installer is recycled")
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.installationFiles, [b],
+                       "The recycled installer must be dropped from the payload")
+        XCTAssertFalse(vm.installationFileSelection.contains(a.url))
+        XCTAssertFalse(vm.isRemovingInstallationFiles)
+    }
+
+    func test_deleteSelectedInstallationFiles_keepsFilesThatFailedToRecycle() async {
+        let a = makeInstaller(name: "A.dmg", size: 5_000)
+        let b = makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        let vm = makeViewModel(
+            discover: { [] },
+            installers: { [a, b] },
+            // The recycler only manages to Trash one of the two selected.
+            recycle: { _ in [a.url] }
+        )
+        await vm.scan()
+        vm.selectAllInstallationFiles()
+
+        await vm.deleteSelectedInstallationFiles()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.installationFiles, [b],
+                       "A file the recycler couldn't move must stay in the list")
+        XCTAssertTrue(vm.installationFileSelection.contains(b.url),
+                      "The still-present file's selection survives so the user can retry")
+    }
+
+    func test_deleteSelectedInstallationFiles_withNoSelection_isNoOp() async {
+        var recycleCalls = 0
+        let vm = makeViewModel(
+            discover: { [] },
+            installers: { [self.makeInstaller(name: "A.dmg", size: 5_000)] },
+            recycle: { urls in recycleCalls += 1; return Set(urls) }
+        )
+        await vm.scan()
+
+        await vm.deleteSelectedInstallationFiles()
+
+        XCTAssertEqual(recycleCalls, 0, "Nothing selected → the recycler is never called")
     }
 }
 

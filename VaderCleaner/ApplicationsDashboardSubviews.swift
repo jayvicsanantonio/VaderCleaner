@@ -12,6 +12,7 @@ struct ApplicationsDashboardView: View {
     let result: ApplicationsScanResult
     let onOpenUpdates: () -> Void
     let onOpenManage: () -> Void
+    let onOpenInstallationFiles: () -> Void
     let onRescan: () -> Void
 
     var body: some View {
@@ -69,6 +70,17 @@ struct ApplicationsDashboardView: View {
                 ),
                 identifier: "applications.card.updates",
                 action: onOpenUpdates
+            )
+            ApplicationsCard(
+                title: installationFilesTitle,
+                detail: installationFilesDetail,
+                icon: "shippingbox",
+                actionLabel: String(
+                    localized: "Review",
+                    comment: "Applications Installation Files card action that opens the installer list."
+                ),
+                identifier: "applications.card.installationFiles",
+                action: onOpenInstallationFiles
             )
             ApplicationsCard(
                 title: String(
@@ -131,6 +143,35 @@ struct ApplicationsDashboardView: View {
         )
         return String.localizedStringWithFormat(format, Int64(result.installedCount))
     }
+
+    private var installationFilesTitle: String {
+        if result.installationFilesCount == 0 {
+            return String(
+                localized: "No Installation Files",
+                comment: "Applications Installation Files card title when none are found."
+            )
+        }
+        let format = String(
+            localized: "%lld Installation Files Found",
+            comment: "Applications Installation Files card title; %lld is the installer count."
+        )
+        return String.localizedStringWithFormat(format, Int64(result.installationFilesCount))
+    }
+
+    private var installationFilesDetail: String {
+        if result.installationFilesCount == 0 {
+            return String(
+                localized: "No leftover disk images or installer packages in your Downloads or Desktop.",
+                comment: "Applications Installation Files card detail when none are found."
+            )
+        }
+        let size = smartScanByteFormatter.string(fromByteCount: result.installationFilesTotalBytes)
+        let format = String(
+            localized: "Leftover disk images and installers in your Downloads and Desktop are using %@. They're safe to remove once an app is installed.",
+            comment: "Applications Installation Files card detail; %@ is the reclaimable size."
+        )
+        return String.localizedStringWithFormat(format, size)
+    }
 }
 
 /// A single Applications summary card. Uses the same glass surface and corner
@@ -170,6 +211,191 @@ struct ApplicationsCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+}
+
+// MARK: - Installation Files review
+
+/// The Installation Files detail screen: a multi-select list of leftover
+/// installers with a pinned Remove bar that moves the selected ones to the
+/// Trash. Selection is opt-in (destructive), mirroring the Large & Old Files
+/// review.
+struct InstallationFilesReviewView: View {
+    let files: [InstallationFile]
+    let isSelected: (InstallationFile) -> Bool
+    let onToggle: (InstallationFile) -> Void
+    let onSelectAll: () -> Void
+    let onClear: () -> Void
+    let isRemoving: Bool
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    private var selectedFiles: [InstallationFile] { files.filter(isSelected) }
+    private var selectedBytes: Int64 { selectedFiles.reduce(Int64(0)) { $0 + $1.sizeBytes } }
+    private var allSelected: Bool { !files.isEmpty && selectedFiles.count == files.count }
+
+    var body: some View {
+        if files.isEmpty {
+            emptyState
+        } else {
+            VStack(spacing: 0) {
+                selectAllBar
+                Divider()
+                List {
+                    ForEach(files) { file in
+                        InstallationFileRow(
+                            file: file,
+                            isSelected: isSelected(file),
+                            onToggle: { onToggle(file) }
+                        )
+                        .accessibilityIdentifier("applications.installationFiles.row.\(file.name)")
+                    }
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                Divider()
+                removeBar
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("applications.installationFiles")
+        }
+    }
+
+    private var selectAllBar: some View {
+        HStack {
+            Toggle(isOn: Binding(
+                get: { allSelected },
+                set: { $0 ? onSelectAll() : onClear() }
+            )) {
+                Text(String(
+                    localized: "Select All",
+                    comment: "Toggle that selects/deselects every installation file."
+                ))
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("applications.installationFiles.selectAll")
+            Spacer()
+            Text(countText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+    }
+
+    private var removeBar: some View {
+        HStack(spacing: 12) {
+            Text(selectionSummary)
+                .font(.callout.weight(.medium))
+            Spacer()
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            }
+            Button(String(
+                localized: "Move to Trash",
+                comment: "Button that moves the selected installation files to the Trash."
+            ), action: onRemove)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canRemove)
+                .accessibilityIdentifier("applications.installationFiles.remove")
+        }
+        .padding(16)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text(String(
+                localized: "No installation files",
+                comment: "Empty state on the Installation Files review."
+            ))
+            .font(.title3.weight(.semibold))
+            Text(String(
+                localized: "Your Downloads and Desktop have no leftover disk images or installer packages.",
+                comment: "Empty-state detail on the Installation Files review."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("applications.installationFiles.empty")
+    }
+
+    private var countText: String {
+        let total = smartScanByteFormatter.string(fromByteCount: files.reduce(Int64(0)) { $0 + $1.sizeBytes })
+        let format = String(
+            localized: "%lld files · %@",
+            comment: "Installation Files header count; %lld is the count, %@ the total size."
+        )
+        return String.localizedStringWithFormat(format, Int64(files.count), total)
+    }
+
+    private var selectionSummary: String {
+        let size = smartScanByteFormatter.string(fromByteCount: selectedBytes)
+        let format = String(
+            localized: "%lld selected · %@",
+            comment: "Installation Files remove-bar summary; %lld is the selected count, %@ the selected size."
+        )
+        return String.localizedStringWithFormat(format, Int64(selectedFiles.count), size)
+    }
+}
+
+/// One installation-file row: a checkbox, a kind badge, the file name, and its
+/// size.
+private struct InstallationFileRow: View {
+    let file: InstallationFile
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            Image(systemName: kindSymbol)
+                .font(.system(size: 18))
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.name)
+                    .font(.body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(kindLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(smartScanByteFormatter.string(fromByteCount: file.sizeBytes))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+        .padding(.vertical, 4)
+    }
+
+    private var kindSymbol: String {
+        switch file.kind {
+        case .diskImage: return "opticaldiscdrive"
+        case .package:   return "shippingbox"
+        }
+    }
+
+    private var kindLabel: String {
+        switch file.kind {
+        case .diskImage:
+            return String(localized: "Disk image", comment: "Installation file kind label.")
+        case .package:
+            return String(localized: "Installer package", comment: "Installation file kind label.")
+        }
     }
 }
 

@@ -56,6 +56,38 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the Updates card on the dashboard")
         XCTAssertTrue(app.buttons["applications.card.manage"].exists,
                       "Expected the Manage card on the dashboard")
+        XCTAssertTrue(app.buttons["applications.card.installationFiles"].exists,
+                      "Expected the Installation Files card on the dashboard")
+    }
+
+    /// The Installation Files card opens its review screen, and Back returns to
+    /// the dashboard.
+    func test_applications_installationFilesCardOpensReviewAndBackReturns() throws {
+        dismissOnboardingIfNeeded()
+        openApplicationsAndScan()
+
+        let card = app.buttons["applications.card.installationFiles"]
+        XCTAssertTrue(card.waitForExistence(timeout: 90),
+                      "Expected the Installation Files card after the scan")
+        card.click()
+
+        // Either the installer list or its empty state must render — both are
+        // valid display states depending on what's in Downloads/Desktop.
+        let reviewState = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier IN {'applications.installationFiles', 'applications.installationFiles.empty'}"
+            ))
+            .firstMatch
+        XCTAssertTrue(reviewState.waitForExistence(timeout: 10),
+                      "Expected the Installation Files review screen to render")
+
+        let back = app.buttons["applications.backToDashboard"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
+        back.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
+            "Expected Back to return to the dashboard grid"
+        )
     }
 
     /// The Updates card opens the reused App Updater screen, and Back returns

@@ -22,11 +22,12 @@ struct ApplicationsView: View {
     /// brief remount when the underlying detail view loads.
     @State private var detail: Detail = .dashboard
 
-    /// The results surface's three screens.
+    /// The results surface's screens.
     private enum Detail {
         case dashboard
         case updates
         case manage
+        case installationFiles
     }
 
     init(
@@ -75,6 +76,7 @@ struct ApplicationsView: View {
                     result: result,
                     onOpenUpdates: { detail = .updates },
                     onOpenManage: { detail = .manage },
+                    onOpenInstallationFiles: { detail = .installationFiles },
                     onRescan: { Task { await viewModel.scan() } }
                 )
                 .padding(24)
@@ -97,6 +99,24 @@ struct ApplicationsView: View {
                 )
             ) {
                 AppUninstallerView(viewModel: uninstallerViewModel)
+            }
+        case .installationFiles:
+            detailScreen(
+                title: String(
+                    localized: "Installation Files",
+                    comment: "Title of the Applications Installation Files detail screen."
+                )
+            ) {
+                InstallationFilesReviewView(
+                    files: result.installationFiles,
+                    isSelected: viewModel.isInstallationFileSelected,
+                    onToggle: viewModel.toggleInstallationFile,
+                    onSelectAll: viewModel.selectAllInstallationFiles,
+                    onClear: viewModel.clearInstallationFileSelection,
+                    isRemoving: viewModel.isRemovingInstallationFiles,
+                    canRemove: viewModel.canRemoveInstallationFiles,
+                    onRemove: { Task { await viewModel.deleteSelectedInstallationFiles() } }
+                )
             }
         }
     }
@@ -143,7 +163,9 @@ struct ApplicationsView: View {
     ApplicationsView(
         viewModel: ApplicationsViewModel(
             discoverApps: { [] },
-            checkUpdates: { _ in [] }
+            checkUpdates: { _ in [] },
+            scanInstallationFiles: { [] },
+            recycleFiles: { Set($0) }
         ),
         uninstallerViewModel: AppUninstallerViewModel(
             discover: { _ in [] },
