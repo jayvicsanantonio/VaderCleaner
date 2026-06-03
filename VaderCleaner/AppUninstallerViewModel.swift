@@ -29,8 +29,23 @@ final class AppUninstallerViewModel {
         case loading
         case ready
         case uninstalling
-        case complete(bytesFreed: Int64)
-        case failed(stage: FailureStage, message: String)
+        /// `permanentRemoval` is true when the app bundle was permanently
+        /// removed (root-owned / App Store app the user couldn't Trash)
+        /// rather than moved to the Trash, so the completion screen can stay
+        /// truthful about whether the app can be restored.
+        case complete(bytesFreed: Int64, permanentRemoval: Bool)
+        /// `helperConnectionIssue` is true when the failure was the privileged
+        /// helper being unreachable, so the failure screen can offer a
+        /// "Reinstall Helper" recovery instead of a plain retry.
+        case failed(stage: FailureStage, message: String, helperConnectionIssue: Bool)
+    }
+
+    /// Result of a recycle: how many bytes were actually freed, and whether
+    /// the bundle had to be permanently removed via the privileged helper
+    /// (because the user couldn't move a root-owned bundle to the Trash).
+    struct RecycleOutcome: Equatable, Sendable {
+        let bytesFreed: Int64
+        let bundlePermanentlyRemoved: Bool
     }
 
     typealias Discover     = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
@@ -39,8 +54,12 @@ final class AppUninstallerViewModel {
     /// Recycler contract: takes the `.app` bundle URL and the associated
     /// file URLs separately so the production implementation can verify
     /// the bundle itself was moved (and not just the user-writable
-    /// residue). Returns the byte-count actually freed.
-    typealias Recycle      = @Sendable (_ bundleURL: URL, _ associatedURLs: [URL]) async throws -> Int64
+    /// residue). Reports the bytes actually freed and whether the bundle
+    /// was permanently removed rather than Trashed.
+    typealias Recycle      = @Sendable (_ bundleURL: URL, _ associatedURLs: [URL]) async throws -> RecycleOutcome
+    /// Forces a clean re-registration of the privileged helper and points the
+    /// user at the approval UI. Injected so tests don't touch `SMAppService`.
+    typealias ReinstallHelper = @Sendable () async -> Void
 
     private(set) var phase: Phase = .idle
     private(set) var apps: [AppInfo] = []
@@ -57,6 +76,7 @@ final class AppUninstallerViewModel {
     @ObservationIgnored private let findFiles: FindFiles
     @ObservationIgnored private let measureSize: MeasureSize
     @ObservationIgnored private let recycle: Recycle
+    @ObservationIgnored private let reinstallHelperService: ReinstallHelper
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUninstallerViewModel")
 
@@ -78,12 +98,14 @@ final class AppUninstallerViewModel {
         discover: @escaping Discover,
         findFiles: @escaping FindFiles,
         measureSize: @escaping MeasureSize = { _ in 0 },
-        recycle: @escaping Recycle
+        recycle: @escaping Recycle,
+        reinstallHelper: @escaping ReinstallHelper = {}
     ) {
         self.discover = discover
         self.findFiles = findFiles
         self.measureSize = measureSize
         self.recycle = recycle
+        self.reinstallHelperService = reinstallHelper
     }
 
     // MARK: - Public surface
@@ -160,7 +182,9 @@ final class AppUninstallerViewModel {
             self.apps = []
             self.selectedAppID = nil
             self.associatedFiles = []
-            self.phase = .failed(stage: .loading, message: error.localizedDescription)
+            self.phase = .failed(stage: .loading,
+                                 message: error.localizedDescription,
+                                 helperConnectionIssue: false)
         }
     }
 
@@ -262,12 +286,12 @@ final class AppUninstallerViewModel {
         let associatedURLs = associatedFiles.map { $0.url }
         phase = .uninstalling
         do {
-            let bytesFreed = try await recycle(app.bundleURL, associatedURLs)
+            let outcome = try await recycle(app.bundleURL, associatedURLs)
             // Drop the app from the cached list and reset selection so the
             // user sees the result without a stale row pointing at a now-
-            // Trashed bundle. `bytesFreed` is the recycler's authoritative
-            // sum of what it actually moved to Trash — we do NOT fall back
-            // to a planned/optimistic total, since that would claim
+            // removed bundle. `outcome.bytesFreed` is the recycler's
+            // authoritative sum of what it actually removed — we do NOT fall
+            // back to a planned/optimistic total, since that would claim
             // "X MB freed" when the recycler reports 0.
             apps.removeAll(where: { $0.id == app.id })
             selectedAppID = nil
@@ -275,12 +299,31 @@ final class AppUninstallerViewModel {
             selectedAppBundleSize = nil
             associatedFilesCache.removeValue(forKey: app.id)
             bundleSizeCache.removeValue(forKey: app.id)
-            phase = .complete(bytesFreed: bytesFreed)
+            phase = .complete(bytesFreed: outcome.bytesFreed,
+                              permanentRemoval: outcome.bundlePermanentlyRemoved)
         } catch {
             // Privacy: errors may include user-specific paths.
             log.error("App uninstall failed: \(String(describing: error), privacy: .private)")
-            phase = .failed(stage: .uninstalling, message: error.localizedDescription)
+            // Route through the shared mapper so an unreachable privileged
+            // helper surfaces the friendly "Helper is not responding" copy
+            // instead of the cryptic "Couldn't communicate with a helper
+            // application." NSXPC string. Non-connection errors (a real
+            // permission denial) still pass through their own description.
+            // Flag connection failures so the failure screen can offer to
+            // reinstall the helper rather than only retry.
+            phase = .failed(stage: .uninstalling,
+                            message: HelperConnectionError.userFacingMessage(for: error),
+                            helperConnectionIssue: HelperConnectionError.isConnectionFailure(error))
         }
+    }
+
+    /// Re-registers the privileged helper (and opens the approval UI) after a
+    /// helper-connection failure, then reloads the app list so the user can
+    /// retry the uninstall. Invoked by the "Reinstall Helper" action on the
+    /// failure screen.
+    func reinstallHelper() async {
+        await reinstallHelperService()
+        await loadApps()
     }
 
     /// Returns the VM to `.ready` after a complete / failed phase so the
@@ -335,55 +378,139 @@ extension AppUninstallerViewModel {
                     bundleURL: bundleURL,
                     associatedURLs: associatedURLs
                 )
+            },
+            // recycleViaWorkspace already returns a RecycleOutcome.
+            reinstallHelper: {
+                await HelperRegistration.reregister()
+                await HelperRegistration.openLoginItemsSettings()
             }
         )
     }
 
-    /// Bridges `NSWorkspace.recycle(_:completionHandler:)` (callback-based,
-    /// returns a `[URL: URL]` map of original → Trash URLs) to an async
-    /// throwing call that reports total bytes successfully Trashed.
-    ///
-    /// `NSWorkspace.recycle` does NOT throw on partial failure — it returns
-    /// the items it managed to Trash and reports an error only when the
-    /// entire batch failed. The `.app` bundle is the must-succeed item:
-    /// if user-writable residue gets Trashed but the root-owned bundle
-    /// itself is denied, the app is still installed and showing
-    /// "Complete" would mislead the user (and leave a stale row in the
-    /// list). We therefore throw whenever the bundle URL is missing from
-    /// `newURLs`, even if some associated files succeeded. Associated-
-    /// file partial failures are tolerated — they're best-effort
-    /// cleanup, and "we Trashed the app and most of its data" is a
-    /// useful outcome.
+    /// Production recycle: move to Trash via `NSWorkspace`, then escalate
+    /// anything the user couldn't move (a root-owned / App Store bundle) to
+    /// the privileged helper. Wires the real side-effecting primitives into
+    /// `recycleWithEscalation`.
     private static func recycleViaWorkspace(
         bundleURL: URL,
         associatedURLs: [URL]
-    ) async throws -> Int64 {
+    ) async throws -> RecycleOutcome {
+        try await recycleWithEscalation(
+            bundleURL: bundleURL,
+            associatedURLs: associatedURLs,
+            recycle: { urls in await workspaceRecycle(urls) },
+            escalate: { paths in await escalateToHelper(paths) },
+            sizeFor: { sizes(for: $0) },
+            exists: { FileManager.default.fileExists(atPath: $0) }
+        )
+    }
+
+    /// Pure orchestration of the recycle → privileged-escalation → byte-credit
+    /// flow, with every side-effecting primitive injected so it can be unit
+    /// tested without `NSWorkspace` or a live XPC helper.
+    ///
+    /// Steps:
+    ///   1. Snapshot sizes *before* anything moves — a Trashed or deleted path
+    ///      no longer stats, so we couldn't credit it afterwards.
+    ///   2. Move everything via `recycle` (`NSWorkspace` → the user's Trash).
+    ///      User-owned residue lands here and stays restorable.
+    ///   3. Anything still on disk afterwards is a path the user lacked
+    ///      permission to move — typically the root-owned `.app` bundle of an
+    ///      App Store app. Escalate those to the privileged helper, which
+    ///      removes them *permanently* (it cannot move to the user's Trash).
+    ///   4. Credit bytes for every original item that no longer exists,
+    ///      whether it was Trashed or permanently removed.
+    ///   5. The `.app` bundle is the must-succeed item. If it survives both
+    ///      passes the app is still installed, so throw rather than report a
+    ///      false "Complete" and leave a stale row in the list. Associated-
+    ///      file partial failures are tolerated — best-effort cleanup.
+    static func recycleWithEscalation(
+        bundleURL: URL,
+        associatedURLs: [URL],
+        recycle: (_ urls: [URL]) async -> (moved: Set<String>, error: Error?),
+        escalate: (_ paths: [String]) async -> Error?,
+        sizeFor: (_ urls: [URL]) -> [String: Int64],
+        exists: (_ path: String) -> Bool
+    ) async throws -> RecycleOutcome {
         let allURLs = [bundleURL] + associatedURLs
-        // Capture sizes before recycle — once the path is in Trash, the
-        // original URL doesn't stat anymore. We need this to credit
-        // bytes-freed for the items the workspace successfully moved.
-        let sizesByPath = sizes(for: allURLs)
-        return try await withCheckedThrowingContinuation { continuation in
-            NSWorkspace.shared.recycle(allURLs) { newURLs, error in
-                let bundleMoved = newURLs.keys.contains(where: { $0.path == bundleURL.path })
-                if !bundleMoved {
-                    let resolvedError = error ?? NSError(
-                        domain: "com.personal.VaderCleaner.AppUninstaller",
-                        code: -1,
-                        userInfo: [
-                            NSLocalizedDescriptionKey: "The application bundle could not be moved to the Trash."
-                        ]
-                    )
-                    continuation.resume(throwing: resolvedError)
-                    return
-                }
-                var bytesFreed: Int64 = 0
-                for original in newURLs.keys {
-                    bytesFreed += sizesByPath[original.path] ?? 0
-                }
-                continuation.resume(returning: bytesFreed)
+        let sizesByPath = sizeFor(allURLs)
+
+        let (moved, recycleError) = await recycle(allURLs)
+
+        // Escalate only the *bundle* to the privileged helper for permanent
+        // removal — never the associated files. The confirmation promised the
+        // associated files would be moved to the Trash (restorable), so any
+        // the user couldn't Trash are left in place best-effort rather than
+        // permanently deleted behind the user's back.
+        var escalateError: Error?
+        if !moved.contains(bundleURL.path), exists(bundleURL.path) {
+            escalateError = await escalate([bundleURL.path])
+        }
+
+        if exists(bundleURL.path) {
+            throw escalateError ?? recycleError ?? bundleNotMovedError()
+        }
+
+        let bytesFreed = allURLs.reduce(Int64(0)) { sum, url in
+            exists(url.path) ? sum : sum + (sizesByPath[url.path] ?? 0)
+        }
+        // The bundle was permanently removed (not Trashed) when NSWorkspace
+        // didn't move it but it is now gone — i.e. the privileged helper
+        // deleted it. This is the authoritative signal the completion screen
+        // uses, rather than a pre-flight guess at App Store status.
+        let bundlePermanentlyRemoved = !moved.contains(bundleURL.path)
+            && !exists(bundleURL.path)
+        return RecycleOutcome(
+            bytesFreed: bytesFreed,
+            bundlePermanentlyRemoved: bundlePermanentlyRemoved
+        )
+    }
+
+    /// Bridges `NSWorkspace.recycle(_:completionHandler:)` (callback-based,
+    /// returns a `[URL: URL]` map of original → Trash URLs) to an async call
+    /// that reports the set of original paths successfully Trashed plus any
+    /// batch-level error. `NSWorkspace.recycle` does NOT throw on partial
+    /// failure — it Trashes what it can and reports an error only when the
+    /// whole batch fails.
+    private static func workspaceRecycle(
+        _ urls: [URL]
+    ) async -> (moved: Set<String>, error: Error?) {
+        await withCheckedContinuation { continuation in
+            NSWorkspace.shared.recycle(urls) { newURLs, error in
+                let moved = Set(newURLs.keys.map { $0.path })
+                continuation.resume(returning: (moved, error))
             }
         }
+    }
+
+    /// Sends `paths` to the privileged helper for permanent removal. Mirrors
+    /// `SystemJunkDeleter`'s dual-resume guard: `NSXPCConnection` may fire the
+    /// connection-level error handler *instead of* the reply block, so we arm
+    /// both and let whichever lands first resolve the call.
+    private static func escalateToHelper(_ paths: [String]) async -> Error? {
+        await withCheckedContinuation { continuation in
+            let resumer = HelperReplyResumer(continuation: continuation)
+            let helper = HelperConnectionManager.shared.helper { error in
+                resumer.resume(with: error)
+            }
+            guard let helper else {
+                resumer.resume(with: HelperConnectionError.unavailable)
+                return
+            }
+            helper.deleteFiles(paths) { replyError in
+                resumer.resume(with: replyError)
+            }
+        }
+    }
+
+    private static func bundleNotMovedError() -> NSError {
+        NSError(
+            domain: "com.personal.VaderCleaner.AppUninstaller",
+            code: -1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "The application bundle could not be moved to the Trash."
+            ]
+        )
     }
 
     /// Pre-recycle size snapshot keyed by absolute path. Directories sum
@@ -425,5 +552,29 @@ extension AppUninstallerViewModel {
             result[url.path] = total
         }
         return result
+    }
+}
+
+// MARK: - Once-only continuation resume
+
+/// Wraps a `CheckedContinuation` so exactly one of the paths that may complete
+/// a helper XPC call (reply block, connection error handler, "helper
+/// unavailable" early return) actually resumes it — `CheckedContinuation`
+/// traps on a second resume. Mirrors the `Resumer` used by `SystemJunkDeleter`
+/// for the same dual-callback race.
+private final class HelperReplyResumer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Error?, Never>?
+
+    init(continuation: CheckedContinuation<Error?, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(with error: Error?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: error)
     }
 }

@@ -47,6 +47,13 @@ struct HelperDeletionPolicy {
             URL(fileURLWithPath: "/Library/Application Support", isDirectory: true),
             URL(fileURLWithPath: "/Library/Frameworks", isDirectory: true)
         ],
+        // Top-level `.app` bundles the App Uninstaller removes when
+        // NSWorkspace can't (root-owned / App Store apps). Scoped to
+        // `/Applications` only — user-domain apps under `~/Applications` are
+        // user-writable and never need privileged removal.
+        allowedApplicationBundleRoots: [
+            URL(fileURLWithPath: "/Applications", isDirectory: true)
+        ],
         volumesRoot: URL(fileURLWithPath: "/Volumes", isDirectory: true)
     )
 
@@ -54,6 +61,7 @@ struct HelperDeletionPolicy {
     private let allowedLaunchPlistRoots: [URL]
     private let allowedUserLaunchAgentsRoot: URL?
     private let allowedLanguageResourceRoots: [URL]
+    private let allowedApplicationBundleRoots: [URL]
     private let volumesRoot: URL
 
     init(
@@ -61,12 +69,14 @@ struct HelperDeletionPolicy {
         allowedLaunchPlistRoots: [URL] = [],
         allowedUserLaunchAgentsRoot: URL? = nil,
         allowedLanguageResourceRoots: [URL],
+        allowedApplicationBundleRoots: [URL] = [],
         volumesRoot: URL
     ) {
         self.allowedDescendantRoots = allowedDescendantRoots.map(Self.canonicalRoot)
         self.allowedLaunchPlistRoots = allowedLaunchPlistRoots.map(Self.canonicalRoot)
         self.allowedUserLaunchAgentsRoot = allowedUserLaunchAgentsRoot.map(Self.canonicalRoot)
         self.allowedLanguageResourceRoots = allowedLanguageResourceRoots.map(Self.canonicalRoot)
+        self.allowedApplicationBundleRoots = allowedApplicationBundleRoots.map(Self.canonicalRoot)
         self.volumesRoot = Self.canonicalRoot(volumesRoot)
     }
 
@@ -160,7 +170,34 @@ struct HelperDeletionPolicy {
         if isAllowedLanguageResource(url) {
             return true
         }
+        if isAllowedApplicationBundle(url) {
+            return true
+        }
         return false
+    }
+
+    /// A top-level `.app` bundle under one of `allowedApplicationBundleRoots`.
+    /// Permits `/Applications/Example.app` and apps nested in plain subfolders
+    /// (`/Applications/Utilities/Example.app`), but refuses anything inside
+    /// another package (`/Applications/Outer.app/Contents/.../Inner.app`) so
+    /// the uninstall path can only remove a whole installed app, never carve
+    /// out a piece of one.
+    private func isAllowedApplicationBundle(_ url: URL) -> Bool {
+        guard let root = allowedApplicationBundleRoots.first(where: { Self.isDescendant(url, of: $0) }) else {
+            return false
+        }
+        guard Self.pathExtension(of: url.lastPathComponent).caseInsensitiveCompare("app") == .orderedSame else {
+            return false
+        }
+        let relative = Self.relativeComponents(of: url, under: root)
+        let intermediates = relative.dropLast()
+        return !intermediates.contains(where: { component in
+            let ext = Self.pathExtension(of: component)
+            return ext.caseInsensitiveCompare("app") == .orderedSame
+                || ext.caseInsensitiveCompare("framework") == .orderedSame
+                || ext.caseInsensitiveCompare("bundle") == .orderedSame
+                || ext.caseInsensitiveCompare("appex") == .orderedSame
+        })
     }
 
     private func isAllowedVolumeTrashDescendant(_ url: URL) -> Bool {

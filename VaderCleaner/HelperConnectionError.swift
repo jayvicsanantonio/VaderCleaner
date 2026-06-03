@@ -27,21 +27,25 @@ enum HelperConnectionError: LocalizedError {
     /// localized description so a locked file or permission denial still
     /// tells the user what actually went wrong.
     static func userFacingMessage(for error: Error) -> String {
+        isConnectionFailure(error) ? message : error.localizedDescription
+    }
+
+    /// True when `error` means the privileged helper couldn't be reached (this
+    /// enum, or an `NSXPCConnection` connection-class `NSCocoaError`), as
+    /// opposed to a substantive failure the helper itself reported. Callers
+    /// use this to offer a "Reinstall Helper" recovery rather than a plain
+    /// retry.
+    ///
+    /// `NSXPCConnection` reports a dropped/unavailable connection as
+    /// `NSCocoaErrorDomain` 4097 (interrupted), 4099 (invalid), or 4101
+    /// (reply invalid) — the codes whose system `localizedDescription` is the
+    /// cryptic "Couldn't communicate with a helper application."
+    static func isConnectionFailure(_ error: Error) -> Bool {
         if error is HelperConnectionError {
-            return message
+            return true
         }
-
         let nsError = error as NSError
-
-        // NSXPCConnection reports a dropped/unavailable connection as
-        // NSCocoaErrorDomain 4097 (interrupted), 4099 (invalid), or 4101
-        // (reply invalid). The system's own localizedDescription for these
-        // is the cryptic "Couldn't communicate with a helper application."
-        if nsError.domain == NSCocoaErrorDomain,
-           [4097, 4099, 4101].contains(nsError.code) {
-            return message
-        }
-
-        return error.localizedDescription
+        return nsError.domain == NSCocoaErrorDomain
+            && [4097, 4099, 4101].contains(nsError.code)
     }
 }

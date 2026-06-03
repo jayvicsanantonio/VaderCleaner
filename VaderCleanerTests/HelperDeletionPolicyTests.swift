@@ -73,6 +73,9 @@ final class HelperDeletionPolicyTests: XCTestCase {
                 libraryApplicationSupportRoot,
                 frameworksRoot
             ],
+            allowedApplicationBundleRoots: [
+                applicationsRoot
+            ],
             volumesRoot: volumesRoot
         )
     }
@@ -140,6 +143,61 @@ final class HelperDeletionPolicyTests: XCTestCase {
             .appendingPathComponent("Example.app/Contents/Resources/fr.lproj", isDirectory: true)
 
         XCTAssertEqual(try policy.validateDeletionPath(url.path).path, url.standardizedFileURL.path)
+    }
+
+    func test_validateDeletionPath_acceptsTopLevelApplicationBundle() throws {
+        let url = applicationsRoot.appendingPathComponent("Example.app", isDirectory: true)
+
+        XCTAssertEqual(try policy.validateDeletionPath(url.path).path, url.standardizedFileURL.path)
+    }
+
+    func test_validateDeletionPath_acceptsApplicationBundleInsidePlainSubfolder() throws {
+        let url = applicationsRoot
+            .appendingPathComponent("Utilities", isDirectory: true)
+            .appendingPathComponent("Example.app", isDirectory: true)
+
+        XCTAssertEqual(try policy.validateDeletionPath(url.path).path, url.standardizedFileURL.path)
+    }
+
+    func test_validateDeletionPath_rejectsAppNestedInsideAnotherBundle() {
+        let path = applicationsRoot
+            .appendingPathComponent("Outer.app/Contents/Helpers/Inner.app", isDirectory: true)
+            .path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
+    }
+
+    func test_validateDeletionPath_rejectsNonAppDirectlyUnderApplications() {
+        let path = applicationsRoot
+            .appendingPathComponent("PlainFolder", isDirectory: true)
+            .path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
+    }
+
+    func test_validateDeletionPath_rejectsFileInsideAppBundleAsBundle() {
+        // A regular file inside the bundle is not itself a `.app`, so the
+        // bundle rule must not green-light deleting individual interior files.
+        let path = applicationsRoot
+            .appendingPathComponent("Example.app/Contents/MacOS/Example")
+            .path
+
+        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
+            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
+        }
+    }
+
+    func test_productionPolicy_acceptsTopLevelApplicationBundle() throws {
+        let path = "/Applications/Canva.app"
+
+        XCTAssertEqual(
+            try HelperDeletionPolicy.production.validateDeletionPath(path).path,
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
     }
 
     func test_validateDeletionPath_acceptsSystemLaunchAgentAndDaemonPlists() throws {
