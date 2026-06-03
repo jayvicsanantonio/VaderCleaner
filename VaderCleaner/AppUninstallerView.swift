@@ -25,7 +25,10 @@ struct AppUninstallerView: View {
             .id(phaseTransitionID)
             .transition(.opacity)
             .animation(.smooth(duration: 0.35), value: phaseTransitionID)
-            .navigationTitle(NavigationSection.appUninstaller.title)
+            .navigationTitle(String(
+                localized: "App Uninstaller",
+                comment: "Navigation title for the App Uninstaller screen, reused as an Applications detail screen."
+            ))
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.loadApps()

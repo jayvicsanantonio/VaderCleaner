@@ -242,7 +242,40 @@ struct SectionPresentation {
                     ),
                 ]
             )
-        case .extensions, .appUninstaller, .appUpdater, .healthMonitor:
+        case .applications:
+            // No bespoke USDZ hero ships for Applications yet, so it uses the
+            // SF Symbol hero fallback (`heroModelName: nil`). The feature rows
+            // preview the cards the post-scan grid surfaces.
+            return SectionPresentation(
+                heroSymbol: "square.grid.2x2.fill",
+                heroAssetName: nil,
+                heroModelName: nil,
+                heroModelScale: 1.0,
+                accent: section.theme.accent,
+                tagline: String(
+                    localized: "Review updates, unused apps, and leftovers in one place.",
+                    comment: "Applications intro tagline."
+                ),
+                features: [
+                    SectionFeature(
+                        symbol: "arrow.triangle.2.circlepath",
+                        title: String(localized: "Updates", comment: "Applications feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "moon.zzz",
+                        title: String(localized: "Unused Apps", comment: "Applications feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "exclamationmark.triangle",
+                        title: String(localized: "Unsupported Apps", comment: "Applications feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "trash",
+                        title: String(localized: "Leftovers", comment: "Applications feature row.")
+                    ),
+                ]
+            )
+        case .extensions, .healthMonitor:
             return nil
         }
     }

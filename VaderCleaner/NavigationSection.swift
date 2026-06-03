@@ -12,8 +12,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case optimization
     case privacy
     case extensions
-    case appUninstaller
-    case appUpdater
+    case applications
     case healthMonitor
 
     var id: Self { self }
@@ -28,8 +27,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .optimization:    return String(localized: "Optimization")
         case .privacy:         return String(localized: "Privacy")
         case .extensions:      return String(localized: "Extensions")
-        case .appUninstaller:  return String(localized: "App Uninstaller")
-        case .appUpdater:      return String(localized: "App Updater")
+        case .applications:    return String(localized: "Applications")
         case .healthMonitor:   return String(localized: "Health Monitor")
         }
     }
@@ -48,8 +46,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .optimization:    return "sidebar.optimization"
         case .privacy:         return "sidebar.privacy"
         case .extensions:      return "sidebar.extensions"
-        case .appUninstaller:  return "sidebar.appUninstaller"
-        case .appUpdater:      return "sidebar.appUpdater"
+        case .applications:    return "sidebar.applications"
         case .healthMonitor:   return "sidebar.healthMonitor"
         }
     }
@@ -77,8 +74,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .optimization:    return "gauge.with.needle"
         case .privacy:         return "lock.shield"
         case .extensions:      return "puzzlepiece.extension"
-        case .appUninstaller:  return "xmark.app"
-        case .appUpdater:      return "arrow.triangle.2.circlepath.circle"
+        case .applications:    return "square.grid.2x2"
         case .healthMonitor:   return "heart.text.square"
         }
     }
@@ -91,10 +87,10 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var isScannable: Bool {
         switch self {
         case .smartScan, .systemJunk, .largeOldFiles,
-             .spaceLens, .malwareRemoval, .optimization, .privacy:
+             .spaceLens, .malwareRemoval, .optimization, .privacy,
+             .applications:
             return true
-        case .extensions, .appUninstaller,
-             .appUpdater, .healthMonitor:
+        case .extensions, .healthMonitor:
             return false
         }
     }
@@ -112,7 +108,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
              .spaceLens, .malwareRemoval, .privacy:
             return true
         case .optimization, .extensions,
-             .appUninstaller, .appUpdater, .healthMonitor:
+             .applications, .healthMonitor:
             return false
         }
     }

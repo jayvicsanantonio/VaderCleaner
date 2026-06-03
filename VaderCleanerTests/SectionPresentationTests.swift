@@ -8,15 +8,25 @@ import SwiftUI
 
 final class SectionPresentationTests: XCTestCase {
 
-    /// The seven sections that drive a scan/load and therefore get the unified
+    /// The eight sections that drive a scan/load and therefore get the unified
     /// intro screen + floating Scan button. Pinned here so a drift in
     /// `isScannable` or `SectionPresentation.for(_:)` fails loudly.
     private let scannableSections: Set<NavigationSection> = [
         .smartScan, .systemJunk, .largeOldFiles,
         .spaceLens, .malwareRemoval, .optimization, .privacy,
+        .applications,
     ]
 
-    func test_isScannable_isTrueForExactlyTheSevenScannableSections() {
+    /// The scannable sections that ship a bespoke USDZ 3D hero model named
+    /// after their enum case. `.applications` is intentionally excluded — it
+    /// uses the SF Symbol hero fallback (`heroModelName: nil`) until a model
+    /// is designed for it.
+    private let sectionsWithHeroModel: Set<NavigationSection> = [
+        .smartScan, .systemJunk, .largeOldFiles,
+        .spaceLens, .malwareRemoval, .optimization, .privacy,
+    ]
+
+    func test_isScannable_isTrueForExactlyTheEightScannableSections() {
         for section in NavigationSection.allCases {
             let expected = scannableSections.contains(section)
             XCTAssertEqual(
@@ -27,9 +37,9 @@ final class SectionPresentationTests: XCTestCase {
         }
     }
 
-    func test_isScannable_countIsExactlySeven() {
+    func test_isScannable_countIsExactlyEight() {
         let count = NavigationSection.allCases.filter(\.isScannable).count
-        XCTAssertEqual(count, 7, "Exactly seven sections must be scannable")
+        XCTAssertEqual(count, 8, "Exactly eight sections must be scannable")
     }
 
     func test_presentationFor_isNonNilForScannableAndNilOtherwise() {
@@ -114,13 +124,26 @@ final class SectionPresentationTests: XCTestCase {
     /// its enum case name (e.g. `.smartScan` → `"smartScan"`). The naming is
     /// the contract that lets `SectionIntroView` resolve the right asset
     /// without a per-section switch.
-    func test_everyScannablePresentation_hasHeroModelNameMatchingSectionCase() throws {
-        for section in scannableSections {
+    func test_everyModelBearingPresentation_hasHeroModelNameMatchingSectionCase() throws {
+        for section in sectionsWithHeroModel {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
             XCTAssertEqual(
                 presentation.heroModelName,
                 String(describing: section),
                 "Section \(section) must declare heroModelName \"\(String(describing: section))\""
+            )
+        }
+    }
+
+    /// Sections that intentionally have no USDZ hero must declare
+    /// `heroModelName: nil` so `SectionIntroView` takes the SF Symbol fallback
+    /// rather than trying to load a missing model.
+    func test_sectionsWithoutHeroModel_declareNilModelName() throws {
+        for section in scannableSections.subtracting(sectionsWithHeroModel) {
+            let presentation = try XCTUnwrap(SectionPresentation.for(section))
+            XCTAssertNil(
+                presentation.heroModelName,
+                "Section \(section) ships no USDZ, so heroModelName must be nil"
             )
         }
     }
@@ -134,7 +157,7 @@ final class SectionPresentationTests: XCTestCase {
         // here is the host app's bundle — the same one Model3D(named:)
         // queries at runtime.
         let bundle = Bundle.main
-        for section in scannableSections {
+        for section in sectionsWithHeroModel {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
             let modelName = try XCTUnwrap(
                 presentation.heroModelName,
