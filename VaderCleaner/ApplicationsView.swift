@@ -29,6 +29,7 @@ struct ApplicationsView: View {
         case manage
         case installationFiles
         case unsupported
+        case unused
     }
 
     init(
@@ -79,6 +80,7 @@ struct ApplicationsView: View {
                     onOpenManage: { detail = .manage },
                     onOpenInstallationFiles: { detail = .installationFiles },
                     onOpenUnsupported: { detail = .unsupported },
+                    onOpenUnused: { detail = .unused },
                     onRescan: { Task { await viewModel.scan() } }
                 )
                 .padding(24)
@@ -138,6 +140,24 @@ struct ApplicationsView: View {
                     onRemove: { Task { await viewModel.deleteSelectedUnsupportedApps() } }
                 )
             }
+        case .unused:
+            detailScreen(
+                title: String(
+                    localized: "Unused Applications",
+                    comment: "Title of the Applications Unused detail screen."
+                )
+            ) {
+                UnusedAppsReviewView(
+                    apps: result.unusedApps,
+                    isSelected: viewModel.isUnusedAppSelected,
+                    onToggle: viewModel.toggleUnusedApp,
+                    onSelectAll: viewModel.selectAllUnusedApps,
+                    onClear: viewModel.clearUnusedAppSelection,
+                    isRemoving: viewModel.isRemovingUnusedApps,
+                    canRemove: viewModel.canRemoveUnusedApps,
+                    onRemove: { Task { await viewModel.deleteSelectedUnusedApps() } }
+                )
+            }
         }
     }
 
@@ -186,6 +206,7 @@ struct ApplicationsView: View {
             checkUpdates: { _ in [] },
             scanInstallationFiles: { [] },
             scanUnsupportedApps: { _ in [] },
+            scanUnusedApps: { _ in [] },
             recycleFiles: { Set($0) }
         ),
         uninstallerViewModel: AppUninstallerViewModel(

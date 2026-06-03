@@ -59,6 +59,19 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
+    nonisolated private func makeUnused(name: String, bundleID: String) -> UnusedApp {
+        UnusedApp(
+            app: AppInfo(
+                name: name,
+                bundleID: bundleID,
+                version: "1.0",
+                bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
+                isAppStore: false
+            ),
+            lastUsedDate: Date(timeIntervalSince1970: 1_600_000_000)
+        )
+    }
+
     /// Builds a view-model with injected collaborators. Sub-scans default to
     /// empty and recycling to "removes everything asked" so the existing tests
     /// stay focused on the discover → update path.
@@ -67,6 +80,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         check: @escaping ApplicationsViewModel.CheckUpdates = { _ in [] },
         installers: @escaping ApplicationsViewModel.ScanInstallationFiles = { [] },
         unsupported: @escaping ApplicationsViewModel.ScanUnsupportedApps = { _ in [] },
+        unused: @escaping ApplicationsViewModel.ScanUnusedApps = { _ in [] },
         recycle: @escaping ApplicationsViewModel.RecycleFiles = { Set($0) }
     ) -> ApplicationsViewModel {
         ApplicationsViewModel(
@@ -74,6 +88,7 @@ final class ApplicationsViewModelTests: XCTestCase {
             checkUpdates: check,
             scanInstallationFiles: installers,
             scanUnsupportedApps: unsupported,
+            scanUnusedApps: unused,
             recycleFiles: recycle
         )
     }
@@ -435,6 +450,84 @@ final class ApplicationsViewModelTests: XCTestCase {
         XCTAssertTrue(result.installationFiles.isEmpty)
         XCTAssertEqual(result.unsupportedApps, [unsupported],
                        "Unrelated payload must survive an installer delete")
+    }
+
+    // MARK: - Unused apps
+
+    func test_scan_carriesUnusedAppsIntoResults() async {
+        let unused = [makeUnused(name: "Dusty", bundleID: "com.dusty.app")]
+        let vm = makeViewModel(discover: { [] }, unused: { _ in unused })
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.unusedApps, unused)
+        XCTAssertEqual(result.unusedAppsCount, 1)
+    }
+
+    func test_scan_passesDiscoveredAppsToTheUnusedScan() async {
+        let apps = [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
+        var received: [AppInfo] = []
+        let vm = makeViewModel(
+            discover: { apps },
+            unused: { discovered in
+                received = discovered
+                return []
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(received, apps, "The unused scan must receive the discovered apps")
+    }
+
+    func test_deleteSelectedUnusedApps_recyclesBundlesAndRebuildsPayload() async {
+        let a = makeUnused(name: "Dusty", bundleID: "com.dusty.app")
+        let b = makeUnused(name: "Stale", bundleID: "com.stale.app")
+        var recycled: [URL] = []
+        let vm = makeViewModel(
+            discover: { [] },
+            unused: { _ in [a, b] },
+            recycle: { urls in recycled = urls; return Set(urls) }
+        )
+        await vm.scan()
+        vm.toggleUnusedApp(a)
+
+        await vm.deleteSelectedUnusedApps()
+
+        XCTAssertEqual(recycled, [a.app.bundleURL], "Only the selected app bundle is recycled")
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.unusedApps, [b],
+                       "The recycled app must be dropped from the payload")
+        XCTAssertFalse(vm.isRemovingUnusedApps)
+    }
+
+    func test_unusedAppDelete_preservesOtherPayload() async {
+        // Removing an unused app must not touch installers / unsupported.
+        let unused = makeUnused(name: "Dusty", bundleID: "com.dusty.app")
+        let installer = makeInstaller(name: "A.dmg", size: 5_000)
+        let unsupported = makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let vm = makeViewModel(
+            discover: { [] },
+            installers: { [installer] },
+            unsupported: { _ in [unsupported] },
+            unused: { _ in [unused] }
+        )
+        await vm.scan()
+        vm.selectAllUnusedApps()
+
+        await vm.deleteSelectedUnusedApps()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertTrue(result.unusedApps.isEmpty)
+        XCTAssertEqual(result.installationFiles, [installer])
+        XCTAssertEqual(result.unsupportedApps, [unsupported])
     }
 }
 

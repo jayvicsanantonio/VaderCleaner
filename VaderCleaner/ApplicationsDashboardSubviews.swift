@@ -14,6 +14,7 @@ struct ApplicationsDashboardView: View {
     let onOpenManage: () -> Void
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
+    let onOpenUnused: () -> Void
     let onRescan: () -> Void
 
     var body: some View {
@@ -71,6 +72,17 @@ struct ApplicationsDashboardView: View {
                 ),
                 identifier: "applications.card.updates",
                 action: onOpenUpdates
+            )
+            ApplicationsCard(
+                title: unusedTitle,
+                detail: unusedDetail,
+                icon: "moon.zzz",
+                actionLabel: String(
+                    localized: "Review",
+                    comment: "Applications Unused card action that opens the unused-app list."
+                ),
+                identifier: "applications.card.unused",
+                action: onOpenUnused
             )
             ApplicationsCard(
                 title: unsupportedTitle,
@@ -183,6 +195,33 @@ struct ApplicationsDashboardView: View {
             comment: "Applications Installation Files card detail; %@ is the reclaimable size."
         )
         return String.localizedStringWithFormat(format, size)
+    }
+
+    private var unusedTitle: String {
+        if result.unusedAppsCount == 0 {
+            return String(
+                localized: "No Unused Applications",
+                comment: "Applications Unused card title when none are found."
+            )
+        }
+        let format = String(
+            localized: "%lld Unused Applications Found",
+            comment: "Applications Unused card title; %lld is the count."
+        )
+        return String.localizedStringWithFormat(format, Int64(result.unusedAppsCount))
+    }
+
+    private var unusedDetail: String {
+        if result.unusedAppsCount == 0 {
+            return String(
+                localized: "Every app has been opened recently.",
+                comment: "Applications Unused card detail when none are found."
+            )
+        }
+        return String(
+            localized: "These apps haven't been opened in over 60 days. Remove the ones you no longer need.",
+            comment: "Applications Unused card detail when some are found."
+        )
     }
 
     private var unsupportedTitle: String {
@@ -607,6 +646,179 @@ private struct UnsupportedAppRow: View {
                 comment: "Reason label for an unsupported app with no runnable architecture."
             )
         }
+    }
+}
+
+// MARK: - Unused Applications review
+
+/// The Unused Applications detail screen: a multi-select list of apps not
+/// opened in a long time, with a pinned Move to Trash bar. Only the `.app`
+/// bundle is moved here; full associated-file cleanup is available via Manage.
+struct UnusedAppsReviewView: View {
+    let apps: [UnusedApp]
+    let isSelected: (UnusedApp) -> Bool
+    let onToggle: (UnusedApp) -> Void
+    let onSelectAll: () -> Void
+    let onClear: () -> Void
+    let isRemoving: Bool
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    private var selectedCount: Int { apps.filter(isSelected).count }
+    private var allSelected: Bool { !apps.isEmpty && selectedCount == apps.count }
+
+    var body: some View {
+        if apps.isEmpty {
+            emptyState
+        } else {
+            VStack(spacing: 0) {
+                selectAllBar
+                Divider()
+                List {
+                    ForEach(apps) { entry in
+                        UnusedAppRow(
+                            entry: entry,
+                            isSelected: isSelected(entry),
+                            onToggle: { onToggle(entry) }
+                        )
+                        .accessibilityIdentifier("applications.unused.row.\(entry.app.bundleID)")
+                    }
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                Divider()
+                removeBar
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("applications.unused")
+        }
+    }
+
+    private var selectAllBar: some View {
+        HStack {
+            Toggle(isOn: Binding(
+                get: { allSelected },
+                set: { $0 ? onSelectAll() : onClear() }
+            )) {
+                Text(String(
+                    localized: "Select All",
+                    comment: "Toggle that selects/deselects every unused app."
+                ))
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("applications.unused.selectAll")
+            Spacer()
+            Text(headerCountText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+    }
+
+    private var removeBar: some View {
+        HStack(spacing: 12) {
+            Text(selectionSummary)
+                .font(.callout.weight(.medium))
+            Spacer()
+            if isRemoving {
+                ProgressView().controlSize(.small)
+            }
+            Button(String(
+                localized: "Move to Trash",
+                comment: "Button that moves the selected unused apps to the Trash."
+            ), action: onRemove)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canRemove)
+                .accessibilityIdentifier("applications.unused.remove")
+        }
+        .padding(16)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text(String(
+                localized: "No unused applications",
+                comment: "Empty state on the Unused Applications review."
+            ))
+            .font(.title3.weight(.semibold))
+            Text(String(
+                localized: "Every installed app has been opened recently.",
+                comment: "Empty-state detail on the Unused Applications review."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("applications.unused.empty")
+    }
+
+    private var headerCountText: String {
+        let format = String(localized: "%lld apps", comment: "Unused Applications header count.")
+        return String.localizedStringWithFormat(format, Int64(apps.count))
+    }
+
+    private var selectionSummary: String {
+        let format = String(
+            localized: "%lld selected",
+            comment: "Unused Applications remove-bar summary; %lld is the selected count."
+        )
+        return String.localizedStringWithFormat(format, Int64(selectedCount))
+    }
+}
+
+/// One unused-app row: a checkbox, a sleep badge, the app name, and how long
+/// since it was last opened.
+private struct UnusedAppRow: View {
+    let entry: UnusedApp
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f
+    }()
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            Image(systemName: "moon.zzz.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.app.name)
+                    .font(.body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(lastUsedText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+        .padding(.vertical, 4)
+    }
+
+    private var lastUsedText: String {
+        let relative = Self.relativeFormatter.localizedString(for: entry.lastUsedDate, relativeTo: Date())
+        let format = String(
+            localized: "Last opened %@",
+            comment: "Unused-app row subtitle; %@ is a relative date like \"3 months ago\"."
+        )
+        return String.localizedStringWithFormat(format, relative)
     }
 }
 

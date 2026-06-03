@@ -12,10 +12,13 @@ import os.log
 /// updates (Updates card); later phases extend this payload with unused apps,
 /// unsupported apps, leftovers, and installation files.
 struct ApplicationsScanResult: Equatable {
-    let installedApps: [AppInfo]
-    let availableUpdates: [UpdateInfo]
-    let installationFiles: [InstallationFile]
-    let unsupportedApps: [UnsupportedApp]
+    // `var` so the post-delete rebuilds can copy-and-mutate a single field
+    // without re-spelling the whole aggregate (and risking a dropped field).
+    var installedApps: [AppInfo]
+    var availableUpdates: [UpdateInfo]
+    var installationFiles: [InstallationFile]
+    var unsupportedApps: [UnsupportedApp]
+    var unusedApps: [UnusedApp]
 
     /// "We've found N apps on your Mac." headline figure.
     var installedCount: Int { installedApps.count }
@@ -30,6 +33,8 @@ struct ApplicationsScanResult: Equatable {
     }
     /// Unsupported Applications card count.
     var unsupportedAppsCount: Int { unsupportedApps.count }
+    /// Unused Applications card count.
+    var unusedAppsCount: Int { unusedApps.count }
 }
 
 /// Drives the Applications feature view (scan → results). Collaborators are
@@ -67,6 +72,9 @@ final class ApplicationsViewModel {
     /// Unsupported-app scan source over the discovered apps. Non-throwing and
     /// best-effort, same partial-degradation contract as `CheckUpdates`.
     typealias ScanUnsupportedApps = @Sendable ([AppInfo]) async -> [UnsupportedApp]
+    /// Unused-app scan source over the discovered apps. Non-throwing and
+    /// best-effort, same partial-degradation contract as `CheckUpdates`.
+    typealias ScanUnusedApps = @Sendable ([AppInfo]) async -> [UnusedApp]
     /// Moves the given files to the Trash and returns the set of URLs actually
     /// recycled. Partial success is the norm (a locked file must not abort the
     /// batch), so the return is the success set — mirroring
@@ -89,10 +97,17 @@ final class ApplicationsViewModel {
     /// True while an unsupported-app recycle batch is in flight.
     private(set) var isRemovingUnsupportedApps = false
 
+    /// Per-app gate for the Unused Applications review screen, keyed by the
+    /// app's bundle URL. Seeded *empty* — removal is destructive and opt-in.
+    private(set) var unusedAppSelection: Set<URL> = []
+    /// True while an unused-app recycle batch is in flight.
+    private(set) var isRemovingUnusedApps = false
+
     @ObservationIgnored private let discoverApps: DiscoverApps
     @ObservationIgnored private let checkUpdates: CheckUpdates
     @ObservationIgnored private let scanInstallationFiles: ScanInstallationFiles
     @ObservationIgnored private let scanUnsupportedApps: ScanUnsupportedApps
+    @ObservationIgnored private let scanUnusedApps: ScanUnusedApps
     @ObservationIgnored private let recycleFiles: RecycleFiles
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "ApplicationsViewModel")
@@ -106,12 +121,14 @@ final class ApplicationsViewModel {
         checkUpdates: @escaping CheckUpdates,
         scanInstallationFiles: @escaping ScanInstallationFiles,
         scanUnsupportedApps: @escaping ScanUnsupportedApps,
+        scanUnusedApps: @escaping ScanUnusedApps,
         recycleFiles: @escaping RecycleFiles
     ) {
         self.discoverApps = discoverApps
         self.checkUpdates = checkUpdates
         self.scanInstallationFiles = scanInstallationFiles
         self.scanUnsupportedApps = scanUnsupportedApps
+        self.scanUnusedApps = scanUnusedApps
         self.recycleFiles = recycleFiles
     }
 
@@ -135,25 +152,29 @@ final class ApplicationsViewModel {
         let generation = scanGeneration
         installationFileSelection = []
         unsupportedAppSelection = []
+        unusedAppSelection = []
 
         do {
             // The installer scan is independent of app discovery, so run it
             // concurrently with the discover → update-check chain.
             async let installersAsync = scanInstallationFiles()
             let apps = try await discoverApps()
-            // The update check and the unsupported-app scan both need the
-            // discovered apps, so fan them out concurrently once they're known.
+            // The update check and the per-app scans all need the discovered
+            // apps, so fan them out concurrently once they're known.
             async let updatesAsync = checkUpdates(apps)
             async let unsupportedAsync = scanUnsupportedApps(apps)
+            async let unusedAsync = scanUnusedApps(apps)
             let installers = await installersAsync
             let updates = await updatesAsync
             let unsupported = await unsupportedAsync
+            let unused = await unusedAsync
             guard scanGeneration == generation else { return }
             phase = .results(ApplicationsScanResult(
                 installedApps: apps,
                 availableUpdates: updates,
                 installationFiles: installers,
-                unsupportedApps: unsupported
+                unsupportedApps: unsupported,
+                unusedApps: unused
             ))
         } catch {
             // Privacy: errors may include user-specific paths.
@@ -169,6 +190,7 @@ final class ApplicationsViewModel {
         phase = .idle
         installationFileSelection = []
         unsupportedAppSelection = []
+        unusedAppSelection = []
     }
 
     // MARK: - Installation files selection
@@ -223,14 +245,9 @@ final class ApplicationsViewModel {
         // The recycle hop is async; only rewrite the payload if we are still
         // showing the same kind of results (a `reset()` / rescan during the
         // batch supersedes it).
-        guard case .results(let current) = phase else { return }
-        let survivors = current.installationFiles.filter { !removed.contains($0.url) }
-        phase = .results(ApplicationsScanResult(
-            installedApps: current.installedApps,
-            availableUpdates: current.availableUpdates,
-            installationFiles: survivors,
-            unsupportedApps: current.unsupportedApps
-        ))
+        guard case .results(var current) = phase else { return }
+        current.installationFiles.removeAll { removed.contains($0.url) }
+        phase = .results(current)
         installationFileSelection.subtract(removed)
     }
 
@@ -280,15 +297,62 @@ final class ApplicationsViewModel {
         let removed = await recycleFiles(targets.map(\.app.bundleURL))
         isRemovingUnsupportedApps = false
 
-        guard case .results(let current) = phase else { return }
-        let survivors = current.unsupportedApps.filter { !removed.contains($0.app.bundleURL) }
-        phase = .results(ApplicationsScanResult(
-            installedApps: current.installedApps,
-            availableUpdates: current.availableUpdates,
-            installationFiles: current.installationFiles,
-            unsupportedApps: survivors
-        ))
+        guard case .results(var current) = phase else { return }
+        current.unsupportedApps.removeAll { removed.contains($0.app.bundleURL) }
+        phase = .results(current)
         unsupportedAppSelection.subtract(removed)
+    }
+
+    // MARK: - Unused apps selection
+
+    func isUnusedAppSelected(_ entry: UnusedApp) -> Bool {
+        unusedAppSelection.contains(entry.app.bundleURL)
+    }
+
+    func toggleUnusedApp(_ entry: UnusedApp) {
+        if unusedAppSelection.contains(entry.app.bundleURL) {
+            unusedAppSelection.remove(entry.app.bundleURL)
+        } else {
+            unusedAppSelection.insert(entry.app.bundleURL)
+        }
+    }
+
+    func selectAllUnusedApps() {
+        guard case .results(let result) = phase else { return }
+        unusedAppSelection = Set(result.unusedApps.map(\.app.bundleURL))
+    }
+
+    func clearUnusedAppSelection() {
+        unusedAppSelection = []
+    }
+
+    /// Whether a Remove press would actually recycle anything right now.
+    var canRemoveUnusedApps: Bool {
+        !unusedAppSelection.isEmpty && !isRemovingUnusedApps
+    }
+
+    // MARK: - Unused apps removal
+
+    /// Moves the selected unused app bundles to the Trash and rebuilds the
+    /// results payload with the survivors. Like the unsupported path, only the
+    /// `.app` bundle is moved here; full associated-file cleanup remains
+    /// available via Manage (the uninstaller). A no-op unless results are
+    /// showing and at least one app is selected.
+    func deleteSelectedUnusedApps() async {
+        guard case .results(let result) = phase else { return }
+        let targets = result.unusedApps.filter {
+            unusedAppSelection.contains($0.app.bundleURL)
+        }
+        guard !targets.isEmpty, !isRemovingUnusedApps else { return }
+
+        isRemovingUnusedApps = true
+        let removed = await recycleFiles(targets.map(\.app.bundleURL))
+        isRemovingUnusedApps = false
+
+        guard case .results(var current) = phase else { return }
+        current.unusedApps.removeAll { removed.contains($0.app.bundleURL) }
+        phase = .results(current)
+        unusedAppSelection.subtract(removed)
     }
 }
 
@@ -307,6 +371,7 @@ extension ApplicationsViewModel {
         let sparkle = DefaultSparkleUpdateChecker()
         let installerScanner = DefaultInstallationFileScanner()
         let unsupportedScanner = DefaultUnsupportedAppScanner()
+        let unusedScanner = DefaultUnusedAppScanner()
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "ApplicationsViewModel.live")
         return ApplicationsViewModel(
@@ -321,6 +386,9 @@ extension ApplicationsViewModel {
             },
             scanUnsupportedApps: { apps in
                 await unsupportedScanner.scan(apps: apps)
+            },
+            scanUnusedApps: { apps in
+                await unusedScanner.scan(apps: apps)
             },
             recycleFiles: { urls in
                 await Self.recycle(urls, log: log)
