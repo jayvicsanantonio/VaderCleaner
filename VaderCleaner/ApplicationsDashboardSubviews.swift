@@ -19,11 +19,11 @@ struct ApplicationsDashboardView: View {
     let onRescan: () -> Void
 
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 24) {
             header
             grid
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityIdentifier("applications.dashboard")
     }
 
@@ -74,11 +74,10 @@ struct ApplicationsDashboardView: View {
         String(localized: "Review", comment: "Applications card action that opens a review list.")
     }
 
-    /// Height of a standard card, and of a tall card — a tall card spans
-    /// exactly two standard cards plus the gap between them, so the two columns
-    /// stay the same total height (each is one tall + two standard + two gaps).
-    private let standardCardHeight: CGFloat = 150
-    private var tallCardHeight: CGFloat { standardCardHeight * 2 + 16 }
+    /// Gap between cards, and the floor a standard card never shrinks below so
+    /// its title + a line of detail + the button stay legible on short windows.
+    private let cardGap: CGFloat = 16
+    private let minStandardCardHeight: CGFloat = 132
 
     private var updatesSpec: CardSpec {
         CardSpec(id: "applications.card.updates", title: updatesTitle, detail: updatesDetail,
@@ -109,22 +108,30 @@ struct ApplicationsDashboardView: View {
                  action: onOpenManage)
     }
 
-    /// Two-column masonry. The left column leads with the tall Updates card
-    /// over two standard cards; the right column mirrors it with two standard
-    /// cards over the tall Leftovers card — so the two tall tiles sit on a
-    /// diagonal and the columns stay equal height.
+    /// Two-column masonry that fills the available height so the dashboard
+    /// never needs to scroll. Each column is one tall card + two standard cards
+    /// + two gaps, and a tall card spans exactly two standard cards plus a gap —
+    /// so a column is four "standard heights" plus three gaps. We solve for the
+    /// standard height that makes the columns exactly fill the height the
+    /// `GeometryReader` reports, flooring it so cards stay legible when the
+    /// window is short (the only case the content can exceed the viewport).
     private var grid: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(spacing: 16) {
-                card(updatesSpec, height: tallCardHeight)
-                card(installationFilesSpec, height: standardCardHeight)
-                card(manageSpec, height: standardCardHeight)
+        GeometryReader { proxy in
+            let standard = max(minStandardCardHeight, (proxy.size.height - cardGap * 3) / 4)
+            let tall = standard * 2 + cardGap
+            HStack(alignment: .top, spacing: cardGap) {
+                VStack(spacing: cardGap) {
+                    card(updatesSpec, height: tall)
+                    card(installationFilesSpec, height: standard)
+                    card(manageSpec, height: standard)
+                }
+                VStack(spacing: cardGap) {
+                    card(unusedSpec, height: standard)
+                    card(unsupportedSpec, height: standard)
+                    card(leftoversSpec, height: tall)
+                }
             }
-            VStack(spacing: 16) {
-                card(unusedSpec, height: standardCardHeight)
-                card(unsupportedSpec, height: standardCardHeight)
-                card(leftoversSpec, height: tallCardHeight)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -324,10 +331,13 @@ struct ApplicationsCard: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
             }
+            // Truncates rather than forcing its full height, so a short card
+            // (on a small window) never overflows its fixed frame.
             Text(detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
+                .multilineTextAlignment(.leading)
             Spacer(minLength: 8)
             HStack {
                 Spacer()

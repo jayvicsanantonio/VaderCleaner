@@ -79,20 +79,20 @@ struct ApplicationsView: View {
     private func resultsContent(_ result: ApplicationsScanResult) -> some View {
         switch detail {
         case .dashboard:
-            ScrollView {
-                ApplicationsDashboardView(
-                    result: result,
-                    onOpenUpdates: { detail = .updates },
-                    onOpenManage: { detail = .manage },
-                    onOpenInstallationFiles: { detail = .installationFiles },
-                    onOpenUnsupported: { detail = .unsupported },
-                    onOpenUnused: { detail = .unused },
-                    onOpenLeftovers: { detail = .leftovers },
-                    onRescan: { Task { await viewModel.scan() } }
-                )
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            // No ScrollView: the grid sizes its cards to the available height
+            // so the whole dashboard fits the window without scrolling.
+            ApplicationsDashboardView(
+                result: result,
+                onOpenUpdates: { detail = .updates },
+                onOpenManage: { detail = .manage },
+                onOpenInstallationFiles: { detail = .installationFiles },
+                onOpenUnsupported: { detail = .unsupported },
+                onOpenUnused: { detail = .unused },
+                onOpenLeftovers: { detail = .leftovers },
+                onRescan: { Task { await viewModel.scan() } }
+            )
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         case .updates:
             detailScreen(
                 title: String(
