@@ -57,82 +57,74 @@ struct ApplicationsDashboardView: View {
         }
     }
 
+    /// One dashboard card's content. Built as data so the layout can promote
+    /// the first one to a tall hero and flow the rest through an adaptive grid
+    /// (mirroring the Optimization dashboard), rather than every card sharing
+    /// one fixed size.
+    private struct CardSpec: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let icon: String
+        let actionLabel: String
+        let action: () -> Void
+    }
+
+    private var reviewLabel: String {
+        String(localized: "Review", comment: "Applications card action that opens a review list.")
+    }
+
+    private var cardSpecs: [CardSpec] {
+        [
+            CardSpec(id: "applications.card.updates", title: updatesTitle, detail: updatesDetail,
+                     icon: "arrow.triangle.2.circlepath", actionLabel: reviewLabel, action: onOpenUpdates),
+            CardSpec(id: "applications.card.unused", title: unusedTitle, detail: unusedDetail,
+                     icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused),
+            CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, detail: unsupportedDetail,
+                     icon: "exclamationmark.triangle", actionLabel: reviewLabel, action: onOpenUnsupported),
+            CardSpec(id: "applications.card.leftovers", title: leftoversTitle, detail: leftoversDetail,
+                     icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers),
+            CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
+                     detail: installationFilesDetail, icon: "shippingbox", actionLabel: reviewLabel,
+                     action: onOpenInstallationFiles),
+            CardSpec(id: "applications.card.manage",
+                     title: String(localized: "Manage Applications", comment: "Applications management card title."),
+                     detail: manageDetail, icon: "square.grid.2x2",
+                     actionLabel: String(localized: "Manage", comment: "Applications management card action."),
+                     action: onOpenManage),
+        ]
+    }
+
+    /// A tall hero card on the left (the first spec) beside an adaptive grid of
+    /// the remaining cards, so the cards no longer all share one size.
     private var grid: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
-            alignment: .leading,
-            spacing: 16
-        ) {
-            ApplicationsCard(
-                title: updatesTitle,
-                detail: updatesDetail,
-                icon: "arrow.triangle.2.circlepath",
-                actionLabel: String(
-                    localized: "Review",
-                    comment: "Applications Updates card action that opens the update list."
-                ),
-                identifier: "applications.card.updates",
-                action: onOpenUpdates
-            )
-            ApplicationsCard(
-                title: unusedTitle,
-                detail: unusedDetail,
-                icon: "moon.zzz",
-                actionLabel: String(
-                    localized: "Review",
-                    comment: "Applications Unused card action that opens the unused-app list."
-                ),
-                identifier: "applications.card.unused",
-                action: onOpenUnused
-            )
-            ApplicationsCard(
-                title: unsupportedTitle,
-                detail: unsupportedDetail,
-                icon: "exclamationmark.triangle",
-                actionLabel: String(
-                    localized: "Review",
-                    comment: "Applications Unsupported card action that opens the unsupported-app list."
-                ),
-                identifier: "applications.card.unsupported",
-                action: onOpenUnsupported
-            )
-            ApplicationsCard(
-                title: leftoversTitle,
-                detail: leftoversDetail,
-                icon: "trash",
-                actionLabel: String(
-                    localized: "Review",
-                    comment: "Applications Leftovers card action that opens the leftover list."
-                ),
-                identifier: "applications.card.leftovers",
-                action: onOpenLeftovers
-            )
-            ApplicationsCard(
-                title: installationFilesTitle,
-                detail: installationFilesDetail,
-                icon: "shippingbox",
-                actionLabel: String(
-                    localized: "Review",
-                    comment: "Applications Installation Files card action that opens the installer list."
-                ),
-                identifier: "applications.card.installationFiles",
-                action: onOpenInstallationFiles
-            )
-            ApplicationsCard(
-                title: String(
-                    localized: "Manage Applications",
-                    comment: "Applications management card title."
-                ),
-                detail: manageDetail,
-                icon: "square.grid.2x2",
-                actionLabel: String(
-                    localized: "Manage",
-                    comment: "Applications management card action."
-                ),
-                identifier: "applications.card.manage",
-                action: onOpenManage
-            )
+        HStack(alignment: .top, spacing: 16) {
+            if let hero = cardSpecs.first {
+                card(hero, isHero: true)
+                    .frame(maxWidth: 320)
+            }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
+                alignment: .leading,
+                spacing: 16
+            ) {
+                ForEach(Array(cardSpecs.dropFirst())) { spec in
+                    card(spec, isHero: false)
+                }
+            }
         }
+    }
+
+    private func card(_ spec: CardSpec, isHero: Bool) -> some View {
+        ApplicationsCard(
+            title: spec.title,
+            detail: spec.detail,
+            icon: spec.icon,
+            actionLabel: spec.actionLabel,
+            identifier: spec.id,
+            isHero: isHero,
+            action: spec.action
+        )
     }
 
     // MARK: Copy
@@ -302,6 +294,9 @@ struct ApplicationsCard: View {
     let icon: String
     let actionLabel: String
     let identifier: String
+    /// Hero cards render taller (matching the Optimization dashboard's lead
+    /// card) so the grid isn't a uniform row of equal-size tiles.
+    var isHero: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -328,7 +323,7 @@ struct ApplicationsCard: View {
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: isHero ? 260 : 150, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 }
