@@ -526,6 +526,7 @@ private struct InstallationFileRow: View {
 /// Manage (the uninstaller).
 struct UnsupportedAppsReviewView: View {
     let apps: [UnsupportedApp]
+    var iconCache: AppIconCache
     let isSelected: (UnsupportedApp) -> Bool
     let onToggle: (UnsupportedApp) -> Void
     let onSelectAll: () -> Void
@@ -548,6 +549,7 @@ struct UnsupportedAppsReviewView: View {
                     ForEach(apps) { entry in
                         UnsupportedAppRow(
                             entry: entry,
+                            iconCache: iconCache,
                             isSelected: isSelected(entry),
                             onToggle: { onToggle(entry) }
                         )
@@ -561,6 +563,9 @@ struct UnsupportedAppsReviewView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("applications.unsupported")
+            .task(id: apps.map(\.id)) {
+                await iconCache.preloadIcons(for: apps.map(\.app.bundleURL))
+            }
         }
     }
 
@@ -648,6 +653,7 @@ struct UnsupportedAppsReviewView: View {
 /// reason it can't run.
 private struct UnsupportedAppRow: View {
     let entry: UnsupportedApp
+    var iconCache: AppIconCache
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -657,10 +663,9 @@ private struct UnsupportedAppRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
 
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(.orange)
-                .frame(width: 24)
+            Image(nsImage: iconCache.icon(for: entry.app.bundleURL))
+                .resizable()
+                .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.app.name)
@@ -697,6 +702,7 @@ private struct UnsupportedAppRow: View {
 /// bundle is moved here; full associated-file cleanup is available via Manage.
 struct UnusedAppsReviewView: View {
     let apps: [UnusedApp]
+    var iconCache: AppIconCache
     let isSelected: (UnusedApp) -> Bool
     let onToggle: (UnusedApp) -> Void
     let onSelectAll: () -> Void
@@ -719,6 +725,7 @@ struct UnusedAppsReviewView: View {
                     ForEach(apps) { entry in
                         UnusedAppRow(
                             entry: entry,
+                            iconCache: iconCache,
                             isSelected: isSelected(entry),
                             onToggle: { onToggle(entry) }
                         )
@@ -732,6 +739,9 @@ struct UnusedAppsReviewView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("applications.unused")
+            .task(id: apps.map(\.id)) {
+                await iconCache.preloadIcons(for: apps.map(\.app.bundleURL))
+            }
         }
     }
 
@@ -816,6 +826,7 @@ struct UnusedAppsReviewView: View {
 /// since it was last opened.
 private struct UnusedAppRow: View {
     let entry: UnusedApp
+    var iconCache: AppIconCache
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -831,10 +842,9 @@ private struct UnusedAppRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
 
-            Image(systemName: "moon.zzz.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
+            Image(nsImage: iconCache.icon(for: entry.app.bundleURL))
+                .resizable()
+                .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.app.name)

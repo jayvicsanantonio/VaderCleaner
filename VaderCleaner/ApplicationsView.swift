@@ -17,6 +17,11 @@ struct ApplicationsView: View {
     private var uninstallerViewModel: AppUninstallerViewModel
     private var updaterViewModel: AppUpdaterViewModel
 
+    /// Shared icon cache so the Unused / Unsupported review rows show each
+    /// app's real icon instead of a generic glyph. Pre-loaded off the main
+    /// thread by the review screens when they appear.
+    @State private var iconCache = AppIconCache()
+
     /// Which screen the results surface is showing — the dashboard grid, or one
     /// of the pushed detail screens. Owned here so the selection survives the
     /// brief remount when the underlying detail view loads.
@@ -133,6 +138,7 @@ struct ApplicationsView: View {
             ) {
                 UnsupportedAppsReviewView(
                     apps: result.unsupportedApps,
+                    iconCache: iconCache,
                     isSelected: viewModel.isUnsupportedAppSelected,
                     onToggle: viewModel.toggleUnsupportedApp,
                     onSelectAll: viewModel.selectAllUnsupportedApps,
@@ -151,6 +157,7 @@ struct ApplicationsView: View {
             ) {
                 UnusedAppsReviewView(
                     apps: result.unusedApps,
+                    iconCache: iconCache,
                     isSelected: viewModel.isUnusedAppSelected,
                     onToggle: viewModel.toggleUnusedApp,
                     onSelectAll: viewModel.selectAllUnusedApps,
