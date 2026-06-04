@@ -77,33 +77,45 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the Manage My Applications header button")
     }
 
-    /// The Installation Files card opens its review screen, and Back returns to
-    /// the dashboard.
-    func test_applications_installationFilesCardOpensReviewAndBackReturns() throws {
+    /// A recommendation card opens its review screen, and Back returns to the
+    /// dashboard. The dashboard now shows only cleanup categories that have
+    /// findings, so the exact cards depend on the host — this exercises
+    /// whichever recommendation card is present rather than assuming a specific
+    /// one. On a host with nothing to clean up the dashboard shows the all-clear
+    /// state and there is no card to open, which the test accepts.
+    func test_applications_recommendationCardOpensReviewAndBackReturns() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
-        let card = app.buttons["applications.card.installationFiles"]
-        XCTAssertTrue(card.waitForExistence(timeout: 90),
-                      "Expected the Installation Files card after the scan")
+        let dashboard = app.descendants(matching: .any)["applications.dashboard"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
+                      "Expected the Applications dashboard after the scan")
+
+        let card = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier IN {"
+                + "'applications.card.unused','applications.card.unsupported',"
+                + "'applications.card.leftovers','applications.card.installationFiles'}"))
+            .firstMatch
+
+        guard card.waitForExistence(timeout: 10) else {
+            // No findings → the all-clear state; there is no card to open.
+            XCTAssertTrue(
+                app.descendants(matching: .any)["applications.dashboard.allClear"].exists,
+                "With no recommendation cards the dashboard must show the all-clear state"
+            )
+            return
+        }
+
         card.click()
 
-        // Either the installer list or its empty state must render — both are
-        // valid display states depending on what's in Downloads/Desktop.
-        let reviewState = app.descendants(matching: .any)
-            .matching(NSPredicate(
-                format: "identifier IN {'applications.installationFiles', 'applications.installationFiles.empty'}"
-            ))
-            .firstMatch
-        XCTAssertTrue(reviewState.waitForExistence(timeout: 10),
-                      "Expected the Installation Files review screen to render")
-
+        // Whichever review screen opened, it carries the shared Back control.
         let back = app.buttons["applications.backToDashboard"]
-        XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
+        XCTAssertTrue(back.waitForExistence(timeout: 10),
+                      "Expected a recommendation card to open a review screen with a Back control")
         back.click()
         XCTAssertTrue(
             app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
-            "Expected Back to return to the dashboard grid"
+            "Expected Back to return to the dashboard"
         )
     }
 

@@ -55,6 +55,14 @@ final class FinalPolishUITests: XCTestCase {
                 "Expected sidebar to list the \"\(identifier)\" section"
             )
         }
+
+        // The Extensions section was folded into Applications → Manage, so its
+        // top-level row must be gone. Asserting the nine rows exist isn't enough
+        // — that still passes if a stale Extensions row renders as a tenth.
+        XCTAssertFalse(
+            app.buttons["sidebar.extensions"].waitForExistence(timeout: 2),
+            "Extensions must no longer be a top-level sidebar section"
+        )
     }
 
     /// The rail must stay anchored: navigating between detail screens must not

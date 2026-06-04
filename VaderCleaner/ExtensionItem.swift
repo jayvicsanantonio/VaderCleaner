@@ -43,8 +43,9 @@ struct ExtensionItem: Identifiable, Hashable, Sendable {
     let name: String
     /// Absolute on-disk location that removal acts on.
     let path: URL
-    /// Owning bundle identifier when one is available (Mail plugins,
-    /// internet plug-ins). `nil` for legacy `.safariextz` archives.
+    /// Owning bundle identifier when one is available — Chrome/Firefox
+    /// extensions, `.appex` Safari extensions, Mail plugins, and internet
+    /// plug-ins all carry one. `nil` for legacy `.safariextz` archives.
     let bundleID: String?
     let type: ExtensionType
     /// Best-effort enabled state. Defaults to `true` because macOS exposes
