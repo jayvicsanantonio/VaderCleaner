@@ -96,6 +96,46 @@ final class ApplicationsUITests: XCTestCase {
         )
     }
 
+    /// The Manage card opens the Applications Manager catalog with its
+    /// Uninstaller / Updater / Leftovers sub-navigation; switching panes works
+    /// and Back returns to the dashboard.
+    func test_applications_manageOpensManagerCatalog() throws {
+        dismissOnboardingIfNeeded()
+        openApplicationsAndScan()
+
+        let manageCard = app.buttons["applications.card.manage"]
+        XCTAssertTrue(manageCard.waitForExistence(timeout: 90),
+                      "Expected the Manage card after the scan")
+        manageCard.click()
+
+        XCTAssertTrue(app.descendants(matching: .any)["applications.manager"].waitForExistence(timeout: 10),
+                      "Expected the Applications Manager catalog")
+        for navID in ["applications.manager.nav.uninstaller",
+                      "applications.manager.nav.updater",
+                      "applications.manager.nav.leftovers"] {
+            XCTAssertTrue(app.buttons[navID].waitForExistence(timeout: 5),
+                          "Expected sub-nav item \(navID)")
+        }
+
+        // Switch to the Updater pane — the reused updater screen renders.
+        app.buttons["applications.manager.nav.updater"].click()
+        let updaterState = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier IN {'appUpdater.loading', 'appUpdater.upToDate', 'appUpdater.check', 'appUpdater.errorMessage'}"
+            ))
+            .firstMatch
+        XCTAssertTrue(updaterState.waitForExistence(timeout: 30),
+                      "Expected the Updater pane to render the reused App Updater screen")
+
+        let back = app.buttons["applications.backToDashboard"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
+        back.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
+            "Expected Back to return to the dashboard grid"
+        )
+    }
+
     /// The Updates card opens the reused App Updater screen, and Back returns
     /// to the dashboard.
     func test_applications_updatesCardOpensUpdaterAndBackReturns() throws {
