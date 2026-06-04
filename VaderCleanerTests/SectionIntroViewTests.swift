@@ -21,6 +21,7 @@ final class SectionIntroViewTests: XCTestCase {
         .malwareRemoval: "malwareremoval",
         .optimization: "optimization",
         .privacy: "privacy",
+        .applications: "applications",
     ]
 
     func test_buildsFromEveryScannableSectionPresentation() throws {

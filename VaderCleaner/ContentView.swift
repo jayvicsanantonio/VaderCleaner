@@ -17,6 +17,7 @@ struct ContentView: View {
     private let privacyViewModel: PrivacyViewModel
     private let appUninstallerViewModel: AppUninstallerViewModel
     private let appUpdaterViewModel: AppUpdaterViewModel
+    private let applicationsViewModel: ApplicationsViewModel
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
     private let optimizationViewModel: OptimizationViewModel
     private let malwareViewModel: MalwareViewModel
@@ -54,6 +55,7 @@ struct ContentView: View {
         privacyViewModel: PrivacyViewModel,
         appUninstallerViewModel: AppUninstallerViewModel,
         appUpdaterViewModel: AppUpdaterViewModel,
+        applicationsViewModel: ApplicationsViewModel,
         extensionsManagerViewModel: ExtensionsManagerViewModel,
         optimizationViewModel: OptimizationViewModel,
         malwareViewModel: MalwareViewModel,
@@ -66,6 +68,7 @@ struct ContentView: View {
         self.privacyViewModel = privacyViewModel
         self.appUninstallerViewModel = appUninstallerViewModel
         self.appUpdaterViewModel = appUpdaterViewModel
+        self.applicationsViewModel = applicationsViewModel
         self.extensionsManagerViewModel = extensionsManagerViewModel
         self.optimizationViewModel = optimizationViewModel
         self.malwareViewModel = malwareViewModel
@@ -77,7 +80,8 @@ struct ContentView: View {
             spaceLensViewModel: spaceLensViewModel,
             optimizationViewModel: optimizationViewModel,
             malwareViewModel: malwareViewModel,
-            privacyViewModel: privacyViewModel
+            privacyViewModel: privacyViewModel,
+            applicationsViewModel: applicationsViewModel
         ))
     }
 
@@ -272,10 +276,14 @@ struct ContentView: View {
             ScannableSectionContent(coordinator: privacyViewModel, section: section) {
                 PrivacyView(viewModel: privacyViewModel)
             }
-        case .appUninstaller:
-            AppUninstallerView(viewModel: appUninstallerViewModel)
-        case .appUpdater:
-            AppUpdaterView(viewModel: appUpdaterViewModel)
+        case .applications:
+            ScannableSectionContent(coordinator: applicationsViewModel, section: section) {
+                ApplicationsView(
+                    viewModel: applicationsViewModel,
+                    uninstallerViewModel: appUninstallerViewModel,
+                    updaterViewModel: appUpdaterViewModel
+                )
+            }
         case .extensions:
             ExtensionsManagerView(viewModel: extensionsManagerViewModel)
         case .optimization:
@@ -349,6 +357,7 @@ private extension AnyTransition {
         privacyViewModel: PrivacyViewModel.live(),
         appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
+        applicationsViewModel: ApplicationsViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
         optimizationViewModel: OptimizationViewModel.live(systemStats: stats, preferences: prefs),
         malwareViewModel: MalwareViewModel.live(

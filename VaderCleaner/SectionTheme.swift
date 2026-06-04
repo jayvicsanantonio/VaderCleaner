@@ -73,17 +73,11 @@ extension NavigationSection {
                 backdropTop: Color(red: 0.04, green: 0.07, blue: 0.15),
                 backdropBottom: Color(red: 0.07, green: 0.17, blue: 0.39)
             )
-        case .appUninstaller:
+        case .applications:
             return SectionTheme(
                 accent: Color(red: 0.52, green: 0.50, blue: 0.95),
                 backdropTop: Color(red: 0.07, green: 0.06, blue: 0.16),
                 backdropBottom: Color(red: 0.16, green: 0.14, blue: 0.37)
-            )
-        case .appUpdater:
-            return SectionTheme(
-                accent: Color(red: 0.24, green: 0.76, blue: 0.93),
-                backdropTop: Color(red: 0.03, green: 0.09, blue: 0.13),
-                backdropBottom: Color(red: 0.05, green: 0.23, blue: 0.33)
             )
         case .healthMonitor:
             return SectionTheme(

@@ -14,7 +14,10 @@ struct AppUpdaterView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(NavigationSection.appUpdater.title)
+            .navigationTitle(String(
+                localized: "App Updater",
+                comment: "Navigation title for the App Updater screen, reused as an Applications detail screen."
+            ))
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.checkForUpdates()

@@ -29,6 +29,7 @@ final class ScanDiscWindowController {
     @ObservationIgnored let optimizationViewModel: OptimizationViewModel
     @ObservationIgnored let malwareViewModel: MalwareViewModel
     @ObservationIgnored let privacyViewModel: PrivacyViewModel
+    @ObservationIgnored let applicationsViewModel: ApplicationsViewModel
 
     /// Diameter of the disc itself — the single shared constant the disc, this
     /// panel, and the placement maths all key off.
@@ -55,7 +56,8 @@ final class ScanDiscWindowController {
         spaceLensViewModel: DiskScannerViewModel,
         optimizationViewModel: OptimizationViewModel,
         malwareViewModel: MalwareViewModel,
-        privacyViewModel: PrivacyViewModel
+        privacyViewModel: PrivacyViewModel,
+        applicationsViewModel: ApplicationsViewModel
     ) {
         self.smartScanViewModel = smartScanViewModel
         self.systemJunkViewModel = systemJunkViewModel
@@ -64,6 +66,7 @@ final class ScanDiscWindowController {
         self.optimizationViewModel = optimizationViewModel
         self.malwareViewModel = malwareViewModel
         self.privacyViewModel = privacyViewModel
+        self.applicationsViewModel = applicationsViewModel
     }
 
     /// Attaches the disc panel as a child of the app's main window. Idempotent:

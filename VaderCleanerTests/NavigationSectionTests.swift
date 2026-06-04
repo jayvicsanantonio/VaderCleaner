@@ -7,8 +7,8 @@ import AppKit
 
 final class NavigationSectionTests: XCTestCase {
 
-    func test_allCasesCount_is11() {
-        XCTAssertEqual(NavigationSection.allCases.count, 11)
+    func test_allCasesCount_is10() {
+        XCTAssertEqual(NavigationSection.allCases.count, 10)
     }
 
     func test_firstCase_isSmartScan() {
@@ -33,8 +33,7 @@ final class NavigationSectionTests: XCTestCase {
             .malwareRemoval: "sidebar.malwareRemoval",
             .privacy: "sidebar.privacy",
             .extensions: "sidebar.extensions",
-            .appUninstaller: "sidebar.appUninstaller",
-            .appUpdater: "sidebar.appUpdater",
+            .applications: "sidebar.applications",
             .optimization: "sidebar.optimization",
             .healthMonitor: "sidebar.healthMonitor",
         ]
@@ -61,8 +60,7 @@ final class NavigationSectionTests: XCTestCase {
             .malwareRemoval: "section.malwareRemoval.scan",
             .privacy: "section.privacy.scan",
             .extensions: "section.extensions.scan",
-            .appUninstaller: "section.appUninstaller.scan",
-            .appUpdater: "section.appUpdater.scan",
+            .applications: "section.applications.scan",
             .optimization: "section.optimization.scan",
             .healthMonitor: "section.healthMonitor.scan",
         ]
@@ -93,8 +91,7 @@ final class NavigationSectionTests: XCTestCase {
             .optimization: false,    // launchctl / login items / RAM
             .privacy: true,          // Safari data lives in TCC-protected paths
             .extensions: false,
-            .appUninstaller: false,
-            .appUpdater: false,
+            .applications: false,    // app discovery + update checks; no FDA-gated paths
             .healthMonitor: false,
         ]
         for section in NavigationSection.allCases {

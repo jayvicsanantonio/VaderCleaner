@@ -11,7 +11,7 @@ final class FinalPolishUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    /// The eleven sidebar row identifiers, in `NavigationSection` order. Rows
+    /// The ten sidebar row identifiers, in `NavigationSection` order. Rows
     /// are located by identifier rather than visible label so the locators
     /// survive rail restyles; these mirror
     /// `NavigationSection.accessibilityIdentifier`. Hard-coded because the
@@ -25,8 +25,7 @@ final class FinalPolishUITests: XCTestCase {
         "sidebar.malwareRemoval",
         "sidebar.privacy",
         "sidebar.extensions",
-        "sidebar.appUninstaller",
-        "sidebar.appUpdater",
+        "sidebar.applications",
         "sidebar.optimization",
         "sidebar.healthMonitor",
     ]
@@ -44,8 +43,8 @@ final class FinalPolishUITests: XCTestCase {
 
     // MARK: - Sidebar
 
-    /// Launch → every one of the eleven sections is present in the sidebar.
-    func test_launch_sidebarShowsAllElevenSections() throws {
+    /// Launch → every one of the ten sections is present in the sidebar.
+    func test_launch_sidebarShowsAllTenSections() throws {
         dismissOnboardingIfNeeded()
 
         for identifier in sectionIdentifiers {
@@ -58,11 +57,11 @@ final class FinalPolishUITests: XCTestCase {
     }
 
     /// The rail must stay anchored: switching between a short detail screen
-    /// (App Updater, two rows) and a tall one (App Uninstaller, a search
-    /// field plus a long scrolling list) must not move the sidebar rows
-    /// vertically. Regression guard for the rail floating when the detail
-    /// column's effective height changes. The window is not resized, so the
-    /// `sidebar.smartScan` button's absolute Y must be identical in both.
+    /// (Extensions, a compact list) and a tall one (Health Monitor, a grid of
+    /// stat cards) must not move the sidebar rows vertically. Regression guard
+    /// for the rail floating when the detail column's effective height changes.
+    /// The window is not resized, so the `sidebar.smartScan` button's absolute
+    /// Y must be identical in both.
     func test_railRowPosition_isStableAcrossDetailScreens() throws {
         dismissOnboardingIfNeeded()
 
@@ -70,30 +69,30 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertTrue(anchor.waitForExistence(timeout: 5),
                       "Expected Smart Scan row in sidebar")
 
-        let updaterRow = app.buttons["sidebar.appUpdater"].firstMatch
-        XCTAssertTrue(updaterRow.waitForExistence(timeout: 5),
-                      "Expected App Updater row in sidebar")
-        updaterRow.click()
+        let extensionsRow = app.buttons["sidebar.extensions"].firstMatch
+        XCTAssertTrue(extensionsRow.waitForExistence(timeout: 5),
+                      "Expected Extensions row in sidebar")
+        extensionsRow.click()
         // Wait until the clicked row reports selection before measuring. The
         // anchor row exists regardless of selection, so waiting on it would
         // return immediately and could sample Y mid-transition; the
         // `.isSelected` trait only flips once the navigation has taken
         // effect and the rail re-rendered.
-        waitUntilSelected(updaterRow)
+        waitUntilSelected(extensionsRow)
         let yShortDetail = anchor.frame.origin.y
 
-        let uninstallerRow = app.buttons["sidebar.appUninstaller"].firstMatch
-        XCTAssertTrue(uninstallerRow.waitForExistence(timeout: 5),
-                      "Expected App Uninstaller row in sidebar")
-        uninstallerRow.click()
-        waitUntilSelected(uninstallerRow)
+        let healthRow = app.buttons["sidebar.healthMonitor"].firstMatch
+        XCTAssertTrue(healthRow.waitForExistence(timeout: 5),
+                      "Expected Health Monitor row in sidebar")
+        healthRow.click()
+        waitUntilSelected(healthRow)
         let yTallDetail = anchor.frame.origin.y
 
         XCTAssertEqual(
             yShortDetail, yTallDetail, accuracy: 1.0,
             "Sidebar rows must not shift vertically when the detail screen "
-            + "changes height (was \(yShortDetail) on App Updater, "
-            + "\(yTallDetail) on App Uninstaller)"
+            + "changes height (was \(yShortDetail) on Extensions, "
+            + "\(yTallDetail) on Health Monitor)"
         )
     }
 
@@ -206,18 +205,34 @@ final class FinalPolishUITests: XCTestCase {
         )
     }
 
-    // MARK: - App Uninstaller
+    // MARK: - Applications → Manage (App Uninstaller)
 
-    /// Sidebar → App Uninstaller auto-loads the installed-app list on
-    /// appearance. Any real Mac has well over five apps in /Applications,
-    /// so the list must contain at least five rows.
-    func test_navigateToAppUninstaller_listLoadsWithAtLeastFiveApps() throws {
+    /// Sidebar → Applications → Scan → Manage opens the reused App Uninstaller
+    /// list. Any real Mac has well over five apps in /Applications, so the list
+    /// must contain at least five rows. This proves the merged Applications
+    /// section's scan → dashboard → detail wiring end to end.
+    func test_applications_manageOpensUninstallerListWithAtLeastFiveApps() throws {
         dismissOnboardingIfNeeded()
 
-        let row = app.buttons["sidebar.appUninstaller"].firstMatch
+        let row = app.buttons["sidebar.applications"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
-                      "Expected App Uninstaller row in sidebar")
+                      "Expected Applications row in sidebar")
         row.click()
+
+        // Scannable section: land on the unified intro, then trigger the scan
+        // via the floating Scan button.
+        let scan = app.buttons["section.applications.scan"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 5),
+                      "Expected the floating Scan button on the Applications intro")
+        scan.click()
+        proceedPastScanAccessPopoverIfNeeded()
+
+        // The scan discovers installed apps and checks for updates; allow a
+        // generous window for the dashboard to land before opening Manage.
+        let manage = app.buttons["applications.manageMyApplications"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 90),
+                      "Expected the Applications dashboard after the scan")
+        manage.click()
 
         // Rows are namespaced `appUninstaller.row.<bundleID>`. Discovery
         // shells out and inspects bundles, so allow a generous window for
@@ -226,14 +241,14 @@ final class FinalPolishUITests: XCTestCase {
             .matching(NSPredicate(format: "identifier BEGINSWITH 'appUninstaller.row.'"))
             .firstMatch
         XCTAssertTrue(firstRow.waitForExistence(timeout: 45),
-                      "Expected App Uninstaller to load the installed-app list")
+                      "Expected the Manage screen to load the installed-app list")
 
         let rowCount = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH 'appUninstaller.row.'"))
             .count
         XCTAssertGreaterThanOrEqual(
             rowCount, 5,
-            "Expected at least five installed apps in the App Uninstaller list, found \(rowCount)"
+            "Expected at least five installed apps in the Manage list, found \(rowCount)"
         )
     }
 

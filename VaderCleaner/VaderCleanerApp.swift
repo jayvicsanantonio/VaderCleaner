@@ -33,6 +33,7 @@ struct VaderCleanerApp: App {
     @State private var privacyViewModel: PrivacyViewModel
     @State private var appUninstallerViewModel: AppUninstallerViewModel
     @State private var appUpdaterViewModel: AppUpdaterViewModel
+    @State private var applicationsViewModel: ApplicationsViewModel
     @State private var extensionsManagerViewModel: ExtensionsManagerViewModel
     @State private var optimizationViewModel: OptimizationViewModel
     @State private var malwareViewModel: MalwareViewModel
@@ -91,6 +92,10 @@ struct VaderCleanerApp: App {
             initialValue: AppUninstallerViewModel.live(exclusions: exclusions)
         )
         _appUpdaterViewModel = State(initialValue: AppUpdaterViewModel.live())
+        // The Applications dashboard's own scan (installed-app count + update
+        // count). The uninstall / update side-effects stay owned by the two
+        // view models above, which the dashboard reuses as detail screens.
+        _applicationsViewModel = State(initialValue: ApplicationsViewModel.live())
         _extensionsManagerViewModel = State(initialValue: ExtensionsManagerViewModel.live())
         // Construct the polling service and the menu bar view-model in the
         // same init so both `@StateObject` wrappers reference the *same*
@@ -204,6 +209,7 @@ struct VaderCleanerApp: App {
                 privacyViewModel: privacyViewModel,
                 appUninstallerViewModel: appUninstallerViewModel,
                 appUpdaterViewModel: appUpdaterViewModel,
+                applicationsViewModel: applicationsViewModel,
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 optimizationViewModel: optimizationViewModel,
                 malwareViewModel: malwareViewModel,
