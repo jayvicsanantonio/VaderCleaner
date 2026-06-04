@@ -43,9 +43,10 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the floating Scan button on the Applications intro")
     }
 
-    /// Scan → the dashboard appears showing only cleanup recommendation cards
-    /// (or the all-clear state when nothing needs attention). The old Updates
-    /// and Manage cards are gone — Manage lives behind the header button now.
+    /// Scan → the dashboard appears showing only recommendation cards (or the
+    /// all-clear state when nothing needs attention). Updates is one of the
+    /// ranked cards now; the old standalone Manage card is gone — Manage lives
+    /// behind the header button.
     func test_applications_scanShowsDashboard() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
@@ -54,25 +55,22 @@ final class ApplicationsUITests: XCTestCase {
         XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
                       "Expected the Applications dashboard after the scan")
 
-        // Which cleanup cards appear depends on the machine, so assert the
-        // dashboard reaches a valid state: at least one recommendation card,
+        // Which recommendation cards appear depends on the machine, so assert
+        // the dashboard reaches a valid state: at least one recommendation card,
         // or the all-clear state.
         let validState = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier IN {"
-                + "'applications.card.unused','applications.card.unsupported',"
-                + "'applications.card.leftovers','applications.card.installationFiles',"
+                + "'applications.card.unsupported','applications.card.unused',"
+                + "'applications.card.updates','applications.card.leftovers',"
+                + "'applications.card.installationFiles',"
                 + "'applications.dashboard.allClear'}"))
             .firstMatch
         XCTAssertTrue(validState.waitForExistence(timeout: 10),
                       "Expected a recommendation card or the all-clear state")
 
-        // The removed cards must not be present.
-        XCTAssertFalse(app.buttons["applications.card.updates"].exists,
-                       "Updates moved into the Manager's Updater pane")
+        // The standalone Manage card is gone — Manage is the header button now.
         XCTAssertFalse(app.buttons["applications.card.manage"].exists,
                        "The Manage card was replaced by the header button")
-
-        // Manage is reachable from the header button instead.
         XCTAssertTrue(app.buttons["applications.manageMyApplications"].waitForExistence(timeout: 5),
                       "Expected the Manage My Applications header button")
     }
@@ -187,6 +185,45 @@ final class ApplicationsUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(extensionsState.waitForExistence(timeout: 30),
                       "Expected the Extensions Manager screen to render")
+
+        let back = app.buttons["applications.backToDashboard"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
+        back.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
+            "Expected Back to return to the dashboard grid"
+        )
+    }
+
+    /// The Updates recommendation card deep-links into the Manager's Updater
+    /// pane (rather than its own review screen), and Back returns to the
+    /// dashboard. Whether updates exist depends on the host, so the test accepts
+    /// the card's absence — mirroring the other host-dependent guards.
+    func test_applications_updatesCardOpensUpdaterPane() throws {
+        dismissOnboardingIfNeeded()
+        openApplicationsAndScan()
+
+        let dashboard = app.descendants(matching: .any)["applications.dashboard"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
+                      "Expected the Applications dashboard after the scan")
+
+        let updatesCard = app.buttons["applications.card.updates"]
+        guard updatesCard.waitForExistence(timeout: 10) else {
+            // No updates available on this host → no Updates card to open.
+            return
+        }
+
+        updatesCard.click()
+
+        // The deep-link lands on the reused App Updater screen inside the
+        // Manager, in one of its display states.
+        let updaterState = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier IN {'appUpdater.loading', 'appUpdater.upToDate', 'appUpdater.check', 'appUpdater.errorMessage'}"
+            ))
+            .firstMatch
+        XCTAssertTrue(updaterState.waitForExistence(timeout: 30),
+                      "Expected the Updates card to deep-link into the Updater pane")
 
         let back = app.buttons["applications.backToDashboard"]
         XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")

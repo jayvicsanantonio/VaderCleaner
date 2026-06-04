@@ -33,7 +33,9 @@ struct ApplicationsView: View {
     /// screen.
     private enum Detail {
         case dashboard
-        case manage
+        /// The full Manager, opened on a specific pane — the Manage button opens
+        /// it on the Uninstaller, the Updates card deep-links to the Updater.
+        case manage(ApplicationsManagerView.Pane)
         case installationFiles
         case unsupported
         case unused
@@ -89,20 +91,22 @@ struct ApplicationsView: View {
             ScrollView {
                 ApplicationsDashboardView(
                     result: result,
-                    onOpenManage: { detail = .manage },
+                    onOpenManage: { detail = .manage(.uninstaller) },
                     onOpenInstallationFiles: { detail = .installationFiles },
                     onOpenUnsupported: { detail = .unsupported },
                     onOpenUnused: { detail = .unused },
+                    onOpenUpdates: { detail = .manage(.updater) },
                     onOpenLeftovers: { detail = .leftovers },
                     onRescan: { Task { await viewModel.scan() } }
                 )
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        case .manage:
+        case .manage(let pane):
             // Full multi-pane manager (Uninstaller / Updater / Leftovers),
             // styled like the Optimization "View All Tasks" catalog — it owns
-            // its own header, so it is not wrapped in `detailScreen`.
+            // its own header, so it is not wrapped in `detailScreen`. Opens on
+            // `pane` so the Updates card can deep-link straight to the Updater.
             ApplicationsManagerView(
                 viewModel: viewModel,
                 uninstallerViewModel: uninstallerViewModel,
@@ -110,6 +114,7 @@ struct ApplicationsView: View {
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 result: result,
                 iconCache: iconCache,
+                initialPane: pane,
                 onBack: { detail = .dashboard }
             )
         case .installationFiles:
@@ -244,8 +249,9 @@ struct ApplicationsManagerView: View {
 
     /// Which sub-section the manager is showing. Local state — it survives the
     /// view's re-renders while the manager is open, and resets when the user
-    /// returns to the dashboard and comes back.
-    @State private var pane: Pane = .uninstaller
+    /// returns to the dashboard and comes back. Seeded from `initialPane` so a
+    /// caller can deep-link straight to a pane (e.g. the Updates card → Updater).
+    @State private var pane: Pane
 
     enum Pane: Hashable {
         case uninstaller
@@ -261,6 +267,7 @@ struct ApplicationsManagerView: View {
         extensionsManagerViewModel: ExtensionsManagerViewModel,
         result: ApplicationsScanResult,
         iconCache: AppIconCache,
+        initialPane: Pane = .uninstaller,
         onBack: @escaping () -> Void
     ) {
         self.viewModel = viewModel
@@ -269,6 +276,7 @@ struct ApplicationsManagerView: View {
         self.extensionsManagerViewModel = extensionsManagerViewModel
         self.result = result
         self.iconCache = iconCache
+        self._pane = State(initialValue: initialPane)
         self.onBack = onBack
     }
 

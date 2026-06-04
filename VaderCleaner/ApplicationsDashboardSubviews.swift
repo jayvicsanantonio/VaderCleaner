@@ -14,6 +14,7 @@ struct ApplicationsDashboardView: View {
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
     let onOpenUnused: () -> Void
+    let onOpenUpdates: () -> Void
     let onOpenLeftovers: () -> Void
     let onRescan: () -> Void
 
@@ -67,6 +68,10 @@ struct ApplicationsDashboardView: View {
     private struct CardSpec: Identifiable {
         let id: String
         let title: String
+        /// A short, emphasized magnitude — reclaimable size for space
+        /// categories, item count for app/update categories — surfaced as the
+        /// card's headline number above its supporting detail.
+        let metric: String
         let detail: String
         let icon: String
         let actionLabel: String
@@ -79,19 +84,24 @@ struct ApplicationsDashboardView: View {
 
     private func spec(for recommendation: ApplicationsScanResult.Recommendation) -> CardSpec {
         switch recommendation {
-        case .unused:
-            return CardSpec(id: "applications.card.unused", title: unusedTitle, detail: unusedDetail,
-                            icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused)
         case .unsupported:
-            return CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, detail: unsupportedDetail,
-                            icon: "exclamationmark.triangle", actionLabel: reviewLabel, action: onOpenUnsupported)
+            return CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, metric: unsupportedMetric,
+                            detail: unsupportedDetail, icon: "exclamationmark.triangle",
+                            actionLabel: reviewLabel, action: onOpenUnsupported)
+        case .unused:
+            return CardSpec(id: "applications.card.unused", title: unusedTitle, metric: unusedMetric,
+                            detail: unusedDetail, icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused)
+        case .updates:
+            return CardSpec(id: "applications.card.updates", title: updatesTitle, metric: updatesMetric,
+                            detail: updatesDetail, icon: "arrow.down.circle", actionLabel: updateLabel,
+                            action: onOpenUpdates)
         case .leftovers:
-            return CardSpec(id: "applications.card.leftovers", title: leftoversTitle, detail: leftoversDetail,
-                            icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers)
+            return CardSpec(id: "applications.card.leftovers", title: leftoversTitle, metric: leftoversMetric,
+                            detail: leftoversDetail, icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers)
         case .installationFiles:
             return CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
-                            detail: installationFilesDetail, icon: "shippingbox", actionLabel: reviewLabel,
-                            action: onOpenInstallationFiles)
+                            metric: installationFilesMetric, detail: installationFilesDetail, icon: "shippingbox",
+                            actionLabel: reviewLabel, action: onOpenInstallationFiles)
         }
     }
 
@@ -126,6 +136,7 @@ struct ApplicationsDashboardView: View {
     private func card(_ spec: CardSpec, isHero: Bool) -> some View {
         ApplicationsCard(
             title: spec.title,
+            metric: spec.metric,
             detail: spec.detail,
             icon: spec.icon,
             actionLabel: spec.actionLabel,
@@ -149,8 +160,8 @@ struct ApplicationsDashboardView: View {
             ))
             .font(.title3.weight(.semibold))
             Text(String(
-                localized: "No unused or unsupported apps, leftovers, or installer files to review. Open Manage My Applications for available updates and to browse everything you have installed.",
-                comment: "Applications dashboard all-clear detail; points to Manage for updates since they are not shown on the dashboard."
+                localized: "No unused or unsupported apps, available updates, leftovers, or installer files to review. Open Manage My Applications to browse everything you have installed.",
+                comment: "Applications dashboard all-clear detail shown when no recommendation category has findings."
             ))
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -172,6 +183,17 @@ struct ApplicationsDashboardView: View {
         return String.localizedStringWithFormat(format, Int64(result.installedCount))
     }
 
+    private var updateLabel: String {
+        String(localized: "Update", comment: "Applications Updates card action that opens the Updater pane.")
+    }
+
+    /// Localized "N apps" count, used as the metric on the app categories
+    /// (unused / unsupported) where there is no on-disk size to show.
+    private func appCountText(_ count: Int) -> String {
+        let format = String(localized: "%lld apps", comment: "Applications card metric; %lld is an app count.")
+        return String.localizedStringWithFormat(format, Int64(count))
+    }
+
     private var installationFilesTitle: String {
         if result.installationFilesCount == 0 {
             return String(
@@ -179,11 +201,14 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Installation Files card title when none are found."
             )
         }
-        let format = String(
-            localized: "%lld Installation Files Found",
-            comment: "Applications Installation Files card title; %lld is the installer count."
+        return String(
+            localized: "Installation Files",
+            comment: "Applications Installation Files card title."
         )
-        return String.localizedStringWithFormat(format, Int64(result.installationFilesCount))
+    }
+
+    private var installationFilesMetric: String {
+        smartScanByteFormatter.string(fromByteCount: result.installationFilesTotalBytes)
     }
 
     private var installationFilesDetail: String {
@@ -193,12 +218,10 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Installation Files card detail when none are found."
             )
         }
-        let size = smartScanByteFormatter.string(fromByteCount: result.installationFilesTotalBytes)
-        let format = String(
-            localized: "Leftover disk images and installers in your Downloads and Desktop are using %@. They're safe to remove once an app is installed.",
-            comment: "Applications Installation Files card detail; %@ is the reclaimable size."
+        return String(
+            localized: "Leftover disk images and installers in your Downloads and Desktop. They're safe to remove once an app is installed.",
+            comment: "Applications Installation Files card detail when some are found."
         )
-        return String.localizedStringWithFormat(format, size)
     }
 
     private var unusedTitle: String {
@@ -208,12 +231,13 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Unused card title when none are found."
             )
         }
-        let format = String(
-            localized: "%lld Unused Applications Found",
-            comment: "Applications Unused card title; %lld is the count."
+        return String(
+            localized: "Unused Applications",
+            comment: "Applications Unused card title."
         )
-        return String.localizedStringWithFormat(format, Int64(result.unusedAppsCount))
     }
+
+    private var unusedMetric: String { appCountText(result.unusedAppsCount) }
 
     private var unusedDetail: String {
         if result.unusedAppsCount == 0 {
@@ -228,6 +252,40 @@ struct ApplicationsDashboardView: View {
         )
     }
 
+    private var updatesTitle: String {
+        if result.updatesCount == 0 {
+            return String(
+                localized: "No Updates Available",
+                comment: "Applications Updates card title when none are found."
+            )
+        }
+        return String(
+            localized: "Updates Available",
+            comment: "Applications Updates card title."
+        )
+    }
+
+    private var updatesMetric: String {
+        let format = String(
+            localized: "%lld updates",
+            comment: "Applications Updates card metric; %lld is the available-update count."
+        )
+        return String.localizedStringWithFormat(format, Int64(result.updatesCount))
+    }
+
+    private var updatesDetail: String {
+        if result.updatesCount == 0 {
+            return String(
+                localized: "Every app is up to date.",
+                comment: "Applications Updates card detail when none are found."
+            )
+        }
+        return String(
+            localized: "These apps have newer versions available. Update them to get the latest fixes.",
+            comment: "Applications Updates card detail when some are found."
+        )
+    }
+
     private var leftoversTitle: String {
         if result.leftoversCount == 0 {
             return String(
@@ -235,11 +293,14 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Leftovers card title when none are found."
             )
         }
-        let format = String(
-            localized: "Leftovers From %lld Apps Found",
-            comment: "Applications Leftovers card title; %lld is the orphaned-app count."
+        return String(
+            localized: "App Leftovers",
+            comment: "Applications Leftovers card title."
         )
-        return String.localizedStringWithFormat(format, Int64(result.leftoversCount))
+    }
+
+    private var leftoversMetric: String {
+        smartScanByteFormatter.string(fromByteCount: result.leftoversTotalBytes)
     }
 
     private var leftoversDetail: String {
@@ -249,12 +310,10 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Leftovers card detail when none are found."
             )
         }
-        let size = smartScanByteFormatter.string(fromByteCount: result.leftoversTotalBytes)
-        let format = String(
-            localized: "Support files left behind by apps you've removed are using %@.",
-            comment: "Applications Leftovers card detail; %@ is the reclaimable size."
+        return String(
+            localized: "Support files left behind by apps you've removed.",
+            comment: "Applications Leftovers card detail when some are found."
         )
-        return String.localizedStringWithFormat(format, size)
     }
 
     private var unsupportedTitle: String {
@@ -264,12 +323,13 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Unsupported card title when none are found."
             )
         }
-        let format = String(
-            localized: "%lld Unsupported Applications Found",
-            comment: "Applications Unsupported card title; %lld is the count."
+        return String(
+            localized: "Unsupported Applications",
+            comment: "Applications Unsupported card title."
         )
-        return String.localizedStringWithFormat(format, Int64(result.unsupportedAppsCount))
     }
+
+    private var unsupportedMetric: String { appCountText(result.unsupportedAppsCount) }
 
     private var unsupportedDetail: String {
         if result.unsupportedAppsCount == 0 {
@@ -290,6 +350,9 @@ struct ApplicationsDashboardView: View {
 /// surfaces stay consistent.
 struct ApplicationsCard: View {
     let title: String
+    /// Short, emphasized magnitude (reclaimable size or item count) shown as the
+    /// card's headline number beneath the title.
+    let metric: String
     let detail: String
     let icon: String
     let actionLabel: String
@@ -310,6 +373,10 @@ struct ApplicationsCard: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
             }
+            Text(metric)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.tint)
+                .fixedSize(horizontal: false, vertical: true)
             Text(detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)

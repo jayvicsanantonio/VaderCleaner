@@ -44,25 +44,29 @@ struct ApplicationsScanResult: Equatable {
         leftovers.reduce(Int64(0)) { $0 + $1.totalBytes }
     }
 
-    /// A cleanup category the dashboard can recommend acting on. The dashboard
-    /// grid renders one card per recommendation, in this declaration order.
+    /// A category the dashboard can recommend acting on. The grid renders one
+    /// card per recommendation, in this declaration order — which is the
+    /// severity / actionability ranking, so the hero (first) card is always the
+    /// finding that most warrants attention: apps that can't run, then stale
+    /// apps, then available updates, then orphaned files and installer cruft.
     enum Recommendation: CaseIterable {
-        case unused
         case unsupported
+        case unused
+        case updates
         case leftovers
         case installationFiles
     }
 
-    /// The cleanup categories that currently have findings, in display order.
-    /// Installed apps and available updates are deliberately excluded — the
-    /// grid surfaces only quick-win review-and-removal work; updates and the
-    /// full app list live under "Manage My Applications". An empty result
-    /// drives the dashboard's "all clear" state.
+    /// The categories that currently have findings, ranked by severity (the
+    /// `Recommendation` declaration order). The full installed-app list is
+    /// deliberately excluded — it lives under "Manage My Applications", not as a
+    /// cleanup card. An empty result drives the dashboard's "all clear" state.
     var recommendations: [Recommendation] {
         Recommendation.allCases.filter { recommendation in
             switch recommendation {
-            case .unused:            return unusedAppsCount > 0
             case .unsupported:       return unsupportedAppsCount > 0
+            case .unused:            return unusedAppsCount > 0
+            case .updates:           return updatesCount > 0
             case .leftovers:         return leftoversCount > 0
             case .installationFiles: return installationFilesCount > 0
             }
