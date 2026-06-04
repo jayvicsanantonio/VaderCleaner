@@ -10,7 +10,6 @@ import SwiftUI
 /// mirroring the Optimization dashboard's card layout.
 struct ApplicationsDashboardView: View {
     let result: ApplicationsScanResult
-    let onOpenUpdates: () -> Void
     let onOpenManage: () -> Void
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
@@ -19,11 +18,15 @@ struct ApplicationsDashboardView: View {
     let onRescan: () -> Void
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 28) {
             header
-            grid
+            if result.recommendations.isEmpty {
+                allClear
+            } else {
+                cardLayout
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
         .accessibilityIdentifier("applications.dashboard")
     }
 
@@ -74,77 +77,89 @@ struct ApplicationsDashboardView: View {
         String(localized: "Review", comment: "Applications card action that opens a review list.")
     }
 
-    /// Gap between cards, and the floor a standard card never shrinks below so
-    /// its title + a line of detail + the button stay legible on short windows.
-    private let cardGap: CGFloat = 16
-    private let minStandardCardHeight: CGFloat = 132
-
-    private var updatesSpec: CardSpec {
-        CardSpec(id: "applications.card.updates", title: updatesTitle, detail: updatesDetail,
-                 icon: "arrow.triangle.2.circlepath", actionLabel: reviewLabel, action: onOpenUpdates)
-    }
-    private var unusedSpec: CardSpec {
-        CardSpec(id: "applications.card.unused", title: unusedTitle, detail: unusedDetail,
-                 icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused)
-    }
-    private var unsupportedSpec: CardSpec {
-        CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, detail: unsupportedDetail,
-                 icon: "exclamationmark.triangle", actionLabel: reviewLabel, action: onOpenUnsupported)
-    }
-    private var leftoversSpec: CardSpec {
-        CardSpec(id: "applications.card.leftovers", title: leftoversTitle, detail: leftoversDetail,
-                 icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers)
-    }
-    private var installationFilesSpec: CardSpec {
-        CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
-                 detail: installationFilesDetail, icon: "shippingbox", actionLabel: reviewLabel,
-                 action: onOpenInstallationFiles)
-    }
-    private var manageSpec: CardSpec {
-        CardSpec(id: "applications.card.manage",
-                 title: String(localized: "Manage Applications", comment: "Applications management card title."),
-                 detail: manageDetail, icon: "square.grid.2x2",
-                 actionLabel: String(localized: "Manage", comment: "Applications management card action."),
-                 action: onOpenManage)
-    }
-
-    /// Two-column masonry that fills the available height so the dashboard
-    /// never needs to scroll. Each column is one tall card + two standard cards
-    /// + two gaps, and a tall card spans exactly two standard cards plus a gap —
-    /// so a column is four "standard heights" plus three gaps. We solve for the
-    /// standard height that makes the columns exactly fill the height the
-    /// `GeometryReader` reports, flooring it so cards stay legible when the
-    /// window is short (the only case the content can exceed the viewport).
-    private var grid: some View {
-        GeometryReader { proxy in
-            let standard = max(minStandardCardHeight, (proxy.size.height - cardGap * 3) / 4)
-            let tall = standard * 2 + cardGap
-            HStack(alignment: .top, spacing: cardGap) {
-                VStack(spacing: cardGap) {
-                    card(updatesSpec, height: tall)
-                    card(installationFilesSpec, height: standard)
-                    card(manageSpec, height: standard)
-                }
-                VStack(spacing: cardGap) {
-                    card(unusedSpec, height: standard)
-                    card(unsupportedSpec, height: standard)
-                    card(leftoversSpec, height: tall)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    private func spec(for recommendation: ApplicationsScanResult.Recommendation) -> CardSpec {
+        switch recommendation {
+        case .unused:
+            return CardSpec(id: "applications.card.unused", title: unusedTitle, detail: unusedDetail,
+                            icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused)
+        case .unsupported:
+            return CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, detail: unsupportedDetail,
+                            icon: "exclamationmark.triangle", actionLabel: reviewLabel, action: onOpenUnsupported)
+        case .leftovers:
+            return CardSpec(id: "applications.card.leftovers", title: leftoversTitle, detail: leftoversDetail,
+                            icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers)
+        case .installationFiles:
+            return CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
+                            detail: installationFilesDetail, icon: "shippingbox", actionLabel: reviewLabel,
+                            action: onOpenInstallationFiles)
         }
     }
 
-    private func card(_ spec: CardSpec, height: CGFloat) -> some View {
+    /// One card per cleanup recommendation that has findings, in display order.
+    private var recommendationSpecs: [CardSpec] {
+        result.recommendations.map(spec(for:))
+    }
+
+    /// The card layout, mirroring the Optimization dashboard exactly so the two
+    /// share one look and identical tile widths: the first recommendation is a
+    /// tall hero card capped at 320pt on the left, and the rest flow through an
+    /// adaptive `LazyVGrid` whose columns match Optimization's (minimum 260pt,
+    /// 16pt gaps).
+    private var cardLayout: some View {
+        HStack(alignment: .top, spacing: 16) {
+            if let hero = recommendationSpecs.first {
+                card(hero, isHero: true)
+                    .frame(maxWidth: 320)
+            }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
+                alignment: .leading,
+                spacing: 16
+            ) {
+                ForEach(recommendationSpecs.dropFirst()) { spec in
+                    card(spec, isHero: false)
+                }
+            }
+        }
+    }
+
+    private func card(_ spec: CardSpec, isHero: Bool) -> some View {
         ApplicationsCard(
             title: spec.title,
             detail: spec.detail,
             icon: spec.icon,
             actionLabel: spec.actionLabel,
             identifier: spec.id,
-            height: height,
+            isHero: isHero,
             action: spec.action
         )
+    }
+
+    /// Shown when no cleanup category has findings — the curated grid would
+    /// otherwise be empty. The header (count + Manage / Rescan) stays above.
+    /// Mirrors the Optimization dashboard's empty state.
+    private var allClear: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text(String(
+                localized: "Your applications are in good shape",
+                comment: "Applications dashboard all-clear title when nothing needs cleanup."
+            ))
+            .font(.title3.weight(.semibold))
+            Text(String(
+                localized: "No unused or unsupported apps, leftovers, or installer files to review. Open Manage My Applications to browse everything you have installed.",
+                comment: "Applications dashboard all-clear detail."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 460)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 24)
+        .accessibilityIdentifier("applications.dashboard.allClear")
     }
 
     // MARK: Copy
@@ -153,41 +168,6 @@ struct ApplicationsDashboardView: View {
         let format = String(
             localized: "We've found %lld apps on your Mac.",
             comment: "Applications dashboard headline; %lld is the installed-app count."
-        )
-        return String.localizedStringWithFormat(format, Int64(result.installedCount))
-    }
-
-    private var updatesTitle: String {
-        if result.updatesCount == 0 {
-            return String(
-                localized: "No Updates Available",
-                comment: "Applications Updates card title when every app is current."
-            )
-        }
-        let format = String(
-            localized: "%lld Application Updates Available",
-            comment: "Applications Updates card title; %lld is the available-update count."
-        )
-        return String.localizedStringWithFormat(format, Int64(result.updatesCount))
-    }
-
-    private var updatesDetail: String {
-        if result.updatesCount == 0 {
-            return String(
-                localized: "All your apps are running the latest version.",
-                comment: "Applications Updates card detail when no updates are available."
-            )
-        }
-        return String(
-            localized: "Update your software to keep up with the latest features and compatibility improvements.",
-            comment: "Applications Updates card detail when updates are available."
-        )
-    }
-
-    private var manageDetail: String {
-        let format = String(
-            localized: "Browse all %lld installed apps and remove the ones you no longer need, along with their leftover files.",
-            comment: "Applications management card detail; %lld is the installed-app count."
         )
         return String.localizedStringWithFormat(format, Int64(result.installedCount))
     }
@@ -314,10 +294,9 @@ struct ApplicationsCard: View {
     let icon: String
     let actionLabel: String
     let identifier: String
-    /// Fixed card height set by the layout — tall cards span two standard cards
-    /// so the grid isn't a uniform row of equal-size tiles. A fixed height (not
-    /// a min) keeps the card from stretching to fill its column.
-    let height: CGFloat
+    /// Hero cards render taller, matching the Optimization dashboard's hero /
+    /// standard `minHeight` (260 / 150) so the two dashboards share one look.
+    let isHero: Bool
     let action: () -> Void
 
     var body: some View {
@@ -331,13 +310,10 @@ struct ApplicationsCard: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
             }
-            // Truncates rather than forcing its full height, so a short card
-            // (on a small window) never overflows its fixed frame.
             Text(detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .lineLimit(4)
-                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             HStack {
                 Spacer()
@@ -347,7 +323,7 @@ struct ApplicationsCard: View {
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: isHero ? 260 : 150, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 }

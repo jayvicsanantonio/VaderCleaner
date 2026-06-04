@@ -1,5 +1,5 @@
 // ExtensionItem.swift
-// Value type for a single discovered extension / plugin / login-item launch agent, plus the ExtensionType enum the Extensions Manager groups them under.
+// Value type for a single discovered extension / plugin, plus the ExtensionType enum the Extensions Manager groups them under.
 
 import Foundation
 
@@ -14,7 +14,6 @@ enum ExtensionType: String, CaseIterable, Identifiable, Sendable {
     case firefoxExtension
     case mailPlugin
     case internetPlugin
-    case loginItemFromApp
 
     var id: String { rawValue }
 
@@ -28,13 +27,12 @@ enum ExtensionType: String, CaseIterable, Identifiable, Sendable {
         case .firefoxExtension: return "Firefox Extensions"
         case .mailPlugin:       return "Mail Plugins"
         case .internetPlugin:   return "Internet Plug-ins"
-        case .loginItemFromApp: return "Login Items & Launch Agents"
         }
     }
 }
 
 /// A single discovered extension artifact: a Safari/browser extension, a Mail
-/// plugin, an internet plug-in, or a login-item launch agent.
+/// plugin, or an internet plug-in.
 ///
 /// `Identifiable` by `path` so SwiftUI list identity stays stable across
 /// re-discovery passes that re-emit the same item; `Hashable` so the
@@ -46,13 +44,11 @@ struct ExtensionItem: Identifiable, Hashable, Sendable {
     /// Absolute on-disk location that removal acts on.
     let path: URL
     /// Owning bundle identifier when one is available (Mail plugins,
-    /// internet plug-ins). `nil` for bare launch agents and legacy
-    /// `.safariextz` archives.
+    /// internet plug-ins). `nil` for legacy `.safariextz` archives.
     let bundleID: String?
     let type: ExtensionType
-    /// Best-effort enabled state. Authoritative only for launch agents
-    /// (inverse of the plist `Disabled` key); other sources default to
-    /// `true` because macOS exposes no queryable per-extension state.
+    /// Best-effort enabled state. Defaults to `true` because macOS exposes
+    /// no queryable per-extension state for these artifact types.
     let isEnabled: Bool
     /// Recursive byte size of the artifact, used for the row's size label.
     let size: Int64

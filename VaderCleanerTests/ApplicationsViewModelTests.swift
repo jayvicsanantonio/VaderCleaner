@@ -625,6 +625,56 @@ final class ApplicationsViewModelTests: XCTestCase {
         XCTAssertTrue(vm.leftoverSelection.contains("com.a.app"),
                       "The still-present group stays selected so the user can retry")
     }
+
+    // MARK: - Dashboard recommendations
+
+    /// Builds a result with the given findings. Installed apps and available
+    /// updates are fixed non-empty values to prove they never influence the
+    /// cleanup recommendations.
+    private func makeResult(
+        installers: [InstallationFile] = [],
+        unsupported: [UnsupportedApp] = [],
+        unused: [UnusedApp] = [],
+        leftovers: [LeftoverGroup] = []
+    ) -> ApplicationsScanResult {
+        ApplicationsScanResult(
+            installedApps: [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")],
+            availableUpdates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")],
+            installationFiles: installers,
+            unsupportedApps: unsupported,
+            unusedApps: unused,
+            leftovers: leftovers
+        )
+    }
+
+    /// No cleanup findings → no recommendations, even though apps and updates
+    /// exist. Drives the dashboard's "all clear" state.
+    func test_recommendations_emptyWhenNoCleanupFindings() {
+        XCTAssertEqual(makeResult().recommendations, [])
+    }
+
+    /// Only the categories that have findings are recommended.
+    func test_recommendations_includesOnlyNonEmptyCategories() {
+        let result = makeResult(
+            unused: [makeUnused(name: "Old", bundleID: "com.old.app")]
+        )
+        XCTAssertEqual(result.recommendations, [.unused])
+    }
+
+    /// When every category has findings they appear in the fixed display
+    /// order: unused, unsupported, leftovers, installation files.
+    func test_recommendations_areOrderedDeterministically() {
+        let result = makeResult(
+            installers: [makeInstaller(name: "Setup.dmg", size: 1_000)],
+            unsupported: [makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
+            unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
+            leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)]
+        )
+        XCTAssertEqual(
+            result.recommendations,
+            [.unused, .unsupported, .leftovers, .installationFiles]
+        )
+    }
 }
 
 /// A one-shot async gate so a test can hold an injected closure inside

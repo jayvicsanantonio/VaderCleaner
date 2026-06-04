@@ -11,20 +11,20 @@ final class ExtensionItemTests: XCTestCase {
     /// The struct must expose the properties the discovery layer and UI bind
     /// to: name, path, type, isEnabled (plus optional bundleID and size).
     func test_extensionItem_exposesRequiredProperties() {
-        let url = URL(fileURLWithPath: "/Users/x/Library/LaunchAgents/com.acme.agent.plist")
+        let url = URL(fileURLWithPath: "/Library/Internet Plug-Ins/Acme.plugin")
         let item = ExtensionItem(
-            name: "Acme Agent",
+            name: "Acme Plugin",
             path: url,
-            bundleID: "com.acme.agent",
-            type: .loginItemFromApp,
+            bundleID: "com.acme.plugin",
+            type: .internetPlugin,
             isEnabled: true,
             size: 4096
         )
 
-        XCTAssertEqual(item.name, "Acme Agent")
+        XCTAssertEqual(item.name, "Acme Plugin")
         XCTAssertEqual(item.path, url)
-        XCTAssertEqual(item.bundleID, "com.acme.agent")
-        XCTAssertEqual(item.type, .loginItemFromApp)
+        XCTAssertEqual(item.bundleID, "com.acme.plugin")
+        XCTAssertEqual(item.type, .internetPlugin)
         XCTAssertTrue(item.isEnabled)
         XCTAssertEqual(item.size, 4096)
     }
@@ -60,13 +60,15 @@ final class ExtensionItemTests: XCTestCase {
 
     // MARK: - ExtensionType
 
-    /// All six categories the plan enumerates must be present.
-    func test_extensionType_hasAllSixCases() {
-        XCTAssertEqual(ExtensionType.allCases.count, 6)
+    /// All five categories the Extensions Manager surfaces must be present.
+    /// Login items / launch agents are owned by the Optimization section, so
+    /// they are intentionally absent here.
+    func test_extensionType_hasAllFiveCases() {
+        XCTAssertEqual(ExtensionType.allCases.count, 5)
         XCTAssertEqual(
             Set(ExtensionType.allCases),
             [.safariExtension, .chromeExtension, .firefoxExtension,
-             .mailPlugin, .internetPlugin, .loginItemFromApp]
+             .mailPlugin, .internetPlugin]
         )
     }
 
@@ -78,7 +80,6 @@ final class ExtensionItemTests: XCTestCase {
         XCTAssertEqual(ExtensionType.firefoxExtension.rawValue, "firefoxExtension")
         XCTAssertEqual(ExtensionType.mailPlugin.rawValue, "mailPlugin")
         XCTAssertEqual(ExtensionType.internetPlugin.rawValue, "internetPlugin")
-        XCTAssertEqual(ExtensionType.loginItemFromApp.rawValue, "loginItemFromApp")
     }
 
     /// `id` mirrors the raw value so `ForEach` over `allCases` is stable.

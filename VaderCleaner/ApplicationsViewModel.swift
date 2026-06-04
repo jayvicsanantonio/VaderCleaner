@@ -43,6 +43,31 @@ struct ApplicationsScanResult: Equatable {
     var leftoversTotalBytes: Int64 {
         leftovers.reduce(Int64(0)) { $0 + $1.totalBytes }
     }
+
+    /// A cleanup category the dashboard can recommend acting on. The dashboard
+    /// grid renders one card per recommendation, in this declaration order.
+    enum Recommendation: CaseIterable {
+        case unused
+        case unsupported
+        case leftovers
+        case installationFiles
+    }
+
+    /// The cleanup categories that currently have findings, in display order.
+    /// Installed apps and available updates are deliberately excluded — the
+    /// grid surfaces only quick-win review-and-removal work; updates and the
+    /// full app list live under "Manage My Applications". An empty result
+    /// drives the dashboard's "all clear" state.
+    var recommendations: [Recommendation] {
+        Recommendation.allCases.filter { recommendation in
+            switch recommendation {
+            case .unused:            return unusedAppsCount > 0
+            case .unsupported:       return unsupportedAppsCount > 0
+            case .leftovers:         return leftoversCount > 0
+            case .installationFiles: return installationFilesCount > 0
+            }
+        }
+    }
 }
 
 /// Drives the Applications feature view (scan → results). Collaborators are

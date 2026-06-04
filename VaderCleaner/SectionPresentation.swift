@@ -275,7 +275,7 @@ struct SectionPresentation {
                     ),
                 ]
             )
-        case .extensions, .healthMonitor:
+        case .healthMonitor:
             return nil
         }
     }

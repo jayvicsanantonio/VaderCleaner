@@ -16,6 +16,7 @@ struct ApplicationsView: View {
     private var viewModel: ApplicationsViewModel
     private var uninstallerViewModel: AppUninstallerViewModel
     private var updaterViewModel: AppUpdaterViewModel
+    private var extensionsManagerViewModel: ExtensionsManagerViewModel
 
     /// Shared icon cache so the Unused / Unsupported review rows show each
     /// app's real icon instead of a generic glyph. Pre-loaded off the main
@@ -27,10 +28,11 @@ struct ApplicationsView: View {
     /// brief remount when the underlying detail view loads.
     @State private var detail: Detail = .dashboard
 
-    /// The results surface's screens.
+    /// The results surface's screens. Updates are reached through the Manager's
+    /// Updater pane, so the dashboard no longer pushes a standalone Updates
+    /// screen.
     private enum Detail {
         case dashboard
-        case updates
         case manage
         case installationFiles
         case unsupported
@@ -41,11 +43,13 @@ struct ApplicationsView: View {
     init(
         viewModel: ApplicationsViewModel,
         uninstallerViewModel: AppUninstallerViewModel,
-        updaterViewModel: AppUpdaterViewModel
+        updaterViewModel: AppUpdaterViewModel,
+        extensionsManagerViewModel: ExtensionsManagerViewModel
     ) {
         self.viewModel = viewModel
         self.uninstallerViewModel = uninstallerViewModel
         self.updaterViewModel = updaterViewModel
+        self.extensionsManagerViewModel = extensionsManagerViewModel
     }
 
     var body: some View {
@@ -79,28 +83,21 @@ struct ApplicationsView: View {
     private func resultsContent(_ result: ApplicationsScanResult) -> some View {
         switch detail {
         case .dashboard:
-            // No ScrollView: the grid sizes its cards to the available height
-            // so the whole dashboard fits the window without scrolling.
-            ApplicationsDashboardView(
-                result: result,
-                onOpenUpdates: { detail = .updates },
-                onOpenManage: { detail = .manage },
-                onOpenInstallationFiles: { detail = .installationFiles },
-                onOpenUnsupported: { detail = .unsupported },
-                onOpenUnused: { detail = .unused },
-                onOpenLeftovers: { detail = .leftovers },
-                onRescan: { Task { await viewModel.scan() } }
-            )
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        case .updates:
-            detailScreen(
-                title: String(
-                    localized: "Updates",
-                    comment: "Title of the Applications Updates detail screen."
+            // Mirrors the Optimization dashboard host: a scrolling hero +
+            // adaptive card grid, so the two dashboards share one look and the
+            // tiles share one width.
+            ScrollView {
+                ApplicationsDashboardView(
+                    result: result,
+                    onOpenManage: { detail = .manage },
+                    onOpenInstallationFiles: { detail = .installationFiles },
+                    onOpenUnsupported: { detail = .unsupported },
+                    onOpenUnused: { detail = .unused },
+                    onOpenLeftovers: { detail = .leftovers },
+                    onRescan: { Task { await viewModel.scan() } }
                 )
-            ) {
-                AppUpdaterView(viewModel: updaterViewModel)
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .manage:
             // Full multi-pane manager (Uninstaller / Updater / Leftovers),
@@ -110,6 +107,7 @@ struct ApplicationsView: View {
                 viewModel: viewModel,
                 uninstallerViewModel: uninstallerViewModel,
                 updaterViewModel: updaterViewModel,
+                extensionsManagerViewModel: extensionsManagerViewModel,
                 result: result,
                 iconCache: iconCache,
                 onBack: { detail = .dashboard }
@@ -239,6 +237,7 @@ struct ApplicationsManagerView: View {
     private var viewModel: ApplicationsViewModel
     private var uninstallerViewModel: AppUninstallerViewModel
     private var updaterViewModel: AppUpdaterViewModel
+    private var extensionsManagerViewModel: ExtensionsManagerViewModel
     private let result: ApplicationsScanResult
     private var iconCache: AppIconCache
     private let onBack: () -> Void
@@ -251,6 +250,7 @@ struct ApplicationsManagerView: View {
     enum Pane: Hashable {
         case uninstaller
         case updater
+        case extensions
         case leftovers
     }
 
@@ -258,6 +258,7 @@ struct ApplicationsManagerView: View {
         viewModel: ApplicationsViewModel,
         uninstallerViewModel: AppUninstallerViewModel,
         updaterViewModel: AppUpdaterViewModel,
+        extensionsManagerViewModel: ExtensionsManagerViewModel,
         result: ApplicationsScanResult,
         iconCache: AppIconCache,
         onBack: @escaping () -> Void
@@ -265,6 +266,7 @@ struct ApplicationsManagerView: View {
         self.viewModel = viewModel
         self.uninstallerViewModel = uninstallerViewModel
         self.updaterViewModel = updaterViewModel
+        self.extensionsManagerViewModel = extensionsManagerViewModel
         self.result = result
         self.iconCache = iconCache
         self.onBack = onBack
@@ -327,6 +329,9 @@ struct ApplicationsManagerView: View {
             navItem(.updater,
                     String(localized: "Updater", comment: "Applications Manager sub-nav item."),
                     "applications.manager.nav.updater")
+            navItem(.extensions,
+                    String(localized: "Extensions", comment: "Applications Manager sub-nav item."),
+                    "applications.manager.nav.extensions")
             navItem(.leftovers,
                     String(localized: "Leftovers", comment: "Applications Manager sub-nav item."),
                     "applications.manager.nav.leftovers")
@@ -362,6 +367,8 @@ struct ApplicationsManagerView: View {
             AppUninstallerView(viewModel: uninstallerViewModel, iconCache: iconCache)
         case .updater:
             AppUpdaterView(viewModel: updaterViewModel)
+        case .extensions:
+            ExtensionsManagerView(viewModel: extensionsManagerViewModel)
         case .leftovers:
             AppLeftoversReviewView(
                 groups: result.leftovers,
@@ -398,6 +405,10 @@ struct ApplicationsManagerView: View {
             checkAppStore: { _ in .noResult },
             checkSparkle: { _ in .noResult },
             opener: { _ in }
+        ),
+        extensionsManagerViewModel: ExtensionsManagerViewModel(
+            discover: { [] },
+            remove: { _ in }
         )
     )
     .frame(width: 900, height: 600)

@@ -281,11 +281,10 @@ struct ContentView: View {
                 ApplicationsView(
                     viewModel: applicationsViewModel,
                     uninstallerViewModel: appUninstallerViewModel,
-                    updaterViewModel: appUpdaterViewModel
+                    updaterViewModel: appUpdaterViewModel,
+                    extensionsManagerViewModel: extensionsManagerViewModel
                 )
             }
-        case .extensions:
-            ExtensionsManagerView(viewModel: extensionsManagerViewModel)
         case .optimization:
             ScannableSectionContent(coordinator: optimizationViewModel, section: section) {
                 OptimizationView(viewModel: optimizationViewModel)

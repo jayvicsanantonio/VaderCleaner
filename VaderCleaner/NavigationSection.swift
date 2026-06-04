@@ -11,7 +11,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case malwareRemoval
     case optimization
     case privacy
-    case extensions
     case applications
     case healthMonitor
 
@@ -26,7 +25,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .malwareRemoval:  return String(localized: "Malware Removal")
         case .optimization:    return String(localized: "Optimization")
         case .privacy:         return String(localized: "Privacy")
-        case .extensions:      return String(localized: "Extensions")
         case .applications:    return String(localized: "Applications")
         case .healthMonitor:   return String(localized: "Health Monitor")
         }
@@ -45,7 +43,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .malwareRemoval:  return "sidebar.malwareRemoval"
         case .optimization:    return "sidebar.optimization"
         case .privacy:         return "sidebar.privacy"
-        case .extensions:      return "sidebar.extensions"
         case .applications:    return "sidebar.applications"
         case .healthMonitor:   return "sidebar.healthMonitor"
         }
@@ -73,7 +70,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .malwareRemoval:  return "shield.lefthalf.filled"
         case .optimization:    return "gauge.with.needle"
         case .privacy:         return "lock.shield"
-        case .extensions:      return "puzzlepiece.extension"
         case .applications:    return "square.grid.2x2"
         case .healthMonitor:   return "heart.text.square"
         }
@@ -90,7 +86,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
              .spaceLens, .malwareRemoval, .optimization, .privacy,
              .applications:
             return true
-        case .extensions, .healthMonitor:
+        case .healthMonitor:
             return false
         }
     }
@@ -107,7 +103,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .smartScan, .systemJunk, .largeOldFiles,
              .spaceLens, .malwareRemoval, .privacy:
             return true
-        case .optimization, .extensions,
+        case .optimization,
              .applications, .healthMonitor:
             return false
         }
