@@ -628,18 +628,20 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     // MARK: - Dashboard recommendations
 
-    /// Builds a result with the given findings. Installed apps and available
-    /// updates are fixed non-empty values to prove they never influence the
-    /// cleanup recommendations.
+    /// Builds a result with the given findings. Installed apps are a fixed
+    /// non-empty value to prove the full app list never influences the cleanup
+    /// recommendations; available updates default to empty (they are now a
+    /// recommendation category, so tests opt them in explicitly).
     private func makeResult(
         installers: [InstallationFile] = [],
         unsupported: [UnsupportedApp] = [],
         unused: [UnusedApp] = [],
-        leftovers: [LeftoverGroup] = []
+        leftovers: [LeftoverGroup] = [],
+        updates: [UpdateInfo] = []
     ) -> ApplicationsScanResult {
         ApplicationsScanResult(
             installedApps: [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")],
-            availableUpdates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")],
+            availableUpdates: updates,
             installationFiles: installers,
             unsupportedApps: unsupported,
             unusedApps: unused,
@@ -647,7 +649,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
-    /// No cleanup findings → no recommendations, even though apps and updates
+    /// No cleanup findings → no recommendations, even though installed apps
     /// exist. Drives the dashboard's "all clear" state.
     func test_recommendations_emptyWhenNoCleanupFindings() {
         XCTAssertEqual(makeResult().recommendations, [])
@@ -661,19 +663,39 @@ final class ApplicationsViewModelTests: XCTestCase {
         XCTAssertEqual(result.recommendations, [.unused])
     }
 
-    /// When every category has findings they appear in the fixed display
-    /// order: unused, unsupported, leftovers, installation files.
+    /// Available updates surface as their own recommendation category.
+    func test_recommendations_includesUpdatesWhenPresent() {
+        let result = makeResult(
+            updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
+        )
+        XCTAssertEqual(result.recommendations, [.updates])
+    }
+
+    /// When every category has findings they appear in the severity ranking:
+    /// unsupported, unused, updates, leftovers, installation files.
     func test_recommendations_areOrderedDeterministically() {
         let result = makeResult(
             installers: [makeInstaller(name: "Setup.dmg", size: 1_000)],
             unsupported: [makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
             unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
-            leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)]
+            leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)],
+            updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
         )
         XCTAssertEqual(
             result.recommendations,
-            [.unused, .unsupported, .leftovers, .installationFiles]
+            [.unsupported, .unused, .updates, .leftovers, .installationFiles]
         )
+    }
+
+    /// Updates rank third — after the app-removal categories, before the
+    /// space-reclaim cruft — when only a subset of categories has findings.
+    func test_recommendations_rankUpdatesThird() {
+        let result = makeResult(
+            installers: [makeInstaller(name: "Setup.dmg", size: 1_000)],
+            unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
+            updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
+        )
+        XCTAssertEqual(result.recommendations, [.unused, .updates, .installationFiles])
     }
 }
 
