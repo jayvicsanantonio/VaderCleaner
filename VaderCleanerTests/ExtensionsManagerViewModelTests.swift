@@ -49,7 +49,7 @@ final class ExtensionsManagerViewModelTests: XCTestCase {
     func test_groupedByType_bucketsInAllCasesOrder() async {
         let vm = makeViewModel(discover: {
             [
-                Self.item(name: "Login", type: .loginItemFromApp),
+                Self.item(name: "Plugin", type: .internetPlugin),
                 Self.item(name: "Safari1", type: .safariExtension),
                 Self.item(name: "Mail1", type: .mailPlugin),
                 Self.item(name: "Safari2", type: .safariExtension)
@@ -59,7 +59,7 @@ final class ExtensionsManagerViewModelTests: XCTestCase {
 
         let grouped = vm.groupedByType
         XCTAssertEqual(grouped.map(\.0),
-                       [.safariExtension, .mailPlugin, .loginItemFromApp])
+                       [.safariExtension, .mailPlugin, .internetPlugin])
         XCTAssertEqual(grouped.first?.1.map(\.name), ["Safari1", "Safari2"])
     }
 

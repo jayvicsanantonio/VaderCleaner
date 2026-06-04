@@ -18,7 +18,10 @@ struct ExtensionsManagerView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(NavigationSection.extensions.title)
+            .navigationTitle(String(
+                localized: "Extensions",
+                comment: "Navigation title of the Extensions Manager screen."
+            ))
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.refresh()
@@ -130,10 +133,10 @@ struct ExtensionsManagerView: View {
                               type: .chromeExtension,
                               isEnabled: true,
                               size: 5_242_880),
-                ExtensionItem(name: "com.acme.updater",
-                              path: URL(fileURLWithPath: "/tmp/com.acme.updater.plist"),
-                              bundleID: nil,
-                              type: .loginItemFromApp,
+                ExtensionItem(name: "GPGMail",
+                              path: URL(fileURLWithPath: "/tmp/GPGMail.mailbundle"),
+                              bundleID: "org.gpgtools.gpgmail",
+                              type: .mailPlugin,
                               isEnabled: false,
                               size: 2_048)
             ]

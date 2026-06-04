@@ -1,5 +1,5 @@
 // ExtensionsManagerViewModel.swift
-// State machine behind the Extensions Manager view — runs the five discoverers concurrently, groups results by ExtensionType, and routes removal between FileManager (user paths) and the privileged helper (/Library paths).
+// State machine behind the Extensions Manager view — runs the discoverers concurrently, groups results by ExtensionType, and routes removal between FileManager (user paths) and the privileged helper (/Library paths).
 
 import Foundation
 import Observation
@@ -130,8 +130,8 @@ final class ExtensionsManagerViewModel {
 
 extension ExtensionsManagerViewModel {
 
-    /// Builds a view-model wired to the five real discoverers (run
-    /// concurrently) and the path-routed removal pipeline.
+    /// Builds a view-model wired to the real discoverers (run concurrently)
+    /// and the path-routed removal pipeline.
     @MainActor
     static func live() -> ExtensionsManagerViewModel {
         ExtensionsManagerViewModel(
@@ -140,10 +140,9 @@ extension ExtensionsManagerViewModel {
                 async let browser  = BrowserExtensionDiscovery().extensions()
                 async let mail     = MailPluginDiscovery().extensions()
                 async let internet = InternetPluginDiscovery().extensions()
-                async let agents   = LaunchAgentDiscovery().extensions()
                 // Not sorted here: `groupedByType` sorts each bucket by
                 // name before the data reaches the UI.
-                return await safari + browser + mail + internet + agents
+                return await safari + browser + mail + internet
             },
             remove: { item in
                 try await Self.removeItem(item)
@@ -151,26 +150,18 @@ extension ExtensionsManagerViewModel {
         )
     }
 
-    /// Routes removal by privilege need. User-writable paths (`~/Library/…`,
-    /// including `~/Library/LaunchAgents`) are removed in-process. Paths
-    /// under `/Library` or `/System` (system Mail bundles, system internet
-    /// plug-ins) go through the privileged helper — launch-agent plists via
-    /// the dedicated `removeLaunchAgent(path:)`, everything else via the
-    /// batched `deleteFiles(_:)`.
+    /// Routes removal by privilege need. User-writable paths (`~/Library/…`)
+    /// are removed in-process. Paths under `/Library` or `/System` (system
+    /// Mail bundles, system internet plug-ins) go through the privileged
+    /// helper via the batched `deleteFiles(_:)`.
     private nonisolated static func removeItem(_ item: ExtensionItem) async throws {
         let path = item.path.path
         guard SystemJunkDeleter.requiresHelper(path: path) else {
             try FileManager.default.removeItem(at: item.path)
             return
         }
-        if item.type == .loginItemFromApp {
-            try await helperCall { helper, done in
-                helper.removeLaunchAgent(path: path, reply: done)
-            }
-        } else {
-            try await helperCall { helper, done in
-                helper.deleteFiles([path], reply: done)
-            }
+        try await helperCall { helper, done in
+            helper.deleteFiles([path], reply: done)
         }
     }
 

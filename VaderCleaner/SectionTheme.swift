@@ -67,12 +67,6 @@ extension NavigationSection {
                 backdropTop: Color(red: 0.13, green: 0.04, blue: 0.09),
                 backdropBottom: Color(red: 0.33, green: 0.08, blue: 0.21)
             )
-        case .extensions:
-            return SectionTheme(
-                accent: Color(red: 0.30, green: 0.59, blue: 0.99),
-                backdropTop: Color(red: 0.04, green: 0.07, blue: 0.15),
-                backdropBottom: Color(red: 0.07, green: 0.17, blue: 0.39)
-            )
         case .applications:
             return SectionTheme(
                 accent: Color(red: 0.52, green: 0.50, blue: 0.95),

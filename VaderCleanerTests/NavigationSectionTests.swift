@@ -7,8 +7,8 @@ import AppKit
 
 final class NavigationSectionTests: XCTestCase {
 
-    func test_allCasesCount_is10() {
-        XCTAssertEqual(NavigationSection.allCases.count, 10)
+    func test_allCasesCount_is9() {
+        XCTAssertEqual(NavigationSection.allCases.count, 9)
     }
 
     func test_firstCase_isSmartScan() {
@@ -32,7 +32,6 @@ final class NavigationSectionTests: XCTestCase {
             .spaceLens: "sidebar.spaceLens",
             .malwareRemoval: "sidebar.malwareRemoval",
             .privacy: "sidebar.privacy",
-            .extensions: "sidebar.extensions",
             .applications: "sidebar.applications",
             .optimization: "sidebar.optimization",
             .healthMonitor: "sidebar.healthMonitor",
@@ -59,7 +58,6 @@ final class NavigationSectionTests: XCTestCase {
             .spaceLens: "section.spaceLens.scan",
             .malwareRemoval: "section.malwareRemoval.scan",
             .privacy: "section.privacy.scan",
-            .extensions: "section.extensions.scan",
             .applications: "section.applications.scan",
             .optimization: "section.optimization.scan",
             .healthMonitor: "section.healthMonitor.scan",
@@ -90,7 +88,6 @@ final class NavigationSectionTests: XCTestCase {
             .malwareRemoval: true,   // ClamAV scan
             .optimization: false,    // launchctl / login items / RAM
             .privacy: true,          // Safari data lives in TCC-protected paths
-            .extensions: false,
             .applications: false,    // app discovery + update checks; no FDA-gated paths
             .healthMonitor: false,
         ]

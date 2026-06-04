@@ -11,12 +11,14 @@ final class FinalPolishUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    /// The ten sidebar row identifiers, in `NavigationSection` order. Rows
+    /// The nine sidebar row identifiers, in `NavigationSection` order. Rows
     /// are located by identifier rather than visible label so the locators
     /// survive rail restyles; these mirror
     /// `NavigationSection.accessibilityIdentifier`. Hard-coded because the
     /// UI-test bundle runs out-of-process and cannot import the app enum;
     /// `NavigationSectionTests` pins the enum side, this pins the rendered side.
+    /// Extensions is no longer a top-level section — it lives inside
+    /// Applications → Manage My Applications.
     private let sectionIdentifiers = [
         "sidebar.smartScan",
         "sidebar.systemJunk",
@@ -24,7 +26,6 @@ final class FinalPolishUITests: XCTestCase {
         "sidebar.spaceLens",
         "sidebar.malwareRemoval",
         "sidebar.privacy",
-        "sidebar.extensions",
         "sidebar.applications",
         "sidebar.optimization",
         "sidebar.healthMonitor",
@@ -43,8 +44,8 @@ final class FinalPolishUITests: XCTestCase {
 
     // MARK: - Sidebar
 
-    /// Launch → every one of the ten sections is present in the sidebar.
-    func test_launch_sidebarShowsAllTenSections() throws {
+    /// Launch → every one of the nine sections is present in the sidebar.
+    func test_launch_sidebarShowsAllNineSections() throws {
         dismissOnboardingIfNeeded()
 
         for identifier in sectionIdentifiers {
@@ -54,14 +55,30 @@ final class FinalPolishUITests: XCTestCase {
                 "Expected sidebar to list the \"\(identifier)\" section"
             )
         }
+
+        // The Extensions section was folded into Applications → Manage, so its
+        // top-level row must be gone. Asserting the nine rows exist isn't enough
+        // — that still passes if a stale Extensions row renders as a tenth.
+        XCTAssertFalse(
+            app.buttons["sidebar.extensions"].waitForExistence(timeout: 2),
+            "Extensions must no longer be a top-level sidebar section"
+        )
     }
 
-    /// The rail must stay anchored: switching between a short detail screen
-    /// (Extensions, a compact list) and a tall one (Health Monitor, a grid of
-    /// stat cards) must not move the sidebar rows vertically. Regression guard
-    /// for the rail floating when the detail column's effective height changes.
-    /// The window is not resized, so the `sidebar.smartScan` button's absolute
-    /// Y must be identical in both.
+    /// The rail must stay anchored: navigating between detail screens must not
+    /// move the sidebar rows vertically. The window is not resized, so the
+    /// `sidebar.smartScan` button's absolute Y must be identical before and
+    /// after navigating.
+    ///
+    /// NOTE: this originally contrasted a *short* detail (Extensions, a compact
+    /// list) against a *tall* one (Health Monitor's grid) to guard the rail
+    /// floating when the detail is short. Extensions is no longer a top-level
+    /// section, and every remaining section's detail fills the window height
+    /// (scan intros and the Health grid alike), so the short-vs-tall contrast
+    /// is gone — this now only smoke-checks that navigation doesn't shift the
+    /// rail. Re-pointing it at a genuinely short surface (e.g. the Applications
+    /// all-clear dashboard or the Extensions pane) would require running a scan
+    /// inside the test.
     func test_railRowPosition_isStableAcrossDetailScreens() throws {
         dismissOnboardingIfNeeded()
 
@@ -69,30 +86,30 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertTrue(anchor.waitForExistence(timeout: 5),
                       "Expected Smart Scan row in sidebar")
 
-        let extensionsRow = app.buttons["sidebar.extensions"].firstMatch
-        XCTAssertTrue(extensionsRow.waitForExistence(timeout: 5),
-                      "Expected Extensions row in sidebar")
-        extensionsRow.click()
+        let privacyRow = app.buttons["sidebar.privacy"].firstMatch
+        XCTAssertTrue(privacyRow.waitForExistence(timeout: 5),
+                      "Expected Privacy row in sidebar")
+        privacyRow.click()
         // Wait until the clicked row reports selection before measuring. The
         // anchor row exists regardless of selection, so waiting on it would
         // return immediately and could sample Y mid-transition; the
         // `.isSelected` trait only flips once the navigation has taken
         // effect and the rail re-rendered.
-        waitUntilSelected(extensionsRow)
-        let yShortDetail = anchor.frame.origin.y
+        waitUntilSelected(privacyRow)
+        let yIntroDetail = anchor.frame.origin.y
 
         let healthRow = app.buttons["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(healthRow.waitForExistence(timeout: 5),
                       "Expected Health Monitor row in sidebar")
         healthRow.click()
         waitUntilSelected(healthRow)
-        let yTallDetail = anchor.frame.origin.y
+        let yGridDetail = anchor.frame.origin.y
 
         XCTAssertEqual(
-            yShortDetail, yTallDetail, accuracy: 1.0,
+            yIntroDetail, yGridDetail, accuracy: 1.0,
             "Sidebar rows must not shift vertically when the detail screen "
-            + "changes height (was \(yShortDetail) on Extensions, "
-            + "\(yTallDetail) on Health Monitor)"
+            + "changes (was \(yIntroDetail) on Privacy, "
+            + "\(yGridDetail) on Health Monitor)"
         )
     }
 

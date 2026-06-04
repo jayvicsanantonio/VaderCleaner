@@ -46,7 +46,7 @@ struct ScanDiscHostView: View {
             overlay(controller.privacyViewModel, .privacy)
         case .applications:
             overlay(controller.applicationsViewModel, .applications)
-        case .extensions, .healthMonitor:
+        case .healthMonitor:
             // Non-scannable sections never show a disc — keep the panel hidden.
             Color.clear
                 .onAppear { controller.setDiscVisible(false) }

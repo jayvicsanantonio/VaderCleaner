@@ -43,75 +43,99 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the floating Scan button on the Applications intro")
     }
 
-    /// Scan → the dashboard grid appears with the Updates and Manage cards.
-    func test_applications_scanShowsDashboardGrid() throws {
+    /// Scan → the dashboard appears showing only cleanup recommendation cards
+    /// (or the all-clear state when nothing needs attention). The old Updates
+    /// and Manage cards are gone — Manage lives behind the header button now.
+    func test_applications_scanShowsDashboard() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let dashboard = app.descendants(matching: .any)["applications.dashboard"]
         XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
-                      "Expected the Applications dashboard grid after the scan")
+                      "Expected the Applications dashboard after the scan")
 
-        XCTAssertTrue(app.buttons["applications.card.updates"].waitForExistence(timeout: 5),
-                      "Expected the Updates card on the dashboard")
-        XCTAssertTrue(app.buttons["applications.card.manage"].exists,
-                      "Expected the Manage card on the dashboard")
-        XCTAssertTrue(app.buttons["applications.card.installationFiles"].exists,
-                      "Expected the Installation Files card on the dashboard")
-        XCTAssertTrue(app.buttons["applications.card.unsupported"].exists,
-                      "Expected the Unsupported Applications card on the dashboard")
-        XCTAssertTrue(app.buttons["applications.card.unused"].exists,
-                      "Expected the Unused Applications card on the dashboard")
-        XCTAssertTrue(app.buttons["applications.card.leftovers"].exists,
-                      "Expected the App Leftovers card on the dashboard")
+        // Which cleanup cards appear depends on the machine, so assert the
+        // dashboard reaches a valid state: at least one recommendation card,
+        // or the all-clear state.
+        let validState = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier IN {"
+                + "'applications.card.unused','applications.card.unsupported',"
+                + "'applications.card.leftovers','applications.card.installationFiles',"
+                + "'applications.dashboard.allClear'}"))
+            .firstMatch
+        XCTAssertTrue(validState.waitForExistence(timeout: 10),
+                      "Expected a recommendation card or the all-clear state")
+
+        // The removed cards must not be present.
+        XCTAssertFalse(app.buttons["applications.card.updates"].exists,
+                       "Updates moved into the Manager's Updater pane")
+        XCTAssertFalse(app.buttons["applications.card.manage"].exists,
+                       "The Manage card was replaced by the header button")
+
+        // Manage is reachable from the header button instead.
+        XCTAssertTrue(app.buttons["applications.manageMyApplications"].waitForExistence(timeout: 5),
+                      "Expected the Manage My Applications header button")
     }
 
-    /// The Installation Files card opens its review screen, and Back returns to
-    /// the dashboard.
-    func test_applications_installationFilesCardOpensReviewAndBackReturns() throws {
+    /// A recommendation card opens its review screen, and Back returns to the
+    /// dashboard. The dashboard now shows only cleanup categories that have
+    /// findings, so the exact cards depend on the host — this exercises
+    /// whichever recommendation card is present rather than assuming a specific
+    /// one. On a host with nothing to clean up the dashboard shows the all-clear
+    /// state and there is no card to open, which the test accepts.
+    func test_applications_recommendationCardOpensReviewAndBackReturns() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
-        let card = app.buttons["applications.card.installationFiles"]
-        XCTAssertTrue(card.waitForExistence(timeout: 90),
-                      "Expected the Installation Files card after the scan")
+        let dashboard = app.descendants(matching: .any)["applications.dashboard"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
+                      "Expected the Applications dashboard after the scan")
+
+        let card = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier IN {"
+                + "'applications.card.unused','applications.card.unsupported',"
+                + "'applications.card.leftovers','applications.card.installationFiles'}"))
+            .firstMatch
+
+        guard card.waitForExistence(timeout: 10) else {
+            // No findings → the all-clear state; there is no card to open.
+            XCTAssertTrue(
+                app.descendants(matching: .any)["applications.dashboard.allClear"].exists,
+                "With no recommendation cards the dashboard must show the all-clear state"
+            )
+            return
+        }
+
         card.click()
 
-        // Either the installer list or its empty state must render — both are
-        // valid display states depending on what's in Downloads/Desktop.
-        let reviewState = app.descendants(matching: .any)
-            .matching(NSPredicate(
-                format: "identifier IN {'applications.installationFiles', 'applications.installationFiles.empty'}"
-            ))
-            .firstMatch
-        XCTAssertTrue(reviewState.waitForExistence(timeout: 10),
-                      "Expected the Installation Files review screen to render")
-
+        // Whichever review screen opened, it carries the shared Back control.
         let back = app.buttons["applications.backToDashboard"]
-        XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
+        XCTAssertTrue(back.waitForExistence(timeout: 10),
+                      "Expected a recommendation card to open a review screen with a Back control")
         back.click()
         XCTAssertTrue(
             app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
-            "Expected Back to return to the dashboard grid"
+            "Expected Back to return to the dashboard"
         )
     }
 
-    /// The Manage card opens the Applications Manager catalog with its
-    /// Uninstaller / Updater / Leftovers sub-navigation; switching panes works
-    /// and Back returns to the dashboard.
+    /// The Manage My Applications button opens the Applications Manager catalog
+    /// with its Uninstaller / Updater / Extensions / Leftovers sub-navigation;
+    /// switching panes works and Back returns to the dashboard.
     func test_applications_manageOpensManagerCatalog() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
-        let manageCard = app.buttons["applications.card.manage"]
-        XCTAssertTrue(manageCard.waitForExistence(timeout: 90),
-                      "Expected the Manage card after the scan")
-        manageCard.click()
+        let manage = app.buttons["applications.manageMyApplications"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 90),
+                      "Expected the Manage My Applications button after the scan")
+        manage.click()
 
         XCTAssertTrue(app.descendants(matching: .any)["applications.manager"].waitForExistence(timeout: 10),
                       "Expected the Applications Manager catalog")
         for navID in ["applications.manager.nav.uninstaller",
                       "applications.manager.nav.updater",
+                      "applications.manager.nav.extensions",
                       "applications.manager.nav.leftovers"] {
             XCTAssertTrue(app.buttons[navID].waitForExistence(timeout: 5),
                           "Expected sub-nav item \(navID)")
@@ -136,25 +160,33 @@ final class ApplicationsUITests: XCTestCase {
         )
     }
 
-    /// The Updates card opens the reused App Updater screen, and Back returns
-    /// to the dashboard.
-    func test_applications_updatesCardOpensUpdaterAndBackReturns() throws {
+    /// The Manager's Extensions pane renders the reused Extensions Manager
+    /// screen, and Back returns to the dashboard. (Extensions used to be a
+    /// top-level sidebar section; it now lives inside Manage My Applications.)
+    func test_applications_manageExtensionsPaneRenders() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
-        let updatesCard = app.buttons["applications.card.updates"]
-        XCTAssertTrue(updatesCard.waitForExistence(timeout: 90),
-                      "Expected the Updates card after the scan")
-        updatesCard.click()
+        let manage = app.buttons["applications.manageMyApplications"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 90),
+                      "Expected the Manage My Applications button after the scan")
+        manage.click()
 
-        // The reused App Updater screen reaches one of its display states.
-        let updaterState = app.descendants(matching: .any)
+        let extensionsNav = app.buttons["applications.manager.nav.extensions"]
+        XCTAssertTrue(extensionsNav.waitForExistence(timeout: 10),
+                      "Expected the Extensions sub-nav item")
+        extensionsNav.click()
+
+        // The reused Extensions Manager screen reaches a display state:
+        // scanning, the empty state, or a populated list (which carries the
+        // Refresh control).
+        let extensionsState = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'appUpdater.loading', 'appUpdater.upToDate', 'appUpdater.check', 'appUpdater.errorMessage'}"
+                format: "identifier IN {'extensions.loading', 'extensions.empty', 'extensions.refresh'}"
             ))
             .firstMatch
-        XCTAssertTrue(updaterState.waitForExistence(timeout: 30),
-                      "Expected the reused App Updater screen to render")
+        XCTAssertTrue(extensionsState.waitForExistence(timeout: 30),
+                      "Expected the Extensions Manager screen to render")
 
         let back = app.buttons["applications.backToDashboard"]
         XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
