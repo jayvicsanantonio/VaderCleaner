@@ -144,13 +144,13 @@ struct ApplicationsDashboardView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
             Text(String(
-                localized: "Your applications are in good shape",
-                comment: "Applications dashboard all-clear title when nothing needs cleanup."
+                localized: "No cleanup needed right now",
+                comment: "Applications dashboard all-clear title when no cleanup recommendations remain."
             ))
             .font(.title3.weight(.semibold))
             Text(String(
-                localized: "No unused or unsupported apps, leftovers, or installer files to review. Open Manage My Applications to browse everything you have installed.",
-                comment: "Applications dashboard all-clear detail."
+                localized: "No unused or unsupported apps, leftovers, or installer files to review. Open Manage My Applications for available updates and to browse everything you have installed.",
+                comment: "Applications dashboard all-clear detail; points to Manage for updates since they are not shown on the dashboard."
             ))
             .font(.callout)
             .foregroundStyle(.secondary)
