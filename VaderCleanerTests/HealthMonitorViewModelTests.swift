@@ -298,4 +298,78 @@ final class HealthMonitorViewModelTests: XCTestCase {
             "Mutating service.ramUsage must invalidate views observing vm.ramUsage"
         )
     }
+
+    // MARK: - Mac Health verdict (hero card)
+
+    /// Builds a `DiskStats` at a target fullness ratio against a fixed total
+    /// so the derivation thresholds read clearly in each test.
+    private func disk(ratio: Double) -> DiskStats {
+        let total: UInt64 = 1_000_000_000_000
+        return DiskStats(usedBytes: UInt64(Double(total) * ratio), totalBytes: total)
+    }
+
+    /// The very first service tick carries `DiskStats.empty` (zero total).
+    /// The hero must NOT resolve to a confident "Excellent" off zero data —
+    /// it returns `nil` so the view can render a neutral "Measuring…" state.
+    func test_macHealthStatus_isNilWhileDiskUnmeasured() {
+        XCTAssertNil(HealthMonitorViewModel.macHealthStatus(disk: .empty, signals: []))
+    }
+
+    /// Disk fullness drives the base verdict when no other signal is alarming.
+    /// Pins each tier boundary so the ramp can't silently shift.
+    func test_macHealthStatus_diskDrivesBaseTier_whenSignalsHealthy() {
+        let healthy: [StatusColor] = [.green, .green, .green, .green, .green]
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: healthy), .excellent)
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.60), signals: healthy), .good)
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.75), signals: healthy), .fair)
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.88), signals: healthy), .requiresAttention)
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.97), signals: healthy), .critical)
+    }
+
+    /// Unknown / neutral signals (the startup state) must not penalize the
+    /// verdict — a `.gray` reading is "no opinion", not "bad".
+    func test_macHealthStatus_grayAndGreenSignalsDoNotPenalize() {
+        let neutral: [StatusColor] = [.gray, .gray, .green, .green, .gray]
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: neutral), .excellent)
+    }
+
+    /// A single yellow nudge drops the base verdict by one tier.
+    func test_macHealthStatus_yellowSignalNudgesDownOneTier() {
+        // good (disk 0.60) − 1 (one yellow) → fair
+        let signals: [StatusColor] = [.green, .yellow, .green, .green, .green]
+        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.60), signals: signals), .fair)
+    }
+
+    /// A red signal (e.g. failing SMART) deliberately overrides the
+    /// disk-driven base: hardware-failure indicators outrank disk fullness.
+    /// One red on an otherwise-excellent (30%-full) disk drops two tiers to
+    /// Fair; two reds drive it to Critical even on an empty disk.
+    func test_macHealthStatus_redSignalsOverrideDiskBase() {
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: [.red]),
+            .fair
+        )
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: [.red, .red]),
+            .critical
+        )
+    }
+
+    /// Nudges clamp at the worst tier — a near-full disk plus a red signal
+    /// can't underflow past `.critical`.
+    func test_macHealthStatus_nudgeClampsAtCritical() {
+        // requiresAttention (disk 0.88) − 2 (one red) → clamps to critical
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.88), signals: [.red]),
+            .critical
+        )
+    }
+
+    /// The hero title and summary are user-facing strings; pin one tier so a
+    /// typo or accidental copy change is caught.
+    func test_macHealthStatus_titleAndSummaryCopy() {
+        XCTAssertEqual(MacHealthStatus.good.title, "Good")
+        XCTAssertTrue(MacHealthStatus.good.summary.contains("good shape"))
+        XCTAssertEqual(MacHealthStatus.excellent.title, "Excellent")
+    }
 }
