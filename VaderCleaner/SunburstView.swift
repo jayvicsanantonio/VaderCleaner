@@ -1,5 +1,5 @@
 // SunburstView.swift
-// SwiftUI radial-sunburst rendering for Space Lens — lays out a parent DiskNode's subtree with SunburstLayout, draws each segment as an annular sector colored by FileCategory, and routes clicks back to DiskScannerViewModel for drill-down.
+// SwiftUI radial-sunburst rendering for Space Lens — lays out a parent DiskNode's subtree with SunburstLayout, draws each segment as an annular sector with its own SpaceLensPalette shade, and routes clicks back to DiskScannerViewModel for drill-down.
 
 import SwiftUI
 
@@ -39,8 +39,8 @@ struct SunburstView: View {
     /// carries the total-size label.
     private static let innerHoleRatio: CGFloat = 0.34
     /// Hairline between adjacent segments so neighbouring arcs stay distinct
-    /// within the single crimson hue family (the treemap leans on the same
-    /// idea with 1pt white tile borders).
+    /// even where two siblings land on close shades (the treemap leans on the
+    /// same idea with 1pt white tile borders).
     private static let segmentStroke: CGFloat = 0.75
 
     var body: some View {
@@ -58,6 +58,15 @@ struct SunburstView: View {
         )
         let renderedIDs = Set(segments.map(\.id))
         let nodesByID = nodeLookup(rendered: renderedIDs)
+        // Precompute each segment's solid (full-opacity) gradient once here, off
+        // the resize path — the palette's hashing and color math depend only on
+        // the node and the segment angle, so they shouldn't re-run inside the
+        // per-pass GeometryReader closure. The hover / depth fade is applied to
+        // these at draw time. Hue is keyed to the segment's mid-angle: the inner
+        // ring spans the full circle so its sectors fan across the whole color
+        // wheel, and nested children fall within their parent's arc, reading as
+        // shades of it.
+        let fillsByID = segmentFills(segments: segments, nodesByID: nodesByID)
 
         GeometryReader { geometry in
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
@@ -67,10 +76,12 @@ struct SunburstView: View {
 
             ZStack {
                 ForEach(segments) { segment in
-                    if let diskNode = nodesByID[segment.id] {
+                    if let diskNode = nodesByID[segment.id],
+                       let fill = fillsByID[segment.id] {
                         segmentView(
                             segment: segment,
                             diskNode: diskNode,
+                            fill: fill,
                             center: center,
                             hole: hole,
                             ringThickness: ringThickness
@@ -159,6 +170,7 @@ struct SunburstView: View {
     private func segmentView(
         segment: SunburstLayout.Segment<DiskNode.ID>,
         diskNode: DiskNode,
+        fill: LinearGradient,
         center: CGPoint,
         hole: CGFloat,
         ringThickness: CGFloat
@@ -172,14 +184,16 @@ struct SunburstView: View {
             startAngle: .radians(segment.startAngle),
             endAngle: .radians(segment.endAngle)
         )
-        let category = FileCategory.from(node: diskNode)
         let isHovered = hoveredID == segment.id
         let fillOpacity = isHovered
             ? min(1.0, opacity(for: diskNode, depth: segment.depth) + 0.25)
             : opacity(for: diskNode, depth: segment.depth)
 
         sector
-            .fill(category.color.opacity(fillOpacity))
+            .fill(fill)
+            // Depth fade / hover lift applied to the fill only; the stroke
+            // overlay below keeps its own opacity so arc edges stay crisp.
+            .opacity(fillOpacity)
             .overlay(
                 sector.stroke(
                     isHovered ? Color.white.opacity(0.9) : Color.black.opacity(0.25),
@@ -209,13 +223,31 @@ struct SunburstView: View {
 
     // MARK: - Helpers
 
-    /// Fade arcs as they move outward so depth reads at a glance within the
-    /// single crimson hue family, and lighten files slightly over directories
-    /// (the treemap makes the same directory/file distinction).
+    /// Fade arcs as they move outward so ring depth reads at a glance, and
+    /// lighten files slightly over directories (the treemap makes the same
+    /// directory/file distinction).
     private func opacity(for node: DiskNode, depth: Int) -> Double {
         let base = node.isDirectory ? 0.8 : 0.95
         let faded = base - Double(depth - 1) * 0.1
         return min(1.0, max(0.4, faded))
+    }
+
+    /// Precompute the full-opacity gradient for every rendered segment, keyed by
+    /// node id. Hue comes from the segment's mid-angle as a fraction of the full
+    /// circle, so sectors fan across the color wheel; saturation, brightness, and
+    /// the gradient itself come from `SpaceLensPalette`.
+    private func segmentFills(
+        segments: [SunburstLayout.Segment<DiskNode.ID>],
+        nodesByID: [DiskNode.ID: DiskNode]
+    ) -> [DiskNode.ID: LinearGradient] {
+        var fills: [DiskNode.ID: LinearGradient] = [:]
+        let fullCircle = 2 * Double.pi
+        for segment in segments {
+            guard let node = nodesByID[segment.id] else { continue }
+            let midAngle = (segment.startAngle + segment.endAngle) / 2
+            fills[segment.id] = SpaceLensPalette.gradient(hue: midAngle / fullCircle, for: node)
+        }
+        return fills
     }
 
     /// Map the rendered segments back to their nodes so a laid-out segment can
