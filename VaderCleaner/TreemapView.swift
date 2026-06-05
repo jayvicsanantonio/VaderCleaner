@@ -1,5 +1,5 @@
 // TreemapView.swift
-// SwiftUI treemap rendering for Space Lens — lays out a parent DiskNode's children with TreemapLayout, colors each tile by FileCategory, and routes clicks back to DiskScannerViewModel for drill-down.
+// SwiftUI treemap rendering for Space Lens — lays out a parent DiskNode's children with TreemapLayout, colors each tile with its own SpaceLensPalette shade, and routes clicks back to DiskScannerViewModel for drill-down.
 
 import SwiftUI
 
@@ -113,21 +113,26 @@ struct TreemapView: View {
 
     /// Size-independent per-tile data, derived once from `node`. Carries the
     /// pre-formatted size string so a `ByteCountFormatter` call isn't paid per
-    /// layout pass, and the resolved `category` so the file-kind classification
-    /// isn't recomputed on every resize frame.
+    /// layout pass, and the precomputed fill / label color so the palette's
+    /// hashing and color math aren't recomputed on every resize frame.
     private struct TileModel: Identifiable {
         let id: DiskNode.ID
         let node: DiskNode
-        let category: FileCategory
         let formattedSize: String
         let weight: Double
+        /// The tile's gradient fill and adaptive label color, both derived from
+        /// the node once here rather than per layout pass — they depend only on
+        /// the node, not the bounds, so they survive a resize unchanged.
+        let fill: LinearGradient
+        let labelColor: Color
 
-        init(node: DiskNode, category: FileCategory) {
+        init(node: DiskNode, hue: Double) {
             self.id = node.id
             self.node = node
-            self.category = category
             self.formattedSize = node.formattedSize
             self.weight = Double(node.size)
+            self.fill = SpaceLensPalette.gradient(hue: hue, for: node)
+            self.labelColor = SpaceLensPalette.labelColor(hue: hue, for: node)
         }
     }
 
@@ -148,11 +153,11 @@ struct TreemapView: View {
     /// leaving empty space inside the parent tile. Skipping them at the weight
     /// stage means the surviving tiles share the full area.
     private var tileModels: [TileModel] {
-        node.children
-            .filter { $0.size > 0 }
-            .map { child in
-                TileModel(node: child, category: FileCategory.from(node: child))
-            }
+        let visible = node.children.filter { $0.size > 0 }
+        let count = visible.count
+        return visible.enumerated().map { index, child in
+            TileModel(node: child, hue: SpaceLensPalette.hue(forChildAt: index, of: count))
+        }
     }
 
     /// Runs the squarified layout for the current bounds and pairs each result
@@ -186,10 +191,13 @@ struct TreemapView: View {
         let showLabel = entry.rect.width >= Self.minLabelDimension
             && entry.rect.height >= Self.minLabelDimension
         let isHovered = hoveredID == model.id
-        let baseOpacity = model.node.isDirectory ? 0.55 : 0.7
 
         Rectangle()
-            .fill(model.category.color.opacity(isHovered ? min(1.0, baseOpacity + 0.25) : baseOpacity))
+            .fill(model.fill)
+            // Brighten the whole tile on hover rather than fading its opacity —
+            // the fills are near-solid now, so a brightness lift reads as the
+            // tile lighting up while keeping its color.
+            .brightness(isHovered ? 0.08 : 0)
             .overlay(
                 Rectangle()
                     .strokeBorder(
@@ -205,10 +213,10 @@ struct TreemapView: View {
                                 .font(.caption.weight(.semibold))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                                .foregroundStyle(.white)
+                                .foregroundStyle(model.labelColor)
                             Text(model.formattedSize)
                                 .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.85))
+                                .foregroundStyle(model.labelColor.opacity(0.85))
                         }
                         .padding(6)
                         .frame(
