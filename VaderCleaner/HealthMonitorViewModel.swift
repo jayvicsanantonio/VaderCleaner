@@ -33,6 +33,11 @@ final class HealthMonitorViewModel {
         self.service = service
     }
 
+    /// Name of the boot volume (e.g. "Macintosh HD"), read once at creation —
+    /// it never changes for the life of the view-model and the hero card
+    /// shows it on every render, so resolving it per-render would be wasteful.
+    let diskVolumeName: String = HealthMonitorViewModel.rootVolumeName()
+
     // MARK: - Live-bound display values
 
     var cpuPercent: String { Self.cpuPercentString(service.cpuUsage) }
@@ -60,7 +65,87 @@ final class HealthMonitorViewModel {
     var fileVaultLabel: String { Self.fileVaultLabel(for: fileVaultState) }
     var fileVaultColor: StatusColor { Self.fileVaultColor(for: fileVaultState) }
 
+    // MARK: - Mac Health hero verdict
+
+    /// Single overall verdict the hero card renders, or `nil` while the boot
+    /// volume is still unmeasured (so the hero shows "Measuring…" instead of
+    /// a confident verdict off zero data on the first tick).
+    var macHealth: MacHealthStatus? {
+        Self.macHealthStatus(disk: service.diskSpace, signals: nudgeSignals)
+    }
+
+    /// The non-disk signals that can nudge the disk-driven base verdict down.
+    /// Disk fullness is excluded here because it already sets the base tier —
+    /// folding it in again would double-count it.
+    private var nudgeSignals: [StatusColor] {
+        [batteryColor, smartColor, ramPressureColor, cpuColor, fileVaultColor]
+    }
+
+    /// "121 GB of 494 GB used" line shown beneath the volume name in the hero.
+    var diskUsageDetail: String { Self.diskUsageDetailString(service.diskSpace) }
+
     // MARK: - Pure formatters / color rules
+
+    /// Derives the overall Mac Health verdict.
+    ///
+    /// Disk fullness sets the base tier (this is a disk-cleaning app, so
+    /// reclaimable space is the headline concern). The other health signals
+    /// then *nudge* that base down: each `.red` signal (failing SMART, battery
+    /// service, critical RAM/CPU) drops two tiers, and the presence of any
+    /// `.yellow` drops one more. `.gray` ("no opinion", the startup state) and
+    /// `.green` never penalize. The result clamps to `.critical` so a near-full
+    /// disk plus a failing component can't underflow.
+    ///
+    /// Reds are allowed to override the disk base on purpose: a failing drive
+    /// *should* be able to force "Critical" even on a near-empty disk.
+    ///
+    /// Returns `nil` when the volume is unmeasured (`totalBytes == 0`) so the
+    /// hero can show a neutral measuring state rather than defaulting to
+    /// "Excellent" off a zero reading.
+    static func macHealthStatus(disk: DiskStats, signals: [StatusColor]) -> MacHealthStatus? {
+        guard disk.totalBytes > 0 else { return nil }
+
+        let base = diskHealthTier(for: disk)
+        let redCount = signals.filter { $0 == .red }.count
+        let anyYellow = signals.contains(.yellow)
+        let penalty = redCount * 2 + (anyYellow ? 1 : 0)
+
+        let index = max(MacHealthStatus.critical.rawValue, base.rawValue - penalty)
+        return MacHealthStatus(rawValue: index) ?? .critical
+    }
+
+    /// Maps disk fullness to a base verdict tier. Boundaries are inclusive at
+    /// the lower bound. The 0.80 / 0.95 edges line up with
+    /// `diskWarningThreshold` / `diskCriticalThreshold` so the hero verdict and
+    /// the Disk Space card's status dot never tell contradictory stories.
+    static func diskHealthTier(for stats: DiskStats) -> MacHealthStatus {
+        let ratio = diskUsageRatio(stats)
+        if ratio >= diskCriticalThreshold { return .critical }
+        if ratio >= diskWarningThreshold { return .requiresAttention }
+        if ratio >= 0.70 { return .fair }
+        if ratio >= 0.55 { return .good }
+        return .excellent
+    }
+
+    /// "121 GB of 494 GB used" — the hero's disk line. Phrased as
+    /// "used of total" (rather than the cards' "used / total") to match the
+    /// dashboard hero layout.
+    static func diskUsageDetailString(_ stats: DiskStats) -> String {
+        let used = SystemStatsFormatters.byteString(stats.usedBytes)
+        let total = SystemStatsFormatters.byteString(stats.totalBytes)
+        let format = String(
+            localized: "%@ of %@ used",
+            comment: "Hero disk usage line, for example 121 GB of 494 GB used"
+        )
+        return String(format: format, used, total)
+    }
+
+    /// Reads the boot volume's display name from the filesystem. Falls back to
+    /// the conventional default if the lookup fails (it shouldn't for "/").
+    static func rootVolumeName() -> String {
+        let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey])
+        return values?.volumeName ?? "Macintosh HD"
+    }
 
     /// Formats a unit-interval CPU usage to an integer percentage. Inputs
     /// outside `[0, 1]` clamp at the boundary — the service is expected to

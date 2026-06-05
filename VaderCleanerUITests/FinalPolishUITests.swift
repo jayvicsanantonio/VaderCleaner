@@ -136,6 +136,27 @@ final class FinalPolishUITests: XCTestCase {
         }
     }
 
+    /// Health Monitor must lead with the Mac Health hero card: the overall
+    /// verdict and the boot-volume fill bar. Asserts the hero, its status
+    /// title, and its disk bar render above the per-metric grid.
+    func test_navigateToHealthMonitor_showsMacHealthHero() throws {
+        dismissOnboardingIfNeeded()
+
+        let row = app.buttons["sidebar.healthMonitor"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5),
+                      "Expected Health Monitor row in sidebar")
+        row.click()
+
+        let heroElements = ["health.hero", "health.hero.status", "health.hero.diskbar"]
+        for identifier in heroElements {
+            let element = app.descendants(matching: .any)[identifier]
+            XCTAssertTrue(
+                element.waitForExistence(timeout: 10),
+                "Expected Mac Health hero element \"\(identifier)\" to be visible"
+            )
+        }
+    }
+
     /// Health Monitor is a non-scannable section: it must keep its bespoke
     /// live-stats UI and must NOT pick up the scan-centric shell — no unified
     /// intro screen and no floating Scan button. Regression guard that the
