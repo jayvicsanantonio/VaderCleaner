@@ -1,5 +1,5 @@
 // DiskScannerViewModel.swift
-// State machine and progress tracker behind Space Lens — drives idle/scanning/ready/error transitions and clamps the injected scanner's progress callbacks into a 0–1 published value.
+// State machine and progress tracker behind Space Lens — drives idle/scanning/ready/error transitions and translates the injected scanner's progress callbacks into a throttled, published walked-file count for the open-ended scanning spinner.
 
 import Foundation
 import Observation
@@ -40,11 +40,14 @@ final class DiskScannerViewModel {
 
     private(set) var phase: Phase = .idle
 
-    /// 0.0 – 1.0 progress for the currently-running scan. Clamped to 1.0
-    /// so an under-estimated `estimatedFileCount` (typical on volumes
-    /// with more files than the default heuristic) doesn't push the bar
-    /// past full. Resets to 0 when a new scan starts and on `.error`.
-    private(set) var scanProgress: Double = 0
+    /// Running count of files the in-flight scan has walked. The disk total
+    /// is unknowable mid-walk (an upfront count would double the wall-clock
+    /// cost), so Space Lens shows an open-ended indeterminate spinner plus
+    /// this live count — the same "Scanned N items…" feedback the other
+    /// open-ended scans use — rather than a fraction that would misreport
+    /// completion. Completion is signaled by `phase` landing on `.ready`.
+    /// Resets to 0 when a new scan starts, on `.error`, and on cancellation.
+    private(set) var scannedItemCount: Int = 0
 
     /// Breadcrumb stack the treemap (Prompt 17) will use to record the
     /// user's drill-down path. Kept here because the navigation state
@@ -149,14 +152,14 @@ final class DiskScannerViewModel {
         navigationPath = Array(navigationPath.prefix(through: index))
     }
 
-    /// Smallest fractional change worth republishing. A real-volume scan
-    /// can fire the progress callback hundreds of thousands of times;
-    /// without this gate every call would queue a `Task` on the main
-    /// actor and starve the UI thread. 0.5% (200 buckets across the 0–1
-    /// range) is fine-grained enough that the bar never visibly jumps
-    /// while keeping the queued-task count to a couple hundred for the
-    /// largest volumes. The terminal value (`1.0`) bypasses the gate so
-    /// the bar definitely reaches full.
+    /// Width of one progress-update bucket, as a fraction of the estimate. A
+    /// real-volume scan can fire the progress callback millions of times;
+    /// without this gate every call would queue a `Task` on the main actor
+    /// and starve the UI thread. The 0.5% bucket width (the estimate divided
+    /// into 200 steps) is fine-grained enough that the live count never
+    /// visibly stutters, while bounding the queued-task count to (files
+    /// processed ÷ bucket width) — ~200 tasks up to the estimate, and a few
+    /// thousand for a volume several times larger.
     private static let progressUpdateThreshold: Double = 0.005
 
     /// Reference-typed bucket tracker so the off-actor progress closure
@@ -167,16 +170,8 @@ final class DiskScannerViewModel {
     /// avoid. Single-threaded access: `DiskScanner.buildNode` invokes
     /// the closure from one recursive task chain, so no synchronization
     /// is required.
-    ///
-    /// `didScheduleTerminal` latches once the count crosses the
-    /// estimate so a real scan with more files than the default
-    /// estimate (e.g. 1M files on a 250k-file estimate) doesn't keep
-    /// scheduling a Task per file after the bar is already pinned at
-    /// 1.0. Without the latch, every post-estimate file would bypass
-    /// the bucket gate via the `isTerminal` branch.
     private final class ProgressGate {
         var lastScheduledBucket: Int = -1
-        var didScheduleTerminal: Bool = false
     }
 
     /// Monotonically increasing token bumped at the start of every
@@ -226,7 +221,7 @@ final class DiskScannerViewModel {
         currentScanTask = nil
         scanGeneration += 1
         if case .scanning = phase {
-            scanProgress = 0
+            scannedItemCount = 0
             phase = .idle
         }
     }
@@ -236,12 +231,12 @@ final class DiskScannerViewModel {
     /// outcome. The selection / breadcrumb stack is reset because the
     /// previous tree is no longer valid.
     ///
-    /// `estimatedFileCount` is the divisor for `scanProgress`. The
-    /// scanner doesn't know the total ahead of time (an upfront walk
-    /// would double the wall-clock cost), so we settle for an estimate
-    /// and clamp the bar at 1.0 once it reaches the ceiling. The bar is
-    /// for the user's sense of motion — actual completion is signaled by
-    /// the phase landing on `.ready`, not by progress hitting 1.0.
+    /// `estimatedFileCount` only sizes the progress-update throttle bucket
+    /// (see `progressUpdateThreshold`) — it is *not* a completion target.
+    /// The scan reports an open-ended walked count, not a fraction, so the
+    /// estimate being off just makes the count update a little more or less
+    /// often; it never caps the count or the scan. Completion is signaled by
+    /// the phase landing on `.ready`.
     func startScan(root: URL, estimatedFileCount: Int = 250_000) async {
         // Cancel any walk still in flight from a previous startScan.
         // Cancellation is cooperative — `DiskScanner.buildNode` checks
@@ -254,56 +249,43 @@ final class DiskScannerViewModel {
         let myGeneration = scanGeneration
 
         phase = .scanning
-        scanProgress = 0
+        scannedItemCount = 0
         navigationPath = []
 
         let divisor = max(1, estimatedFileCount)
         // Width (in files) of one throttle bucket. With the default
         // 0.5% threshold and a 250 000-file estimate this is 1 250 —
-        // i.e. at most ~200 main-actor Tasks per scan. `ceil` so the
-        // bucket is at least 1 even for tiny estimates (the test suite
-        // uses divisors of 100 and below).
+        // i.e. roughly one main-actor Task per 1 250 files walked. `ceil`
+        // so the bucket is at least 1 even for tiny estimates (the test
+        // suite uses divisors of 100 and below).
         let bucketSize = max(1, Int((Double(divisor) * Self.progressUpdateThreshold).rounded(.up)))
         let gate = ProgressGate()
 
         // Wrap the synchronous `progress` callback the scanner will fire
         // off-actor. The throttle gate runs *here*, before the main-actor
-        // hop, so a 250 000-file scan only ever schedules ~200 Tasks
-        // (one per crossed bucket plus the terminal write). Each
-        // scheduled Task still re-checks generation + phase on the main
-        // actor for two defense-in-depth reasons:
+        // hop, so the scan schedules at most one Task per crossed bucket
+        // for the whole walk, however large the volume. Each scheduled Task
+        // still re-checks generation + phase on the main actor for two
+        // defense-in-depth reasons:
         //
         //   1. the scan that produced it must still be the current one
         //      (`scanGeneration` match — guards against concurrent
         //      `startScan` calls), and
         //   2. the phase must still be `.scanning` (guards against late
         //      progress writes that would otherwise regress a final
-        //      `.ready` state back to a fractional value).
+        //      `.ready` state back to a scanning value).
         let progressHandler: (Int) -> Void = { [weak self] count in
-            // Once we've already scheduled the terminal 1.0 write, every
-            // subsequent file would still satisfy `isTerminal` and would
-            // bypass the bucket gate. Latch that single-shot event here
-            // so post-estimate files contribute exactly zero scheduled
-            // tasks. (For a 1M-file scan against a 250k estimate that's
-            // 750 000 tasks saved.)
-            if gate.didScheduleTerminal { return }
             let bucket = count / bucketSize
-            // Treat the *first* crossing to the estimate as terminal —
-            // guarantees the bar reaches 1.0 even when the final file
-            // lands mid-bucket — and remember that we did, so later
-            // files don't schedule again.
-            let isTerminal = count >= divisor
-            guard isTerminal || bucket > gate.lastScheduledBucket else { return }
-            if isTerminal {
-                gate.didScheduleTerminal = true
-            }
+            guard bucket > gate.lastScheduledBucket else { return }
             gate.lastScheduledBucket = bucket
-            let fraction = min(1.0, Double(count) / Double(divisor))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.scanGeneration == myGeneration else { return }
                 guard case .scanning = self.phase else { return }
-                self.scanProgress = fraction
+                // Drop a hop that landed out of order (the Tasks are
+                // unstructured) so the walked count never ticks backwards.
+                guard count > self.scannedItemCount else { return }
+                self.scannedItemCount = count
             }
         }
 
@@ -321,7 +303,6 @@ final class DiskScannerViewModel {
                 // that resumes after a newer one has started doesn't
                 // clobber the newer scan's `.scanning` / `.ready` state.
                 guard self.scanGeneration == myGeneration else { return }
-                self.scanProgress = 1.0
                 self.phase = .ready(node)
             } catch is CancellationError {
                 // A cancellation is a clean dismissal — the user (or a
@@ -329,12 +310,12 @@ final class DiskScannerViewModel {
                 // Surfacing this as `.error("The operation couldn't be
                 // completed…")` would misrepresent it as a failure.
                 guard self.scanGeneration == myGeneration else { return }
-                self.scanProgress = 0
+                self.scannedItemCount = 0
                 self.phase = .idle
             } catch {
                 guard self.scanGeneration == myGeneration else { return }
                 self.log.error("Disk scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
-                self.scanProgress = 0
+                self.scannedItemCount = 0
                 self.phase = .error(error.localizedDescription)
             }
         }

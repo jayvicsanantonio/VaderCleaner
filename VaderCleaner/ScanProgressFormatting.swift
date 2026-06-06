@@ -46,12 +46,4 @@ enum ScanProgressFormatting {
             )
         return String.localizedStringWithFormat(template, formatted)
     }
-
-    /// "47%" — the determinate variant for Space Lens, whose scan reports a real
-    /// completion fraction. `ratio` is clamped to `[0, 1]` so a transient
-    /// out-of-range value can't render "−3%" or "120%".
-    static func percent(_ ratio: Double) -> String {
-        let clamped = max(0.0, min(1.0, ratio))
-        return clamped.formatted(.percent.precision(.fractionLength(0)))
-    }
 }
