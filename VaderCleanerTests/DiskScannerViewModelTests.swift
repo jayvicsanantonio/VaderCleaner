@@ -1,5 +1,5 @@
 // DiskScannerViewModelTests.swift
-// Verifies DiskScannerViewModel's state machine (.idle → .scanning → .ready / .error) and that injected progress callbacks update scanProgress on the main actor.
+// Verifies DiskScannerViewModel's state machine (.idle → .scanning → .ready / .error) and that injected progress callbacks update scannedItemCount on the main actor.
 
 import XCTest
 import Combine
@@ -8,15 +8,14 @@ import Combine
 /// Drives `DiskScannerViewModel` against an injected scanner closure so the
 /// transitions can be exercised without touching the real filesystem. The
 /// closure also lets us drive the progress callback at controlled points
-/// to lock the threading contract on `scanProgress`.
+/// to lock the threading contract on `scannedItemCount`.
 @MainActor
 final class DiskScannerViewModelTests: XCTestCase {
 
     // MARK: - Happy path
 
     /// A successful scan must transition `.idle → .scanning → .ready(node)`
-    /// and surface the produced root via `phase`. `scanProgress` lands at
-    /// 1.0 once the scan is finished.
+    /// and surface the produced root via `phase`.
     func test_startScan_transitionsToReadyOnSuccess() async {
         let synthetic = DiskNode(
             url: URL(fileURLWithPath: "/tmp/root"),
@@ -36,15 +35,14 @@ final class DiskScannerViewModelTests: XCTestCase {
         await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 100)
 
         XCTAssertEqual(vm.phase, .ready(synthetic))
-        XCTAssertEqual(vm.scanProgress, 1.0)
     }
 
     // MARK: - Failure path
 
     /// An error thrown by the injected scanner must surface as `.error`
     /// carrying the localized description so the view can render it. The
-    /// `scanProgress` value is reset back to 0 — leaving the bar
-    /// half-full would lie about state.
+    /// walked count is reset back to 0 — a leftover count would read as
+    /// progress against a scan that isn't running.
     func test_startScan_transitionsToErrorOnThrow() async {
         struct ScanFailure: LocalizedError {
             var errorDescription: String? { "boom" }
@@ -56,15 +54,13 @@ final class DiskScannerViewModelTests: XCTestCase {
         await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
 
         XCTAssertEqual(vm.phase, .error("boom"))
-        XCTAssertEqual(vm.scanProgress, 0.0)
+        XCTAssertEqual(vm.scannedItemCount, 0)
     }
 
     // MARK: - Progress
 
-    /// The injected progress callback must drive `scanProgress` toward 1.0
-    /// as the count climbs. Locks the divisor (estimated file count), the
-    /// clamp at 1.0 (counts above the estimate must not push past full),
-    /// and the throttle bypass for the terminal value.
+    /// The progress callback must drive `scannedItemCount` upward as the
+    /// walk advances, ending on the last reported count.
     ///
     /// `await Task.yield()` between progress calls is deliberate: the VM
     /// hops every published update through `Task { @MainActor … }` so
@@ -73,8 +69,8 @@ final class DiskScannerViewModelTests: XCTestCase {
     /// test mirrors that pacing so each queued main-actor write applies
     /// while the phase is still `.scanning`. Without yields the writes
     /// would all queue, then bail on the post-scan phase guard, and the
-    /// test would only see the explicit final 1.0.
-    func test_startScan_updatesScanProgressFromCallback() async {
+    /// test would only see the final value.
+    func test_startScan_updatesScannedItemCountFromCallback() async {
         let synthetic = DiskNode(
             url: URL(fileURLWithPath: "/tmp"),
             name: "tmp",
@@ -83,28 +79,52 @@ final class DiskScannerViewModelTests: XCTestCase {
             children: []
         )
         let vm = DiskScannerViewModel(scanner: { _, progress in
-            progress(10)   // 10% of 100
+            progress(10)
             await Task.yield()
-            progress(50)   // 50% of 100
-            await Task.yield()
-            progress(150)  // > 100 → clamped to 1.0
+            progress(50)
             await Task.yield()
             return synthetic
         })
 
-        // Snapshot scanProgress every time the observed value changes.
-        let observed = await recordTransitions(of: \.scanProgress, on: vm) {
+        // Snapshot scannedItemCount every time the observed value changes.
+        let observed = await recordTransitions(of: \.scannedItemCount, on: vm) {
             await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 100)
         }
 
-        // Progress callback must have produced at least one value strictly
-        // between 0 and 1 during the scan, never exceeding 1.0.
-        XCTAssertTrue(observed.contains { $0 > 0 && $0 < 1 },
-                      "scanProgress should report intermediate values during a scan")
-        XCTAssertTrue(observed.allSatisfy { $0 <= 1.0 },
-                      "scanProgress must never exceed 1.0")
-        // Final value (post-scan) is 1.0.
-        XCTAssertEqual(vm.scanProgress, 1.0)
+        // The count must only ever climb — a backwards tick would read as the
+        // scan losing ground.
+        XCTAssertEqual(observed, observed.sorted(),
+                       "scannedItemCount must be monotonically non-decreasing")
+        // Ends on the last count the scanner reported.
+        XCTAssertEqual(vm.scannedItemCount, 50)
+    }
+
+    /// Regression guard for the pinned-progress bug: a real volume holds far
+    /// more files than the default estimate. The walked count must keep
+    /// climbing past the estimate rather than being capped or latched there —
+    /// the old fixed-divisor bar pinned at 100% once the count hit the
+    /// estimate, which read as "done" while a minute of scanning was still
+    /// ahead.
+    func test_startScan_countClimbsPastEstimate() async {
+        let synthetic = DiskNode(
+            url: URL(fileURLWithPath: "/tmp"),
+            name: "tmp",
+            size: 0,
+            isDirectory: true,
+            children: []
+        )
+        let vm = DiskScannerViewModel(scanner: { _, progress in
+            progress(50)    // within the 100-file estimate
+            await Task.yield()
+            progress(500)   // well past the estimate — must not be capped
+            await Task.yield()
+            return synthetic
+        })
+
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 100)
+
+        XCTAssertEqual(vm.scannedItemCount, 500,
+                       "the walked count must continue past the estimate, not cap at it")
     }
 
     // MARK: - Cancellation
@@ -122,7 +142,7 @@ final class DiskScannerViewModelTests: XCTestCase {
         await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
 
         XCTAssertEqual(vm.phase, .idle, "Cancellation should land back in .idle, not .error")
-        XCTAssertEqual(vm.scanProgress, 0.0)
+        XCTAssertEqual(vm.scannedItemCount, 0)
     }
 
     /// App-scoped Space Lens state can outlive the main window when the
@@ -160,7 +180,7 @@ final class DiskScannerViewModelTests: XCTestCase {
         await fulfillment(of: [scanCancelled], timeout: 1)
         await scanTask.value
         XCTAssertEqual(vm.phase, .idle)
-        XCTAssertEqual(vm.scanProgress, 0.0)
+        XCTAssertEqual(vm.scannedItemCount, 0)
     }
 
     // MARK: - Navigation (Prompt 17)
