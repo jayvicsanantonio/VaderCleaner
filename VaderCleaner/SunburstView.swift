@@ -29,9 +29,15 @@ struct SunburstView: View {
     /// details card.
     @State private var hoveredID: DiskNode.ID?
 
-    /// Deepest ring to draw. Past this the arcs grow too thin to read or click;
-    /// the user drills in to see deeper. Matches the layout's depth cap.
-    private static let maxDepth = 5
+    /// Deepest ring to draw. Past this the arcs grow too thin to read or
+    /// click, and the count of rendered `AnnularSector` segments climbs steeply
+    /// — each ring subdivides its parents, so deeper rings hold the bulk of the
+    /// arcs. That arc count is the dominant cost when the detail pane fades
+    /// between sections: every segment is re-rendered through the transition,
+    /// so a deep tree drops frames on a section switch. Three rings keeps the
+    /// visualization readable while bounding that per-transition cost; the user
+    /// drills in to see deeper. Matches the layout's depth cap.
+    private static let maxDepth = 3
     /// Inset from the shorter edge so the outermost ring doesn't touch the
     /// view bounds.
     private static let edgePadding: CGFloat = 12
