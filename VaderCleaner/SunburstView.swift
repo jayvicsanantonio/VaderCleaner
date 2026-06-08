@@ -134,11 +134,12 @@ struct SunburstView: View {
         .accessibilityIdentifier("space-lens.sunburst")
     }
 
-    /// Details card for the hovered segment, positioned next to the segment it
-    /// describes (not the cursor — anchoring to the item keeps re-renders to
-    /// hover *transitions*, so the squarified/angular layout isn't recomputed
-    /// on every pointer move). Clamped to stay fully on-canvas. Renders nothing
-    /// when no segment is hovered.
+    /// Details card for the hovered segment, pushed radially just past the
+    /// segment's outer edge so it sits beside the arc, never over it, and
+    /// doesn't cover the pointer. Anchored to the segment rather than the cursor
+    /// so re-renders stay tied to hover *transitions*, not every pointer move
+    /// (which would recompute the angular layout). Clamped to stay fully
+    /// on-canvas. Renders nothing when no segment is hovered.
     @ViewBuilder
     private func hoverCard(
         nodesByID: [DiskNode.ID: DiskNode],
@@ -152,11 +153,7 @@ struct SunburstView: View {
            let diskNode = nodesByID[hoveredID],
            let segment = segments.first(where: { $0.id == hoveredID }) {
             let midAngle = (segment.startAngle + segment.endAngle) / 2
-            let midRadius = hole + (CGFloat(segment.depth) - 0.5) * ringThickness
-            let anchor = CGPoint(
-                x: center.x + CGFloat(cos(midAngle)) * midRadius,
-                y: center.y + CGFloat(sin(midAngle)) * midRadius
-            )
+            let outerRadius = hole + CGFloat(segment.depth) * ringThickness
             SpaceLensHoverCard(
                 name: diskNode.name,
                 formattedSize: diskNode.formattedSize,
@@ -165,7 +162,14 @@ struct SunburstView: View {
             )
             .frame(width: SpaceLensHoverCard.preferredWidth)
             .fixedSize(horizontal: false, vertical: true)
-            .position(SpaceLensHoverCard.clampedCenter(anchor: anchor, in: bounds))
+            .position(
+                SpaceLensHoverCard.anchor(
+                    forSegmentMidAngle: midAngle,
+                    outerRadius: outerRadius,
+                    center: center,
+                    in: bounds
+                )
+            )
             .allowsHitTesting(false)
         }
     }

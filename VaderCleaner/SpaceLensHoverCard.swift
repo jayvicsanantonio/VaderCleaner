@@ -20,10 +20,14 @@ struct SpaceLensHoverCard: View {
     /// Fixed width the visualizations frame the card to, so the anchor-clamping
     /// math has a known size to keep the card on-canvas.
     static let preferredWidth: CGFloat = 260
-    /// Half the card's assumed height, used only to clamp its center within the
-    /// canvas. A slight overestimate is harmless — it just keeps a tall card
-    /// from being clipped at the bottom edge.
-    private static let halfHeight: CGFloat = 48
+    /// Half the card's assumed height, used to clamp its center within the
+    /// canvas and to push the card clear of the hovered item. A slight
+    /// overestimate is harmless — it just keeps a tall card from being clipped
+    /// at the bottom edge.
+    static let halfHeight: CGFloat = 48
+    /// Breathing room left between the hovered item and the nearest card edge
+    /// when the card is placed beside the item.
+    static let anchorGap: CGFloat = 8
 
     /// Clamp the card's center so a card of `preferredWidth` stays fully inside
     /// `bounds`. Anchored to the hovered item, an arc near the edge would
@@ -38,6 +42,41 @@ struct SpaceLensHoverCard: View {
             x: min(max(anchor.x, minX), maxX),
             y: min(max(anchor.y, minY), maxY)
         )
+    }
+
+    /// Center for the card describing a treemap tile, placed just above or
+    /// below the tile — outside its bounds — so it never covers the pointer,
+    /// which sits somewhere inside the tile. Prefers below the tile; flips
+    /// above when the card wouldn't fit beneath. The result is clamped on-canvas
+    /// (a tile taller than the canvas minus the card can still force overlap, an
+    /// accepted edge case).
+    static func anchor(forTile rect: CGRect, in bounds: CGSize) -> CGPoint {
+        let belowY = rect.maxY + anchorGap + halfHeight
+        let aboveY = rect.minY - anchorGap - halfHeight
+        let y = belowY + halfHeight <= bounds.height ? belowY : aboveY
+        return clampedCenter(anchor: CGPoint(x: rect.midX, y: y), in: bounds)
+    }
+
+    /// Center for the card describing a sunburst segment, pushed radially past
+    /// the segment's outer edge along its mid-angle. The push includes the
+    /// card's support distance in that direction (`|cos|·halfWidth +
+    /// |sin|·halfHeight`) so the rectangle clears the arc whatever the angle —
+    /// a wide card needs far more clearance toward 3/9 o'clock than 12/6. The
+    /// result is clamped on-canvas; on a canvas too small to fit the card beside
+    /// the ring the clamp can still pull it back over a side segment, an
+    /// accepted edge case.
+    static func anchor(
+        forSegmentMidAngle midAngle: Double,
+        outerRadius: CGFloat,
+        center: CGPoint,
+        in bounds: CGSize
+    ) -> CGPoint {
+        let dx = CGFloat(cos(midAngle))
+        let dy = CGFloat(sin(midAngle))
+        let support = abs(dx) * (preferredWidth / 2) + abs(dy) * halfHeight
+        let reach = outerRadius + anchorGap + support
+        let anchor = CGPoint(x: center.x + dx * reach, y: center.y + dy * reach)
+        return clampedCenter(anchor: anchor, in: bounds)
     }
 
     var body: some View {
