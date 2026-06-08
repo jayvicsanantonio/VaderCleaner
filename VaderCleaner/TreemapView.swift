@@ -86,16 +86,16 @@ struct TreemapView: View {
         .accessibilityIdentifier("space-lens.treemap")
     }
 
-    /// Details card for the hovered tile, positioned over the tile it
-    /// describes (not the cursor — anchoring to the item keeps re-renders to
-    /// hover *transitions*, so the squarified layout isn't recomputed on every
-    /// pointer move). Clamped to stay fully on-canvas. Renders nothing when no
-    /// tile is hovered.
+    /// Details card for the hovered tile, placed just beside the tile it
+    /// describes — above or below it, never over it, so the card doesn't cover
+    /// the pointer. Anchored to the tile rather than the cursor so re-renders
+    /// stay tied to hover *transitions*, not every pointer move (which would
+    /// recompute the squarified layout). Clamped to stay fully on-canvas.
+    /// Renders nothing when no tile is hovered.
     @ViewBuilder
     private func hoverCard(tiles: [PlacedTile], bounds: CGSize) -> some View {
         if let hoveredID, let placed = tiles.first(where: { $0.id == hoveredID }) {
             let model = placed.model
-            let anchor = CGPoint(x: placed.rect.midX, y: placed.rect.midY)
             SpaceLensHoverCard(
                 name: model.node.name,
                 formattedSize: model.formattedSize,
@@ -104,7 +104,7 @@ struct TreemapView: View {
             )
             .frame(width: SpaceLensHoverCard.preferredWidth)
             .fixedSize(horizontal: false, vertical: true)
-            .position(SpaceLensHoverCard.clampedCenter(anchor: anchor, in: bounds))
+            .position(SpaceLensHoverCard.anchor(forTile: placed.rect, in: bounds))
             .allowsHitTesting(false)
         }
     }
