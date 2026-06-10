@@ -13,10 +13,28 @@ enum HelperCodeSigningRequirements {
     static let helperIdentifier = "com.personal.VaderCleaner.helper"
 
     /// Set to the Developer ID Team ID before distributing signed Release builds.
+    ///
+    /// BEFORE YOU DISTRIBUTE — security checklist (safe to ignore for a
+    /// personal, locally-built, single-user app; each item only matters once
+    /// the app leaves your own machine):
+    ///
+    ///   1. Set `releaseTeamIdentifier` to your Developer ID Team ID. Until
+    ///      then a Release build authorizes the helper by bundle identifier
+    ///      alone, which an ad-hoc binary can forge — local privilege
+    ///      escalation to the root helper. Once set, the requirement becomes
+    ///      `identifier "…" and anchor apple generic and certificate
+    ///      leaf[subject.OU] = "<team>"`, which actually pins the connection.
+    ///   2. Flip `ENABLE_HARDENED_RUNTIME` to YES in project.yml. It's
+    ///      required for notarization, and the app's JIT / unsigned-memory
+    ///      entitlements only take effect under the hardened runtime.
+    ///   3. (Optional, stricter) Prefer the bundled ClamAV over the
+    ///      user-writable Homebrew fallbacks (`/opt/homebrew/bin`,
+    ///      `/usr/local/bin`) in `ClamAVDetector` / `DatabaseUpdater` so a
+    ///      planted binary there can't be run in a Release build.
     private static let releaseTeamIdentifier: String? = nil
 
     #if !DEBUG
-    #warning("Set releaseTeamIdentifier to the Developer ID Team ID before distributing signed Release builds.")
+    #warning("Before distributing: set releaseTeamIdentifier to the Developer ID Team ID and enable the hardened runtime — see the checklist on releaseTeamIdentifier.")
     #endif
 
     static func requirement(identifier: String, teamIdentifier: String?) -> String {
@@ -24,7 +42,14 @@ enum HelperCodeSigningRequirements {
         guard let teamIdentifier = configuredTeamIdentifier(teamIdentifier) else {
             return identifierRequirement
         }
-        return "\(identifierRequirement) and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+        // `anchor apple generic` is required, not optional: a bare
+        // `certificate leaf[subject.OU] = "<team>"` is satisfied by any
+        // self-signed certificate whose leaf simply sets that OU — and the
+        // Team ID is public, so an attacker can forge it. Anchoring to
+        // Apple's CA means only an Apple-issued (Developer ID / Development)
+        // certificate carrying that team can pass, which is what actually
+        // pins the connection's identity.
+        return "\(identifierRequirement) and anchor apple generic and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
     }
 
     static func releaseRequirement(identifier: String, teamIdentifier: String? = releaseTeamIdentifier) -> String {
