@@ -5,6 +5,7 @@ DerivedData/
 *.dSYM.zip
 *.dSYM
 *.xcuserstate
+xcuserdata/
 
 # Build artifacts
 build/

@@ -12,17 +12,10 @@ struct AppStoreLookup: Hashable, Sendable {
     let appStoreURL: URL
 }
 
-/// Test seam for the iTunes Search API. Production hits
-/// `https://itunes.apple.com/lookup?bundleId=...`; tests inject a stub
-/// HTTP fetcher with pre-baked JSON.
-protocol AppStoreUpdateChecking: Sendable {
-    func latestVersion(forBundleID bundleID: String) async throws -> AppStoreLookup?
-}
-
 /// Production implementation. Returns `nil` on empty result sets rather
 /// than throwing — many MAS apps don't surface in the lookup API and a
 /// missing entry is not an error from the App Updater's perspective.
-struct DefaultAppStoreUpdateChecker: AppStoreUpdateChecking, Sendable {
+struct DefaultAppStoreUpdateChecker: Sendable {
 
     private let httpFetcher: HTTPFetching
     private let baseURL: URL

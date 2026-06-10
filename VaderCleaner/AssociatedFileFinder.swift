@@ -4,14 +4,6 @@
 import Foundation
 import os.log
 
-/// Test seam between `AppUninstallerViewModel` and the on-disk associated-
-/// file lookup. The protocol is async so production implementations can hop
-/// to a background actor for the directory traversal without blocking the
-/// view-model's main-actor isolation.
-protocol AssociatedFileFinding: Sendable {
-    func find(forBundleID bundleID: String) async -> [AssociatedFile]
-}
-
 /// Production finder — looks under `~/Library/...` and `/Library/...`
 /// for files and directories whose names match the given bundle ID.
 ///
@@ -21,7 +13,7 @@ protocol AssociatedFileFinding: Sendable {
 /// recycler will prompt the user for authorization when moving root-owned
 /// items, which is the standard macOS Finder behavior for Trashing system
 /// files.
-struct DefaultAssociatedFileFinder: AssociatedFileFinding, Sendable {
+struct DefaultAssociatedFileFinder: Sendable {
 
     private let fileManager: FileManager
     private let homeDirectory: URL

@@ -5,11 +5,6 @@ import CoreServices
 import Foundation
 import os.log
 
-/// Test seam between `ApplicationsViewModel` and the on-disk last-used metadata.
-protocol UnusedAppScanning: Sendable {
-    func scan(apps: [AppInfo]) async -> [UnusedApp]
-}
-
 /// Production scanner — reads each app's Spotlight last-used date and flags the
 /// ones not opened within the threshold window (default 60 days).
 ///
@@ -18,7 +13,7 @@ protocol UnusedAppScanning: Sendable {
 /// necessarily that the app was never opened, so flagging it would risk a
 /// false positive on an app the user actually relies on. The scanner biases
 /// toward false negatives, only surfacing apps it can prove are stale.
-struct DefaultUnusedAppScanner: UnusedAppScanning {
+struct DefaultUnusedAppScanner: Sendable {
 
     /// Apps not opened within this many days are considered unused. 60 days
     /// matches the reference design's default.
