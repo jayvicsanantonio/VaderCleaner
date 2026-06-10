@@ -4,11 +4,6 @@
 import Foundation
 import os.log
 
-/// Test seam between `ApplicationsViewModel` and the on-disk `~/Library` walk.
-protocol AppLeftoverScanning: Sendable {
-    func scan(installedBundleIDs: Set<String>) async -> [LeftoverGroup]
-}
-
 /// Production scanner — lists the immediate contents of the standard support
 /// roots, derives a candidate bundle ID per entry (each root names its entries
 /// differently), and keeps the ones that belong to no installed app.
@@ -23,7 +18,7 @@ protocol AppLeftoverScanning: Sendable {
 ///     an installed bundle ID *or* is a sub-ID of one (e.g. a helper/XPC
 ///     service `com.acme.App.Helper` under installed `com.acme.App`).
 /// Removal stays opt-in and routes to the Trash (restorable).
-struct DefaultAppLeftoverScanner: AppLeftoverScanning {
+struct DefaultAppLeftoverScanner: Sendable {
 
     /// How a root names its entries, which determines how a bundle ID is
     /// derived from each one.

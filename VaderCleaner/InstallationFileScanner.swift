@@ -4,13 +4,6 @@
 import Foundation
 import os.log
 
-/// Test seam between `ApplicationsViewModel` and the real Downloads / Desktop
-/// directories. Returns ready-to-display `InstallationFile` records so the
-/// view-model never walks the filesystem directly.
-protocol InstallationFileScanning: Sendable {
-    func scan() async -> [InstallationFile]
-}
-
 /// Production scanner — lists the immediate contents of the user's Downloads
 /// and Desktop folders and keeps the disk images and installer packages.
 ///
@@ -19,7 +12,7 @@ protocol InstallationFileScanning: Sendable {
 /// walk would risk pulling installers bundled *inside* unrelated folders the
 /// user organized on purpose. Keeping it to the top level matches where these
 /// files actually accumulate and keeps the scan fast and predictable.
-struct DefaultInstallationFileScanner: InstallationFileScanning {
+struct DefaultInstallationFileScanner: Sendable {
 
     private let roots: [URL]
     private let fileManager: FileManager

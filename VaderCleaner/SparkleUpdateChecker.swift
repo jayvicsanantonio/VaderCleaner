@@ -15,24 +15,10 @@ struct SparkleAppcastItem: Hashable, Sendable {
     let downloadURL: URL
 }
 
-/// Test seam between the App Updater and a live Sparkle feed. Production
-/// implementation reads `SUFeedURL` from the bundle and fetches the
-/// appcast over HTTPS; tests inject a stub that returns fixture bytes.
-protocol SparkleUpdateChecking: Sendable {
-    /// Returns the appcast URL for an app, or `nil` when the bundle's
-    /// `Info.plist` doesn't carry `SUFeedURL` (i.e. not a Sparkle app).
-    func feedURL(for app: AppInfo) -> URL?
-
-    /// Fetches and parses the appcast at `feedURL`, returning the newest
-    /// `<item>` with a downloadable enclosure, or `nil` if the feed has
-    /// no usable items.
-    func fetchAppcast(feedURL: URL) async throws -> SparkleAppcastItem?
-}
-
 /// Production implementation. The Info.plist read happens synchronously
 /// — it's a single small file — but the appcast fetch is async because
 /// it crosses the network.
-struct DefaultSparkleUpdateChecker: SparkleUpdateChecking, Sendable {
+struct DefaultSparkleUpdateChecker: Sendable {
 
     private let httpFetcher: HTTPFetching
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
