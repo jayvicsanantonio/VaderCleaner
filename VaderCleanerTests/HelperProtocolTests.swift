@@ -18,7 +18,7 @@ final class HelperProtocolTests: XCTestCase {
 
         XCTAssertEqual(
             requirement,
-            "identifier \"com.personal.VaderCleaner\" and certificate leaf[subject.OU] = \"ABCDE12345\""
+            "identifier \"com.personal.VaderCleaner\" and anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\""
         )
     }
 
