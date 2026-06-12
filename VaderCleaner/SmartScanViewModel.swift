@@ -722,9 +722,9 @@ extension SmartScanViewModel {
             // App Updater wiring: discover installed apps, then fan out
             // per-app version probes against the App Store and Sparkle
             // channels. The underlying collaborators (`DefaultAppDiscovery`,
-            // `DefaultAppStoreUpdateChecker`, `DefaultSparkleUpdateChecker`)
-            // are the same ones `AppUpdaterViewModel.live` uses, so the
-            // two surfaces produce identical update lists.
+            // `UpdateProbe.live()`) are the same ones
+            // `AppUpdaterViewModel.live` uses, so the two surfaces produce
+            // identical update lists.
             updatesChecker: { await Self.fetchAvailableUpdates(log: log) },
             junkCleaner: { try await SystemJunkDeleter().delete($0) },
             threatRemover: { await remover.remove($0) },
@@ -756,93 +756,22 @@ extension SmartScanViewModel {
         )
     }
 
-    /// Discover-and-probe loop for the Applications tile. Mirrors
-    /// `AppUpdaterViewModel.checkForUpdates`'s bounded-concurrency window
-    /// (≤6 in-flight HTTPS requests) so a heavily-installed machine never
-    /// stampedes the iTunes Search API or assorted Sparkle hosts during
-    /// Smart Scan. Marked `nonisolated` so the HTTP fan-out runs off the
-    /// main actor — without this annotation the static would inherit
-    /// `@MainActor` from the class extension and serialize on the UI
-    /// thread, freezing every per-app hop on the scan's progress label.
+    /// Discover-and-probe loop for the Applications tile. Delegates the
+    /// bounded-concurrency fan-out (≤6 in-flight HTTPS requests) to
+    /// `UpdateProbe` so a heavily-installed machine never stampedes the
+    /// iTunes Search API or assorted Sparkle hosts during Smart Scan.
+    /// Marked `nonisolated` so the HTTP fan-out runs off the main actor —
+    /// without this annotation the static would inherit `@MainActor` from
+    /// the class extension and serialize on the UI thread, freezing every
+    /// per-app hop on the scan's progress label.
     nonisolated private static func fetchAvailableUpdates(log: Logger) async -> [UpdateInfo] {
         let discovery = DefaultAppDiscovery()
-        let appStore = DefaultAppStoreUpdateChecker()
-        let sparkle = DefaultSparkleUpdateChecker()
         do {
             let apps = try await discovery.installedApps(includingSystemApps: false)
-            let updates = await withTaskGroup(of: UpdateInfo?.self) { group -> [UpdateInfo] in
-                var nextIndex = 0
-                let maxInFlight = 6
-                while nextIndex < apps.count, nextIndex < maxInFlight {
-                    let app = apps[nextIndex]
-                    group.addTask {
-                        await Self.checkUpdate(for: app, appStore: appStore, sparkle: sparkle)
-                    }
-                    nextIndex += 1
-                }
-                var results: [UpdateInfo] = []
-                while let result = await group.next() {
-                    if let info = result { results.append(info) }
-                    if nextIndex < apps.count {
-                        let app = apps[nextIndex]
-                        group.addTask {
-                            await Self.checkUpdate(for: app, appStore: appStore, sparkle: sparkle)
-                        }
-                        nextIndex += 1
-                    }
-                }
-                return results
-            }
-            return updates.sorted {
-                $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-            }
+            return await UpdateProbe.live().availableUpdates(for: apps)
         } catch {
             log.error("Smart Scan updates check failed: \(String(describing: error), privacy: .public)")
             return []
-        }
-    }
-
-    /// Routes a single installed app to its update channel and returns an
-    /// `UpdateInfo` only when the remote version is strictly newer. Every
-    /// failure — network, decode, missing feed — is swallowed to `nil` so
-    /// one bad app can never blank the whole list. Nonisolated for the
-    /// same reason as `fetchAvailableUpdates`.
-    nonisolated private static func checkUpdate(
-        for app: AppInfo,
-        appStore: DefaultAppStoreUpdateChecker,
-        sparkle: DefaultSparkleUpdateChecker
-    ) async -> UpdateInfo? {
-        if app.isAppStore {
-            guard let lookup = (try? await appStore.latestVersion(forBundleID: app.bundleID)) ?? nil else {
-                return nil
-            }
-            let installed = app.version ?? "0"
-            guard VersionComparator.isNewer(version: lookup.version, than: installed) else { return nil }
-            return UpdateInfo(
-                appName: app.name,
-                bundleID: app.bundleID,
-                bundleURL: app.bundleURL,
-                installedVersion: installed,
-                latestVersion: lookup.version,
-                source: .appStore,
-                updateURL: lookup.appStoreURL
-            )
-        } else {
-            guard let feedURL = sparkle.feedURL(for: app) else { return nil }
-            guard let item = (try? await sparkle.fetchAppcast(feedURL: feedURL)) ?? nil else {
-                return nil
-            }
-            let installed = app.version ?? "0"
-            guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else { return nil }
-            return UpdateInfo(
-                appName: app.name,
-                bundleID: app.bundleID,
-                bundleURL: app.bundleURL,
-                installedVersion: installed,
-                latestVersion: item.shortVersion,
-                source: .sparkle,
-                updateURL: item.downloadURL
-            )
         }
     }
 

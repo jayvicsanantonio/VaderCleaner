@@ -480,15 +480,14 @@ final class ApplicationsViewModel {
 
 extension ApplicationsViewModel {
 
-    /// Builds a view-model wired to the real `DefaultAppDiscovery` and the App
-    /// Store / Sparkle update checkers — the same collaborators
-    /// `AppUpdaterViewModel.live` uses, so the dashboard's update count matches
-    /// the updater list it opens.
+    /// Builds a view-model wired to the real `DefaultAppDiscovery` and
+    /// `UpdateProbe.live()` — the same collaborators `AppUpdaterViewModel.live`
+    /// uses, so the dashboard's update count matches the updater list it
+    /// opens.
     @MainActor
     static func live() -> ApplicationsViewModel {
         let discovery = DefaultAppDiscovery()
-        let appStore = DefaultAppStoreUpdateChecker()
-        let sparkle = DefaultSparkleUpdateChecker()
+        let probe = UpdateProbe.live()
         let installerScanner = DefaultInstallationFileScanner()
         let unsupportedScanner = DefaultUnsupportedAppScanner()
         let unusedScanner = DefaultUnusedAppScanner()
@@ -500,7 +499,7 @@ extension ApplicationsViewModel {
                 try await discovery.installedApps(includingSystemApps: false)
             },
             checkUpdates: { apps in
-                await Self.fetchUpdates(for: apps, appStore: appStore, sparkle: sparkle, log: log)
+                await probe.availableUpdates(for: apps)
             },
             scanInstallationFiles: {
                 await installerScanner.scan()
@@ -538,88 +537,6 @@ extension ApplicationsViewModel {
         }
     }
 
-    /// Bounded-concurrency (≤6 in-flight HTTPS requests) discover-and-probe
-    /// loop over already-discovered apps. Mirrors
-    /// `AppUpdaterViewModel.checkForUpdates`'s sliding window so a heavily-
-    /// installed machine never stampedes the iTunes Search API or assorted
-    /// Sparkle hosts. Marked `nonisolated` so the HTTP fan-out runs off the
-    /// main actor instead of serializing on the UI thread.
-    nonisolated private static func fetchUpdates(
-        for apps: [AppInfo],
-        appStore: DefaultAppStoreUpdateChecker,
-        sparkle: DefaultSparkleUpdateChecker,
-        log: Logger
-    ) async -> [UpdateInfo] {
-        let updates = await withTaskGroup(of: UpdateInfo?.self) { group -> [UpdateInfo] in
-            var nextIndex = 0
-            let maxInFlight = 6
-            while nextIndex < apps.count, nextIndex < maxInFlight {
-                let app = apps[nextIndex]
-                group.addTask {
-                    await Self.checkUpdate(for: app, appStore: appStore, sparkle: sparkle)
-                }
-                nextIndex += 1
-            }
-            var results: [UpdateInfo] = []
-            while let result = await group.next() {
-                if let info = result { results.append(info) }
-                if nextIndex < apps.count {
-                    let app = apps[nextIndex]
-                    group.addTask {
-                        await Self.checkUpdate(for: app, appStore: appStore, sparkle: sparkle)
-                    }
-                    nextIndex += 1
-                }
-            }
-            return results
-        }
-        return updates.sorted {
-            $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-        }
-    }
-
-    /// Routes a single installed app to its update channel and returns an
-    /// `UpdateInfo` only when the remote version is strictly newer. Every
-    /// failure — network, decode, missing feed — is swallowed to `nil` so one
-    /// bad app can never blank the whole list.
-    nonisolated private static func checkUpdate(
-        for app: AppInfo,
-        appStore: DefaultAppStoreUpdateChecker,
-        sparkle: DefaultSparkleUpdateChecker
-    ) async -> UpdateInfo? {
-        if app.isAppStore {
-            guard let lookup = (try? await appStore.latestVersion(forBundleID: app.bundleID)) ?? nil else {
-                return nil
-            }
-            let installed = app.version ?? "0"
-            guard VersionComparator.isNewer(version: lookup.version, than: installed) else { return nil }
-            return UpdateInfo(
-                appName: app.name,
-                bundleID: app.bundleID,
-                bundleURL: app.bundleURL,
-                installedVersion: installed,
-                latestVersion: lookup.version,
-                source: .appStore,
-                updateURL: lookup.appStoreURL
-            )
-        } else {
-            guard let feedURL = sparkle.feedURL(for: app) else { return nil }
-            guard let item = (try? await sparkle.fetchAppcast(feedURL: feedURL)) ?? nil else {
-                return nil
-            }
-            let installed = app.version ?? "0"
-            guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else { return nil }
-            return UpdateInfo(
-                appName: app.name,
-                bundleID: app.bundleID,
-                bundleURL: app.bundleURL,
-                installedVersion: installed,
-                latestVersion: item.shortVersion,
-                source: .sparkle,
-                updateURL: item.downloadURL
-            )
-        }
-    }
 }
 
 // MARK: - ScanCoordinating
