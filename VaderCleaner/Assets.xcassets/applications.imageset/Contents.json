@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "applications.heif",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

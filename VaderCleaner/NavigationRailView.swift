@@ -2,6 +2,7 @@
 // Custom sidebar rail: one focusable button per NavigationSection with a soft glass selection pill and quieter hover highlight.
 
 import SwiftUI
+import AppKit
 
 /// A custom rail of buttons (not a List) so selection can be a soft inset
 /// glass pill with generous spacing instead of the system's full-bleed
@@ -52,6 +53,73 @@ struct NavigationRailView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
+    /// The rail glyph for a section: its monochrome relief icon when one
+    /// exists, so the rail matches the section's hero art; otherwise the SF
+    /// Symbol (Health Monitor ships no bespoke art). The glyph is a neutral
+    /// light-gray relief — multiplying it by the accent lights the
+    /// active/hovered row while preserving the 3D shading, and the inactive
+    /// state stays a dimmed gray, mirroring the symbol's neutral→accent
+    /// treatment.
+    @ViewBuilder
+    private func railIcon(_ section: NavigationSection, isActive: Bool) -> some View {
+        if let asset = section.railIconAssetName {
+            railGlyph(asset, isActive: isActive, accent: section.theme.accent)
+        } else {
+            Image(systemName: section.icon)
+                .symbolRenderingMode(.hierarchical)
+                .font(.title3)
+                // The symbol stays neutral — matching the inactive label —
+                // until the row is active or hovered, when it lights up in
+                // the section's accent.
+                .foregroundStyle(isActive ? section.theme.accent : Color.white.opacity(0.62))
+                .frame(width: 26)
+        }
+    }
+
+    /// Renders a monochrome rail glyph. An active/hovered row tints it with a
+    /// vertical accent gradient — a lightened accent at the top fading to a
+    /// deeper accent at the bottom — multiplied over the relief and clipped to
+    /// the glyph so the 3D shading shows through. Inactive rows stay a dimmed
+    /// flat gray, mirroring the symbol's neutral→accent treatment.
+    @ViewBuilder
+    private func railGlyph(_ asset: String, isActive: Bool, accent: Color) -> some View {
+        let glyph = Image(asset)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 26, height: 26)
+        if isActive {
+            glyph
+                .overlay {
+                    LinearGradient(
+                        colors: [shade(accent, 0.62), shade(accent, -0.18)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .blendMode(.multiply)
+                }
+                .mask { glyph }
+        } else {
+            glyph
+                .colorMultiply(Color(white: 0.82))
+                .opacity(0.85)
+        }
+    }
+
+    /// Lightens (`amount > 0`, toward white) or darkens (`amount < 0`, toward
+    /// black) a colour for the active glyph's gradient stops.
+    private func shade(_ color: Color, _ amount: Double) -> Color {
+        let ns = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(white: 0.5, alpha: 1)
+        let r = Double(ns.redComponent), g = Double(ns.greenComponent), b = Double(ns.blueComponent)
+        if amount >= 0 {
+            let t = amount
+            return Color(.sRGB, red: r * (1 - t) + t, green: g * (1 - t) + t, blue: b * (1 - t) + t)
+        } else {
+            let t = -amount
+            return Color(.sRGB, red: r * (1 - t), green: g * (1 - t), blue: b * (1 - t))
+        }
+    }
+
     private func railRow(_ section: NavigationSection) -> some View {
         let isSelected = selectedSection == section
         let isHovering = hoveredSection == section
@@ -59,18 +127,7 @@ struct NavigationRailView: View {
             onSelect(section)
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: section.icon)
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.title3)
-                    // The icon stays neutral — matching the inactive label —
-                    // until the row is active or hovered, when it lights up in
-                    // the section's accent.
-                    .foregroundStyle(
-                        isSelected || isHovering
-                            ? section.theme.accent
-                            : Color.white.opacity(0.62)
-                    )
-                    .frame(width: 26)
+                railIcon(section, isActive: isSelected || isHovering)
                 Text(section.title)
                     .font(.body)
                 Spacer(minLength: 0)

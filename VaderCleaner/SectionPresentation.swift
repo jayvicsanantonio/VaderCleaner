@@ -55,8 +55,8 @@ struct SectionPresentation {
             // drift from the real screens.
             return SectionPresentation(
                 heroSymbol: "sparkles",
-                heroAssetName: nil,
-                heroModelName: "smartScan",
+                heroAssetName: "smartScan",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -81,8 +81,8 @@ struct SectionPresentation {
         case .systemJunk:
             return SectionPresentation(
                 heroSymbol: "trash",
-                heroAssetName: nil,
-                heroModelName: "systemJunk",
+                heroAssetName: "systemJunk",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -111,8 +111,8 @@ struct SectionPresentation {
         case .largeOldFiles:
             return SectionPresentation(
                 heroSymbol: "doc.text.magnifyingglass",
-                heroAssetName: nil,
-                heroModelName: "largeOldFiles",
+                heroAssetName: "largeOldFiles",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -137,8 +137,8 @@ struct SectionPresentation {
         case .spaceLens:
             return SectionPresentation(
                 heroSymbol: "square.split.2x2",
-                heroAssetName: nil,
-                heroModelName: "spaceLens",
+                heroAssetName: "spaceLens",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -159,8 +159,8 @@ struct SectionPresentation {
         case .malwareRemoval:
             return SectionPresentation(
                 heroSymbol: "shield.lefthalf.filled",
-                heroAssetName: nil,
-                heroModelName: "malwareRemoval",
+                heroAssetName: "malwareRemoval",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -185,8 +185,8 @@ struct SectionPresentation {
         case .optimization:
             return SectionPresentation(
                 heroSymbol: "gauge.with.needle",
-                heroAssetName: nil,
-                heroModelName: "optimization",
+                heroAssetName: "optimization",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -215,8 +215,8 @@ struct SectionPresentation {
         case .privacy:
             return SectionPresentation(
                 heroSymbol: "lock.shield",
-                heroAssetName: nil,
-                heroModelName: "privacy",
+                heroAssetName: "privacy",
+                heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
@@ -247,11 +247,10 @@ struct SectionPresentation {
             // the cards the post-scan grid surfaces.
             return SectionPresentation(
                 heroSymbol: "square.grid.2x2.fill",
-                heroAssetName: nil,
-                heroModelName: "applications",
-                // Slightly smaller than the 1.7 baseline: the 2x2 grid spans
-                // its full frame edge-to-edge, so it reads larger than the
-                // solid heroes unless pulled down.
+                heroAssetName: "applications",
+                heroModelName: nil,
+                // Unused on the image hero path (only the USDZ path reads
+                // heroModelScale); kept at the struct's required default.
                 heroModelScale: 1.5,
                 accent: section.theme.accent,
                 tagline: String(

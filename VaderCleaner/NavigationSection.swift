@@ -75,6 +75,26 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         }
     }
 
+    /// Asset-catalog name of this section's monochrome rail glyph — a light
+    /// matte relief. The rail renders it neutral when inactive and multiplies
+    /// it by `theme.accent` when active. The scannable sections' glyphs are
+    /// derived from their hero art by `Scripts/generate-rail-glyphs.swift`;
+    /// Health Monitor ships no hero render, so its glyph is authored
+    /// procedurally by `Scripts/generate-health-monitor-glyph.swift`.
+    var railIconAssetName: String? {
+        switch self {
+        case .smartScan:       return "smartScanMono"
+        case .systemJunk:      return "systemJunkMono"
+        case .largeOldFiles:   return "largeOldFilesMono"
+        case .spaceLens:       return "spaceLensMono"
+        case .malwareRemoval:  return "malwareRemovalMono"
+        case .optimization:    return "optimizationMono"
+        case .privacy:         return "privacyMono"
+        case .applications:    return "applicationsMono"
+        case .healthMonitor:   return "healthMonitorMono"
+        }
+    }
+
     /// Whether this section drives a scan/load and therefore adopts the
     /// unified intro screen + floating Scan button. The remaining sections
     /// (live stats and list-style management screens) keep their bespoke UI.

@@ -145,4 +145,31 @@ final class NavigationSectionTests: XCTestCase {
             )
         }
     }
+
+    /// Every section ships a monochrome rail glyph named after its case +
+    /// "Mono" — the scannable ones derived from hero art, Health Monitor
+    /// authored procedurally.
+    func test_railIconAssetName_isPinned() {
+        for section in NavigationSection.allCases {
+            XCTAssertEqual(
+                section.railIconAssetName,
+                "\(String(describing: section))Mono",
+                "Rail glyph name for \(section) must be its case name + \"Mono\""
+            )
+        }
+    }
+
+    /// Each declared rail glyph must resolve to a real image in the app
+    /// bundle's asset catalog — guards against drift between the declarations
+    /// and the imagesets produced by Scripts/generate-rail-glyphs.swift.
+    func test_eachRailIconAssetName_resolvesToAnImageInTheBundle() throws {
+        let bundle = Bundle.main
+        for section in NavigationSection.allCases {
+            guard let asset = section.railIconAssetName else { continue }
+            XCTAssertNotNil(
+                NSImage(named: asset) ?? bundle.image(forResource: asset),
+                "Asset catalog is missing rail glyph \"\(asset)\" for \(section)"
+            )
+        }
+    }
 }
