@@ -145,4 +145,37 @@ final class NavigationSectionTests: XCTestCase {
             )
         }
     }
+
+    /// Every section except Health Monitor ships a monochrome rail glyph;
+    /// Health Monitor has no bespoke art and falls back to its SF Symbol.
+    func test_railIconAssetName_isPinned() {
+        for section in NavigationSection.allCases {
+            if section == .healthMonitor {
+                XCTAssertNil(
+                    section.railIconAssetName,
+                    "Health Monitor must have no rail glyph (SF Symbol fallback)"
+                )
+            } else {
+                XCTAssertEqual(
+                    section.railIconAssetName,
+                    "\(String(describing: section))Mono",
+                    "Rail glyph name for \(section) must be its case name + \"Mono\""
+                )
+            }
+        }
+    }
+
+    /// Each declared rail glyph must resolve to a real image in the app
+    /// bundle's asset catalog — guards against drift between the declarations
+    /// and the imagesets produced by Scripts/generate-rail-glyphs.swift.
+    func test_eachRailIconAssetName_resolvesToAnImageInTheBundle() throws {
+        let bundle = Bundle.main
+        for section in NavigationSection.allCases {
+            guard let asset = section.railIconAssetName else { continue }
+            XCTAssertNotNil(
+                NSImage(named: asset) ?? bundle.image(forResource: asset),
+                "Asset catalog is missing rail glyph \"\(asset)\" for \(section)"
+            )
+        }
+    }
 }
