@@ -57,7 +57,7 @@ struct SectionPresentation {
                 heroSymbol: "sparkles",
                 heroAssetName: nil,
                 heroModelName: "smartScan",
-                heroModelScale: 1.6,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Quick maintenance that takes care of the essentials.",
@@ -113,7 +113,7 @@ struct SectionPresentation {
                 heroSymbol: "doc.text.magnifyingglass",
                 heroAssetName: nil,
                 heroModelName: "largeOldFiles",
-                heroModelScale: 1.8,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Find big and forgotten files taking up space.",
@@ -139,7 +139,7 @@ struct SectionPresentation {
                 heroSymbol: "square.split.2x2",
                 heroAssetName: nil,
                 heroModelName: "spaceLens",
-                heroModelScale: 1.9,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "See what's using your storage with an interactive map.",
@@ -187,7 +187,7 @@ struct SectionPresentation {
                 heroSymbol: "gauge.with.needle",
                 heroAssetName: nil,
                 heroModelName: "optimization",
-                heroModelScale: 2.2,
+                heroModelScale: 1.7,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
@@ -243,14 +243,16 @@ struct SectionPresentation {
                 ]
             )
         case .applications:
-            // No bespoke USDZ hero ships for Applications yet, so it uses the
-            // SF Symbol hero fallback (`heroModelName: nil`). The feature rows
-            // preview the cards the post-scan grid surfaces.
+            // Launchpad-style 2x2 app-tile grid hero; the feature rows preview
+            // the cards the post-scan grid surfaces.
             return SectionPresentation(
                 heroSymbol: "square.grid.2x2.fill",
                 heroAssetName: nil,
-                heroModelName: nil,
-                heroModelScale: 1.0,
+                heroModelName: "applications",
+                // Slightly smaller than the 1.7 baseline: the 2x2 grid spans
+                // its full frame edge-to-edge, so it reads larger than the
+                // solid heroes unless pulled down.
+                heroModelScale: 1.5,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Review updates, unused apps, and leftovers in one place.",
