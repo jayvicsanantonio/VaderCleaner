@@ -347,7 +347,8 @@ struct ApplicationsDashboardView: View {
 
 /// A single Applications summary card. Uses the same glass surface and corner
 /// radius as the Optimization / Smart Scan dashboards so the app's card
-/// surfaces stay consistent.
+/// surfaces stay consistent. Also reused by the Privacy dashboard's category
+/// cards for the same reason.
 struct ApplicationsCard: View {
     let title: String
     /// Short, emphasized magnitude (reclaimable size or item count) shown as the

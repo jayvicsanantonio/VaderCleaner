@@ -310,6 +310,129 @@ final class PrivacyViewModelTests: XCTestCase {
         XCTAssertEqual(vm.totalSelectedSize, 200)
     }
 
+    // MARK: - Dashboard metrics
+
+    /// The dashboard's category cards show one total per category summed
+    /// across every detected browser, so the user sees "Cached Data — 600 B"
+    /// rather than seven per-browser rows.
+    func test_sizeForCategory_sumsCategoryAcrossDetectedBrowsers() async {
+        let vm = makeViewModel(
+            detected: [.safari, .chrome],
+            sizer: { _, category in category == .cache ? 300 : 10 },
+            pathsFor: { browser, category in
+                [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+
+        await vm.preview()
+
+        XCTAssertEqual(vm.size(forCategory: .cache), 600)
+        XCTAssertEqual(vm.size(forCategory: .history), 20)
+    }
+
+    /// Card metrics describe what the scan *found*, not what's currently
+    /// checked — unchecking a cell in a review screen must not shrink the
+    /// dashboard card behind it.
+    func test_sizeForCategory_ignoresSelectionState() async {
+        let vm = makeViewModel(
+            detected: [.safari, .chrome],
+            sizer: { _, _ in 100 },
+            pathsFor: { browser, category in
+                [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+        await vm.preview()
+
+        vm.toggle(browser: .safari, category: .cache)
+
+        XCTAssertEqual(vm.size(forCategory: .cache), 200)
+    }
+
+    /// Coupled cells (Chromium / Firefox `.downloads` lives inside the
+    /// History SQLite, so the cell has no paths of its own) must contribute
+    /// 0 — otherwise the Downloads card would claim bytes only the History
+    /// card can actually clear.
+    func test_sizeForCategory_excludesCellsWithoutPaths() async {
+        let vm = makeViewModel(
+            detected: [.chrome],
+            sizer: { _, _ in 100 },
+            pathsFor: { browser, category in
+                category == .downloads
+                    ? []
+                    : [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+        await vm.preview()
+
+        XCTAssertEqual(vm.size(forCategory: .downloads), 0)
+    }
+
+    /// The headline ("We found X across N browsers") reports the path-deduped
+    /// total of everything the scan found, independent of selection state.
+    func test_totalFoundSize_dedupesSharedPathsAndIgnoresSelection() async {
+        let sharedPath = URL(fileURLWithPath: "/tmp/vctests/Chrome/Default/History")
+        let vm = makeViewModel(
+            detected: [.chrome],
+            sizer: { _, _ in 100 },
+            pathsFor: { _, category in
+                switch category {
+                case .history, .downloads: return [sharedPath]
+                case .cookies: return [URL(fileURLWithPath: "/tmp/vctests/Chrome/Default/Cookies")]
+                default: return []
+                }
+            }
+        )
+        await vm.preview()
+
+        // history + downloads share one path (100, counted once) and
+        // cookies adds a unique path (100); the rest have no paths.
+        XCTAssertEqual(vm.totalFoundSize, 200)
+
+        vm.toggle(browser: .chrome, category: .cookies)
+        XCTAssertEqual(vm.totalFoundSize, 200,
+                       "Headline total must not change with selection")
+    }
+
+    /// The dashboard renders one card per category with findings, largest
+    /// first so the dominant category lands in the hero slot. Categories
+    /// with nothing to clear are dropped rather than shown as 0-byte cards.
+    func test_dashboardCategories_ordersBySizeDescendingAndDropsEmpties() async {
+        let vm = makeViewModel(
+            detected: [.safari],
+            sizer: { _, category in
+                switch category {
+                case .cache:      return 500
+                case .history:    return 200
+                case .cookies:    return 300
+                default:          return 0
+                }
+            },
+            pathsFor: { browser, category in
+                [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+        await vm.preview()
+
+        XCTAssertEqual(vm.dashboardCategories(), [.cache, .cookies, .history])
+    }
+
+    /// Equal-size categories must keep `PrivacyCategory.allCases` order so
+    /// the card layout doesn't shuffle between two otherwise identical scans.
+    func test_dashboardCategories_breaksTiesInDeclarationOrder() async {
+        let vm = makeViewModel(
+            detected: [.safari],
+            sizer: { _, category in
+                category == .cache || category == .history ? 100 : 0
+            },
+            pathsFor: { browser, category in
+                [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
+            }
+        )
+        await vm.preview()
+
+        XCTAssertEqual(vm.dashboardCategories(), [.history, .cache])
+    }
+
     // MARK: - Clear
 
     /// `clear()` must invoke the clearer for every checked
