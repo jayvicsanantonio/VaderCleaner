@@ -71,14 +71,7 @@ final class HealthMonitorViewModel {
     /// volume is still unmeasured (so the hero shows "Measuring…" instead of
     /// a confident verdict off zero data on the first tick).
     var macHealth: MacHealthStatus? {
-        Self.macHealthStatus(disk: service.diskSpace, signals: nudgeSignals)
-    }
-
-    /// The non-disk signals that can nudge the disk-driven base verdict down.
-    /// Disk fullness is excluded here because it already sets the base tier —
-    /// folding it in again would double-count it.
-    private var nudgeSignals: [StatusColor] {
-        [batteryColor, smartColor, ramPressureColor, cpuColor, fileVaultColor]
+        Self.macHealthStatus(disk: service.diskSpace, smart: smartStatus, battery: batteryAvailability)
     }
 
     /// "121 GB of 494 GB used" line shown beneath the volume name in the hero.
@@ -86,45 +79,74 @@ final class HealthMonitorViewModel {
 
     // MARK: - Pure formatters / color rules
 
-    /// Derives the overall Mac Health verdict.
-    ///
-    /// Disk fullness sets the base tier (this is a disk-cleaning app, so
-    /// reclaimable space is the headline concern). The other health signals
-    /// then *nudge* that base down: each `.red` signal (failing SMART, battery
-    /// service, critical RAM/CPU) drops two tiers, and the presence of any
-    /// `.yellow` drops one more. `.gray` ("no opinion", the startup state) and
-    /// `.green` never penalize. The result clamps to `.critical` so a near-full
-    /// disk plus a failing component can't underflow.
-    ///
-    /// Reds are allowed to override the disk base on purpose: a failing drive
-    /// *should* be able to force "Critical" even on a near-empty disk.
+    /// Derives the overall Mac Health verdict with a problem-based model that
+    /// mirrors CleanMyMac: the Mac is Excellent until a concrete problem is
+    /// detected, and the verdict is the worst tier any tracked factor produces
+    /// (no compounding, no double-counting). Only the factors CleanMyMac counts
+    /// that we can observe drive it — disk hardware health (SMART), battery
+    /// health, and low disk space. Transient readings (RAM pressure, CPU load)
+    /// and the FileVault toggle keep their own cards but never drag the overall
+    /// verdict, so a momentary CPU spike or a half-full disk no longer reads as
+    /// "Fair".
     ///
     /// Returns `nil` when the volume is unmeasured (`totalBytes == 0`) so the
-    /// hero can show a neutral measuring state rather than defaulting to
-    /// "Excellent" off a zero reading.
-    static func macHealthStatus(disk: DiskStats, signals: [StatusColor]) -> MacHealthStatus? {
+    /// hero can show a neutral measuring state rather than a confident verdict
+    /// off a zero reading.
+    static func macHealthStatus(
+        disk: DiskStats,
+        smart: SMARTStatus,
+        battery: BatteryAvailability
+    ) -> MacHealthStatus? {
         guard disk.totalBytes > 0 else { return nil }
 
-        let base = diskHealthTier(for: disk)
-        let redCount = signals.filter { $0 == .red }.count
-        let anyYellow = signals.contains(.yellow)
-        let penalty = redCount * 2 + (anyYellow ? 1 : 0)
-
-        let index = max(MacHealthStatus.critical.rawValue, base.rawValue - penalty)
-        return MacHealthStatus(rawValue: index) ?? .critical
+        let tiers = [
+            diskSpaceTier(for: disk),
+            smartTier(for: smart),
+            batteryTier(for: battery)
+        ]
+        // `MacHealthStatus` orders worst-to-best, so the minimum tier is the
+        // worst problem found. With every factor healthy the minimum is the
+        // best tier — Excellent.
+        return tiers.min() ?? .excellent
     }
 
-    /// Maps disk fullness to a base verdict tier. Boundaries are inclusive at
-    /// the lower bound. The 0.80 / 0.95 edges line up with
-    /// `diskWarningThreshold` / `diskCriticalThreshold` so the hero verdict and
-    /// the Disk Space card's status dot never tell contradictory stories.
-    static func diskHealthTier(for stats: DiskStats) -> MacHealthStatus {
+    /// Low-disk-space contribution to the verdict. A disk under the card's
+    /// warning threshold is not a problem at all (Excellent); only a genuinely
+    /// full disk escalates. The 0.80 / 0.95 edges line up with
+    /// `diskWarningThreshold` / `diskCriticalThreshold` so the verdict and the
+    /// Disk Space card's status dot never tell contradictory stories.
+    static func diskSpaceTier(for stats: DiskStats) -> MacHealthStatus {
         let ratio = diskUsageRatio(stats)
-        if ratio >= diskCriticalThreshold { return .critical }
-        if ratio >= diskWarningThreshold { return .requiresAttention }
-        if ratio >= 0.70 { return .fair }
-        if ratio >= 0.55 { return .good }
+        if ratio >= 0.98 { return .critical }
+        if ratio >= diskCriticalThreshold { return .requiresAttention }
+        if ratio >= 0.90 { return .fair }
+        if ratio >= diskWarningThreshold { return .good }
         return .excellent
+    }
+
+    /// Disk hardware-health contribution. A failing SMART self-assessment is the
+    /// most serious problem — the user needs to back up immediately — so it
+    /// forces `.critical`. `.good` and `.unknown` are not problems.
+    static func smartTier(for status: SMARTStatus) -> MacHealthStatus {
+        switch status {
+        case .failing: return .critical
+        case .good, .unknown: return .excellent
+        }
+    }
+
+    /// Battery-health contribution. Only the conditions that mean the battery
+    /// needs service count as a problem, matching CleanMyMac's "critical battery
+    /// health" factor. A healthy, absent, unknown, or merely-unreadable
+    /// condition is never penalized — capacity fade alone does not lower the
+    /// overall verdict.
+    static func batteryTier(for availability: BatteryAvailability) -> MacHealthStatus {
+        guard case .present(let stats) = availability else { return .excellent }
+        switch stats.condition {
+        case "Service Battery", "Service Recommended", "Replace Soon", "Replace Now", "Permanent Failure":
+            return .requiresAttention
+        default:
+            return .excellent
+        }
     }
 
     /// "121 GB of 494 GB used" — the hero's disk line. Phrased as
