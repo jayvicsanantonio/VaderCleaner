@@ -25,53 +25,60 @@ extension NavigationSection {
     var theme: SectionTheme {
         switch self {
         case .smartScan:
-            // The brand-crimson hero section — the app's Vader identity.
+            // Keyed to the magenta-pink Smart Care hero asset.
             return SectionTheme(
-                accent: .vaderCrimson,
-                backdropTop: Color(red: 0.12, green: 0.02, blue: 0.04),
-                backdropBottom: Color(red: 0.30, green: 0.05, blue: 0.10)
+                accent: Color(red: 0.90, green: 0.09, blue: 0.73),
+                backdropTop: Color(red: 0.12, green: 0.03, blue: 0.10),
+                backdropBottom: Color(red: 0.29, green: 0.06, blue: 0.24)
             )
         case .systemJunk:
+            // Keyed to the green Cleanup disc asset.
             return SectionTheme(
-                accent: Color(red: 0.36, green: 0.83, blue: 0.42),
-                backdropTop: Color(red: 0.04, green: 0.11, blue: 0.06),
-                backdropBottom: Color(red: 0.07, green: 0.28, blue: 0.13)
+                accent: Color(red: 0.13, green: 0.90, blue: 0.21),
+                backdropTop: Color(red: 0.03, green: 0.12, blue: 0.04),
+                backdropBottom: Color(red: 0.06, green: 0.29, blue: 0.08)
             )
         case .largeOldFiles:
+            // Keyed to the teal My Clutter folder asset.
             return SectionTheme(
-                accent: Color(red: 0.24, green: 0.81, blue: 0.74),
-                backdropTop: Color(red: 0.03, green: 0.11, blue: 0.11),
-                backdropBottom: Color(red: 0.05, green: 0.26, blue: 0.26)
+                accent: Color(red: 0.10, green: 0.90, blue: 0.86),
+                backdropTop: Color(red: 0.03, green: 0.12, blue: 0.12),
+                backdropBottom: Color(red: 0.06, green: 0.29, blue: 0.28)
             )
         case .spaceLens:
+            // Keyed to the indigo-violet Space Lens asset.
             return SectionTheme(
-                accent: Color(red: 0.46, green: 0.44, blue: 0.99),
-                backdropTop: Color(red: 0.06, green: 0.06, blue: 0.18),
-                backdropBottom: Color(red: 0.13, green: 0.13, blue: 0.40)
+                accent: Color(red: 0.38, green: 0.33, blue: 0.90),
+                backdropTop: Color(red: 0.04, green: 0.03, blue: 0.12),
+                backdropBottom: Color(red: 0.08, green: 0.06, blue: 0.29)
             )
         case .malwareRemoval:
+            // Keyed to the magenta Protection octagon asset.
             return SectionTheme(
-                accent: Color(red: 0.92, green: 0.22, blue: 0.32),
-                backdropTop: Color(red: 0.13, green: 0.03, blue: 0.05),
-                backdropBottom: Color(red: 0.34, green: 0.05, blue: 0.11)
+                accent: Color(red: 0.90, green: 0.18, blue: 0.76),
+                backdropTop: Color(red: 0.12, green: 0.03, blue: 0.10),
+                backdropBottom: Color(red: 0.29, green: 0.06, blue: 0.25)
             )
         case .optimization:
+            // Keyed to the orange Performance bolt asset.
             return SectionTheme(
-                accent: Color(red: 0.98, green: 0.60, blue: 0.20),
-                backdropTop: Color(red: 0.13, green: 0.07, blue: 0.02),
-                backdropBottom: Color(red: 0.34, green: 0.17, blue: 0.04)
+                accent: Color(red: 0.90, green: 0.33, blue: 0.16),
+                backdropTop: Color(red: 0.12, green: 0.05, blue: 0.03),
+                backdropBottom: Color(red: 0.29, green: 0.11, blue: 0.06)
             )
         case .privacy:
+            // Keyed to the azure Cloud Storage asset.
             return SectionTheme(
-                accent: Color(red: 0.96, green: 0.30, blue: 0.64),
-                backdropTop: Color(red: 0.13, green: 0.04, blue: 0.09),
-                backdropBottom: Color(red: 0.33, green: 0.08, blue: 0.21)
+                accent: Color(red: 0.14, green: 0.51, blue: 0.90),
+                backdropTop: Color(red: 0.03, green: 0.08, blue: 0.12),
+                backdropBottom: Color(red: 0.06, green: 0.17, blue: 0.29)
             )
         case .applications:
+            // Keyed to the blue Applications hexagon asset.
             return SectionTheme(
-                accent: Color(red: 0.52, green: 0.50, blue: 0.95),
-                backdropTop: Color(red: 0.07, green: 0.06, blue: 0.16),
-                backdropBottom: Color(red: 0.16, green: 0.14, blue: 0.37)
+                accent: Color(red: 0.05, green: 0.13, blue: 0.90),
+                backdropTop: Color(red: 0.03, green: 0.04, blue: 0.12),
+                backdropBottom: Color(red: 0.06, green: 0.08, blue: 0.29)
             )
         case .healthMonitor:
             return SectionTheme(

@@ -18,12 +18,20 @@ final class SectionPresentationTests: XCTestCase {
     ]
 
     /// The scannable sections that ship a bespoke USDZ 3D hero model named
-    /// after their enum case. `.applications` is intentionally excluded — it
-    /// uses the SF Symbol hero fallback (`heroModelName: nil`) until a model
-    /// is designed for it.
-    private let sectionsWithHeroModel: Set<NavigationSection> = [
-        .smartScan, .systemJunk, .largeOldFiles,
-        .spaceLens, .malwareRemoval, .optimization, .privacy,
+    /// after their enum case. Now empty — every scannable section renders a
+    /// designer-supplied image hero (`heroAssetName`) instead, so none declare
+    /// a `heroModelName`. Kept (rather than deleted) so the model-path
+    /// assertions stay wired if a 3D hero is ever reintroduced.
+    private let sectionsWithHeroModel: Set<NavigationSection> = []
+
+    /// The scannable sections that render a designer-supplied image hero,
+    /// declared via `heroAssetName` named after their enum case (e.g.
+    /// `.smartScan` → `"smartScan"`) and backed by an imageset in
+    /// `Assets.xcassets`. These take the `Image(asset)` hero path rather than
+    /// the RealityKit USDZ path. Currently every scannable section.
+    private let sectionsWithImageHero: Set<NavigationSection> = [
+        .smartScan, .systemJunk, .largeOldFiles, .spaceLens,
+        .malwareRemoval, .optimization, .applications, .privacy,
     ]
 
     func test_isScannable_isTrueForExactlyTheEightScannableSections() {
@@ -166,6 +174,44 @@ final class SectionPresentationTests: XCTestCase {
             XCTAssertNotNil(
                 bundle.url(forResource: modelName, withExtension: "usdz"),
                 "Bundle is missing Resources/Models/\(modelName).usdz for \(section)"
+            )
+        }
+    }
+
+    /// Every image-hero section must declare a `heroAssetName` matching its
+    /// enum case name and leave `heroModelName` nil, so `SectionIntroView`
+    /// takes the `Image(asset)` path. The naming is the contract that lets the
+    /// view resolve the right imageset without a per-section switch.
+    func test_everyImageHeroPresentation_hasHeroAssetNameMatchingSectionCaseAndNilModel() throws {
+        for section in sectionsWithImageHero {
+            let presentation = try XCTUnwrap(SectionPresentation.for(section))
+            XCTAssertEqual(
+                presentation.heroAssetName,
+                String(describing: section),
+                "Section \(section) must declare heroAssetName \"\(String(describing: section))\""
+            )
+            XCTAssertNil(
+                presentation.heroModelName,
+                "Image-hero section \(section) must declare heroModelName nil"
+            )
+        }
+    }
+
+    /// The declared hero asset name must resolve to a real image in the app
+    /// bundle's asset catalog — guards against drift between
+    /// `SectionPresentation` declarations and the imagesets shipped in
+    /// `Assets.xcassets`.
+    func test_everyHeroAssetName_resolvesToAnImageInTheBundle() throws {
+        let bundle = Bundle.main
+        for section in sectionsWithImageHero {
+            let presentation = try XCTUnwrap(SectionPresentation.for(section))
+            let assetName = try XCTUnwrap(
+                presentation.heroAssetName,
+                "Missing heroAssetName for \(section)"
+            )
+            XCTAssertNotNil(
+                NSImage(named: assetName) ?? bundle.image(forResource: assetName),
+                "Asset catalog is missing an imageset named \"\(assetName)\" for \(section)"
             )
         }
     }
