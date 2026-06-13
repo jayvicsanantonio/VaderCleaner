@@ -249,7 +249,10 @@ struct SectionPresentation {
                 heroSymbol: "square.grid.2x2.fill",
                 heroAssetName: nil,
                 heroModelName: "applications",
-                heroModelScale: 1.7,
+                // Slightly larger than the 1.7 baseline: the 2x2 grid reads
+                // airier than the solid heroes, so it needs a nudge to match
+                // their visual mass.
+                heroModelScale: 1.9,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Review updates, unused apps, and leftovers in one place.",
