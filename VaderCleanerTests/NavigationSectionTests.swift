@@ -146,22 +146,16 @@ final class NavigationSectionTests: XCTestCase {
         }
     }
 
-    /// Every section except Health Monitor ships a monochrome rail glyph;
-    /// Health Monitor has no bespoke art and falls back to its SF Symbol.
+    /// Every section ships a monochrome rail glyph named after its case +
+    /// "Mono" — the scannable ones derived from hero art, Health Monitor
+    /// authored procedurally.
     func test_railIconAssetName_isPinned() {
         for section in NavigationSection.allCases {
-            if section == .healthMonitor {
-                XCTAssertNil(
-                    section.railIconAssetName,
-                    "Health Monitor must have no rail glyph (SF Symbol fallback)"
-                )
-            } else {
-                XCTAssertEqual(
-                    section.railIconAssetName,
-                    "\(String(describing: section))Mono",
-                    "Rail glyph name for \(section) must be its case name + \"Mono\""
-                )
-            }
+            XCTAssertEqual(
+                section.railIconAssetName,
+                "\(String(describing: section))Mono",
+                "Rail glyph name for \(section) must be its case name + \"Mono\""
+            )
         }
     }
 
