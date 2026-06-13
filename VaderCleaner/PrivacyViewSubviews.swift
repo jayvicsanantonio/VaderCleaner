@@ -1,5 +1,5 @@
 // PrivacyViewSubviews.swift
-// Dedicated subviews for PrivacyView state screens, preview sections, rows, and footer.
+// Dedicated subviews for PrivacyView state screens and the Recent Items row.
 
 import SwiftUI
 
@@ -36,152 +36,6 @@ struct PrivacyProgressState: View {
         }
         .padding()
         .accessibilityIdentifier(identifier)
-    }
-}
-
-struct PrivacyPreviewContent: View {
-    let browsers: [Browser]
-    let totalSelectedSize: Int64
-    let isClearRecentsChecked: Bool
-    let canClear: Bool
-    let sizeOnDisk: (Browser) -> Int64
-    let categorySize: (Browser, PrivacyCategory) -> Int64
-    let isCategoryActionable: (Browser, PrivacyCategory) -> Bool
-    let isCategoryChecked: (Browser, PrivacyCategory) -> Bool
-    let onToggleCategory: (Browser, PrivacyCategory) -> Void
-    let onToggleClearRecents: () -> Void
-    let onRescan: () -> Void
-    let onClear: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            List {
-                ForEach(browsers) { browser in
-                    PrivacyBrowserSection(
-                        browser: browser,
-                        totalBytes: sizeOnDisk(browser),
-                        categorySize: { categorySize(browser, $0) },
-                        isCategoryActionable: { isCategoryActionable(browser, $0) },
-                        isCategoryChecked: { isCategoryChecked(browser, $0) },
-                        onToggleCategory: { onToggleCategory(browser, $0) }
-                    )
-                }
-
-                Section {
-                    PrivacyRecentItemsRow(
-                        isChecked: isClearRecentsChecked,
-                        onToggle: onToggleClearRecents
-                    )
-                } header: {
-                    Text(String(
-                        localized: "System",
-                        comment: "Section title for system privacy cleanup options."
-                    ))
-                        .font(.callout.weight(.semibold))
-                }
-            }
-            .scrollContentBackground(.hidden)
-            Divider()
-            PrivacyPreviewFooter(
-                totalSelectedSize: totalSelectedSize,
-                canClear: canClear,
-                onRescan: onRescan,
-                onClear: onClear
-            )
-        }
-    }
-}
-
-struct PrivacyBrowserSection: View {
-    let browser: Browser
-    let totalBytes: Int64
-    let categorySize: (PrivacyCategory) -> Int64
-    let isCategoryActionable: (PrivacyCategory) -> Bool
-    let isCategoryChecked: (PrivacyCategory) -> Bool
-    let onToggleCategory: (PrivacyCategory) -> Void
-
-    var body: some View {
-        Section {
-            ForEach(PrivacyCategory.allCases) { category in
-                if isCategoryActionable(category) {
-                    PrivacyCategoryRow(
-                        category: category,
-                        sizeBytes: categorySize(category),
-                        isChecked: Binding(
-                            get: { isCategoryChecked(category) },
-                            set: { _ in onToggleCategory(category) }
-                        )
-                    )
-                    .accessibilityIdentifier("privacy.row.\(browser.rawValue).\(category.rawValue)")
-                } else {
-                    PrivacyCoupledCategoryRow(category: category)
-                        .accessibilityIdentifier("privacy.row.\(browser.rawValue).\(category.rawValue).coupled")
-                }
-            }
-        } header: {
-            PrivacyBrowserHeader(browser: browser, totalBytes: totalBytes)
-        }
-    }
-}
-
-struct PrivacyBrowserHeader: View {
-    let browser: Browser
-    let totalBytes: Int64
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(browser.displayName)
-                .font(.callout.weight(.semibold))
-            Spacer()
-            Text(PrivacyViewFormatting.byteFormatter.string(fromByteCount: totalBytes))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// Row rendered for categories whose data is coupled to another browser
-/// category at the file level.
-struct PrivacyCoupledCategoryRow: View {
-    let category: PrivacyCategory
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Spacer().frame(width: 16)
-            Text(category.displayName)
-                .font(.body)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(String(
-                localized: "Included with Browsing History",
-                comment: "Explanation for why a privacy category cannot be cleared independently."
-            ))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-struct PrivacyCategoryRow: View {
-    let category: PrivacyCategory
-    let sizeBytes: Int64
-    @Binding var isChecked: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Toggle("", isOn: $isChecked)
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-                .accessibilityLabel(Text(category.displayName))
-            Text(category.displayName)
-                .font(.body)
-            Spacer()
-            Text(PrivacyViewFormatting.byteFormatter.string(fromByteCount: sizeBytes))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
     }
 }
 
@@ -223,36 +77,6 @@ struct PrivacyRecentItemsRow: View {
             localized: "Clears the Apple-menu Recent Items list and this app's recent documents.",
             comment: "Description for the option that clears system recent items."
         )
-    }
-}
-
-struct PrivacyPreviewFooter: View {
-    let totalSelectedSize: Int64
-    let canClear: Bool
-    let onRescan: () -> Void
-    let onClear: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Total selected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(PrivacyViewFormatting.byteFormatter.string(fromByteCount: totalSelectedSize))
-                    .font(.title3.weight(.semibold))
-                    .accessibilityIdentifier("privacy.totalSelected")
-            }
-            Spacer()
-            Button("Re-scan", action: onRescan)
-                .accessibilityIdentifier("privacy.rescan")
-            Button("Clear", action: onClear)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canClear)
-                .accessibilityIdentifier("privacy.clear")
-        }
-        .padding(16)
     }
 }
 
@@ -320,18 +144,3 @@ struct PrivacyFailedState: View {
     }
 }
 
-#Preview("Privacy Row") {
-    PrivacyCategoryRow(category: .history, sizeBytes: 12_000_000, isChecked: .constant(true))
-        .padding()
-        .frame(width: 460)
-}
-
-#Preview("Privacy Footer") {
-    PrivacyPreviewFooter(
-        totalSelectedSize: 42_000_000,
-        canClear: true,
-        onRescan: {},
-        onClear: {}
-    )
-    .frame(width: 700)
-}

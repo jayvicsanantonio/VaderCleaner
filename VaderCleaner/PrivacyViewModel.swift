@@ -122,6 +122,60 @@ final class PrivacyViewModel {
         sumOfSizes(over: checkedSelections)
     }
 
+    /// Path-deduped total across every `(browser, category)` cell of the
+    /// detected browsers, regardless of selection — feeds the dashboard
+    /// headline ("We found X across N browsers"). Selection-independent so
+    /// unchecking rows in a review screen doesn't shrink the headline.
+    var totalFoundSize: Int64 {
+        sumOfSizes(over: allDetectedSelections())
+    }
+
+    /// Sum of bytes for `category` across every detected browser, regardless
+    /// of selection — feeds the per-category dashboard card metric. Cells
+    /// with no paths contribute 0 (coupled cells like Chromium `.downloads`),
+    /// so a card never claims bytes only another card can clear.
+    func size(forCategory category: PrivacyCategory) -> Int64 {
+        let selections = detectedBrowsers.map {
+            Selection(browser: $0, category: category)
+        }
+        return sumOfSizes(over: Set(selections))
+    }
+
+    /// Categories with any found bytes, largest first — the dashboard
+    /// renders one card per entry and promotes the first to the hero slot.
+    /// Ties keep `PrivacyCategory.allCases` order so the card layout doesn't
+    /// shuffle between two otherwise identical scans.
+    func dashboardCategories() -> [PrivacyCategory] {
+        struct Entry {
+            let index: Int
+            let category: PrivacyCategory
+            let size: Int64
+        }
+        var entries: [Entry] = []
+        for (index, category) in PrivacyCategory.allCases.enumerated() {
+            let size = size(forCategory: category)
+            if size > 0 {
+                entries.append(Entry(index: index, category: category, size: size))
+            }
+        }
+        entries.sort { lhs, rhs in
+            lhs.size != rhs.size ? lhs.size > rhs.size : lhs.index < rhs.index
+        }
+        return entries.map(\.category)
+    }
+
+    /// Every `(browser, category)` cell of the detected browsers — the
+    /// universe the dashboard metrics aggregate over.
+    private func allDetectedSelections() -> Set<Selection> {
+        var selections: Set<Selection> = []
+        for browser in detectedBrowsers {
+            for category in PrivacyCategory.allCases {
+                selections.insert(Selection(browser: browser, category: category))
+            }
+        }
+        return selections
+    }
+
     /// Whether `(browser, category)` is currently checked. The view
     /// binds each row's `Toggle` to this getter + `toggle(browser:category:)`.
     func isChecked(browser: Browser, category: PrivacyCategory) -> Bool {
