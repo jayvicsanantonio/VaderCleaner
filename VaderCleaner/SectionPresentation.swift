@@ -243,14 +243,13 @@ struct SectionPresentation {
                 ]
             )
         case .applications:
-            // No bespoke USDZ hero ships for Applications yet, so it uses the
-            // SF Symbol hero fallback (`heroModelName: nil`). The feature rows
-            // preview the cards the post-scan grid surfaces.
+            // Launchpad-style 2x2 app-tile grid hero; the feature rows preview
+            // the cards the post-scan grid surfaces.
             return SectionPresentation(
                 heroSymbol: "square.grid.2x2.fill",
                 heroAssetName: nil,
-                heroModelName: nil,
-                heroModelScale: 1.0,
+                heroModelName: "applications",
+                heroModelScale: 1.6,
                 accent: section.theme.accent,
                 tagline: String(
                     localized: "Review updates, unused apps, and leftovers in one place.",
