@@ -146,7 +146,7 @@ private struct AppUpdaterListState: View {
                 ), action: updateAllTapped)
                     .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.vaderProminent)
                     .accessibilityIdentifier("appUpdater.updateAll")
             }
             .padding(16)

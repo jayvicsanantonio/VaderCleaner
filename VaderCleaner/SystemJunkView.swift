@@ -134,7 +134,7 @@ struct SystemJunkView: View {
             }
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.vaderProminent)
             .disabled(viewModel.totalSelectedSize == 0)
             .accessibilityIdentifier("system-junk.clean")
         }

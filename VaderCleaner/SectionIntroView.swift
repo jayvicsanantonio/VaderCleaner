@@ -286,7 +286,7 @@ struct SectionIntroView: View {
                 .overlay {
                     Image(systemName: feature.symbol)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(presentation.accent.legibleForeground)
                 }
                 .shadow(color: presentation.accent.opacity(0.4), radius: 7, y: 3)
             Text(feature.title)

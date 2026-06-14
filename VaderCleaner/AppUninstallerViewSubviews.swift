@@ -374,7 +374,7 @@ struct AppUninstallerDetailFooter: View {
             ), action: onUninstall)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canUninstall)
                 .accessibilityIdentifier("appUninstaller.uninstall")
         }
@@ -487,7 +487,7 @@ struct AppUninstallerFailedState: View {
                     ), action: onReinstallHelper)
                         .controlSize(.large)
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.vaderProminent)
                         .accessibilityIdentifier("appUninstaller.reinstallHelper")
                     Button(String(
                         localized: "Try Again",

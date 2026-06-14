@@ -267,7 +267,7 @@ struct LargeOldFilesFooter: View {
             Button("Delete Selected", action: onDeleteSelected)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canDelete)
                 .accessibilityIdentifier("large-old.delete")
         }
