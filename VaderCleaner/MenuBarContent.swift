@@ -40,6 +40,10 @@ struct MenuBarContent: View {
         }
         .frame(width: 380)
         .background(panelBackground)
+        // Vader identity: crimson drives every tinted accent (icons, links,
+        // buttons, progress). Semantic status colors (health verdict, memory
+        // pressure, protection) stay as-is so they keep conveying meaning.
+        .tint(.vaderCrimson)
         // Refresh the device list each time the panel opens — devices change
         // infrequently, so an on-open read beats a dedicated poll timer.
         .task { connectedDevices.refresh() }
@@ -74,7 +78,7 @@ struct MenuBarContent: View {
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.white.opacity(0.95), verdictColor.opacity(0.85)],
+                        colors: [.white.opacity(0.95), Color.vaderCrimson.opacity(0.9)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -91,14 +95,14 @@ struct MenuBarContent: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.12, green: 0.07, blue: 0.22),
-                    Color(red: 0.20, green: 0.10, blue: 0.34)
+                    Color(red: 0.14, green: 0.04, blue: 0.06),
+                    Color(red: 0.07, green: 0.02, blue: 0.03)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             RadialGradient(
-                colors: [verdictColor.opacity(0.28), .clear],
+                colors: [Color.vaderCrimson.opacity(0.32), .clear],
                 center: UnitPoint(x: 0.85, y: 0.3),
                 startRadius: 4,
                 endRadius: 180
@@ -432,8 +436,8 @@ struct MenuBarContent: View {
     private var panelBackground: some View {
         LinearGradient(
             colors: [
-                Color(red: 0.09, green: 0.06, blue: 0.16),
-                Color(red: 0.06, green: 0.04, blue: 0.10)
+                Color(red: 0.09, green: 0.04, blue: 0.05),
+                Color.vaderSpaceBlack
             ],
             startPoint: .top,
             endPoint: .bottom
