@@ -74,11 +74,15 @@ extension NavigationSection {
                 backdropBottom: Color(red: 0.06, green: 0.17, blue: 0.29)
             )
         case .applications:
-            // Keyed to the blue Applications hexagon asset.
+            // Keyed to the blue Applications hexagon asset, but a brighter,
+            // less-saturated blue: the accent doubles as the control tint, so it
+            // must read as legible icon and metric text on the dark backdrop —
+            // the raw asset blue was too dark to see. The gradient is lifted off
+            // near-black so the section no longer reads as a heavy navy.
             return SectionTheme(
-                accent: Color(red: 0.05, green: 0.13, blue: 0.90),
-                backdropTop: Color(red: 0.03, green: 0.04, blue: 0.12),
-                backdropBottom: Color(red: 0.06, green: 0.08, blue: 0.29)
+                accent: Color(red: 0.30, green: 0.46, blue: 1.00),
+                backdropTop: Color(red: 0.04, green: 0.06, blue: 0.17),
+                backdropBottom: Color(red: 0.09, green: 0.13, blue: 0.37)
             )
         case .healthMonitor:
             return SectionTheme(
