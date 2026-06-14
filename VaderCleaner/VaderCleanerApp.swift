@@ -45,8 +45,11 @@ struct VaderCleanerApp: App {
     // double-instantiate the timer.
     @State private var systemStats: SystemStatsService
     // App-scope list of connected Bluetooth devices and ejectable volumes for
-    // the menu's Connected Devices tile. Refreshed when the menu opens.
-    @State private var connectedDevices = ConnectedDevicesMonitor()
+    // the menu's Connected Devices tile. `autoRefresh: false` so it does NOT
+    // touch Bluetooth (a TCC-gated resource) during App.init — that runs before
+    // the app can present a permission prompt and would crash a menu-bar agent
+    // app at launch. The panel refreshes the list when the menu opens instead.
+    @State private var connectedDevices = ConnectedDevicesMonitor(autoRefresh: false)
     // App-scope: subscribes to `systemStats` and pushes notifications via
     // `NotificationManager`. Held here so the Combine subscriptions live as
     // long as the app and so the per-kind cooldown table survives across
