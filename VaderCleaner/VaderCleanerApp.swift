@@ -283,14 +283,24 @@ struct VaderCleanerApp: App {
                 .environment(connectedDevices)
                 .environment(malwareViewModel)
         } label: {
-            // A compact icon, not the live RAM/Disk text. A wide text label
-            // gets pushed into the area hidden behind the notch on a crowded
-            // menu bar and becomes invisible; a narrow icon stays reachable and
-            // matches how menu bar apps conventionally present themselves. The
-            // detailed live readings live in the panel; the text is kept as the
-            // accessibility label so VoiceOver still announces them.
-            Image(systemName: "gauge.medium")
+            // A compact health-pulse glyph by default. A wide text label gets
+            // pushed into the area hidden behind the notch on a crowded menu bar
+            // and becomes invisible; the narrow icon stays reachable and matches
+            // how menu bar apps conventionally present themselves. Users who
+            // want a number can opt into a short free-disk reading beside it
+            // (Preferences → "Show free space in the menu bar"). The full
+            // readings live in the panel; the text stays the accessibility label.
+            if preferences.menuBarShowsReading {
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform.path.ecg")
+                    Text(menuBarViewModel.menuBarCompactReading)
+                        .monospacedDigit()
+                }
                 .accessibilityLabel(menuBarViewModel.menuBarLabelText)
+            } else {
+                Image(systemName: "waveform.path.ecg")
+                    .accessibilityLabel(menuBarViewModel.menuBarLabelText)
+            }
         }
         .menuBarExtraStyle(.window)
     }

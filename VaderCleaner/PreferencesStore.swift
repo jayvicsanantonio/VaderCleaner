@@ -44,6 +44,7 @@ final class PreferencesStore {
         static let diskSpaceThresholdPercent = "preferences.diskSpaceThresholdPercent"
         static let launchAtLogin = "preferences.launchAtLogin"
         static let showMenuBar = "preferences.showMenuBar"
+        static let menuBarShowsReading = "preferences.menuBarShowsReading"
     }
 
     // MARK: - Defaults
@@ -57,6 +58,10 @@ final class PreferencesStore {
     static let defaultDiskSpaceThresholdPercent = 10.0
     static let defaultLaunchAtLogin = true
     static let defaultShowMenuBar = true
+    /// Off by default: the menu bar shows just the icon. A wide live reading is
+    /// prone to being hidden behind the notch on a crowded menu bar, so showing
+    /// it is opt-in.
+    static let defaultMenuBarShowsReading = false
 
     /// Reads the current `showMenuBar` value out of an arbitrary `UserDefaults`
     /// suite without instantiating the full store. Used by `VaderCleanerAppDelegate`
@@ -112,6 +117,11 @@ final class PreferencesStore {
         didSet { defaults.set(showMenuBar, forKey: Key.showMenuBar) }
     }
 
+    /// When on, the menu bar shows a compact free-disk reading next to the icon.
+    var menuBarShowsReading: Bool {
+        didSet { defaults.set(menuBarShowsReading, forKey: Key.menuBarShowsReading) }
+    }
+
     // MARK: - Init
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -155,6 +165,8 @@ final class PreferencesStore {
             ?? Self.defaultLaunchAtLogin
         self.showMenuBar = (defaults.object(forKey: Key.showMenuBar) as? Bool)
             ?? Self.defaultShowMenuBar
+        self.menuBarShowsReading = (defaults.object(forKey: Key.menuBarShowsReading) as? Bool)
+            ?? Self.defaultMenuBarShowsReading
 
         // Reconcile the persisted preference with launchd's actual state once
         // the tracked properties are populated. The handler's presence is the

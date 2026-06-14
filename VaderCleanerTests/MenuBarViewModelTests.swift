@@ -313,6 +313,13 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.uptimeString(8 * 60 + 30), "up 8m")
     }
 
+    /// The compact menu bar reading forwards to the available-disk formatter.
+    func test_menuBarCompactReading_isAvailableDisk() {
+        let service = SystemStatsService(interval: 2.0, autostart: false)
+        let sut = MenuBarViewModel(service: service)
+        XCTAssertEqual(sut.menuBarCompactReading, MenuBarViewModel.availableDiskString(service.diskSpace))
+    }
+
     // MARK: - Protection status
 
     /// Threats outrank a clean history; a scanned-once Mac reads protected; a

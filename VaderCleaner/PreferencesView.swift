@@ -174,8 +174,11 @@ private struct MenuBarTab: View {
             Section {
                 Toggle("Show VaderCleaner in the menu bar", isOn: $preferences.showMenuBar)
                     .accessibilityIdentifier("preferences.showMenuBar")
+                Toggle("Show free space next to the icon", isOn: $preferences.menuBarShowsReading)
+                    .accessibilityIdentifier("preferences.menuBarShowsReading")
+                    .disabled(!preferences.showMenuBar)
             } footer: {
-                Text("When disabled, the VaderCleaner icon and live stats are hidden from the menu bar.")
+                Text("When disabled, the VaderCleaner icon and live stats are hidden from the menu bar. The free-space reading sits next to the icon — note a wide menu bar can hide it behind the notch.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

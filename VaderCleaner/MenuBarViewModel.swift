@@ -137,6 +137,11 @@ final class MenuBarViewModel {
         Self.menuBarLabel(ram: service.ramUsage, disk: service.diskSpace)
     }
 
+    /// A short reading shown beside the menu bar icon when the user opts in —
+    /// free disk space, the most glanceable single number, kept narrow so it is
+    /// far less prone to being hidden behind the notch than the full label.
+    var menuBarCompactReading: String { Self.availableDiskString(service.diskSpace) }
+
     // MARK: - Pure formatters
 
     /// Formats `MemoryStats` to `"used / total"` in GB. We force the GB unit

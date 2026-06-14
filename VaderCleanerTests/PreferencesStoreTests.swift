@@ -38,6 +38,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(sut.diskSpaceThresholdPercent, 10.0, accuracy: 0.001)
         XCTAssertTrue(sut.launchAtLogin)
         XCTAssertTrue(sut.showMenuBar)
+        XCTAssertFalse(sut.menuBarShowsReading)
     }
 
     // MARK: - Persistence
@@ -80,6 +81,14 @@ final class PreferencesStoreTests: XCTestCase {
         let reader = PreferencesStore(defaults: defaults)
         XCTAssertFalse(reader.launchAtLogin)
         XCTAssertFalse(reader.showMenuBar)
+    }
+
+    func test_persistsMenuBarShowsReading() {
+        let writer = PreferencesStore(defaults: defaults)
+        writer.menuBarShowsReading = true
+
+        let reader = PreferencesStore(defaults: defaults)
+        XCTAssertTrue(reader.menuBarShowsReading)
     }
 
     // MARK: - Launch-at-login wiring
