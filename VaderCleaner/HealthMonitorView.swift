@@ -25,10 +25,15 @@ struct HealthMonitorView: View {
     /// stable shape while the right tiles absorb the remaining width.
     private let leftColumnWidth: CGFloat = 340
 
-    /// The section's crimson accent, shared by every metric tile so the whole
-    /// section reads in one Vader-identity accent. The overall health signal is
-    /// carried by the hero's verdict ring and title, which stay semantic.
+    /// The section's crimson accent — the Vader-identity chrome color used for
+    /// the prominent tile icons.
     private let sectionAccent = NavigationSection.healthMonitor.theme.accent
+
+    /// The overall Mac Health verdict color (gray while measuring). Drives the
+    /// status dots and progress bars so they track the Mac's health at a glance.
+    private var verdictAccent: Color {
+        viewModel.macHealth?.accentColor ?? Color(white: 0.55)
+    }
 
     var body: some View {
         // The whole dashboard fills the detail pane without a scroll view: the
@@ -82,6 +87,7 @@ struct HealthMonitorView: View {
             icon: "battery.100",
             title: "Battery Health",
             accent: sectionAccent,
+            statusColor: verdictAccent,
             info: "Battery condition and capacity relative to when it was new, plus lifetime charge cycles."
         ) {
             switch viewModel.batteryAvailability {
@@ -117,6 +123,7 @@ struct HealthMonitorView: View {
             icon: "internaldrive",
             title: "Disk Health",
             accent: sectionAccent,
+            statusColor: verdictAccent,
             info: "The drive's SMART self-assessment. \"Good\" means the disk reports no predicted failures."
         ) {
             Text(viewModel.smartLabel)
@@ -134,6 +141,7 @@ struct HealthMonitorView: View {
             icon: "memorychip",
             title: "RAM Pressure",
             accent: sectionAccent,
+            statusColor: verdictAccent,
             info: "Memory in use versus total, with the system's current memory-pressure level."
         ) {
             Text(viewModel.ramUsage)
@@ -152,6 +160,7 @@ struct HealthMonitorView: View {
             icon: "cpu",
             title: "CPU Load",
             accent: sectionAccent,
+            statusColor: verdictAccent,
             info: "Share of processor capacity currently in use across all cores."
         ) {
             Text(viewModel.cpuPercent)
@@ -159,7 +168,7 @@ struct HealthMonitorView: View {
                 .accessibilityIdentifier("health.cpu.percent")
             ProgressView(value: viewModel.cpuRatio)
                 .progressViewStyle(.linear)
-                .tint(sectionAccent)
+                .tint(verdictAccent)
         }
         .accessibilityIdentifier("health.card.cpu")
     }
@@ -169,6 +178,7 @@ struct HealthMonitorView: View {
             icon: "externaldrive",
             title: "Disk Space",
             accent: sectionAccent,
+            statusColor: verdictAccent,
             info: "How full the boot volume is. Reclaiming space keeps your Mac responsive."
         ) {
             Text(viewModel.diskUsage)
@@ -176,7 +186,7 @@ struct HealthMonitorView: View {
                 .accessibilityIdentifier("health.disk.usage")
             ProgressView(value: viewModel.diskRatio)
                 .progressViewStyle(.linear)
-                .tint(sectionAccent)
+                .tint(verdictAccent)
         }
         .accessibilityIdentifier("health.card.disk")
     }
@@ -204,7 +214,7 @@ struct HealthMonitorView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            StatusDot(color: sectionAccent)
+            StatusDot(color: verdictAccent)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -343,7 +353,7 @@ private struct MacHealthHero: View {
             }
             ProgressView(value: diskRatio)
                 .progressViewStyle(.linear)
-                .tint(sectionAccent)
+                .tint(accent)
                 .accessibilityIdentifier("health.hero.diskbar")
         }
     }
@@ -468,9 +478,11 @@ extension MacHealthStatus {
 private struct HealthCard<Content: View>: View {
     let icon: String
     let title: String
-    /// Shared section accent — the overall Mac Health verdict color — used for
-    /// the icon tile and the status dot so every tile reads in one hue.
+    /// Section accent (crimson) for the prominent icon tile.
     let accent: Color
+    /// Status dot color — the overall Mac Health verdict color, so the dot
+    /// tracks the Mac's health at a glance.
+    let statusColor: Color
     /// Plain-language explanation shown in the card's info popover.
     let info: String
     @ViewBuilder var content: Content
@@ -482,7 +494,7 @@ private struct HealthCard<Content: View>: View {
             HStack(alignment: .top) {
                 iconTile
                 Spacer()
-                StatusDot(color: accent)
+                StatusDot(color: statusColor)
                 infoButton
             }
             Text(title)
