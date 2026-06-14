@@ -283,15 +283,14 @@ struct VaderCleanerApp: App {
                 .environment(connectedDevices)
                 .environment(malwareViewModel)
         } label: {
-            // Compact label rendered into the system menu bar. The format
-            // (prefixes, separator, truncation rules) lives on
-            // `MenuBarViewModel.menuBarLabel(ram:disk:)` so a buggy upstream
-            // reading can't blow up label width — the view-model clamps each
-            // segment before formatting. `.monospacedDigit()` keeps numeric
-            // glyphs fixed-width so neighbouring menu bar items don't jitter
-            // as readings change every two seconds.
-            Text(menuBarViewModel.menuBarLabelText)
-                .monospacedDigit()
+            // A compact icon, not the live RAM/Disk text. A wide text label
+            // gets pushed into the area hidden behind the notch on a crowded
+            // menu bar and becomes invisible; a narrow icon stays reachable and
+            // matches how menu bar apps conventionally present themselves. The
+            // detailed live readings live in the panel; the text is kept as the
+            // accessibility label so VoiceOver still announces them.
+            Image(systemName: "gauge.medium")
+                .accessibilityLabel(menuBarViewModel.menuBarLabelText)
         }
         .menuBarExtraStyle(.window)
     }
