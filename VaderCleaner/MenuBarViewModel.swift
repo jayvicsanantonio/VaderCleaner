@@ -242,6 +242,47 @@ final class MenuBarViewModel {
         "\(Int(celsius.rounded()))°C"
     }
 
+    // MARK: - Protection
+
+    /// Malware-protection status for the menu's Protection card.
+    enum ProtectionStatus: Equatable {
+        case protected
+        case threatsFound
+        case notScanned
+    }
+
+    /// Derives protection status from the malware scan state: threats outrank
+    /// everything; otherwise a Mac that has been scarred at least once reads as
+    /// protected, and one that never has reads as not-yet-scanned.
+    static func protectionStatus(hasThreats: Bool, hasScanned: Bool) -> ProtectionStatus {
+        if hasThreats { return .threatsFound }
+        return hasScanned ? .protected : .notScanned
+    }
+
+    /// Short status label for the Protection card.
+    static func protectionStatusLabel(_ status: ProtectionStatus) -> String {
+        switch status {
+        case .protected:
+            return String(localized: "Protected", comment: "Protection card status when the last scan was clean.")
+        case .threatsFound:
+            return String(localized: "Threats found", comment: "Protection card status when threats are present.")
+        case .notScanned:
+            return String(localized: "Not scanned", comment: "Protection card status when no scan has run yet.")
+        }
+    }
+
+    /// "Last scan 3 days ago" / "No scans yet" detail for the Protection card.
+    static func lastScanString(_ date: Date?) -> String {
+        guard let date else {
+            return String(localized: "No scans yet", comment: "Protection card detail when no scan has run.")
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        let relative = formatter.localizedString(for: date, relativeTo: Date())
+        let format = String(localized: "Last scan %@", comment: "Protection card detail; %@ is a relative date.")
+        return String(format: format, relative)
+    }
+
     /// Compact uptime, e.g. "up 3d 4h", "up 4h 12m", or "up 8m". Drops to the
     /// two most significant units so the CPU tile stays one short line.
     static func uptimeString(_ interval: TimeInterval) -> String {

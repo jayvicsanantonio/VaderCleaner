@@ -13,6 +13,7 @@ struct MenuBarContent: View {
 
     @Environment(MenuBarViewModel.self) private var menuBar
     @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
+    @Environment(MalwareViewModel.self) private var malware
     @Environment(\.openWindow) private var openWindow
 
     private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
@@ -21,6 +22,7 @@ struct MenuBarContent: View {
         VStack(spacing: 0) {
             header
             VStack(spacing: 10) {
+                protectionCard
                 LazyVGrid(columns: columns, spacing: 10) {
                     storageTile
                     memoryTile
@@ -99,6 +101,58 @@ struct MenuBarContent: View {
                 endRadius: 180
             )
         }
+    }
+
+    // MARK: - Protection card
+
+    /// Whether the last scan surfaced unresolved threats.
+    private var hasThreats: Bool {
+        if case .results(let threats) = malware.phase { return !threats.isEmpty }
+        return false
+    }
+
+    private var protectionStatus: MenuBarViewModel.ProtectionStatus {
+        MenuBarViewModel.protectionStatus(hasThreats: hasThreats, hasScanned: malware.lastScanDate != nil)
+    }
+
+    private var protectionColor: Color {
+        switch protectionStatus {
+        case .protected: return .green
+        case .threatsFound: return .red
+        case .notScanned: return .secondary
+        }
+    }
+
+    private var protectionIcon: String {
+        switch protectionStatus {
+        case .protected: return "checkmark.shield.fill"
+        case .threatsFound: return "exclamationmark.shield.fill"
+        case .notScanned: return "shield"
+        }
+    }
+
+    private var protectionCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: protectionIcon)
+                .font(.title2)
+                .foregroundStyle(protectionColor)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("Protection")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(MenuBarViewModel.protectionStatusLabel(protectionStatus))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(protectionColor)
+                }
+                Text(MenuBarViewModel.lastScanString(malware.lastScanDate))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
     }
 
     // MARK: - Tiles
@@ -450,6 +504,9 @@ private struct MenuTile: View {
 }
 
 #Preview {
-    MenuBarContent()
+    let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "menu-preview")!)
+    return MenuBarContent()
         .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
+        .environment(ConnectedDevicesMonitor(autoRefresh: false))
+        .environment(MalwareViewModel.live(dispatcher: NotificationManager(), preferences: prefs))
 }

@@ -278,6 +278,7 @@ struct VaderCleanerApp: App {
                 .environment(exclusions)
                 .environment(systemStats)
                 .environment(connectedDevices)
+                .environment(malwareViewModel)
         } label: {
             // Compact label rendered into the system menu bar. The format
             // (prefixes, separator, truncation rules) lives on

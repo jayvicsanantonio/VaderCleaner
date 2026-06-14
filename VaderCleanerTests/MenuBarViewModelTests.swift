@@ -312,4 +312,30 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.uptimeString(4 * 3_600 + 12 * 60), "up 4h 12m")
         XCTAssertEqual(MenuBarViewModel.uptimeString(8 * 60 + 30), "up 8m")
     }
+
+    // MARK: - Protection status
+
+    /// Threats outrank a clean history; a scanned-once Mac reads protected; a
+    /// never-scanned Mac reads not-scanned.
+    func test_protectionStatus_derivation() {
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: true, hasScanned: true), .threatsFound)
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: true, hasScanned: false), .threatsFound)
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: false, hasScanned: true), .protected)
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: false, hasScanned: false), .notScanned)
+    }
+
+    func test_protectionStatusLabel_copy() {
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.protected), "Protected")
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.threatsFound), "Threats found")
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.notScanned), "Not scanned")
+    }
+
+    /// No scan date reads as "No scans yet"; a real date produces a non-empty
+    /// relative phrase.
+    func test_lastScanString_handlesNilAndDate() {
+        XCTAssertEqual(MenuBarViewModel.lastScanString(nil), "No scans yet")
+        let recent = MenuBarViewModel.lastScanString(Date(timeIntervalSinceNow: -3_600))
+        XCTAssertFalse(recent.isEmpty)
+        XCTAssertNotEqual(recent, "No scans yet")
+    }
 }
