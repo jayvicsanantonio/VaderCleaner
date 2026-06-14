@@ -140,6 +140,22 @@ enum FileVaultState: Equatable {
     case on
 }
 
+/// Cumulative interface byte counters (since boot), summed across all active
+/// non-loopback interfaces. Diffed between ticks to derive throughput.
+struct NetworkCounters: Equatable {
+    let bytesIn: UInt64
+    let bytesOut: UInt64
+    static let zero = NetworkCounters(bytesIn: 0, bytesOut: 0)
+}
+
+/// Instantaneous network throughput in bytes per second, for the menu's
+/// network tile.
+struct NetworkThroughput: Equatable {
+    let bytesInPerSec: Double
+    let bytesOutPerSec: Double
+    static let zero = NetworkThroughput(bytesInPerSec: 0, bytesOutPerSec: 0)
+}
+
 // MARK: - SystemStatsService
 
 /// Publishes live system-health readings on a polling timer.
@@ -186,6 +202,9 @@ final class SystemStatsService {
     private(set) var batteryCharge: BatteryCharge?
     private(set) var diskSMARTStatus: SMARTStatus = .unknown
     private(set) var fileVaultState: FileVaultState = .unknown
+    /// Live network throughput (bytes/sec in and out). `.zero` until two
+    /// samples exist to diff.
+    private(set) var networkThroughput: NetworkThroughput = .zero
 
     // MARK: Configuration
 
@@ -222,6 +241,11 @@ final class SystemStatsService {
     /// busy_then) / (total_now - total_then)`. Nil before the first sample;
     /// the first `refresh()` seeds it and publishes `cpuUsage = 0`.
     @ObservationIgnored private var previousCPUTotals: CPUTotals?
+
+    /// Previous network counters + sample time for throughput delta computation.
+    /// `nil` until the first sample, which seeds the baseline and reports zero.
+    @ObservationIgnored private var previousNetworkCounters: NetworkCounters?
+    @ObservationIgnored private var previousNetworkSampleTime: Date?
 
     // MARK: Init / lifecycle
 
@@ -300,6 +324,7 @@ final class SystemStatsService {
         diskSpace = readDiskStats()
         batteryAvailability = readBatteryAvailability()
         batteryCharge = readBatteryCharge()
+        networkThroughput = readNetworkThroughput()
     }
 
     // MARK: CPU
@@ -587,6 +612,69 @@ final class SystemStatsService {
         let celsius = Double(raw) / 100.0
         guard celsius > -20, celsius < 120 else { return nil }
         return celsius
+    }
+
+    // MARK: Network
+
+    /// Samples the interface byte counters and returns the throughput against
+    /// the previous sample. The first call seeds the baseline and returns
+    /// `.zero` because there is nothing to diff against.
+    private func readNetworkThroughput() -> NetworkThroughput {
+        let current = readNetworkCounters()
+        let now = Date()
+        defer {
+            previousNetworkCounters = current
+            previousNetworkSampleTime = now
+        }
+        guard
+            let previous = previousNetworkCounters,
+            let previousTime = previousNetworkSampleTime
+        else { return .zero }
+        return Self.throughput(previous: previous, current: current, interval: now.timeIntervalSince(previousTime))
+    }
+
+    /// Sums `ifi_ibytes` / `ifi_obytes` across all active non-loopback link-layer
+    /// interfaces via `getifaddrs`. Cumulative since boot; the caller diffs.
+    private func readNetworkCounters() -> NetworkCounters {
+        var addrs: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&addrs) == 0, let first = addrs else { return .zero }
+        defer { freeifaddrs(addrs) }
+
+        var totalIn: UInt64 = 0
+        var totalOut: UInt64 = 0
+        var node: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = node {
+            defer { node = current.pointee.ifa_next }
+            guard
+                let addr = current.pointee.ifa_addr,
+                addr.pointee.sa_family == UInt8(AF_LINK)
+            else { continue }
+            // Loopback traffic isn't real network activity — skip it.
+            if String(cString: current.pointee.ifa_name) == "lo0" { continue }
+            guard let data = current.pointee.ifa_data else { continue }
+            let stats = data.assumingMemoryBound(to: if_data.self)
+            totalIn += UInt64(stats.pointee.ifi_ibytes)
+            totalOut += UInt64(stats.pointee.ifi_obytes)
+        }
+        return NetworkCounters(bytesIn: totalIn, bytesOut: totalOut)
+    }
+
+    /// Bytes-per-second throughput from two cumulative counter samples. Guards
+    /// against a non-positive interval and against counter resets / wraps
+    /// (a smaller "current" than "previous" yields zero rather than a huge
+    /// spike).
+    static func throughput(
+        previous: NetworkCounters,
+        current: NetworkCounters,
+        interval: TimeInterval
+    ) -> NetworkThroughput {
+        guard interval > 0 else { return .zero }
+        let inDelta = current.bytesIn >= previous.bytesIn ? current.bytesIn - previous.bytesIn : 0
+        let outDelta = current.bytesOut >= previous.bytesOut ? current.bytesOut - previous.bytesOut : 0
+        return NetworkThroughput(
+            bytesInPerSec: Double(inDelta) / interval,
+            bytesOutPerSec: Double(outDelta) / interval
+        )
     }
 
     /// Thin wrapper around `IORegistryEntryCreateCFProperty` that returns the

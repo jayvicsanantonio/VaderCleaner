@@ -300,6 +300,36 @@ final class SystemStatsServiceTests: XCTestCase {
         XCTAssertNil(SystemStatsService.batteryTemperatureCelsius(fromRaw: -5000))
         XCTAssertNil(SystemStatsService.batteryTemperatureCelsius(fromRaw: 20000))
     }
+
+    // MARK: - Network throughput
+
+    /// Throughput is the per-second delta of the cumulative counters.
+    func test_throughput_isPerSecondDelta() {
+        let previous = NetworkCounters(bytesIn: 1_000, bytesOut: 2_000)
+        let current = NetworkCounters(bytesIn: 3_000, bytesOut: 5_000)
+        let rate = SystemStatsService.throughput(previous: previous, current: current, interval: 2.0)
+        XCTAssertEqual(rate.bytesInPerSec, 1_000, accuracy: 0.001)
+        XCTAssertEqual(rate.bytesOutPerSec, 1_500, accuracy: 0.001)
+    }
+
+    /// A counter reset/wrap (current < previous) reports zero rather than a
+    /// massive spurious spike.
+    func test_throughput_counterResetYieldsZero() {
+        let previous = NetworkCounters(bytesIn: 9_000, bytesOut: 9_000)
+        let current = NetworkCounters(bytesIn: 10, bytesOut: 10)
+        let rate = SystemStatsService.throughput(previous: previous, current: current, interval: 1.0)
+        XCTAssertEqual(rate, .zero)
+    }
+
+    /// A non-positive interval can't produce a rate.
+    func test_throughput_nonPositiveIntervalYieldsZero() {
+        let rate = SystemStatsService.throughput(
+            previous: .zero,
+            current: NetworkCounters(bytesIn: 100, bytesOut: 100),
+            interval: 0
+        )
+        XCTAssertEqual(rate, .zero)
+    }
 }
 
 /// Reference-typed counter so the arming closure can mutate a shared count

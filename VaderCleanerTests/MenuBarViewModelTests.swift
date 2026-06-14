@@ -267,4 +267,36 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.4), "30°C")
         XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.6), "31°C")
     }
+
+    // MARK: - Network formatters
+
+    /// Zero traffic renders a clean "0 KB/s", not "Zero KB/s".
+    func test_speedString_zeroIsCleanedUp() {
+        XCTAssertEqual(MenuBarViewModel.speedString(0), "0 KB/s")
+    }
+
+    /// Non-zero rates carry a unit and a per-second suffix.
+    func test_speedString_formatsRateWithSuffix() {
+        let kilobytes = MenuBarViewModel.speedString(2_048)
+        XCTAssertTrue(kilobytes.contains("KB"), "Expected KB unit, got \(kilobytes)")
+        XCTAssertTrue(kilobytes.hasSuffix("/s"), "Expected /s suffix, got \(kilobytes)")
+
+        let megabytes = MenuBarViewModel.speedString(5_000_000)
+        XCTAssertTrue(megabytes.contains("MB"), "Expected MB unit, got \(megabytes)")
+    }
+
+    /// Mbps math: 10 MB downloaded in 8 s is 10 Mbps (10e6 bytes × 8 ÷ 1e6 ÷ 8).
+    func test_megabitsPerSecond_computesRate() {
+        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 10_000_000, seconds: 8), 10, accuracy: 0.001)
+    }
+
+    /// Guard against divide-by-zero and empty payloads.
+    func test_megabitsPerSecond_guardsZeroes() {
+        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 0, seconds: 5), 0)
+        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 1_000, seconds: 0), 0)
+    }
+
+    func test_speedTestResultString_formatsMbps() {
+        XCTAssertEqual(MenuBarViewModel.speedTestResultString(82.4), "82 Mbps")
+    }
 }

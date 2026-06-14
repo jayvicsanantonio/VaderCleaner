@@ -25,6 +25,7 @@ struct MenuBarContent: View {
                     memoryTile
                     batteryTile
                     cpuTile
+                    networkTile
                 }
                 recommendationCard
             }
@@ -167,6 +168,67 @@ struct MenuBarContent: View {
             comment: "CPU tile line; %@ is processor load percent, e.g. Load: 20%"
         )
         return String(format: format, menuBar.formattedCPU)
+    }
+
+    // MARK: - Network tile
+
+    private var networkTile: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi")
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Text("Network")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(menuBar.networkDownString)
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(menuBar.networkUpString)
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            HStack {
+                Spacer()
+                speedTestControl
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var speedTestControl: some View {
+        switch menuBar.speedTestState {
+        case .idle:
+            Button(String(localized: "Test Speed")) { Task { await menuBar.runSpeedTest() } }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tint)
+        case .running:
+            ProgressView().controlSize(.small)
+        case .result(let mbps):
+            Button(MenuBarViewModel.speedTestResultString(mbps)) { Task { await menuBar.runSpeedTest() } }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tint)
+        case .failed:
+            Button(String(localized: "Retry")) { Task { await menuBar.runSpeedTest() } }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+        }
     }
 
     // MARK: - Recommendation

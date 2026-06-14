@@ -72,6 +72,49 @@ final class MenuBarViewModel {
     /// internal battery.
     var batteryCharge: BatteryCharge? { service.batteryCharge }
 
+    /// Download throughput for the network tile, e.g. "513 bytes/s".
+    var networkDownString: String { Self.speedString(service.networkThroughput.bytesInPerSec) }
+
+    /// Upload throughput for the network tile.
+    var networkUpString: String { Self.speedString(service.networkThroughput.bytesOutPerSec) }
+
+    // MARK: - Speed test
+
+    /// State of the on-demand connection speed test the network tile triggers.
+    enum SpeedTestState: Equatable {
+        case idle
+        case running
+        case result(downloadMbps: Double)
+        case failed
+    }
+
+    private(set) var speedTestState: SpeedTestState = .idle
+
+    /// Cloudflare's public download endpoint, used to measure real throughput.
+    private static let speedTestURL = URL(string: "https://speed.cloudflare.com/__down?bytes=10000000")!
+
+    /// Runs a real download speed test and publishes the result. Idempotent
+    /// while a test is in flight. Any failure (offline, non-2xx) resolves to
+    /// `.failed` so the tile can offer a retry rather than hang.
+    func runSpeedTest() async {
+        guard speedTestState != .running else { return }
+        speedTestState = .running
+        let start = Date()
+        do {
+            var request = URLRequest(url: Self.speedTestURL)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                speedTestState = .failed
+                return
+            }
+            let seconds = Date().timeIntervalSince(start)
+            speedTestState = .result(downloadMbps: Self.megabitsPerSecond(bytes: data.count, seconds: seconds))
+        } catch {
+            speedTestState = .failed
+        }
+    }
+
     /// Single string the `MenuBarExtra` label renders. The format lives on the
     /// view-model (rather than as a `Text("RAM: \(...) | Disk: \(...)")`
     /// interpolation in the App scene) so the truncation rules in
@@ -158,6 +201,27 @@ final class MenuBarViewModel {
     /// Battery temperature rounded to a whole degree, e.g. "30°C".
     static func batteryTemperatureString(_ celsius: Double) -> String {
         "\(Int(celsius.rounded()))°C"
+    }
+
+    /// Formats a bytes-per-second rate for the network tile, e.g. "2 KB/s".
+    /// Zero traffic renders "0 KB/s" rather than `ByteCountFormatter`'s
+    /// locale-specific "Zero KB".
+    static func speedString(_ bytesPerSec: Double) -> String {
+        let bytes = max(0, bytesPerSec)
+        guard bytes >= 1 else { return "0 KB/s" }
+        let formatted = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        return "\(formatted)/s"
+    }
+
+    /// Download megabits-per-second from a payload size and elapsed seconds.
+    static func megabitsPerSecond(bytes: Int, seconds: Double) -> Double {
+        guard seconds > 0, bytes > 0 else { return 0 }
+        return (Double(bytes) * 8.0 / 1_000_000.0) / seconds
+    }
+
+    /// Formats a speed-test result, e.g. "82 Mbps".
+    static func speedTestResultString(_ mbps: Double) -> String {
+        String(format: "%.0f Mbps", mbps)
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the
