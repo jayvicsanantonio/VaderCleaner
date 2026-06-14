@@ -113,6 +113,7 @@
 		567D2B366B03261E808DA1B2 /* RecentFilesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A932AAC115A2ADB167D59F8 /* RecentFilesManager.swift */; };
 		56E0A50749CEFC070968439D /* SMCReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12A2F1D83447E7306463614 /* SMCReader.swift */; };
 		57C68CCCE577CE52AC3F0DE2 /* LanguageFileLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE0B536A27CFB7B30895829 /* LanguageFileLocatorTests.swift */; };
+		5B37ECDBF03FBACFBE099816 /* MenuRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */; };
 		5B5767BC82C24D92B50032FE /* MalwareOnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E177C5757BB8E0E39F5A0DE1 /* MalwareOnboardingViewModel.swift */; };
 		5C240506F97A777E37CA25B2 /* PrivacyViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67388E0F949FBDE5ECC7A8E6 /* PrivacyViewSubviews.swift */; };
 		5CA2A4BED5346B2FD4ADE096 /* MachOHeaderReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E49583606C1454E9F0AF2C /* MachOHeaderReaderTests.swift */; };
@@ -464,6 +465,7 @@
 		7220D06D757039BF087D7F50 /* ApplicationsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationsViewModel.swift; sourceTree = "<group>"; };
 		7267FCB6C8B06372BD90E59D /* ProcessLineStreamerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessLineStreamerTests.swift; sourceTree = "<group>"; };
 		7315AD5A081B0855C316F00F /* MalwareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareView.swift; sourceTree = "<group>"; };
+		7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuRouter.swift; sourceTree = "<group>"; };
 		732FA87F80DF686871220B50 /* SectionPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionPresentationTests.swift; sourceTree = "<group>"; };
 		7707C4D6B14FF468458441A6 /* SpaceLensViewModeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensViewModeStoreTests.swift; sourceTree = "<group>"; };
 		785EECE3C6B84ECB7D0A3384 /* spaceLens.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = spaceLens.usdz; sourceTree = "<group>"; };
@@ -741,6 +743,7 @@
 				DB9A2FDFC86DCAD4AF412E6E /* MalwareViewSubviews.swift */,
 				D2C2B92863509818189F46CD /* MenuBarContent.swift */,
 				8AE3D70086A4D06A40C2A899 /* MenuBarViewModel.swift */,
+				7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */,
 				D7D76FC5B20F88179DF40523 /* NavigationRailView.swift */,
 				2DE93B076C67D0851F0F7C0F /* NavigationSection.swift */,
 				B3CD8C98E8253953444DD99F /* NotificationManager.swift */,
@@ -1383,6 +1386,7 @@
 				390C48318F77FFB4378A7CBF /* MalwareViewSubviews.swift in Sources */,
 				BA3D489D48265F806CC468A2 /* MenuBarContent.swift in Sources */,
 				C2F35144C0139C8829C4BB8A /* MenuBarViewModel.swift in Sources */,
+				5B37ECDBF03FBACFBE099816 /* MenuRouter.swift in Sources */,
 				5325F2401AF35C69086E2056 /* NavigationRailView.swift in Sources */,
 				F42BBC5917D4AB650D50B4B8 /* NavigationSection.swift in Sources */,
 				65008C5FD9B41F395E3C54A3 /* NotificationManager.swift in Sources */,

@@ -50,6 +50,9 @@ struct VaderCleanerApp: App {
     // the app can present a permission prompt and would crash a menu-bar agent
     // app at launch. The panel refreshes the list when the menu opens instead.
     @State private var connectedDevices = ConnectedDevicesMonitor(autoRefresh: false)
+    // App-scope router so the menu bar panel can deep-link into a main-window
+    // section (and optionally start its scan). Shared by both scenes.
+    @State private var menuRouter = MenuRouter()
     // App-scope: subscribes to `systemStats` and pushes notifications via
     // `NotificationManager`. Held here so the Combine subscriptions live as
     // long as the app and so the per-kind cooldown table survives across
@@ -227,6 +230,7 @@ struct VaderCleanerApp: App {
                 .environment(exclusions)
                 .environment(systemStats)
                 .environment(notificationMonitor)
+                .environment(menuRouter)
         }
         // Hide the title bar so no section title is drawn beside the traffic
         // lights; the controls float over the section's gradient and each
@@ -282,6 +286,7 @@ struct VaderCleanerApp: App {
                 .environment(systemStats)
                 .environment(connectedDevices)
                 .environment(malwareViewModel)
+                .environment(menuRouter)
         } label: {
             // A compact health-pulse glyph by default. A wide text label gets
             // pushed into the area hidden behind the notch on a crowded menu bar

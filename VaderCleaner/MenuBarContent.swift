@@ -14,6 +14,7 @@ struct MenuBarContent: View {
     @Environment(MenuBarViewModel.self) private var menuBar
     @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
     @Environment(MalwareViewModel.self) private var malware
+    @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.openWindow) private var openWindow
 
     private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
@@ -82,6 +83,8 @@ struct MenuBarContent: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(headerBackground)
+        .contentShape(Rectangle())
+        .onTapGesture { openSection(.healthMonitor) }
     }
 
     private var headerBackground: some View {
@@ -153,6 +156,8 @@ struct MenuBarContent: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+        .contentShape(Rectangle())
+        .onTapGesture { openSection(.malwareRemoval) }
     }
 
     // MARK: - Tiles
@@ -162,7 +167,7 @@ struct MenuBarContent: View {
             icon: "internaldrive",
             title: menuBar.bootVolumeName,
             primary: availableLine,
-            action: (String(localized: "Free Up"), openMainWindow)
+            action: (String(localized: "Free Up"), { openSection(.systemJunk) })
         )
     }
 
@@ -180,7 +185,7 @@ struct MenuBarContent: View {
             title: String(localized: "Memory"),
             primary: memoryLine,
             statusColor: swiftUIColor(for: menuBar.ramPressureColor),
-            action: (String(localized: "Free Up"), openMainWindow)
+            action: (String(localized: "Free Up"), { openSection(.optimization) })
         )
     }
 
@@ -379,9 +384,11 @@ struct MenuBarContent: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
-                    Button(String(localized: "Run Smart Scan"), action: openMainWindow)
-                        .controlSize(.small)
-                        .buttonStyle(.borderedProminent)
+                    Button(String(localized: "Run Smart Scan")) {
+                        openSection(.smartScan, startScan: true)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
                 }
             }
         }
@@ -449,6 +456,13 @@ struct MenuBarContent: View {
         openWindow(id: VaderCleanerApp.mainWindowID)
         NSApp.activate()
     }
+
+    /// Deep-links into a main-window section: records the request on the router,
+    /// then opens and activates the window so ContentView navigates there.
+    private func openSection(_ section: NavigationSection, startScan: Bool = false) {
+        menuRouter.request(section, startScan: startScan)
+        openMainWindow()
+    }
 }
 
 /// One monitor tile: an icon + title row, a primary metric line, an optional
@@ -509,4 +523,5 @@ private struct MenuTile: View {
         .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
         .environment(ConnectedDevicesMonitor(autoRefresh: false))
         .environment(MalwareViewModel.live(dispatcher: NotificationManager(), preferences: prefs))
+        .environment(MenuRouter())
 }
