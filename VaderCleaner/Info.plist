@@ -26,6 +26,10 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSLocationUsageDescription</key>
+	<string>VaderCleaner uses your location only to read the current Wi-Fi network name for the menu bar network monitor.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>VaderCleaner uses your location only to read the current Wi-Fi network name for the menu bar network monitor.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>

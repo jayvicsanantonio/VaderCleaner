@@ -178,8 +178,10 @@ struct MenuBarContent: View {
                 Image(systemName: "wifi")
                     .font(.callout)
                     .foregroundStyle(.tint)
-                Text("Network")
+                Text(menuBar.wifiNetworkName)
                     .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
             HStack(spacing: 4) {

@@ -290,8 +290,9 @@ final class SystemStatsServiceTests: XCTestCase {
     }
 
     /// AppleSmartBattery reports temperature in hundredths of a degree Celsius.
-    func test_batteryTemperatureCelsius_dividesByHundred() {
-        XCTAssertEqual(SystemStatsService.batteryTemperatureCelsius(fromRaw: 3010), 30.10, accuracy: 0.001)
+    func test_batteryTemperatureCelsius_dividesByHundred() throws {
+        let celsius = try XCTUnwrap(SystemStatsService.batteryTemperatureCelsius(fromRaw: 3010))
+        XCTAssertEqual(celsius, 30.10, accuracy: 0.001)
     }
 
     /// Out-of-range readings return nil so a garbage value never renders as a

@@ -5,6 +5,8 @@ import Foundation
 import Darwin
 import IOKit
 import IOKit.ps
+import CoreWLAN
+import CoreLocation
 import Observation
 import os.log
 
@@ -205,6 +207,9 @@ final class SystemStatsService {
     /// Live network throughput (bytes/sec in and out). `.zero` until two
     /// samples exist to diff.
     private(set) var networkThroughput: NetworkThroughput = .zero
+    /// Current Wi-Fi network name, or `nil` when not on Wi-Fi or Location
+    /// Services has not authorized reading it (macOS 14+ gates the SSID).
+    private(set) var wifiSSID: String?
 
     // MARK: Configuration
 
@@ -247,6 +252,15 @@ final class SystemStatsService {
     @ObservationIgnored private var previousNetworkCounters: NetworkCounters?
     @ObservationIgnored private var previousNetworkSampleTime: Date?
 
+    /// Requests Location authorization (required to read the Wi-Fi SSID on
+    /// macOS 14+) and re-reads the SSID promptly once it is granted.
+    @ObservationIgnored private lazy var locationAuthorizer = LocationAuthorizer { [weak self] in
+        Task { @MainActor in
+            guard let self else { return }
+            self.wifiSSID = self.readWiFiSSID()
+        }
+    }
+
     // MARK: Init / lifecycle
 
     init(interval: TimeInterval = 2.0, autostart: Bool = true) {
@@ -275,6 +289,9 @@ final class SystemStatsService {
     func start() {
         stop()
         isStopped = false
+        // Ask for Location once on start — the Wi-Fi SSID is gated behind it on
+        // macOS 14+. Reading throughput and everything else works regardless.
+        locationAuthorizer.requestIfNeeded()
         // Add to `.common` mode so the timer keeps firing while AppKit is in a
         // tracking mode (menu bar popover open, scrollbar drag, etc.). With
         // the default mode the cheap-stats publisher would freeze the moment
@@ -325,6 +342,7 @@ final class SystemStatsService {
         batteryAvailability = readBatteryAvailability()
         batteryCharge = readBatteryCharge()
         networkThroughput = readNetworkThroughput()
+        wifiSSID = readWiFiSSID()
     }
 
     // MARK: CPU
@@ -633,6 +651,13 @@ final class SystemStatsService {
         return Self.throughput(previous: previous, current: current, interval: now.timeIntervalSince(previousTime))
     }
 
+    /// Current Wi-Fi SSID via CoreWLAN. Returns `nil` when not associated to a
+    /// network, or when Location authorization has not been granted — macOS 14+
+    /// returns `nil` from `ssid()` until the app holds Location access.
+    private func readWiFiSSID() -> String? {
+        CWWiFiClient.shared().interface()?.ssid()
+    }
+
     /// Sums `ifi_ibytes` / `ifi_obytes` across all active non-loopback link-layer
     /// interfaces via `getifaddrs`. Cumulative since boot; the caller diffs.
     private func readNetworkCounters() -> NetworkCounters {
@@ -822,6 +847,36 @@ final class SystemStatsService {
             os_log("fdesetup invocation failed: %{public}@",
                    log: log, type: .error, error.localizedDescription)
             return nil
+        }
+    }
+}
+
+/// Minimal CoreLocation authorization shim. Reading the Wi-Fi SSID on macOS 14+
+/// requires the app to hold Location authorization; this requests it once and
+/// notifies when it's granted so the caller can re-read the SSID.
+private final class LocationAuthorizer: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private let onAuthorized: () -> Void
+
+    init(onAuthorized: @escaping () -> Void) {
+        self.onAuthorized = onAuthorized
+        super.init()
+        manager.delegate = self
+    }
+
+    /// Prompts for authorization only when the user hasn't decided yet.
+    func requestIfNeeded() {
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            onAuthorized()
+        default:
+            break
         }
     }
 }

@@ -85,6 +85,8 @@ targets:
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         LSUIElement: true
         NSHumanReadableCopyright: ""
+        NSLocationUsageDescription: "VaderCleaner uses your location only to read the current Wi-Fi network name for the menu bar network monitor."
+        NSLocationWhenInUseUsageDescription: "VaderCleaner uses your location only to read the current Wi-Fi network name for the menu bar network monitor."
         NSPrincipalClass: NSApplication
         NSSupportsAutomaticTermination: false
         NSSupportsSuddenTermination: false

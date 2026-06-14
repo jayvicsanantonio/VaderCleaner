@@ -78,6 +78,10 @@ final class MenuBarViewModel {
     /// Upload throughput for the network tile.
     var networkUpString: String { Self.speedString(service.networkThroughput.bytesOutPerSec) }
 
+    /// Wi-Fi network name for the network tile title, or a generic "Wi-Fi" when
+    /// the SSID is unavailable (not on Wi-Fi, or Location not yet authorized).
+    var wifiNetworkName: String { service.wifiSSID ?? String(localized: "Wi-Fi") }
+
     // MARK: - Speed test
 
     /// State of the on-demand connection speed test the network tile triggers.
