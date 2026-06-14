@@ -102,6 +102,24 @@ enum BatteryAvailability: Equatable {
     case present(BatteryStats)
 }
 
+/// Live battery charge snapshot — the moment-to-moment state the menu bar
+/// shows ("100% · Charging"), distinct from `BatteryStats`' long-term health.
+/// `nil` (an absent published value) means there is no internal battery or the
+/// power source could not be read.
+struct BatteryCharge: Equatable {
+    /// Current charge as a whole percentage, 0…100.
+    let percent: Int
+    /// Whether the battery is actively charging.
+    let isCharging: Bool
+    /// Whether the Mac is running on external (AC) power.
+    let isPluggedIn: Bool
+    /// Estimated minutes until full (when charging) or empty (when
+    /// discharging), or `nil` while the estimate is still being calculated.
+    let timeRemainingMinutes: Int?
+    /// Battery temperature in degrees Celsius, or `nil` when unavailable.
+    let temperatureCelsius: Double?
+}
+
 /// SMART status of the boot disk. `.good` corresponds to diskutil's
 /// `"Verified"`, `.failing` to `"Failing"`. `.unknown` covers everything
 /// else — most relevantly, the case where `diskutil info -plist /` fails or
@@ -163,6 +181,9 @@ final class SystemStatsService {
     private(set) var ramUsage: MemoryStats = .empty
     private(set) var diskSpace: DiskStats = .empty
     private(set) var batteryAvailability: BatteryAvailability = .unknown
+    /// Live charge snapshot (percent, charging, time remaining, temperature).
+    /// `nil` until the first refresh, or on a Mac with no internal battery.
+    private(set) var batteryCharge: BatteryCharge?
     private(set) var diskSMARTStatus: SMARTStatus = .unknown
     private(set) var fileVaultState: FileVaultState = .unknown
 
@@ -278,6 +299,7 @@ final class SystemStatsService {
         ramUsage = readMemoryStats()
         diskSpace = readDiskStats()
         batteryAvailability = readBatteryAvailability()
+        batteryCharge = readBatteryCharge()
     }
 
     // MARK: CPU
@@ -473,6 +495,98 @@ final class SystemStatsService {
                 condition: condition.isEmpty ? "Unknown" : condition
             )
         )
+    }
+
+    /// IOPowerSources description keys (the `kIOPS…` string constants from
+    /// `IOKit/ps/IOPSKeys.h`). Spelled out as literals so the pure parser and
+    /// its tests don't depend on the framework constants' import shape.
+    private enum PowerSourceKey {
+        static let currentCapacity = "Current Capacity"
+        static let maxCapacity = "Max Capacity"
+        static let isCharging = "Is Charging"
+        static let powerSourceState = "Power Source State"
+        static let timeToEmpty = "Time to Empty"
+        static let timeToFull = "Time to Full Charge"
+        static let acPowerValue = "AC Power"
+    }
+
+    /// Reads the live battery charge via the public `IOPowerSources` API
+    /// (charge / charging / time remaining) and `AppleSmartBattery` (temperature,
+    /// which IOPowerSources does not report). Returns `nil` when there is no
+    /// internal battery power source.
+    private func readBatteryCharge() -> BatteryCharge? {
+        guard
+            let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+            let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
+        else { return nil }
+
+        let temperature = readBatteryTemperatureCelsius()
+        for source in sources {
+            guard
+                let description = IOPSGetPowerSourceDescription(blob, source)?
+                    .takeUnretainedValue() as? [String: Any],
+                let charge = Self.parseBatteryCharge(from: description, temperatureCelsius: temperature)
+            else { continue }
+            return charge
+        }
+        return nil
+    }
+
+    /// Reads the battery's current temperature from `AppleSmartBattery`'s
+    /// `Temperature` key. `nil` when no battery or the reading is implausible.
+    private func readBatteryTemperatureCelsius() -> Double? {
+        let matching = IOServiceMatching("AppleSmartBattery")
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != IO_OBJECT_NULL else { return nil }
+        defer { IOObjectRelease(service) }
+        guard let raw = (copyProperty(service: service, key: "Temperature") as? NSNumber)?.intValue else {
+            return nil
+        }
+        return Self.batteryTemperatureCelsius(fromRaw: raw)
+    }
+
+    /// Builds a `BatteryCharge` from an `IOPSGetPowerSourceDescription`
+    /// dictionary. Returns `nil` when the capacity keys are missing or invalid
+    /// (a non-battery source or a malformed entry). Temperature is injected
+    /// separately because IOPowerSources does not report it.
+    static func parseBatteryCharge(
+        from description: [String: Any],
+        temperatureCelsius: Double?
+    ) -> BatteryCharge? {
+        guard
+            let current = (description[PowerSourceKey.currentCapacity] as? NSNumber)?.intValue,
+            let maximum = (description[PowerSourceKey.maxCapacity] as? NSNumber)?.intValue,
+            maximum > 0
+        else { return nil }
+
+        let ratio = Double(current) / Double(maximum)
+        let percent = min(100, max(0, Int((ratio * 100).rounded())))
+        let isCharging = (description[PowerSourceKey.isCharging] as? Bool) ?? false
+        let isPluggedIn = (description[PowerSourceKey.powerSourceState] as? String) == PowerSourceKey.acPowerValue
+
+        // IOPowerSources reports the relevant estimate under different keys for
+        // charging vs discharging, and uses a negative sentinel while it is
+        // still calculating — surface that as `nil` rather than a bogus time.
+        let timeKey = isCharging ? PowerSourceKey.timeToFull : PowerSourceKey.timeToEmpty
+        let rawTime = (description[timeKey] as? NSNumber)?.intValue ?? -1
+        let timeRemaining = rawTime >= 0 ? rawTime : nil
+
+        return BatteryCharge(
+            percent: percent,
+            isCharging: isCharging,
+            isPluggedIn: isPluggedIn,
+            timeRemainingMinutes: timeRemaining,
+            temperatureCelsius: temperatureCelsius
+        )
+    }
+
+    /// Converts `AppleSmartBattery`'s `Temperature` reading (hundredths of a
+    /// degree Celsius) to degrees Celsius. Returns `nil` for implausible values
+    /// so a garbage reading never renders as a confident temperature.
+    static func batteryTemperatureCelsius(fromRaw raw: Int) -> Double? {
+        let celsius = Double(raw) / 100.0
+        guard celsius > -20, celsius < 120 else { return nil }
+        return celsius
     }
 
     /// Thin wrapper around `IORegistryEntryCreateCFProperty` that returns the

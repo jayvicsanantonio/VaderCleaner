@@ -212,6 +212,94 @@ final class SystemStatsServiceTests: XCTestCase {
         wait(for: [settle], timeout: 1.0)
         XCTAssertEqual(counter.count, 0, "Service emitted \(counter.count) updates after stop()")
     }
+
+    // MARK: - Battery charge parsing
+
+    /// A charging battery on AC power: percent is current/max, the charging and
+    /// plugged-in flags are read straight through, and the time-remaining uses
+    /// the time-to-full estimate.
+    func test_parseBatteryCharge_chargingOnACPower() {
+        let description: [String: Any] = [
+            "Current Capacity": 75,
+            "Max Capacity": 100,
+            "Is Charging": true,
+            "Power Source State": "AC Power",
+            "Time to Full Charge": 42,
+            "Time to Empty": -1
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: 30.5)
+        XCTAssertEqual(charge?.percent, 75)
+        XCTAssertEqual(charge?.isCharging, true)
+        XCTAssertEqual(charge?.isPluggedIn, true)
+        XCTAssertEqual(charge?.timeRemainingMinutes, 42)
+        XCTAssertEqual(charge?.temperatureCelsius, 30.5)
+    }
+
+    /// A discharging battery reads the time-to-empty estimate and reports not
+    /// plugged in.
+    func test_parseBatteryCharge_dischargingUsesTimeToEmpty() {
+        let description: [String: Any] = [
+            "Current Capacity": 48,
+            "Max Capacity": 100,
+            "Is Charging": false,
+            "Power Source State": "Battery Power",
+            "Time to Full Charge": -1,
+            "Time to Empty": 137
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: nil)
+        XCTAssertEqual(charge?.percent, 48)
+        XCTAssertEqual(charge?.isCharging, false)
+        XCTAssertEqual(charge?.isPluggedIn, false)
+        XCTAssertEqual(charge?.timeRemainingMinutes, 137)
+        XCTAssertNil(charge?.temperatureCelsius)
+    }
+
+    /// A negative time estimate means "still calculating" and must surface as
+    /// nil rather than a bogus negative duration.
+    func test_parseBatteryCharge_calculatingTimeIsNil() {
+        let description: [String: Any] = [
+            "Current Capacity": 90,
+            "Max Capacity": 100,
+            "Is Charging": true,
+            "Power Source State": "AC Power",
+            "Time to Full Charge": -1
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: nil)
+        XCTAssertNil(charge?.timeRemainingMinutes)
+    }
+
+    /// Percent is computed from current/max (not assumed to be a percentage
+    /// already) and clamps to 0…100.
+    func test_parseBatteryCharge_percentIsCurrentOverMax() {
+        let description: [String: Any] = [
+            "Current Capacity": 2500,
+            "Max Capacity": 5000,
+            "Is Charging": false,
+            "Power Source State": "Battery Power"
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: nil)
+        XCTAssertEqual(charge?.percent, 50)
+    }
+
+    /// Missing or zero capacity keys (a non-battery power source) yield nil so
+    /// the caller skips to the next source.
+    func test_parseBatteryCharge_returnsNilWithoutCapacity() {
+        XCTAssertNil(SystemStatsService.parseBatteryCharge(from: [:], temperatureCelsius: nil))
+        let zeroMax: [String: Any] = ["Current Capacity": 10, "Max Capacity": 0]
+        XCTAssertNil(SystemStatsService.parseBatteryCharge(from: zeroMax, temperatureCelsius: nil))
+    }
+
+    /// AppleSmartBattery reports temperature in hundredths of a degree Celsius.
+    func test_batteryTemperatureCelsius_dividesByHundred() {
+        XCTAssertEqual(SystemStatsService.batteryTemperatureCelsius(fromRaw: 3010), 30.10, accuracy: 0.001)
+    }
+
+    /// Out-of-range readings return nil so a garbage value never renders as a
+    /// confident temperature.
+    func test_batteryTemperatureCelsius_rejectsImplausibleValues() {
+        XCTAssertNil(SystemStatsService.batteryTemperatureCelsius(fromRaw: -5000))
+        XCTAssertNil(SystemStatsService.batteryTemperatureCelsius(fromRaw: 20000))
+    }
 }
 
 /// Reference-typed counter so the arming closure can mutate a shared count
