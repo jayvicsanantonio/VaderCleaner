@@ -149,7 +149,7 @@ struct PerformanceRecommendationCard: View {
                         Text(recommendation.actionLabel)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .tint(isCompleted ? .green : nil)
                 .accessibilityIdentifier("optimization.recommendation.\(recommendation.kind.rawValue)")
             }
@@ -382,7 +382,7 @@ struct OptimizationTaskCatalogView: View {
                 Button(String(localized: "Run", comment: "Runs the selected maintenance tasks.")) {
                     onRunSelected(tasks.filter { selectedTaskIDs.contains($0.id) })
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(selectedTaskIDs.isEmpty)
                 .accessibilityIdentifier("optimization.runSelected")
             }
@@ -490,7 +490,7 @@ struct TaskIconBadge: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(tint.legibleForeground)
             .frame(width: 38, height: 38)
             .background(
                 LinearGradient(

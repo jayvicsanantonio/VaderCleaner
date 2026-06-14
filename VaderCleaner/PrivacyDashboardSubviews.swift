@@ -535,7 +535,7 @@ struct PrivacyDataCatalogView: View {
             ), action: onClear)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canClear)
                 .accessibilityIdentifier("privacy.clear")
         }

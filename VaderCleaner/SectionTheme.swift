@@ -46,11 +46,14 @@ extension NavigationSection {
                 backdropBottom: Color(red: 0.06, green: 0.29, blue: 0.28)
             )
         case .spaceLens:
-            // Keyed to the indigo-violet Space Lens asset.
+            // Keyed to the indigo-violet Space Lens asset, brightened into a
+            // periwinkle: the accent doubles as the control tint (e.g. the
+            // active view-mode label), and the raw indigo was too dark to read
+            // on the backdrop. The gradient is lifted off near-black to match.
             return SectionTheme(
-                accent: Color(red: 0.38, green: 0.33, blue: 0.90),
-                backdropTop: Color(red: 0.04, green: 0.03, blue: 0.12),
-                backdropBottom: Color(red: 0.08, green: 0.06, blue: 0.29)
+                accent: Color(red: 0.52, green: 0.44, blue: 1.00),
+                backdropTop: Color(red: 0.05, green: 0.04, blue: 0.15),
+                backdropBottom: Color(red: 0.10, green: 0.08, blue: 0.34)
             )
         case .malwareRemoval:
             // Keyed to the magenta Protection octagon asset.
@@ -74,17 +77,23 @@ extension NavigationSection {
                 backdropBottom: Color(red: 0.06, green: 0.17, blue: 0.29)
             )
         case .applications:
-            // Keyed to the blue Applications hexagon asset.
+            // Keyed to the blue Applications hexagon asset, but a brighter,
+            // less-saturated blue: the accent doubles as the control tint, so it
+            // must read as legible icon and metric text on the dark backdrop —
+            // the raw asset blue was too dark to see. The gradient is lifted off
+            // near-black so the section no longer reads as a heavy navy.
             return SectionTheme(
-                accent: Color(red: 0.05, green: 0.13, blue: 0.90),
-                backdropTop: Color(red: 0.03, green: 0.04, blue: 0.12),
-                backdropBottom: Color(red: 0.06, green: 0.08, blue: 0.29)
+                accent: Color(red: 0.30, green: 0.46, blue: 1.00),
+                backdropTop: Color(red: 0.04, green: 0.06, blue: 0.17),
+                backdropBottom: Color(red: 0.09, green: 0.13, blue: 0.37)
             )
         case .healthMonitor:
+            // Vader identity: lightsaber crimson on a near-black, crimson-deep
+            // backdrop.
             return SectionTheme(
-                accent: Color(red: 0.30, green: 0.86, blue: 0.64),
-                backdropTop: Color(red: 0.03, green: 0.11, blue: 0.09),
-                backdropBottom: Color(red: 0.06, green: 0.27, blue: 0.20)
+                accent: .vaderCrimson,
+                backdropTop: Color(red: 0.10, green: 0.02, blue: 0.03),
+                backdropBottom: Color(red: 0.24, green: 0.04, blue: 0.07)
             )
         }
     }

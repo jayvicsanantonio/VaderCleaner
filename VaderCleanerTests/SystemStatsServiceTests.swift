@@ -212,6 +212,153 @@ final class SystemStatsServiceTests: XCTestCase {
         wait(for: [settle], timeout: 1.0)
         XCTAssertEqual(counter.count, 0, "Service emitted \(counter.count) updates after stop()")
     }
+
+    // MARK: - Battery charge parsing
+
+    /// A charging battery on AC power: percent is current/max, the charging and
+    /// plugged-in flags are read straight through, and the time-remaining uses
+    /// the time-to-full estimate.
+    func test_parseBatteryCharge_chargingOnACPower() {
+        let description: [String: Any] = [
+            "Current Capacity": 75,
+            "Max Capacity": 100,
+            "Is Charging": true,
+            "Power Source State": "AC Power",
+            "Time to Full Charge": 42,
+            "Time to Empty": -1
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: 30.5)
+        XCTAssertEqual(charge?.percent, 75)
+        XCTAssertEqual(charge?.isCharging, true)
+        XCTAssertEqual(charge?.isPluggedIn, true)
+        XCTAssertEqual(charge?.timeRemainingMinutes, 42)
+        XCTAssertEqual(charge?.temperatureCelsius, 30.5)
+    }
+
+    /// A discharging battery reads the time-to-empty estimate and reports not
+    /// plugged in.
+    func test_parseBatteryCharge_dischargingUsesTimeToEmpty() {
+        let description: [String: Any] = [
+            "Current Capacity": 48,
+            "Max Capacity": 100,
+            "Is Charging": false,
+            "Power Source State": "Battery Power",
+            "Time to Full Charge": -1,
+            "Time to Empty": 137
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: nil)
+        XCTAssertEqual(charge?.percent, 48)
+        XCTAssertEqual(charge?.isCharging, false)
+        XCTAssertEqual(charge?.isPluggedIn, false)
+        XCTAssertEqual(charge?.timeRemainingMinutes, 137)
+        XCTAssertNil(charge?.temperatureCelsius)
+    }
+
+    /// A negative time estimate means "still calculating" and must surface as
+    /// nil rather than a bogus negative duration.
+    func test_parseBatteryCharge_calculatingTimeIsNil() {
+        let description: [String: Any] = [
+            "Current Capacity": 90,
+            "Max Capacity": 100,
+            "Is Charging": true,
+            "Power Source State": "AC Power",
+            "Time to Full Charge": -1
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: nil)
+        XCTAssertNil(charge?.timeRemainingMinutes)
+    }
+
+    /// Percent is computed from current/max (not assumed to be a percentage
+    /// already) and clamps to 0…100.
+    func test_parseBatteryCharge_percentIsCurrentOverMax() {
+        let description: [String: Any] = [
+            "Current Capacity": 2500,
+            "Max Capacity": 5000,
+            "Is Charging": false,
+            "Power Source State": "Battery Power"
+        ]
+        let charge = SystemStatsService.parseBatteryCharge(from: description, temperatureCelsius: nil)
+        XCTAssertEqual(charge?.percent, 50)
+    }
+
+    /// Missing or zero capacity keys (a non-battery power source) yield nil so
+    /// the caller skips to the next source.
+    func test_parseBatteryCharge_returnsNilWithoutCapacity() {
+        XCTAssertNil(SystemStatsService.parseBatteryCharge(from: [:], temperatureCelsius: nil))
+        let zeroMax: [String: Any] = ["Current Capacity": 10, "Max Capacity": 0]
+        XCTAssertNil(SystemStatsService.parseBatteryCharge(from: zeroMax, temperatureCelsius: nil))
+    }
+
+    /// AppleSmartBattery reports temperature in hundredths of a degree Celsius.
+    func test_batteryTemperatureCelsius_dividesByHundred() throws {
+        let celsius = try XCTUnwrap(SystemStatsService.batteryTemperatureCelsius(fromRaw: 3010))
+        XCTAssertEqual(celsius, 30.10, accuracy: 0.001)
+    }
+
+    /// Out-of-range readings return nil so a garbage value never renders as a
+    /// confident temperature.
+    func test_batteryTemperatureCelsius_rejectsImplausibleValues() {
+        XCTAssertNil(SystemStatsService.batteryTemperatureCelsius(fromRaw: -5000))
+        XCTAssertNil(SystemStatsService.batteryTemperatureCelsius(fromRaw: 20000))
+    }
+
+    // MARK: - Network throughput
+
+    /// Throughput is the per-second delta of the cumulative counters.
+    func test_throughput_isPerSecondDelta() {
+        let previous = NetworkCounters(bytesIn: 1_000, bytesOut: 2_000)
+        let current = NetworkCounters(bytesIn: 3_000, bytesOut: 5_000)
+        let rate = SystemStatsService.throughput(previous: previous, current: current, interval: 2.0)
+        XCTAssertEqual(rate.bytesInPerSec, 1_000, accuracy: 0.001)
+        XCTAssertEqual(rate.bytesOutPerSec, 1_500, accuracy: 0.001)
+    }
+
+    /// A counter reset/wrap (current < previous) reports zero rather than a
+    /// massive spurious spike.
+    func test_throughput_counterResetYieldsZero() {
+        let previous = NetworkCounters(bytesIn: 9_000, bytesOut: 9_000)
+        let current = NetworkCounters(bytesIn: 10, bytesOut: 10)
+        let rate = SystemStatsService.throughput(previous: previous, current: current, interval: 1.0)
+        XCTAssertEqual(rate, .zero)
+    }
+
+    /// A non-positive interval can't produce a rate.
+    func test_throughput_nonPositiveIntervalYieldsZero() {
+        let rate = SystemStatsService.throughput(
+            previous: .zero,
+            current: NetworkCounters(bytesIn: 100, bytesOut: 100),
+            interval: 0
+        )
+        XCTAssertEqual(rate, .zero)
+    }
+
+    // MARK: - SMC temperature decoding
+
+    /// A FourCC packs four ASCII bytes big-endian.
+    func test_fourCharCode_packsBigEndian() {
+        XCTAssertEqual(SMCReader.fourCharCode("TC0P"), 0x54_43_30_50)
+    }
+
+    /// `sp78` is signed 7.8 fixed point: the integer part is the high byte.
+    func test_decodeTemperature_sp78() throws {
+        let bytes: [UInt8] = [0x1E, 0x00] // 30.0
+        let celsius = try XCTUnwrap(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("sp78"), bytes: bytes))
+        XCTAssertEqual(celsius, 30.0, accuracy: 0.01)
+    }
+
+    /// `flt ` is a little-endian IEEE float.
+    func test_decodeTemperature_float() throws {
+        var value: Float = 42.5
+        let bytes = withUnsafeBytes(of: &value) { Array($0) } // little-endian on arm64/x86_64
+        let celsius = try XCTUnwrap(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("flt "), bytes: bytes))
+        XCTAssertEqual(celsius, 42.5, accuracy: 0.01)
+    }
+
+    /// Unknown data types and short buffers decode to nil rather than garbage.
+    func test_decodeTemperature_rejectsUnknownTypeAndShortBuffer() {
+        XCTAssertNil(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("ui32"), bytes: [1, 2, 3, 4]))
+        XCTAssertNil(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("sp78"), bytes: [0x1E]))
+    }
 }
 
 /// Reference-typed counter so the arming closure can mutate a shared count

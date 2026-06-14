@@ -189,7 +189,7 @@ struct NavigationRailView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RailButtonStyle())
         // Suppress the macOS keyboard focus ring. Without this the first
         // focusable row wears the system's blue halo on launch; the rail's
         // selection pill is its own state indicator.
@@ -208,5 +208,17 @@ struct NavigationRailView: View {
         .accessibilityIdentifier(section.accessibilityIdentifier)
         .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Button style for the rail rows that renders the label with no pressed-state
+/// treatment. The system `.plain` style dims the whole label — including the
+/// selection pill, which lives inside it — on press; re-clicking the already
+/// active row (a no-op for selection) then shows only that dim-and-restore,
+/// reading as a flicker. The lit pill and the hover highlight are the row's
+/// feedback instead, so suppressing the press dim is purely a visual win.
+private struct RailButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }

@@ -214,4 +214,135 @@ final class MenuBarViewModelTests: XCTestCase {
             MenuBarViewModel.menuBarLabel(ram: service.ramUsage, disk: service.diskSpace)
         )
     }
+
+    // MARK: - Menu panel formatters
+
+    /// Available disk space is the free portion (total − used), formatted.
+    func test_availableDiskString_isFreePortion() {
+        let stats = DiskStats(usedBytes: 600_000_000_000, totalBytes: 1_000_000_000_000)
+        let formatted = MenuBarViewModel.availableDiskString(stats)
+        XCTAssertTrue(formatted.contains("400"), "Expected ~400 GB free, got \(formatted)")
+    }
+
+    /// Memory used percent is used/total, rounded and clamped.
+    func test_memoryUsedPercentString_isUsedOverTotal() {
+        let stats = MemoryStats(usedBytes: 8_000_000_000, totalBytes: 16_000_000_000)
+        XCTAssertEqual(MenuBarViewModel.memoryUsedPercentString(stats), "50%")
+    }
+
+    /// Zero-total memory (pre-first-refresh) renders 0%, not NaN.
+    func test_memoryUsedPercentString_handlesZeroTotal() {
+        XCTAssertEqual(MenuBarViewModel.memoryUsedPercentString(.empty), "0%")
+    }
+
+    /// Charge percent renders straight through.
+    func test_batteryChargeString_rendersPercent() {
+        let charge = BatteryCharge(percent: 100, isCharging: true, isPluggedIn: true,
+                                   timeRemainingMinutes: nil, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryChargeString(charge), "100%")
+    }
+
+    /// Power state copy covers charging, full-on-AC, plugged-not-charging, and
+    /// discharging.
+    func test_batteryStateString_coversPowerStates() {
+        let charging = BatteryCharge(percent: 80, isCharging: true, isPluggedIn: true,
+                                     timeRemainingMinutes: 30, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(charging), "Charging")
+
+        let full = BatteryCharge(percent: 100, isCharging: false, isPluggedIn: true,
+                                 timeRemainingMinutes: nil, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(full), "Fully Charged")
+
+        let plugged = BatteryCharge(percent: 90, isCharging: false, isPluggedIn: true,
+                                    timeRemainingMinutes: nil, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(plugged), "Plugged In")
+
+        let onBattery = BatteryCharge(percent: 64, isCharging: false, isPluggedIn: false,
+                                      timeRemainingMinutes: 120, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(onBattery), "On Battery")
+    }
+
+    /// Temperature rounds to a whole degree.
+    func test_batteryTemperatureString_roundsToWholeDegree() {
+        XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.4), "30°C")
+        XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.6), "31°C")
+    }
+
+    // MARK: - Network formatters
+
+    /// Zero traffic renders a clean "0 KB/s", not "Zero KB/s".
+    func test_speedString_zeroIsCleanedUp() {
+        XCTAssertEqual(MenuBarViewModel.speedString(0), "0 KB/s")
+    }
+
+    /// Non-zero rates carry a unit and a per-second suffix.
+    func test_speedString_formatsRateWithSuffix() {
+        let kilobytes = MenuBarViewModel.speedString(2_048)
+        XCTAssertTrue(kilobytes.contains("KB"), "Expected KB unit, got \(kilobytes)")
+        XCTAssertTrue(kilobytes.hasSuffix("/s"), "Expected /s suffix, got \(kilobytes)")
+
+        let megabytes = MenuBarViewModel.speedString(5_000_000)
+        XCTAssertTrue(megabytes.contains("MB"), "Expected MB unit, got \(megabytes)")
+    }
+
+    /// Mbps math: 10 MB downloaded in 8 s is 10 Mbps (10e6 bytes × 8 ÷ 1e6 ÷ 8).
+    func test_megabitsPerSecond_computesRate() {
+        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 10_000_000, seconds: 8), 10, accuracy: 0.001)
+    }
+
+    /// Guard against divide-by-zero and empty payloads.
+    func test_megabitsPerSecond_guardsZeroes() {
+        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 0, seconds: 5), 0)
+        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 1_000, seconds: 0), 0)
+    }
+
+    func test_speedTestResultString_formatsMbps() {
+        XCTAssertEqual(MenuBarViewModel.speedTestResultString(82.4), "82 Mbps")
+    }
+
+    // MARK: - CPU temperature + uptime formatters
+
+    func test_cpuTemperatureString_roundsToWholeDegree() {
+        XCTAssertEqual(MenuBarViewModel.cpuTemperatureString(49.6), "50°C")
+    }
+
+    /// Uptime collapses to the two most significant units, by magnitude.
+    func test_uptimeString_picksTwoMostSignificantUnits() {
+        XCTAssertEqual(MenuBarViewModel.uptimeString(3 * 86_400 + 4 * 3_600 + 30 * 60), "up 3d 4h")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(4 * 3_600 + 12 * 60), "up 4h 12m")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(8 * 60 + 30), "up 8m")
+    }
+
+    /// The compact menu bar reading forwards to the available-disk formatter.
+    func test_menuBarCompactReading_isAvailableDisk() {
+        let service = SystemStatsService(interval: 2.0, autostart: false)
+        let sut = MenuBarViewModel(service: service)
+        XCTAssertEqual(sut.menuBarCompactReading, MenuBarViewModel.availableDiskString(service.diskSpace))
+    }
+
+    // MARK: - Protection status
+
+    /// Threats outrank a clean history; a scanned-once Mac reads protected; a
+    /// never-scanned Mac reads not-scanned.
+    func test_protectionStatus_derivation() {
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: true, hasScanned: true), .threatsFound)
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: true, hasScanned: false), .threatsFound)
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: false, hasScanned: true), .protected)
+        XCTAssertEqual(MenuBarViewModel.protectionStatus(hasThreats: false, hasScanned: false), .notScanned)
+    }
+
+    func test_protectionStatusLabel_copy() {
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.protected), "Protected")
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.threatsFound), "Threats found")
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.notScanned), "Not scanned")
+    }
+
+    /// No scan date reads as "No scans yet"; a real date produces a non-empty
+    /// relative phrase.
+    func test_lastScanString_handlesNilAndDate() {
+        XCTAssertEqual(MenuBarViewModel.lastScanString(nil), "No scans yet")
+        let recent = MenuBarViewModel.lastScanString(Date(timeIntervalSinceNow: -3_600))
+        XCTAssertFalse(recent.isEmpty)
+        XCTAssertNotEqual(recent, "No scans yet")
+    }
 }

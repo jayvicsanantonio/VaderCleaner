@@ -9,6 +9,7 @@ struct ContentView: View {
     @Environment(PermissionOnboardingViewModel.self) private var onboarding
     @Environment(SystemStatsService.self) private var systemStats
     @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
+    @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.scenePhase) private var scenePhase
     private let systemJunkViewModel: SystemJunkViewModel
     private let largeOldFilesViewModel: LargeOldFilesViewModel
@@ -181,6 +182,11 @@ struct ContentView: View {
                 appState.refresh()
             }
         }
+        // Consume any deep-link the menu bar panel recorded. Handled both on
+        // appear (window was just opened/created by the menu) and on change
+        // (window already open when the menu fired the request).
+        .onAppear { applyPendingRoute() }
+        .onChange(of: menuRouter.requestedSection) { _, _ in applyPendingRoute() }
         // Ask for notification permission only after the FDA onboarding has
         // settled — either the user already has Full Disk Access, or they
         // dismissed the sheet via "Continue Without Access". Stacking the
@@ -227,6 +233,24 @@ struct ContentView: View {
                     selectedSection = target
                 }
             }
+        }
+    }
+
+    /// Applies a pending deep-link from the menu bar panel: navigates to the
+    /// requested section and, when asked, begins that section's scan. Clears the
+    /// request so it fires exactly once. No-op when nothing is pending.
+    private func applyPendingRoute() {
+        guard let target = menuRouter.requestedSection else { return }
+        let startScan = menuRouter.requestStartScan
+        menuRouter.requestedSection = nil
+        menuRouter.requestStartScan = false
+
+        selectSection(target)
+
+        // Only Smart Scan auto-starts from the menu's "Run Smart Scan" — the
+        // other deep-links just reveal the section and let the user act.
+        if startScan, target == .smartScan {
+            smartScanViewModel.beginScan()
         }
     }
 
@@ -373,4 +397,5 @@ private extension AnyTransition {
             preferences: prefs,
             dispatcher: notificationManager
         ))
+        .environment(MenuRouter())
 }

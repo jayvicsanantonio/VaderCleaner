@@ -1,91 +1,450 @@
 // MenuBarContent.swift
-// SwiftUI view rendering the menu bar extra popover — RAM/Disk/CPU/Battery rows + Open and Quit actions.
+// The menu bar panel — a Mac Health header, a grid of live system tiles (Storage, Memory, Battery, CPU), a recommendation card, and a footer, driven by MenuBarViewModel / SystemStatsService.
 
 import SwiftUI
 import AppKit
 
-/// Popover content presented when the user clicks the menu bar icon. Rows are
-/// driven by `MenuBarViewModel` which is in turn fed by `SystemStatsService`,
-/// so values refresh on the same 2-second cadence as the Health Monitor.
-///
-/// The Battery row is conditional — desktops report no internal battery and
-/// startup begins with unknown battery state, so rendering an empty row would
-/// just look like a UI bug.
+/// Wide panel presented when the user clicks the menu bar icon. Mirrors the
+/// CleanMyMac menu's shape — a Mac Health verdict header, a 2-column grid of
+/// monitor tiles, a "Today's Recommendation" card, and a footer — while showing
+/// only VaderCleaner's real telemetry. Values refresh on the same 2-second
+/// cadence as the Health Monitor.
 struct MenuBarContent: View {
 
     @Environment(MenuBarViewModel.self) private var menuBar
+    @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
+    @Environment(MalwareViewModel.self) private var malware
+    @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.openWindow) private var openWindow
 
+    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ramRow
-            statRow(label: "Disk", value: menuBar.formattedDiskSpace)
-            statRow(label: "CPU", value: menuBar.formattedCPU)
-            if let battery = menuBar.formattedBatteryHealth {
-                statRow(label: "Battery", value: battery)
+        VStack(spacing: 0) {
+            header
+            VStack(spacing: 10) {
+                protectionCard
+                LazyVGrid(columns: columns, spacing: 10) {
+                    storageTile
+                    memoryTile
+                    batteryTile
+                    cpuTile
+                    networkTile
+                    connectedDevicesTile
+                }
+                recommendationCard
             }
-
+            .padding(14)
             Divider()
-
-            Button("Open VaderCleaner") {
-                openMainWindow()
-            }
-            .keyboardShortcut("o")
-
-            Button("Quit VaderCleaner") {
-                NSApp.terminate(nil)
-            }
-            .keyboardShortcut("q")
+            footer
         }
-        .padding(12)
-        .frame(width: 240)
+        .frame(width: 380)
+        .background(panelBackground)
+        // Vader identity: crimson drives every tinted accent (icons, links,
+        // buttons, progress). Semantic status colors (health verdict, memory
+        // pressure, protection) stay as-is so they keep conveying meaning.
+        .tint(.vaderCrimson)
+        // Refresh the device list each time the panel opens — devices change
+        // infrequently, so an on-open read beats a dedicated poll timer.
+        .task { connectedDevices.refresh() }
     }
 
-    /// RAM row carries an extra pressure-level badge so the user can see at a
-    /// glance whether the system is under memory pressure without having to
-    /// open the Health Monitor. The badge mirrors the Health Monitor card's
-    /// color via the shared `StatusColor` mapping.
-    private var ramRow: some View {
-        HStack {
-            Text("RAM")
-                .foregroundStyle(.secondary)
+    // MARK: - Header
+
+    /// The verdict's signature colour (gray while still measuring).
+    private var verdictColor: Color { menuBar.macHealth?.accentColor ?? Color(white: 0.6) }
+
+    private var verdictTitle: String {
+        menuBar.macHealth?.title ?? String(localized: "Measuring…")
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Mac Health:")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text(verdictTitle)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(verdictColor)
+                }
+                Text(menuBar.deviceName)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.55))
+            }
             Spacer()
-            Text(menuBar.formattedRAMUsage)
-                .monospacedDigit()
-            pressureBadge(
-                label: menuBar.ramPressureLabel,
-                color: menuBar.ramPressureColor
+            Image(systemName: "laptopcomputer")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.white.opacity(0.95), Color.vaderCrimson.opacity(0.9)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(headerBackground)
+        .contentShape(Rectangle())
+        .onTapGesture { openSection(.healthMonitor) }
+    }
+
+    private var headerBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.14, green: 0.04, blue: 0.06),
+                    Color(red: 0.07, green: 0.02, blue: 0.03)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [Color.vaderCrimson.opacity(0.32), .clear],
+                center: UnitPoint(x: 0.85, y: 0.3),
+                startRadius: 4,
+                endRadius: 180
             )
         }
     }
 
-    private func statRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .monospacedDigit()
+    // MARK: - Protection card
+
+    /// Whether the last scan surfaced unresolved threats.
+    private var hasThreats: Bool {
+        if case .results(let threats) = malware.phase { return !threats.isEmpty }
+        return false
+    }
+
+    private var protectionStatus: MenuBarViewModel.ProtectionStatus {
+        MenuBarViewModel.protectionStatus(hasThreats: hasThreats, hasScanned: malware.lastScanDate != nil)
+    }
+
+    private var protectionColor: Color {
+        switch protectionStatus {
+        case .protected: return .green
+        case .threatsFound: return .red
+        case .notScanned: return .secondary
         }
     }
 
-    /// Compact pill: a colored dot + status label. Sized small so it tucks
-    /// into the trailing edge of the row without competing with the value.
-    private func pressureBadge(label: String, color: StatusColor) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(swiftUIColor(for: color))
-                .frame(width: 8, height: 8)
-            Text(label)
+    private var protectionIcon: String {
+        switch protectionStatus {
+        case .protected: return "checkmark.shield.fill"
+        case .threatsFound: return "exclamationmark.shield.fill"
+        case .notScanned: return "shield"
+        }
+    }
+
+    private var protectionCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: protectionIcon)
+                .font(.title2)
+                .foregroundStyle(protectionColor)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("Protection")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(MenuBarViewModel.protectionStatusLabel(protectionStatus))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(protectionColor)
+                }
+                Text(MenuBarViewModel.lastScanString(malware.lastScanDate))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+        .contentShape(Rectangle())
+        .onTapGesture { openSection(.malwareRemoval) }
+    }
+
+    // MARK: - Tiles
+
+    private var storageTile: some View {
+        MenuTile(
+            icon: "internaldrive",
+            title: menuBar.bootVolumeName,
+            primary: availableLine,
+            action: (String(localized: "Free Up"), { openSection(.systemJunk) })
+        )
+    }
+
+    private var availableLine: String {
+        let format = String(
+            localized: "Available: %@",
+            comment: "Storage tile line; %@ is free space, e.g. Available: 434.3 GB"
+        )
+        return String(format: format, menuBar.availableDiskSpace)
+    }
+
+    private var memoryTile: some View {
+        MenuTile(
+            icon: "memorychip",
+            title: String(localized: "Memory"),
+            primary: memoryLine,
+            statusColor: swiftUIColor(for: menuBar.ramPressureColor),
+            action: (String(localized: "Free Up"), { openSection(.optimization) })
+        )
+    }
+
+    private var memoryLine: String {
+        let format = String(
+            localized: "Pressure: %@",
+            comment: "Memory tile line; %@ is the memory-pressure level, e.g. Pressure: Nominal"
+        )
+        return String(format: format, menuBar.ramPressureLabel)
+    }
+
+    private var batteryTile: some View {
+        MenuTile(
+            icon: "battery.100",
+            title: String(localized: "Battery"),
+            primary: batteryPrimary,
+            secondary: batterySecondary
+        )
+    }
+
+    private var batteryPrimary: String {
+        guard let charge = menuBar.batteryCharge else {
+            return String(localized: "No battery")
+        }
+        return "\(MenuBarViewModel.batteryChargeString(charge)) · \(MenuBarViewModel.batteryStateString(charge))"
+    }
+
+    private var batterySecondary: String? {
+        guard let temp = menuBar.batteryCharge?.temperatureCelsius else { return nil }
+        return MenuBarViewModel.batteryTemperatureString(temp)
+    }
+
+    private var cpuTile: some View {
+        MenuTile(
+            icon: "cpu",
+            title: cpuTitle,
+            primary: cpuLine,
+            secondary: menuBar.systemUptimeString
+        )
+    }
+
+    /// Title carries the temperature when the SMC reports one, e.g. "CPU · 50°C";
+    /// otherwise just "CPU".
+    private var cpuTitle: String {
+        if let temp = menuBar.cpuTemperature {
+            return "\(String(localized: "CPU")) · \(temp)"
+        }
+        return String(localized: "CPU")
+    }
+
+    private var cpuLine: String {
+        let format = String(
+            localized: "Load: %@",
+            comment: "CPU tile line; %@ is processor load percent, e.g. Load: 20%"
+        )
+        return String(format: format, menuBar.formattedCPU)
+    }
+
+    // MARK: - Network tile
+
+    private var networkTile: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi")
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Text(menuBar.wifiNetworkName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(menuBar.networkDownString)
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(menuBar.networkUpString)
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            HStack {
+                Spacer()
+                speedTestControl
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    // MARK: - Connected devices tile
+
+    private var connectedDevicesTile: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "cable.connector")
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Text("Connected Devices")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            if connectedDevices.devices.isEmpty {
+                Text("None connected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(connectedDevices.devices.prefix(3)) { device in
+                    deviceRow(device)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    private func deviceRow(_ device: ConnectedDevice) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: device.kind == .bluetooth ? "dot.radiowaves.left.and.right" : "externaldrive")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(device.name)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if let battery = device.batteryPercent {
+                Text("\(battery)%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if device.kind == .volume {
+                Button {
+                    connectedDevices.eject(device)
+                } label: {
+                    Image(systemName: "eject.fill")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .help("Eject \(device.name)")
+            }
         }
     }
 
-    /// Maps the view-model's `StatusColor` (deliberately UI-framework-free
-    /// for testability) to a SwiftUI `Color` at the leaf. Same mapping the
-    /// Health Monitor card uses; kept local to the view rather than on the
-    /// enum so the view-model layer stays SwiftUI-import-free.
+    @ViewBuilder
+    private var speedTestControl: some View {
+        switch menuBar.speedTestState {
+        case .idle:
+            Button(String(localized: "Test Speed")) { Task { await menuBar.runSpeedTest() } }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tint)
+        case .running:
+            ProgressView().controlSize(.small)
+        case .result(let mbps):
+            Button(MenuBarViewModel.speedTestResultString(mbps)) { Task { await menuBar.runSpeedTest() } }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tint)
+        case .failed:
+            Button(String(localized: "Retry")) { Task { await menuBar.runSpeedTest() } }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+        }
+    }
+
+    // MARK: - Recommendation
+
+    private var recommendationCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.title2)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Today's Recommendation")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Text("It's time to care for your Mac!")
+                    .font(.subheadline.weight(.semibold))
+                Text("Run Smart Scan to find junk, large files, and threats in one pass.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button(String(localized: "Run Smart Scan")) {
+                        openSection(.smartScan, startScan: true)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack {
+            Button(action: openMainWindow) {
+                Text("Open VaderCleaner")
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("o")
+
+            Spacer()
+
+            SettingsLink {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("q")
+            .help("Quit VaderCleaner")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Background + helpers
+
+    private var panelBackground: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.09, green: 0.04, blue: 0.05),
+                Color.vaderSpaceBlack
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// Maps the view-model's framework-free `StatusColor` to a SwiftUI `Color`.
     private func swiftUIColor(for status: StatusColor) -> Color {
         switch status {
         case .green: return .green
@@ -96,16 +455,77 @@ struct MenuBarContent: View {
     }
 
     private func openMainWindow() {
-        // `openWindow(id:)` brings the existing main window to front, or opens
-        // a new one if the user previously closed it. Following with
-        // `NSApp.activate()` moves focus to the process so the window comes to
-        // the foreground over other apps.
+        // Brings the existing main window forward, or opens one if it was
+        // closed, then activates the process so it surfaces over other apps.
         openWindow(id: VaderCleanerApp.mainWindowID)
         NSApp.activate()
+    }
+
+    /// Deep-links into a main-window section: records the request on the router,
+    /// then opens and activates the window so ContentView navigates there.
+    private func openSection(_ section: NavigationSection, startScan: Bool = false) {
+        menuRouter.request(section, startScan: startScan)
+        openMainWindow()
+    }
+}
+
+/// One monitor tile: an icon + title row, a primary metric line, an optional
+/// secondary line, an optional status dot, and an optional trailing action link.
+private struct MenuTile: View {
+    let icon: String
+    let title: String
+    let primary: String
+    var secondary: String?
+    var statusColor: Color?
+    /// Optional trailing link, e.g. ("Free Up", action).
+    var action: (label: String, run: () -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                if let statusColor {
+                    Circle().fill(statusColor).frame(width: 7, height: 7)
+                }
+            }
+            Text(primary)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if let secondary {
+                Text(secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let action {
+                HStack {
+                    Spacer()
+                    Button(action.label, action: action.run)
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
     }
 }
 
 #Preview {
-    MenuBarContent()
+    let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "menu-preview")!)
+    return MenuBarContent()
         .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
+        .environment(ConnectedDevicesMonitor(autoRefresh: false))
+        .environment(MalwareViewModel.live(dispatcher: NotificationManager(), preferences: prefs))
+        .environment(MenuRouter())
 }

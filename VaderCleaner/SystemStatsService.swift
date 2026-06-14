@@ -5,6 +5,8 @@ import Foundation
 import Darwin
 import IOKit
 import IOKit.ps
+import CoreWLAN
+import CoreLocation
 import Observation
 import os.log
 
@@ -102,6 +104,24 @@ enum BatteryAvailability: Equatable {
     case present(BatteryStats)
 }
 
+/// Live battery charge snapshot — the moment-to-moment state the menu bar
+/// shows ("100% · Charging"), distinct from `BatteryStats`' long-term health.
+/// `nil` (an absent published value) means there is no internal battery or the
+/// power source could not be read.
+struct BatteryCharge: Equatable {
+    /// Current charge as a whole percentage, 0…100.
+    let percent: Int
+    /// Whether the battery is actively charging.
+    let isCharging: Bool
+    /// Whether the Mac is running on external (AC) power.
+    let isPluggedIn: Bool
+    /// Estimated minutes until full (when charging) or empty (when
+    /// discharging), or `nil` while the estimate is still being calculated.
+    let timeRemainingMinutes: Int?
+    /// Battery temperature in degrees Celsius, or `nil` when unavailable.
+    let temperatureCelsius: Double?
+}
+
 /// SMART status of the boot disk. `.good` corresponds to diskutil's
 /// `"Verified"`, `.failing` to `"Failing"`. `.unknown` covers everything
 /// else — most relevantly, the case where `diskutil info -plist /` fails or
@@ -120,6 +140,22 @@ enum FileVaultState: Equatable {
     case unknown
     case off
     case on
+}
+
+/// Cumulative interface byte counters (since boot), summed across all active
+/// non-loopback interfaces. Diffed between ticks to derive throughput.
+struct NetworkCounters: Equatable {
+    let bytesIn: UInt64
+    let bytesOut: UInt64
+    static let zero = NetworkCounters(bytesIn: 0, bytesOut: 0)
+}
+
+/// Instantaneous network throughput in bytes per second, for the menu's
+/// network tile.
+struct NetworkThroughput: Equatable {
+    let bytesInPerSec: Double
+    let bytesOutPerSec: Double
+    static let zero = NetworkThroughput(bytesInPerSec: 0, bytesOutPerSec: 0)
 }
 
 // MARK: - SystemStatsService
@@ -163,8 +199,21 @@ final class SystemStatsService {
     private(set) var ramUsage: MemoryStats = .empty
     private(set) var diskSpace: DiskStats = .empty
     private(set) var batteryAvailability: BatteryAvailability = .unknown
+    /// Live charge snapshot (percent, charging, time remaining, temperature).
+    /// `nil` until the first refresh, or on a Mac with no internal battery.
+    private(set) var batteryCharge: BatteryCharge?
     private(set) var diskSMARTStatus: SMARTStatus = .unknown
     private(set) var fileVaultState: FileVaultState = .unknown
+    /// Live network throughput (bytes/sec in and out). `.zero` until two
+    /// samples exist to diff.
+    private(set) var networkThroughput: NetworkThroughput = .zero
+    /// Current Wi-Fi network name, or `nil` when not on Wi-Fi or Location
+    /// Services has not authorized reading it (macOS 14+ gates the SSID).
+    private(set) var wifiSSID: String?
+    /// Best-effort CPU temperature in °C from the SMC, or `nil` when no sensor
+    /// is readable on this hardware (SMC keys are chip-specific — `nil` is the
+    /// normal "unavailable" case, not an error).
+    private(set) var cpuTemperatureCelsius: Double?
 
     // MARK: Configuration
 
@@ -202,6 +251,24 @@ final class SystemStatsService {
     /// the first `refresh()` seeds it and publishes `cpuUsage = 0`.
     @ObservationIgnored private var previousCPUTotals: CPUTotals?
 
+    /// Previous network counters + sample time for throughput delta computation.
+    /// `nil` until the first sample, which seeds the baseline and reports zero.
+    @ObservationIgnored private var previousNetworkCounters: NetworkCounters?
+    @ObservationIgnored private var previousNetworkSampleTime: Date?
+
+    /// Best-effort SMC temperature reader. `nil` on hardware where the SMC
+    /// user client can't be opened; reads then simply report no temperature.
+    @ObservationIgnored private lazy var smcReader = SMCReader()
+
+    /// Requests Location authorization (required to read the Wi-Fi SSID on
+    /// macOS 14+) and re-reads the SSID promptly once it is granted.
+    @ObservationIgnored private lazy var locationAuthorizer = LocationAuthorizer { [weak self] in
+        Task { @MainActor in
+            guard let self else { return }
+            self.wifiSSID = self.readWiFiSSID()
+        }
+    }
+
     // MARK: Init / lifecycle
 
     init(interval: TimeInterval = 2.0, autostart: Bool = true) {
@@ -230,6 +297,9 @@ final class SystemStatsService {
     func start() {
         stop()
         isStopped = false
+        // Ask for Location once on start — the Wi-Fi SSID is gated behind it on
+        // macOS 14+. Reading throughput and everything else works regardless.
+        locationAuthorizer.requestIfNeeded()
         // Add to `.common` mode so the timer keeps firing while AppKit is in a
         // tracking mode (menu bar popover open, scrollbar drag, etc.). With
         // the default mode the cheap-stats publisher would freeze the moment
@@ -278,7 +348,15 @@ final class SystemStatsService {
         ramUsage = readMemoryStats()
         diskSpace = readDiskStats()
         batteryAvailability = readBatteryAvailability()
+        batteryCharge = readBatteryCharge()
+        networkThroughput = readNetworkThroughput()
+        wifiSSID = readWiFiSSID()
+        cpuTemperatureCelsius = smcReader?.cpuTemperatureCelsius()
     }
+
+    /// Seconds since the system booted. Computed on read (cheap) rather than
+    /// polled — the menu's CPU tile reads it alongside the live stats.
+    var systemUptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     // MARK: CPU
 
@@ -475,6 +553,168 @@ final class SystemStatsService {
         )
     }
 
+    /// IOPowerSources description keys (the `kIOPS…` string constants from
+    /// `IOKit/ps/IOPSKeys.h`). Spelled out as literals so the pure parser and
+    /// its tests don't depend on the framework constants' import shape.
+    private enum PowerSourceKey {
+        static let currentCapacity = "Current Capacity"
+        static let maxCapacity = "Max Capacity"
+        static let isCharging = "Is Charging"
+        static let powerSourceState = "Power Source State"
+        static let timeToEmpty = "Time to Empty"
+        static let timeToFull = "Time to Full Charge"
+        static let acPowerValue = "AC Power"
+    }
+
+    /// Reads the live battery charge via the public `IOPowerSources` API
+    /// (charge / charging / time remaining) and `AppleSmartBattery` (temperature,
+    /// which IOPowerSources does not report). Returns `nil` when there is no
+    /// internal battery power source.
+    private func readBatteryCharge() -> BatteryCharge? {
+        guard
+            let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+            let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
+        else { return nil }
+
+        let temperature = readBatteryTemperatureCelsius()
+        for source in sources {
+            guard
+                let description = IOPSGetPowerSourceDescription(blob, source)?
+                    .takeUnretainedValue() as? [String: Any],
+                let charge = Self.parseBatteryCharge(from: description, temperatureCelsius: temperature)
+            else { continue }
+            return charge
+        }
+        return nil
+    }
+
+    /// Reads the battery's current temperature from `AppleSmartBattery`'s
+    /// `Temperature` key. `nil` when no battery or the reading is implausible.
+    private func readBatteryTemperatureCelsius() -> Double? {
+        let matching = IOServiceMatching("AppleSmartBattery")
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != IO_OBJECT_NULL else { return nil }
+        defer { IOObjectRelease(service) }
+        guard let raw = (copyProperty(service: service, key: "Temperature") as? NSNumber)?.intValue else {
+            return nil
+        }
+        return Self.batteryTemperatureCelsius(fromRaw: raw)
+    }
+
+    /// Builds a `BatteryCharge` from an `IOPSGetPowerSourceDescription`
+    /// dictionary. Returns `nil` when the capacity keys are missing or invalid
+    /// (a non-battery source or a malformed entry). Temperature is injected
+    /// separately because IOPowerSources does not report it.
+    static func parseBatteryCharge(
+        from description: [String: Any],
+        temperatureCelsius: Double?
+    ) -> BatteryCharge? {
+        guard
+            let current = (description[PowerSourceKey.currentCapacity] as? NSNumber)?.intValue,
+            let maximum = (description[PowerSourceKey.maxCapacity] as? NSNumber)?.intValue,
+            maximum > 0
+        else { return nil }
+
+        let ratio = Double(current) / Double(maximum)
+        let percent = min(100, max(0, Int((ratio * 100).rounded())))
+        let isCharging = (description[PowerSourceKey.isCharging] as? Bool) ?? false
+        let isPluggedIn = (description[PowerSourceKey.powerSourceState] as? String) == PowerSourceKey.acPowerValue
+
+        // IOPowerSources reports the relevant estimate under different keys for
+        // charging vs discharging, and uses a negative sentinel while it is
+        // still calculating — surface that as `nil` rather than a bogus time.
+        let timeKey = isCharging ? PowerSourceKey.timeToFull : PowerSourceKey.timeToEmpty
+        let rawTime = (description[timeKey] as? NSNumber)?.intValue ?? -1
+        let timeRemaining = rawTime >= 0 ? rawTime : nil
+
+        return BatteryCharge(
+            percent: percent,
+            isCharging: isCharging,
+            isPluggedIn: isPluggedIn,
+            timeRemainingMinutes: timeRemaining,
+            temperatureCelsius: temperatureCelsius
+        )
+    }
+
+    /// Converts `AppleSmartBattery`'s `Temperature` reading (hundredths of a
+    /// degree Celsius) to degrees Celsius. Returns `nil` for implausible values
+    /// so a garbage reading never renders as a confident temperature.
+    static func batteryTemperatureCelsius(fromRaw raw: Int) -> Double? {
+        let celsius = Double(raw) / 100.0
+        guard celsius > -20, celsius < 120 else { return nil }
+        return celsius
+    }
+
+    // MARK: Network
+
+    /// Samples the interface byte counters and returns the throughput against
+    /// the previous sample. The first call seeds the baseline and returns
+    /// `.zero` because there is nothing to diff against.
+    private func readNetworkThroughput() -> NetworkThroughput {
+        let current = readNetworkCounters()
+        let now = Date()
+        defer {
+            previousNetworkCounters = current
+            previousNetworkSampleTime = now
+        }
+        guard
+            let previous = previousNetworkCounters,
+            let previousTime = previousNetworkSampleTime
+        else { return .zero }
+        return Self.throughput(previous: previous, current: current, interval: now.timeIntervalSince(previousTime))
+    }
+
+    /// Current Wi-Fi SSID via CoreWLAN. Returns `nil` when not associated to a
+    /// network, or when Location authorization has not been granted — macOS 14+
+    /// returns `nil` from `ssid()` until the app holds Location access.
+    private func readWiFiSSID() -> String? {
+        CWWiFiClient.shared().interface()?.ssid()
+    }
+
+    /// Sums `ifi_ibytes` / `ifi_obytes` across all active non-loopback link-layer
+    /// interfaces via `getifaddrs`. Cumulative since boot; the caller diffs.
+    private func readNetworkCounters() -> NetworkCounters {
+        var addrs: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&addrs) == 0, let first = addrs else { return .zero }
+        defer { freeifaddrs(addrs) }
+
+        var totalIn: UInt64 = 0
+        var totalOut: UInt64 = 0
+        var node: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = node {
+            defer { node = current.pointee.ifa_next }
+            guard
+                let addr = current.pointee.ifa_addr,
+                addr.pointee.sa_family == UInt8(AF_LINK)
+            else { continue }
+            // Loopback traffic isn't real network activity — skip it.
+            if String(cString: current.pointee.ifa_name) == "lo0" { continue }
+            guard let data = current.pointee.ifa_data else { continue }
+            let stats = data.assumingMemoryBound(to: if_data.self)
+            totalIn += UInt64(stats.pointee.ifi_ibytes)
+            totalOut += UInt64(stats.pointee.ifi_obytes)
+        }
+        return NetworkCounters(bytesIn: totalIn, bytesOut: totalOut)
+    }
+
+    /// Bytes-per-second throughput from two cumulative counter samples. Guards
+    /// against a non-positive interval and against counter resets / wraps
+    /// (a smaller "current" than "previous" yields zero rather than a huge
+    /// spike).
+    static func throughput(
+        previous: NetworkCounters,
+        current: NetworkCounters,
+        interval: TimeInterval
+    ) -> NetworkThroughput {
+        guard interval > 0 else { return .zero }
+        let inDelta = current.bytesIn >= previous.bytesIn ? current.bytesIn - previous.bytesIn : 0
+        let outDelta = current.bytesOut >= previous.bytesOut ? current.bytesOut - previous.bytesOut : 0
+        return NetworkThroughput(
+            bytesInPerSec: Double(inDelta) / interval,
+            bytesOutPerSec: Double(outDelta) / interval
+        )
+    }
+
     /// Thin wrapper around `IORegistryEntryCreateCFProperty` that returns the
     /// CF object as `Any?`. Centralised so each property read above is one
     /// line and we don't repeat the bridging dance.
@@ -620,6 +860,36 @@ final class SystemStatsService {
             os_log("fdesetup invocation failed: %{public}@",
                    log: log, type: .error, error.localizedDescription)
             return nil
+        }
+    }
+}
+
+/// Minimal CoreLocation authorization shim. Reading the Wi-Fi SSID on macOS 14+
+/// requires the app to hold Location authorization; this requests it once and
+/// notifies when it's granted so the caller can re-read the SSID.
+private final class LocationAuthorizer: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private let onAuthorized: () -> Void
+
+    init(onAuthorized: @escaping () -> Void) {
+        self.onAuthorized = onAuthorized
+        super.init()
+        manager.delegate = self
+    }
+
+    /// Prompts for authorization only when the user hasn't decided yet.
+    func requestIfNeeded() {
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            onAuthorized()
+        default:
+            break
         }
     }
 }

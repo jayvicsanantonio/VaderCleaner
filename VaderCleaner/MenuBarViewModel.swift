@@ -30,6 +30,11 @@ final class MenuBarViewModel {
         self.service = service
     }
 
+    /// Boot-volume display name ("Macintosh HD"), resolved once — it never
+    /// changes for the life of the view-model and the storage tile shows it on
+    /// every render.
+    let bootVolumeName: String = HealthMonitorViewModel.rootVolumeName()
+
     // MARK: - Live-bound display values
 
     var formattedRAMUsage: String { Self.formattedRAMUsage(service.ramUsage) }
@@ -40,6 +45,89 @@ final class MenuBarViewModel {
     var ramPressureLabel: String { Self.pressureLabel(for: ramPressureLevel) }
     var ramPressureColor: StatusColor { Self.pressureColor(for: ramPressureLevel) }
 
+    // MARK: - Menu panel values
+
+    /// The Mac's name (e.g. "Jayvic's MacBook Pro"), shown under the Mac Health
+    /// verdict in the panel header. Falls back to "Mac" if the name is unset.
+    var deviceName: String { Host.current().localizedName ?? "Mac" }
+
+    /// Overall Mac Health verdict for the panel header, reusing the Health
+    /// Monitor's problem-based derivation so the menu and the main window never
+    /// disagree. `nil` while the boot volume is still being measured.
+    var macHealth: MacHealthStatus? {
+        HealthMonitorViewModel.macHealthStatus(
+            disk: service.diskSpace,
+            smart: service.diskSMARTStatus,
+            battery: service.batteryAvailability
+        )
+    }
+
+    /// Free space on the boot volume — the storage tile's headline number.
+    var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
+
+    /// Memory in use as a whole percentage — the memory tile's headline number.
+    var memoryUsedPercent: String { Self.memoryUsedPercentString(service.ramUsage) }
+
+    /// Live charge snapshot for the battery tile, or `nil` when there is no
+    /// internal battery.
+    var batteryCharge: BatteryCharge? { service.batteryCharge }
+
+    /// Download throughput for the network tile, e.g. "513 bytes/s".
+    var networkDownString: String { Self.speedString(service.networkThroughput.bytesInPerSec) }
+
+    /// Upload throughput for the network tile.
+    var networkUpString: String { Self.speedString(service.networkThroughput.bytesOutPerSec) }
+
+    /// Wi-Fi network name for the network tile title, or a generic "Wi-Fi" when
+    /// the SSID is unavailable (not on Wi-Fi, or Location not yet authorized).
+    var wifiNetworkName: String { service.wifiSSID ?? String(localized: "Wi-Fi") }
+
+    /// CPU temperature for the CPU tile, or `nil` when the SMC reports none on
+    /// this hardware (the tile hides the value rather than showing a guess).
+    var cpuTemperature: String? {
+        service.cpuTemperatureCelsius.map(Self.cpuTemperatureString)
+    }
+
+    /// System uptime for the CPU tile, e.g. "up 3d 4h".
+    var systemUptimeString: String { Self.uptimeString(service.systemUptime) }
+
+    // MARK: - Speed test
+
+    /// State of the on-demand connection speed test the network tile triggers.
+    enum SpeedTestState: Equatable {
+        case idle
+        case running
+        case result(downloadMbps: Double)
+        case failed
+    }
+
+    private(set) var speedTestState: SpeedTestState = .idle
+
+    /// Cloudflare's public download endpoint, used to measure real throughput.
+    private static let speedTestURL = URL(string: "https://speed.cloudflare.com/__down?bytes=10000000")!
+
+    /// Runs a real download speed test and publishes the result. Idempotent
+    /// while a test is in flight. Any failure (offline, non-2xx) resolves to
+    /// `.failed` so the tile can offer a retry rather than hang.
+    func runSpeedTest() async {
+        guard speedTestState != .running else { return }
+        speedTestState = .running
+        let start = Date()
+        do {
+            var request = URLRequest(url: Self.speedTestURL)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                speedTestState = .failed
+                return
+            }
+            let seconds = Date().timeIntervalSince(start)
+            speedTestState = .result(downloadMbps: Self.megabitsPerSecond(bytes: data.count, seconds: seconds))
+        } catch {
+            speedTestState = .failed
+        }
+    }
+
     /// Single string the `MenuBarExtra` label renders. The format lives on the
     /// view-model (rather than as a `Text("RAM: \(...) | Disk: \(...)")`
     /// interpolation in the App scene) so the truncation rules in
@@ -48,6 +136,11 @@ final class MenuBarViewModel {
     var menuBarLabelText: String {
         Self.menuBarLabel(ram: service.ramUsage, disk: service.diskSpace)
     }
+
+    /// A short reading shown beside the menu bar icon when the user opts in —
+    /// free disk space, the most glanceable single number, kept narrow so it is
+    /// far less prone to being hidden behind the notch than the full label.
+    var menuBarCompactReading: String { Self.availableDiskString(service.diskSpace) }
 
     // MARK: - Pure formatters
 
@@ -87,6 +180,131 @@ final class MenuBarViewModel {
     static func formattedBatteryHealth(_ availability: BatteryAvailability) -> String? {
         guard case .present(let stats) = availability else { return nil }
         return SystemStatsFormatters.batteryCapacityString(stats)
+    }
+
+    /// Free space on the boot volume, e.g. "434.3 GB" — the number the storage
+    /// tile leads with ("how much room is left?").
+    static func availableDiskString(_ stats: DiskStats) -> String {
+        let free = stats.totalBytes > stats.usedBytes ? stats.totalBytes - stats.usedBytes : 0
+        return SystemStatsFormatters.byteString(free)
+    }
+
+    /// Memory in use as a whole percentage, clamped to 0…100. `0%` for the
+    /// zero-total pre-first-refresh state rather than NaN.
+    static func memoryUsedPercentString(_ stats: MemoryStats) -> String {
+        guard stats.totalBytes > 0 else { return "0%" }
+        let ratio = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return "\(Int((max(0.0, min(1.0, ratio)) * 100).rounded()))%"
+    }
+
+    /// Current charge as a whole percentage, e.g. "100%".
+    static func batteryChargeString(_ charge: BatteryCharge) -> String {
+        "\(charge.percent)%"
+    }
+
+    /// Plain-language power state for the battery tile's subtitle.
+    static func batteryStateString(_ charge: BatteryCharge) -> String {
+        if charge.isCharging {
+            return String(localized: "Charging", comment: "Battery tile subtitle while charging.")
+        }
+        if charge.percent >= 100 && charge.isPluggedIn {
+            return String(localized: "Fully Charged", comment: "Battery tile subtitle when full and on AC.")
+        }
+        if charge.isPluggedIn {
+            return String(localized: "Plugged In", comment: "Battery tile subtitle on AC but not charging.")
+        }
+        return String(localized: "On Battery", comment: "Battery tile subtitle while discharging.")
+    }
+
+    /// Battery temperature rounded to a whole degree, e.g. "30°C".
+    static func batteryTemperatureString(_ celsius: Double) -> String {
+        "\(Int(celsius.rounded()))°C"
+    }
+
+    /// Formats a bytes-per-second rate for the network tile, e.g. "2 KB/s".
+    /// Zero traffic renders "0 KB/s" rather than `ByteCountFormatter`'s
+    /// locale-specific "Zero KB".
+    static func speedString(_ bytesPerSec: Double) -> String {
+        let bytes = max(0, bytesPerSec)
+        guard bytes >= 1 else { return "0 KB/s" }
+        let formatted = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        return "\(formatted)/s"
+    }
+
+    /// Download megabits-per-second from a payload size and elapsed seconds.
+    static func megabitsPerSecond(bytes: Int, seconds: Double) -> Double {
+        guard seconds > 0, bytes > 0 else { return 0 }
+        return (Double(bytes) * 8.0 / 1_000_000.0) / seconds
+    }
+
+    /// Formats a speed-test result, e.g. "82 Mbps".
+    static func speedTestResultString(_ mbps: Double) -> String {
+        String(format: "%.0f Mbps", mbps)
+    }
+
+    /// CPU temperature rounded to a whole degree, e.g. "50°C".
+    static func cpuTemperatureString(_ celsius: Double) -> String {
+        "\(Int(celsius.rounded()))°C"
+    }
+
+    // MARK: - Protection
+
+    /// Malware-protection status for the menu's Protection card.
+    enum ProtectionStatus: Equatable {
+        case protected
+        case threatsFound
+        case notScanned
+    }
+
+    /// Derives protection status from the malware scan state: threats outrank
+    /// everything; otherwise a Mac that has been scarred at least once reads as
+    /// protected, and one that never has reads as not-yet-scanned.
+    static func protectionStatus(hasThreats: Bool, hasScanned: Bool) -> ProtectionStatus {
+        if hasThreats { return .threatsFound }
+        return hasScanned ? .protected : .notScanned
+    }
+
+    /// Short status label for the Protection card.
+    static func protectionStatusLabel(_ status: ProtectionStatus) -> String {
+        switch status {
+        case .protected:
+            return String(localized: "Protected", comment: "Protection card status when the last scan was clean.")
+        case .threatsFound:
+            return String(localized: "Threats found", comment: "Protection card status when threats are present.")
+        case .notScanned:
+            return String(localized: "Not scanned", comment: "Protection card status when no scan has run yet.")
+        }
+    }
+
+    /// "Last scan 3 days ago" / "No scans yet" detail for the Protection card.
+    static func lastScanString(_ date: Date?) -> String {
+        guard let date else {
+            return String(localized: "No scans yet", comment: "Protection card detail when no scan has run.")
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        let relative = formatter.localizedString(for: date, relativeTo: Date())
+        let format = String(localized: "Last scan %@", comment: "Protection card detail; %@ is a relative date.")
+        return String(format: format, relative)
+    }
+
+    /// Compact uptime, e.g. "up 3d 4h", "up 4h 12m", or "up 8m". Drops to the
+    /// two most significant units so the CPU tile stays one short line.
+    static func uptimeString(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        let value: String
+        if days > 0 {
+            value = "\(days)d \(hours)h"
+        } else if hours > 0 {
+            value = "\(hours)h \(minutes)m"
+        } else {
+            value = "\(minutes)m"
+        }
+        let format = String(localized: "up %@", comment: "CPU tile uptime line; %@ is a duration like 3d 4h")
+        return String(format: format, value)
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the

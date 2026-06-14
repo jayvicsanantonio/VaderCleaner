@@ -308,61 +308,106 @@ final class HealthMonitorViewModelTests: XCTestCase {
         return DiskStats(usedBytes: UInt64(Double(total) * ratio), totalBytes: total)
     }
 
+    /// A healthy present battery — the common case that must never penalize.
+    private let goodBattery = BatteryAvailability.present(
+        BatteryStats(cycleCount: 100, maxCapacityPercent: 0.95, condition: "Normal")
+    )
+
     /// The very first service tick carries `DiskStats.empty` (zero total).
-    /// The hero must NOT resolve to a confident "Excellent" off zero data —
-    /// it returns `nil` so the view can render a neutral "Measuring…" state.
+    /// The hero must NOT resolve to a confident verdict off zero data — it
+    /// returns `nil` so the view can render a neutral "Measuring…" state.
     func test_macHealthStatus_isNilWhileDiskUnmeasured() {
-        XCTAssertNil(HealthMonitorViewModel.macHealthStatus(disk: .empty, signals: []))
+        XCTAssertNil(
+            HealthMonitorViewModel.macHealthStatus(disk: .empty, smart: .unknown, battery: .unknown)
+        )
     }
 
-    /// Disk fullness drives the base verdict when no other signal is alarming.
-    /// Pins each tier boundary so the ramp can't silently shift.
-    func test_macHealthStatus_diskDrivesBaseTier_whenSignalsHealthy() {
-        let healthy: [StatusColor] = [.green, .green, .green, .green, .green]
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: healthy), .excellent)
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.60), signals: healthy), .good)
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.75), signals: healthy), .fair)
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.88), signals: healthy), .requiresAttention)
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.97), signals: healthy), .critical)
-    }
-
-    /// Unknown / neutral signals (the startup state) must not penalize the
-    /// verdict — a `.gray` reading is "no opinion", not "bad".
-    func test_macHealthStatus_grayAndGreenSignalsDoNotPenalize() {
-        let neutral: [StatusColor] = [.gray, .gray, .green, .green, .gray]
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: neutral), .excellent)
-    }
-
-    /// A single yellow nudge drops the base verdict by one tier.
-    func test_macHealthStatus_yellowSignalNudgesDownOneTier() {
-        // good (disk 0.60) − 1 (one yellow) → fair
-        let signals: [StatusColor] = [.green, .yellow, .green, .green, .green]
-        XCTAssertEqual(HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.60), signals: signals), .fair)
-    }
-
-    /// A red signal (e.g. failing SMART) deliberately overrides the
-    /// disk-driven base: hardware-failure indicators outrank disk fullness.
-    /// One red on an otherwise-excellent (30%-full) disk drops two tiers to
-    /// Fair; two reds drive it to Critical even on an empty disk.
-    func test_macHealthStatus_redSignalsOverrideDiskBase() {
+    /// CleanMyMac-style optimism: with no problem on any tracked factor the
+    /// verdict is Excellent — including the common real-world case of a
+    /// partly-full disk and an unreadable battery condition (the exact inputs
+    /// that previously dragged the verdict down to "Fair").
+    func test_macHealthStatus_isExcellentWhenNoProblems() {
         XCTAssertEqual(
-            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: [.red]),
-            .fair
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.64), smart: .good, battery: goodBattery),
+            .excellent
+        )
+        let unknownBattery = BatteryAvailability.present(
+            BatteryStats(cycleCount: 222, maxCapacityPercent: 0.89, condition: "Unknown")
         )
         XCTAssertEqual(
-            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), signals: [.red, .red]),
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.64), smart: .unknown, battery: unknownBattery),
+            .excellent
+        )
+    }
+
+    /// Absent / unknown battery and unknown SMART are "no opinion", never a
+    /// problem.
+    func test_macHealthStatus_neutralSignalsDoNotPenalize() {
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), smart: .unknown, battery: .absent),
+            .excellent
+        )
+    }
+
+    /// A failing drive is the most serious problem and forces Critical even on
+    /// a near-empty disk with a healthy battery.
+    func test_macHealthStatus_failingSmartIsCritical() {
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.10), smart: .failing, battery: goodBattery),
             .critical
         )
     }
 
-    /// Nudges clamp at the worst tier — a near-full disk plus a red signal
-    /// can't underflow past `.critical`.
-    func test_macHealthStatus_nudgeClampsAtCritical() {
-        // requiresAttention (disk 0.88) − 2 (one red) → clamps to critical
+    /// A battery reporting a service condition demotes the verdict to Requires
+    /// Attention — CleanMyMac's "critical battery health" factor. Capacity fade
+    /// alone (a low percentage with a non-service condition) must not.
+    func test_macHealthStatus_serviceBatteryRequiresAttention() {
+        let service = BatteryAvailability.present(
+            BatteryStats(cycleCount: 1500, maxCapacityPercent: 0.60, condition: "Service Recommended")
+        )
         XCTAssertEqual(
-            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.88), signals: [.red]),
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.30), smart: .good, battery: service),
+            .requiresAttention
+        )
+    }
+
+    /// The verdict is the worst tier any factor produces — no compounding, no
+    /// double-counting.
+    func test_macHealthStatus_worstFactorWins() {
+        // Near-full disk (Fair) under a failing drive (Critical) → Critical.
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.92), smart: .failing, battery: goodBattery),
             .critical
         )
+        // Disk getting full (Good) plus a service battery (Requires Attention)
+        // → the battery problem dominates.
+        let service = BatteryAvailability.present(
+            BatteryStats(cycleCount: 1500, maxCapacityPercent: 0.60, condition: "Service Battery")
+        )
+        XCTAssertEqual(
+            HealthMonitorViewModel.macHealthStatus(disk: disk(ratio: 0.82), smart: .good, battery: service),
+            .requiresAttention
+        )
+    }
+
+    /// Low-disk-space ramp. Only a genuinely full disk is a problem; a
+    /// half-full disk is Excellent. Pins each bucket interior so the ramp can't
+    /// silently shift.
+    func test_diskSpaceTier_escalatesNearFull() {
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.64)), .excellent)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.85)), .good)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.92)), .fair)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.96)), .requiresAttention)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.99)), .critical)
+    }
+
+    /// Pin the inclusive-lower-bound semantics at each disk tier edge so a
+    /// future `<`/`<=` flip is caught.
+    func test_diskSpaceTier_atExactThresholds() {
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.80)), .good)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.90)), .fair)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.95)), .requiresAttention)
+        XCTAssertEqual(HealthMonitorViewModel.diskSpaceTier(for: disk(ratio: 0.98)), .critical)
     }
 
     /// The hero title and summary are user-facing strings; pin one tier so a

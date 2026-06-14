@@ -44,6 +44,15 @@ struct VaderCleanerApp: App {
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
     @State private var systemStats: SystemStatsService
+    // App-scope list of connected Bluetooth devices and ejectable volumes for
+    // the menu's Connected Devices tile. `autoRefresh: false` so it does NOT
+    // touch Bluetooth (a TCC-gated resource) during App.init — that runs before
+    // the app can present a permission prompt and would crash a menu-bar agent
+    // app at launch. The panel refreshes the list when the menu opens instead.
+    @State private var connectedDevices = ConnectedDevicesMonitor(autoRefresh: false)
+    // App-scope router so the menu bar panel can deep-link into a main-window
+    // section (and optionally start its scan). Shared by both scenes.
+    @State private var menuRouter = MenuRouter()
     // App-scope: subscribes to `systemStats` and pushes notifications via
     // `NotificationManager`. Held here so the Combine subscriptions live as
     // long as the app and so the per-kind cooldown table survives across
@@ -221,6 +230,7 @@ struct VaderCleanerApp: App {
                 .environment(exclusions)
                 .environment(systemStats)
                 .environment(notificationMonitor)
+                .environment(menuRouter)
         }
         // Hide the title bar so no section title is drawn beside the traffic
         // lights; the controls float over the section's gradient and each
@@ -274,16 +284,28 @@ struct VaderCleanerApp: App {
                 .environment(preferences)
                 .environment(exclusions)
                 .environment(systemStats)
+                .environment(connectedDevices)
+                .environment(malwareViewModel)
+                .environment(menuRouter)
         } label: {
-            // Compact label rendered into the system menu bar. The format
-            // (prefixes, separator, truncation rules) lives on
-            // `MenuBarViewModel.menuBarLabel(ram:disk:)` so a buggy upstream
-            // reading can't blow up label width — the view-model clamps each
-            // segment before formatting. `.monospacedDigit()` keeps numeric
-            // glyphs fixed-width so neighbouring menu bar items don't jitter
-            // as readings change every two seconds.
-            Text(menuBarViewModel.menuBarLabelText)
-                .monospacedDigit()
+            // A compact health-pulse glyph by default. A wide text label gets
+            // pushed into the area hidden behind the notch on a crowded menu bar
+            // and becomes invisible; the narrow icon stays reachable and matches
+            // how menu bar apps conventionally present themselves. Users who
+            // want a number can opt into a short free-disk reading beside it
+            // (Preferences → "Show free space in the menu bar"). The full
+            // readings live in the panel; the text stays the accessibility label.
+            if preferences.menuBarShowsReading {
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform.path.ecg")
+                    Text(menuBarViewModel.menuBarCompactReading)
+                        .monospacedDigit()
+                }
+                .accessibilityLabel(menuBarViewModel.menuBarLabelText)
+            } else {
+                Image(systemName: "waveform.path.ecg")
+                    .accessibilityLabel(menuBarViewModel.menuBarLabelText)
+            }
         }
         .menuBarExtraStyle(.window)
     }

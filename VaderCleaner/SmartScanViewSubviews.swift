@@ -138,7 +138,7 @@ private struct SmartScanMetricCard: View {
                         localized: "Review",
                         comment: "Per-card button on the Smart Scan dashboard that opens that tile's manager screen."
                     ), action: onReview)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.vaderProminent)
                         .accessibilityIdentifier(reviewIdentifier)
                         .opacity(isDeselected ? 0 : 1)
                         .allowsHitTesting(!isDeselected)

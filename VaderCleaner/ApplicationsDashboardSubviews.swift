@@ -386,7 +386,7 @@ struct ApplicationsCard: View {
             HStack {
                 Spacer()
                 Button(actionLabel, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.vaderProminent)
                     .accessibilityIdentifier(identifier)
             }
         }
@@ -476,7 +476,7 @@ struct InstallationFilesReviewView: View {
                 localized: "Move to Trash",
                 comment: "Button that moves the selected installation files to the Trash."
             ), action: onRemove)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canRemove)
                 .accessibilityIdentifier("applications.installationFiles.remove")
         }
@@ -665,7 +665,7 @@ struct UnsupportedAppsReviewView: View {
                 localized: "Move to Trash",
                 comment: "Button that moves the selected unsupported apps to the Trash."
             ), action: onRemove)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canRemove)
                 .accessibilityIdentifier("applications.unsupported.remove")
         }
@@ -841,7 +841,7 @@ struct UnusedAppsReviewView: View {
                 localized: "Move to Trash",
                 comment: "Button that moves the selected unused apps to the Trash."
             ), action: onRemove)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canRemove)
                 .accessibilityIdentifier("applications.unused.remove")
         }
@@ -1015,7 +1015,7 @@ struct AppLeftoversReviewView: View {
                 localized: "Move to Trash",
                 comment: "Button that moves the selected leftover files to the Trash."
             ), action: onRemove)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.vaderProminent)
                 .disabled(!canRemove)
                 .accessibilityIdentifier("applications.leftovers.remove")
         }
