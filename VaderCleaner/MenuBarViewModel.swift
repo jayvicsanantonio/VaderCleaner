@@ -82,6 +82,15 @@ final class MenuBarViewModel {
     /// the SSID is unavailable (not on Wi-Fi, or Location not yet authorized).
     var wifiNetworkName: String { service.wifiSSID ?? String(localized: "Wi-Fi") }
 
+    /// CPU temperature for the CPU tile, or `nil` when the SMC reports none on
+    /// this hardware (the tile hides the value rather than showing a guess).
+    var cpuTemperature: String? {
+        service.cpuTemperatureCelsius.map(Self.cpuTemperatureString)
+    }
+
+    /// System uptime for the CPU tile, e.g. "up 3d 4h".
+    var systemUptimeString: String { Self.uptimeString(service.systemUptime) }
+
     // MARK: - Speed test
 
     /// State of the on-demand connection speed test the network tile triggers.
@@ -226,6 +235,30 @@ final class MenuBarViewModel {
     /// Formats a speed-test result, e.g. "82 Mbps".
     static func speedTestResultString(_ mbps: Double) -> String {
         String(format: "%.0f Mbps", mbps)
+    }
+
+    /// CPU temperature rounded to a whole degree, e.g. "50°C".
+    static func cpuTemperatureString(_ celsius: Double) -> String {
+        "\(Int(celsius.rounded()))°C"
+    }
+
+    /// Compact uptime, e.g. "up 3d 4h", "up 4h 12m", or "up 8m". Drops to the
+    /// two most significant units so the CPU tile stays one short line.
+    static func uptimeString(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        let value: String
+        if days > 0 {
+            value = "\(days)d \(hours)h"
+        } else if hours > 0 {
+            value = "\(hours)h \(minutes)m"
+        } else {
+            value = "\(minutes)m"
+        }
+        let format = String(localized: "up %@", comment: "CPU tile uptime line; %@ is a duration like 3d 4h")
+        return String(format: format, value)
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the

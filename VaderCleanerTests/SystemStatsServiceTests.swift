@@ -331,6 +331,34 @@ final class SystemStatsServiceTests: XCTestCase {
         )
         XCTAssertEqual(rate, .zero)
     }
+
+    // MARK: - SMC temperature decoding
+
+    /// A FourCC packs four ASCII bytes big-endian.
+    func test_fourCharCode_packsBigEndian() {
+        XCTAssertEqual(SMCReader.fourCharCode("TC0P"), 0x54_43_30_50)
+    }
+
+    /// `sp78` is signed 7.8 fixed point: the integer part is the high byte.
+    func test_decodeTemperature_sp78() throws {
+        let bytes: [UInt8] = [0x1E, 0x00] // 30.0
+        let celsius = try XCTUnwrap(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("sp78"), bytes: bytes))
+        XCTAssertEqual(celsius, 30.0, accuracy: 0.01)
+    }
+
+    /// `flt ` is a little-endian IEEE float.
+    func test_decodeTemperature_float() throws {
+        var value: Float = 42.5
+        let bytes = withUnsafeBytes(of: &value) { Array($0) } // little-endian on arm64/x86_64
+        let celsius = try XCTUnwrap(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("flt "), bytes: bytes))
+        XCTAssertEqual(celsius, 42.5, accuracy: 0.01)
+    }
+
+    /// Unknown data types and short buffers decode to nil rather than garbage.
+    func test_decodeTemperature_rejectsUnknownTypeAndShortBuffer() {
+        XCTAssertNil(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("ui32"), bytes: [1, 2, 3, 4]))
+        XCTAssertNil(SMCReader.decodeTemperature(dataType: SMCReader.fourCharCode("sp78"), bytes: [0x1E]))
+    }
 }
 
 /// Reference-typed counter so the arming closure can mutate a shared count

@@ -157,9 +157,19 @@ struct MenuBarContent: View {
     private var cpuTile: some View {
         MenuTile(
             icon: "cpu",
-            title: String(localized: "CPU"),
-            primary: cpuLine
+            title: cpuTitle,
+            primary: cpuLine,
+            secondary: menuBar.systemUptimeString
         )
+    }
+
+    /// Title carries the temperature when the SMC reports one, e.g. "CPU · 50°C";
+    /// otherwise just "CPU".
+    private var cpuTitle: String {
+        if let temp = menuBar.cpuTemperature {
+            return "\(String(localized: "CPU")) · \(temp)"
+        }
+        return String(localized: "CPU")
     }
 
     private var cpuLine: String {

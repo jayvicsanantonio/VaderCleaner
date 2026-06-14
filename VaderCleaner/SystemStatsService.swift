@@ -210,6 +210,10 @@ final class SystemStatsService {
     /// Current Wi-Fi network name, or `nil` when not on Wi-Fi or Location
     /// Services has not authorized reading it (macOS 14+ gates the SSID).
     private(set) var wifiSSID: String?
+    /// Best-effort CPU temperature in °C from the SMC, or `nil` when no sensor
+    /// is readable on this hardware (SMC keys are chip-specific — `nil` is the
+    /// normal "unavailable" case, not an error).
+    private(set) var cpuTemperatureCelsius: Double?
 
     // MARK: Configuration
 
@@ -251,6 +255,10 @@ final class SystemStatsService {
     /// `nil` until the first sample, which seeds the baseline and reports zero.
     @ObservationIgnored private var previousNetworkCounters: NetworkCounters?
     @ObservationIgnored private var previousNetworkSampleTime: Date?
+
+    /// Best-effort SMC temperature reader. `nil` on hardware where the SMC
+    /// user client can't be opened; reads then simply report no temperature.
+    @ObservationIgnored private lazy var smcReader = SMCReader()
 
     /// Requests Location authorization (required to read the Wi-Fi SSID on
     /// macOS 14+) and re-reads the SSID promptly once it is granted.
@@ -343,7 +351,12 @@ final class SystemStatsService {
         batteryCharge = readBatteryCharge()
         networkThroughput = readNetworkThroughput()
         wifiSSID = readWiFiSSID()
+        cpuTemperatureCelsius = smcReader?.cpuTemperatureCelsius()
     }
+
+    /// Seconds since the system booted. Computed on read (cheap) rather than
+    /// polled — the menu's CPU tile reads it alongside the live stats.
+    var systemUptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     // MARK: CPU
 

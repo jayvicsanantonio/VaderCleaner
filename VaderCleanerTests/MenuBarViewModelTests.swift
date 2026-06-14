@@ -299,4 +299,17 @@ final class MenuBarViewModelTests: XCTestCase {
     func test_speedTestResultString_formatsMbps() {
         XCTAssertEqual(MenuBarViewModel.speedTestResultString(82.4), "82 Mbps")
     }
+
+    // MARK: - CPU temperature + uptime formatters
+
+    func test_cpuTemperatureString_roundsToWholeDegree() {
+        XCTAssertEqual(MenuBarViewModel.cpuTemperatureString(49.6), "50°C")
+    }
+
+    /// Uptime collapses to the two most significant units, by magnitude.
+    func test_uptimeString_picksTwoMostSignificantUnits() {
+        XCTAssertEqual(MenuBarViewModel.uptimeString(3 * 86_400 + 4 * 3_600 + 30 * 60), "up 3d 4h")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(4 * 3_600 + 12 * 60), "up 4h 12m")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(8 * 60 + 30), "up 8m")
+    }
 }
