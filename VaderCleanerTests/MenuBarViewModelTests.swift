@@ -214,4 +214,57 @@ final class MenuBarViewModelTests: XCTestCase {
             MenuBarViewModel.menuBarLabel(ram: service.ramUsage, disk: service.diskSpace)
         )
     }
+
+    // MARK: - Menu panel formatters
+
+    /// Available disk space is the free portion (total − used), formatted.
+    func test_availableDiskString_isFreePortion() {
+        let stats = DiskStats(usedBytes: 600_000_000_000, totalBytes: 1_000_000_000_000)
+        let formatted = MenuBarViewModel.availableDiskString(stats)
+        XCTAssertTrue(formatted.contains("400"), "Expected ~400 GB free, got \(formatted)")
+    }
+
+    /// Memory used percent is used/total, rounded and clamped.
+    func test_memoryUsedPercentString_isUsedOverTotal() {
+        let stats = MemoryStats(usedBytes: 8_000_000_000, totalBytes: 16_000_000_000)
+        XCTAssertEqual(MenuBarViewModel.memoryUsedPercentString(stats), "50%")
+    }
+
+    /// Zero-total memory (pre-first-refresh) renders 0%, not NaN.
+    func test_memoryUsedPercentString_handlesZeroTotal() {
+        XCTAssertEqual(MenuBarViewModel.memoryUsedPercentString(.empty), "0%")
+    }
+
+    /// Charge percent renders straight through.
+    func test_batteryChargeString_rendersPercent() {
+        let charge = BatteryCharge(percent: 100, isCharging: true, isPluggedIn: true,
+                                   timeRemainingMinutes: nil, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryChargeString(charge), "100%")
+    }
+
+    /// Power state copy covers charging, full-on-AC, plugged-not-charging, and
+    /// discharging.
+    func test_batteryStateString_coversPowerStates() {
+        let charging = BatteryCharge(percent: 80, isCharging: true, isPluggedIn: true,
+                                     timeRemainingMinutes: 30, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(charging), "Charging")
+
+        let full = BatteryCharge(percent: 100, isCharging: false, isPluggedIn: true,
+                                 timeRemainingMinutes: nil, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(full), "Fully Charged")
+
+        let plugged = BatteryCharge(percent: 90, isCharging: false, isPluggedIn: true,
+                                    timeRemainingMinutes: nil, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(plugged), "Plugged In")
+
+        let onBattery = BatteryCharge(percent: 64, isCharging: false, isPluggedIn: false,
+                                      timeRemainingMinutes: 120, temperatureCelsius: nil)
+        XCTAssertEqual(MenuBarViewModel.batteryStateString(onBattery), "On Battery")
+    }
+
+    /// Temperature rounds to a whole degree.
+    func test_batteryTemperatureString_roundsToWholeDegree() {
+        XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.4), "30°C")
+        XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.6), "31°C")
+    }
 }

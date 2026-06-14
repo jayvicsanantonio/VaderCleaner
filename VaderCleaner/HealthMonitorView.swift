@@ -447,9 +447,11 @@ private struct HealthRing: View {
     }
 }
 
-private extension MacHealthStatus {
+extension MacHealthStatus {
     /// Signature color per tier, matching the reference design's ramp from a
-    /// warm critical red through amber and teal to a confident blue.
+    /// warm critical red through amber and teal to a confident blue. Shared by
+    /// the Health Monitor hero and the menu bar panel so the verdict reads in
+    /// the same colour in both places.
     var accentColor: Color {
         switch self {
         case .critical:          return Color(red: 1.00, green: 0.45, blue: 0.38)

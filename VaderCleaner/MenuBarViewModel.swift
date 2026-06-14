@@ -30,6 +30,11 @@ final class MenuBarViewModel {
         self.service = service
     }
 
+    /// Boot-volume display name ("Macintosh HD"), resolved once — it never
+    /// changes for the life of the view-model and the storage tile shows it on
+    /// every render.
+    let bootVolumeName: String = HealthMonitorViewModel.rootVolumeName()
+
     // MARK: - Live-bound display values
 
     var formattedRAMUsage: String { Self.formattedRAMUsage(service.ramUsage) }
@@ -39,6 +44,33 @@ final class MenuBarViewModel {
     var ramPressureLevel: MemoryPressureLevel { service.ramUsage.pressureLevel }
     var ramPressureLabel: String { Self.pressureLabel(for: ramPressureLevel) }
     var ramPressureColor: StatusColor { Self.pressureColor(for: ramPressureLevel) }
+
+    // MARK: - Menu panel values
+
+    /// The Mac's name (e.g. "Jayvic's MacBook Pro"), shown under the Mac Health
+    /// verdict in the panel header. Falls back to "Mac" if the name is unset.
+    var deviceName: String { Host.current().localizedName ?? "Mac" }
+
+    /// Overall Mac Health verdict for the panel header, reusing the Health
+    /// Monitor's problem-based derivation so the menu and the main window never
+    /// disagree. `nil` while the boot volume is still being measured.
+    var macHealth: MacHealthStatus? {
+        HealthMonitorViewModel.macHealthStatus(
+            disk: service.diskSpace,
+            smart: service.diskSMARTStatus,
+            battery: service.batteryAvailability
+        )
+    }
+
+    /// Free space on the boot volume — the storage tile's headline number.
+    var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
+
+    /// Memory in use as a whole percentage — the memory tile's headline number.
+    var memoryUsedPercent: String { Self.memoryUsedPercentString(service.ramUsage) }
+
+    /// Live charge snapshot for the battery tile, or `nil` when there is no
+    /// internal battery.
+    var batteryCharge: BatteryCharge? { service.batteryCharge }
 
     /// Single string the `MenuBarExtra` label renders. The format lives on the
     /// view-model (rather than as a `Text("RAM: \(...) | Disk: \(...)")`
@@ -87,6 +119,45 @@ final class MenuBarViewModel {
     static func formattedBatteryHealth(_ availability: BatteryAvailability) -> String? {
         guard case .present(let stats) = availability else { return nil }
         return SystemStatsFormatters.batteryCapacityString(stats)
+    }
+
+    /// Free space on the boot volume, e.g. "434.3 GB" — the number the storage
+    /// tile leads with ("how much room is left?").
+    static func availableDiskString(_ stats: DiskStats) -> String {
+        let free = stats.totalBytes > stats.usedBytes ? stats.totalBytes - stats.usedBytes : 0
+        return SystemStatsFormatters.byteString(free)
+    }
+
+    /// Memory in use as a whole percentage, clamped to 0…100. `0%` for the
+    /// zero-total pre-first-refresh state rather than NaN.
+    static func memoryUsedPercentString(_ stats: MemoryStats) -> String {
+        guard stats.totalBytes > 0 else { return "0%" }
+        let ratio = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return "\(Int((max(0.0, min(1.0, ratio)) * 100).rounded()))%"
+    }
+
+    /// Current charge as a whole percentage, e.g. "100%".
+    static func batteryChargeString(_ charge: BatteryCharge) -> String {
+        "\(charge.percent)%"
+    }
+
+    /// Plain-language power state for the battery tile's subtitle.
+    static func batteryStateString(_ charge: BatteryCharge) -> String {
+        if charge.isCharging {
+            return String(localized: "Charging", comment: "Battery tile subtitle while charging.")
+        }
+        if charge.percent >= 100 && charge.isPluggedIn {
+            return String(localized: "Fully Charged", comment: "Battery tile subtitle when full and on AC.")
+        }
+        if charge.isPluggedIn {
+            return String(localized: "Plugged In", comment: "Battery tile subtitle on AC but not charging.")
+        }
+        return String(localized: "On Battery", comment: "Battery tile subtitle while discharging.")
+    }
+
+    /// Battery temperature rounded to a whole degree, e.g. "30°C".
+    static func batteryTemperatureString(_ celsius: Double) -> String {
+        "\(Int(celsius.rounded()))°C"
     }
 
     /// Human-readable label for a memory-pressure bucket. Matches the
