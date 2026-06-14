@@ -88,10 +88,12 @@ extension NavigationSection {
                 backdropBottom: Color(red: 0.09, green: 0.13, blue: 0.37)
             )
         case .healthMonitor:
+            // Vader identity: lightsaber crimson on a near-black, crimson-deep
+            // backdrop.
             return SectionTheme(
-                accent: Color(red: 0.30, green: 0.86, blue: 0.64),
-                backdropTop: Color(red: 0.03, green: 0.11, blue: 0.09),
-                backdropBottom: Color(red: 0.06, green: 0.27, blue: 0.20)
+                accent: .vaderCrimson,
+                backdropTop: Color(red: 0.10, green: 0.02, blue: 0.03),
+                backdropBottom: Color(red: 0.24, green: 0.04, blue: 0.07)
             )
         }
     }

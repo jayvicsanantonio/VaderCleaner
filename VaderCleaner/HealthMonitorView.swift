@@ -25,12 +25,10 @@ struct HealthMonitorView: View {
     /// stable shape while the right tiles absorb the remaining width.
     private let leftColumnWidth: CGFloat = 340
 
-    /// The overall Mac Health verdict's signature color (gray while measuring),
-    /// shared by every metric tile so the whole section reads in one accent that
-    /// tracks the hero — the same ramp the hero ring and title use.
-    private var verdictAccent: Color {
-        viewModel.macHealth?.accentColor ?? Color(white: 0.55)
-    }
+    /// The section's crimson accent, shared by every metric tile so the whole
+    /// section reads in one Vader-identity accent. The overall health signal is
+    /// carried by the hero's verdict ring and title, which stay semantic.
+    private let sectionAccent = NavigationSection.healthMonitor.theme.accent
 
     var body: some View {
         // The whole dashboard fills the detail pane without a scroll view: the
@@ -83,7 +81,7 @@ struct HealthMonitorView: View {
         HealthCard(
             icon: "battery.100",
             title: "Battery Health",
-            accent: verdictAccent,
+            accent: sectionAccent,
             info: "Battery condition and capacity relative to when it was new, plus lifetime charge cycles."
         ) {
             switch viewModel.batteryAvailability {
@@ -118,7 +116,7 @@ struct HealthMonitorView: View {
         HealthCard(
             icon: "internaldrive",
             title: "Disk Health",
-            accent: verdictAccent,
+            accent: sectionAccent,
             info: "The drive's SMART self-assessment. \"Good\" means the disk reports no predicted failures."
         ) {
             Text(viewModel.smartLabel)
@@ -135,14 +133,14 @@ struct HealthMonitorView: View {
         HealthCard(
             icon: "memorychip",
             title: "RAM Pressure",
-            accent: verdictAccent,
+            accent: sectionAccent,
             info: "Memory in use versus total, with the system's current memory-pressure level."
         ) {
             Text(viewModel.ramUsage)
                 .font(.title.weight(.semibold))
                 .accessibilityIdentifier("health.ram.usage")
             HStack(spacing: 8) {
-                PressureBadge(label: viewModel.ramPressureLabel, accent: verdictAccent)
+                PressureBadge(label: viewModel.ramPressureLabel, accent: sectionAccent)
                 Spacer()
             }
         }
@@ -153,7 +151,7 @@ struct HealthMonitorView: View {
         HealthCard(
             icon: "cpu",
             title: "CPU Load",
-            accent: verdictAccent,
+            accent: sectionAccent,
             info: "Share of processor capacity currently in use across all cores."
         ) {
             Text(viewModel.cpuPercent)
@@ -161,7 +159,7 @@ struct HealthMonitorView: View {
                 .accessibilityIdentifier("health.cpu.percent")
             ProgressView(value: viewModel.cpuRatio)
                 .progressViewStyle(.linear)
-                .tint(verdictAccent)
+                .tint(sectionAccent)
         }
         .accessibilityIdentifier("health.card.cpu")
     }
@@ -170,7 +168,7 @@ struct HealthMonitorView: View {
         HealthCard(
             icon: "externaldrive",
             title: "Disk Space",
-            accent: verdictAccent,
+            accent: sectionAccent,
             info: "How full the boot volume is. Reclaiming space keeps your Mac responsive."
         ) {
             Text(viewModel.diskUsage)
@@ -178,7 +176,7 @@ struct HealthMonitorView: View {
                 .accessibilityIdentifier("health.disk.usage")
             ProgressView(value: viewModel.diskRatio)
                 .progressViewStyle(.linear)
-                .tint(verdictAccent)
+                .tint(sectionAccent)
         }
         .accessibilityIdentifier("health.card.disk")
     }
@@ -192,11 +190,11 @@ struct HealthMonitorView: View {
         HStack(spacing: 14) {
             Image(systemName: viewModel.fileVaultIconName)
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(verdictAccent)
+                .foregroundStyle(sectionAccent)
                 .frame(width: 46, height: 46)
                 .background(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(verdictAccent.opacity(0.18))
+                        .fill(sectionAccent.opacity(0.18))
                 )
             VStack(alignment: .leading, spacing: 3) {
                 Text("Disk Encryption")
@@ -206,7 +204,7 @@ struct HealthMonitorView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            StatusDot(color: verdictAccent)
+            StatusDot(color: sectionAccent)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -345,7 +343,7 @@ private struct MacHealthHero: View {
             }
             ProgressView(value: diskRatio)
                 .progressViewStyle(.linear)
-                .tint(accent)
+                .tint(sectionAccent)
                 .accessibilityIdentifier("health.hero.diskbar")
         }
     }
@@ -356,7 +354,7 @@ private struct MacHealthHero: View {
             .font(.system(size: 44, weight: .light))
             .foregroundStyle(
                 LinearGradient(
-                    colors: [.white.opacity(0.95), accent.opacity(0.85)],
+                    colors: [.white.opacity(0.95), sectionAccent.opacity(0.9)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -364,16 +362,15 @@ private struct MacHealthHero: View {
             .accessibilityHidden(true)
     }
 
-    /// Rich emerald panel that keeps the hero in the section's green family while
-    /// reading as an elevated, special surface. A deeper, more saturated base
-    /// than the window backdrop, a section-green bloom behind the ring, and a
-    /// soft top sheen for a premium, glassy lift.
+    /// Near-black panel in the Vader identity that reads as an elevated, special
+    /// surface: a deep crimson-black base, a crimson bloom behind the ring, and
+    /// a soft top sheen for a premium, glassy lift.
     private var heroBackground: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.02, green: 0.14, blue: 0.11),
-                    Color(red: 0.05, green: 0.24, blue: 0.18)
+                    Color(red: 0.11, green: 0.03, blue: 0.04),
+                    Color(red: 0.05, green: 0.02, blue: 0.03)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
