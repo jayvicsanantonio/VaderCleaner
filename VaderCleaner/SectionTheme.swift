@@ -46,11 +46,14 @@ extension NavigationSection {
                 backdropBottom: Color(red: 0.06, green: 0.29, blue: 0.28)
             )
         case .spaceLens:
-            // Keyed to the indigo-violet Space Lens asset.
+            // Keyed to the indigo-violet Space Lens asset, brightened into a
+            // periwinkle: the accent doubles as the control tint (e.g. the
+            // active view-mode label), and the raw indigo was too dark to read
+            // on the backdrop. The gradient is lifted off near-black to match.
             return SectionTheme(
-                accent: Color(red: 0.38, green: 0.33, blue: 0.90),
-                backdropTop: Color(red: 0.04, green: 0.03, blue: 0.12),
-                backdropBottom: Color(red: 0.08, green: 0.06, blue: 0.29)
+                accent: Color(red: 0.52, green: 0.44, blue: 1.00),
+                backdropTop: Color(red: 0.05, green: 0.04, blue: 0.15),
+                backdropBottom: Color(red: 0.10, green: 0.08, blue: 0.34)
             )
         case .malwareRemoval:
             // Keyed to the magenta Protection octagon asset.
