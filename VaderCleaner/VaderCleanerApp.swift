@@ -44,6 +44,9 @@ struct VaderCleanerApp: App {
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
     @State private var systemStats: SystemStatsService
+    // App-scope list of connected Bluetooth devices and ejectable volumes for
+    // the menu's Connected Devices tile. Refreshed when the menu opens.
+    @State private var connectedDevices = ConnectedDevicesMonitor()
     // App-scope: subscribes to `systemStats` and pushes notifications via
     // `NotificationManager`. Held here so the Combine subscriptions live as
     // long as the app and so the per-kind cooldown table survives across
@@ -274,6 +277,7 @@ struct VaderCleanerApp: App {
                 .environment(preferences)
                 .environment(exclusions)
                 .environment(systemStats)
+                .environment(connectedDevices)
         } label: {
             // Compact label rendered into the system menu bar. The format
             // (prefixes, separator, truncation rules) lives on

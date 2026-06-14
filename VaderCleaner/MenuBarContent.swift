@@ -12,6 +12,7 @@ import AppKit
 struct MenuBarContent: View {
 
     @Environment(MenuBarViewModel.self) private var menuBar
+    @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
     @Environment(\.openWindow) private var openWindow
 
     private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
@@ -26,6 +27,7 @@ struct MenuBarContent: View {
                     batteryTile
                     cpuTile
                     networkTile
+                    connectedDevicesTile
                 }
                 recommendationCard
             }
@@ -35,6 +37,9 @@ struct MenuBarContent: View {
         }
         .frame(width: 380)
         .background(panelBackground)
+        // Refresh the device list each time the panel opens — devices change
+        // infrequently, so an on-open read beats a dedicated poll timer.
+        .task { connectedDevices.refresh() }
     }
 
     // MARK: - Header
@@ -218,6 +223,63 @@ struct MenuBarContent: View {
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
         .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    // MARK: - Connected devices tile
+
+    private var connectedDevicesTile: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "cable.connector")
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Text("Connected Devices")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            if connectedDevices.devices.isEmpty {
+                Text("None connected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(connectedDevices.devices.prefix(3)) { device in
+                    deviceRow(device)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    private func deviceRow(_ device: ConnectedDevice) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: device.kind == .bluetooth ? "dot.radiowaves.left.and.right" : "externaldrive")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(device.name)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if let battery = device.batteryPercent {
+                Text("\(battery)%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if device.kind == .volume {
+                Button {
+                    connectedDevices.eject(device)
+                } label: {
+                    Image(systemName: "eject.fill")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .help("Eject \(device.name)")
+            }
+        }
     }
 
     @ViewBuilder
