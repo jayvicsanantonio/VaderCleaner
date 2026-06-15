@@ -23,6 +23,31 @@ struct LargeOldFilesView: View {
     /// re-render of the same `.results` phase.
     @State private var notifiedForCurrentScan = false
 
+    /// What the user drilled into from the dashboard, or `nil` for the grid.
+    /// Held on the view (not the VM) because it is pure navigation state for the
+    /// results surface — the same place `ApplicationsView` keeps its `detail`
+    /// selection. Reset to the dashboard at the start of every scan.
+    @State private var reviewing: ReviewTarget?
+
+    /// A drill-down destination: the complete list, or one category's slice.
+    private enum ReviewTarget: Equatable {
+        case all
+        case category(LargeOldFilesCategory)
+
+        /// Title shown in the review screen's Back bar.
+        var title: String {
+            switch self {
+            case .all:
+                return String(
+                    localized: "All Files",
+                    comment: "Back-bar title for the complete, unfiltered Large & Old Files list."
+                )
+            case .category(let category):
+                return category.title
+            }
+        }
+    }
+
     init(viewModel: LargeOldFilesViewModel) {
         self.viewModel = viewModel
     }
@@ -69,8 +94,75 @@ struct LargeOldFilesView: View {
                 detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
             )
         case .results:
+            resultsContent
+        case .empty:
+            LargeOldFilesEmptyState(
+                onScanAgain: viewModel.scanAgain,
+                hasFullDiskAccess: appState.hasFullDiskAccess,
+                onRefreshAccess: { appState.refresh() }
+            )
+        case .failed(let stage, let message):
+            LargeOldFilesFailedState(stage: stage, message: message, onTryAgain: viewModel.scanAgain)
+        }
+    }
+
+    /// The results surface: the category dashboard, or one category's filtered
+    /// file list behind a Back bar. A category whose files were all deleted
+    /// falls back to the dashboard so the user is never stranded on an empty
+    /// review.
+    @ViewBuilder
+    private var resultsContent: some View {
+        if let target = reviewing, !files(for: target).isEmpty {
+            reviewScreen(for: target)
+        } else {
+            // No scroll view: the dashboard fills the detail pane and divides
+            // the available height between the hero and the tile grid, like the
+            // Health Monitor section.
+            LargeOldFilesDashboardView(
+                fileCount: viewModel.displayedFiles.count,
+                oldCount: viewModel.displayedOldCount,
+                totalBytes: viewModel.displayedTotalBytes,
+                tiles: viewModel.displayedTiles,
+                onReview: { reviewing = .category($0) },
+                onViewAll: { reviewing = .all },
+                onRescan: startScan
+            )
+        }
+    }
+
+    /// A drill-down's file list, reusing the shared results content (header +
+    /// list + footer) wrapped in a Back bar that returns to the dashboard.
+    private func reviewScreen(for target: ReviewTarget) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    reviewing = nil
+                } label: {
+                    // HStack(Image, Text) rather than Label so the control
+                    // surfaces reliably in XCUITest.
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text(String(
+                            localized: "Back",
+                            comment: "Back button returning from a Large & Old Files drill-down to the dashboard."
+                        ))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("large-old.backToDashboard")
+                Spacer()
+                Text(target.title)
+                    .font(.headline)
+                Spacer()
+                // Balances the leading Back button so the title stays centred.
+                Color.clear.frame(width: 44, height: 1)
+            }
+            .padding(16)
+            Divider()
             LargeOldFilesResultsContent(
-                files: viewModel.displayedFiles,
+                files: files(for: target),
+                oldCount: summary(for: target).oldCount,
+                totalBytes: summary(for: target).totalBytes,
                 sortOrder: $viewModel.sortOrder,
                 totalSelectedSize: viewModel.totalSelectedSize,
                 canDelete: !viewModel.selectedURLs.isEmpty,
@@ -83,14 +175,34 @@ struct LargeOldFilesView: View {
                 onDeleteFile: requestDeletionForSingle,
                 onAddToExclusions: { exclusions.add(path: $0.url.path) }
             )
-        case .empty:
-            LargeOldFilesEmptyState(
-                onScanAgain: viewModel.scanAgain,
-                hasFullDiskAccess: appState.hasFullDiskAccess,
-                onRefreshAccess: { appState.refresh() }
-            )
-        case .failed(let stage, let message):
-            LargeOldFilesFailedState(stage: stage, message: message, onTryAgain: viewModel.scanAgain)
+        }
+    }
+
+    /// The files for a drill-down. `.all` is the full result set; a category is
+    /// served straight from the view-model's precomputed tiles (already in the
+    /// active sort order) so the review never re-runs the grouping on a render
+    /// or selection toggle.
+    private func files(for target: ReviewTarget) -> [ScannedFile] {
+        switch target {
+        case .all:
+            return viewModel.displayedFiles
+        case .category(let category):
+            return viewModel.displayedTiles.first { $0.category == category }?.files ?? []
+        }
+    }
+
+    /// Precomputed header aggregates for a drill-down — the full-set summary for
+    /// `.all`, the tile's stored totals for a category — so the review header
+    /// never re-scans the files on render.
+    private func summary(for target: ReviewTarget) -> (oldCount: Int, totalBytes: Int64) {
+        switch target {
+        case .all:
+            return (viewModel.displayedOldCount, viewModel.displayedTotalBytes)
+        case .category(let category):
+            guard let tile = viewModel.displayedTiles.first(where: { $0.category == category }) else {
+                return (0, 0)
+            }
+            return (tile.oldCount, tile.totalBytes)
         }
     }
 
@@ -135,6 +247,9 @@ struct LargeOldFilesView: View {
         switch newPhase {
         case .scanning, .idle:
             notifiedForCurrentScan = false
+            // A fresh scan always lands back on the dashboard grid, never a
+            // stale drill-down from the previous run.
+            reviewing = nil
         case .results(let files) where !notifiedForCurrentScan && !files.isEmpty:
             notifiedForCurrentScan = true
             let total = files.reduce(Int64(0)) { $0 + $1.size }

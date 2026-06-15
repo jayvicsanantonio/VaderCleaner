@@ -218,6 +218,89 @@ final class LargeOldFilesViewModelTests: XCTestCase {
         XCTAssertEqual(vm.displayedFiles.map(\.url), [b.url])
     }
 
+    // MARK: - Dashboard tiles
+
+    /// A successful scan precomputes the dashboard tiles so the view never has
+    /// to re-run the grouping on a render — the fix for the post-scan beach
+    /// ball on large result sets.
+    func test_scan_populatesDisplayedTiles() async {
+        let files = [
+            makeFile(name: "clip.mov", size: 200, accessDaysAgo: 10, category: .largeFile),
+            makeFile(name: "report.pdf", size: 100, accessDaysAgo: 10, category: .largeFile)
+        ]
+        let vm = makeViewModel(scanner: { files })
+
+        await vm.scan()
+
+        XCTAssertTrue(vm.displayedTiles.contains { $0.category == .videos })
+        XCTAssertTrue(vm.displayedTiles.contains { $0.category == .other })
+    }
+
+    /// Deleting files refreshes the cached tiles so a category that loses all
+    /// its files drops off the dashboard.
+    func test_deleteSelected_refreshesDisplayedTiles() async {
+        let video = makeFile(name: "clip.mov", size: 200, accessDaysAgo: 10, category: .largeFile)
+        let doc = makeFile(name: "report.pdf", size: 100, accessDaysAgo: 10, category: .largeFile)
+        let vm = makeViewModel(scanner: { [video, doc] }, deleter: { Set($0) })
+        await vm.scan()
+        XCTAssertTrue(vm.displayedTiles.contains { $0.category == .videos })
+
+        vm.toggleSelection(video)
+        await vm.deleteSelected()
+
+        XCTAssertFalse(vm.displayedTiles.contains { $0.category == .videos },
+                       "The Videos tile must disappear once its only file is deleted")
+    }
+
+    /// Re-scanning clears the cached tiles so a stale dashboard never flashes
+    /// before the next results land.
+    func test_scanAgain_clearsDisplayedTiles() async {
+        let vm = makeViewModel(scanner: {
+            [self.makeFile(name: "clip.mov", size: 200, accessDaysAgo: 10, category: .largeFile)]
+        })
+        await vm.scan()
+        XCTAssertFalse(vm.displayedTiles.isEmpty)
+
+        vm.scanAgain()
+
+        XCTAssertTrue(vm.displayedTiles.isEmpty)
+    }
+
+    // MARK: - Precomputed summary
+
+    /// The full-set aggregates the dashboard/header read are computed once at
+    /// scan time, not derived from `displayedFiles` on every render — the fix
+    /// for the slow Back navigation.
+    func test_scan_precomputesDisplayedSummary() async {
+        let files = [
+            makeFile(name: "a.bin", size: 100, accessDaysAgo: 10, category: .largeFile),
+            makeFile(name: "b.bin", size: 250, accessDaysAgo: 400, category: .oldFile)
+        ]
+        let vm = makeViewModel(scanner: { files })
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.displayedTotalBytes, 350)
+        XCTAssertEqual(vm.displayedOldCount, 1)
+    }
+
+    /// Deleting files refreshes the precomputed aggregates so the header stays
+    /// truthful without re-scanning the survivors on render.
+    func test_delete_refreshesDisplayedSummary() async {
+        let old = makeFile(name: "old.bin", size: 250, accessDaysAgo: 400, category: .oldFile)
+        let large = makeFile(name: "big.bin", size: 100, accessDaysAgo: 10, category: .largeFile)
+        let vm = makeViewModel(scanner: { [old, large] }, deleter: { Set($0) })
+        await vm.scan()
+        XCTAssertEqual(vm.displayedTotalBytes, 350)
+        XCTAssertEqual(vm.displayedOldCount, 1)
+
+        vm.toggleSelection(old)
+        await vm.deleteSelected()
+
+        XCTAssertEqual(vm.displayedTotalBytes, 100)
+        XCTAssertEqual(vm.displayedOldCount, 0)
+    }
+
     // MARK: - Icon cache
 
     /// Files that share an extension should share one cached NSWorkspace

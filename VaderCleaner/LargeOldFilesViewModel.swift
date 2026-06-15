@@ -95,6 +95,24 @@ final class LargeOldFilesViewModel {
     /// through a phase-replacement.
     private(set) var displayedFiles: [ScannedFile] = []
 
+    /// The dashboard's category tiles, recomputed only when the file *set*
+    /// changes (scan completes, files deleted) — never on a sort change, since
+    /// tile membership is independent of order. Cached here rather than derived
+    /// in the view because the scan can return a very large set (every file
+    /// untouched for six months qualifies, not just the big ones), and
+    /// re-running the grouping on every SwiftUI body evaluation froze the
+    /// window with a beach ball.
+    private(set) var displayedTiles: [LargeOldFilesTile] = []
+
+    /// Summed size of the whole result set, computed once when the set changes.
+    /// The dashboard and "View All" header read this instead of reducing the
+    /// (potentially hundreds of thousands) `displayedFiles` on every render.
+    private(set) var displayedTotalBytes: Int64 = 0
+
+    /// How many of `displayedFiles` are tagged `.oldFile`, computed once when
+    /// the set changes — feeds the header's "N older than 6 months" line.
+    private(set) var displayedOldCount: Int = 0
+
     @ObservationIgnored private let scanner: Scanner
     @ObservationIgnored private let deleter: Deleter
 
@@ -192,6 +210,8 @@ final class LargeOldFilesViewModel {
         let actuallyDeleted = await deleter(urls)
         let survivors = displayedFiles.filter { !actuallyDeleted.contains($0.url) }
         displayedFiles = survivors
+        displayedTiles = LargeOldFilesCategorizer.tiles(from: survivors)
+        (displayedTotalBytes, displayedOldCount) = Self.summarize(survivors)
         // Drop the deleted URLs from the selection set, then recompute
         // `totalSelectedSize` from scratch. The incremental upkeep in
         // `toggleSelection` only handles user-driven add/remove — deletion
@@ -208,6 +228,9 @@ final class LargeOldFilesViewModel {
     /// "Scan Again" button on the empty / complete states.
     func scanAgain() {
         displayedFiles = []
+        displayedTiles = []
+        displayedTotalBytes = 0
+        displayedOldCount = 0
         selectedURLs = []
         totalSelectedSize = 0
         scannedItemCount = 0
@@ -222,12 +245,29 @@ final class LargeOldFilesViewModel {
     private func applyScanResult(_ files: [ScannedFile]) {
         if files.isEmpty {
             displayedFiles = []
+            displayedTiles = []
+            displayedTotalBytes = 0
+            displayedOldCount = 0
             phase = .empty
             return
         }
         let sorted = Self.sort(files, by: sortOrder)
         displayedFiles = sorted
+        displayedTiles = LargeOldFilesCategorizer.tiles(from: sorted)
+        (displayedTotalBytes, displayedOldCount) = Self.summarize(sorted)
         phase = .results(sorted)
+    }
+
+    /// One pass over a result set producing the aggregates the header needs, so
+    /// the view never reduces the (possibly huge) array on render.
+    private static func summarize(_ files: [ScannedFile]) -> (totalBytes: Int64, oldCount: Int) {
+        var bytes: Int64 = 0
+        var old = 0
+        for file in files {
+            bytes += file.size
+            if file.category == .oldFile { old += 1 }
+        }
+        return (bytes, old)
     }
 
     /// Re-sort the displayed list in place using the current `sortOrder`.
@@ -237,6 +277,13 @@ final class LargeOldFilesViewModel {
     private func recomputeDisplayedFiles() {
         guard !displayedFiles.isEmpty else { return }
         displayedFiles = Self.sort(displayedFiles, by: sortOrder)
+        // Reorder each tile's files to match — membership is unchanged by a
+        // sort, so only the order is refreshed, never the grouping. This keeps
+        // a drilled-in category list honouring the active sort without
+        // re-running the (potentially expensive) categorization.
+        displayedTiles = displayedTiles.map {
+            LargeOldFilesTile(category: $0.category, files: Self.sort($0.files, by: sortOrder))
+        }
         if case .results = phase {
             phase = .results(displayedFiles)
         }

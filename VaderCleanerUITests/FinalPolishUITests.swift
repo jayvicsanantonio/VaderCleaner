@@ -224,10 +224,12 @@ final class FinalPolishUITests: XCTestCase {
 
         // Prefer a terminal state; allow a generous window for the walk.
         // One combined query so an early empty/failed state short-circuits
-        // instead of blocking the full timeout waiting only for the table.
+        // instead of blocking the full timeout waiting only for the dashboard.
+        // A successful scan now lands on the category dashboard (`large-old.dashboard`),
+        // which drills into the file list — so the dashboard is the results terminal.
         let terminal = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'large-old.table', 'large-old.emptyTitle', 'large-old.errorMessage'}"
+                format: "identifier IN {'large-old.dashboard', 'large-old.emptyTitle', 'large-old.errorMessage'}"
             ))
             .firstMatch
         if terminal.waitForExistence(timeout: 120) {
@@ -239,7 +241,7 @@ final class FinalPolishUITests: XCTestCase {
         let scanning = app.descendants(matching: .any)["large-old.scanning"]
         XCTAssertTrue(
             scanning.exists,
-            "Expected Large & Old Files to reach the table, empty, failed, or scanning state after a scan"
+            "Expected Large & Old Files to reach the dashboard, empty, failed, or scanning state after a scan"
         )
     }
 
