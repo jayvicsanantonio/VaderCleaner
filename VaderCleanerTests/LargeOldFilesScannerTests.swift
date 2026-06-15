@@ -185,6 +185,48 @@ final class LargeOldFilesScannerTests: XCTestCase {
                        "Tiebreak: a file matching both criteria is reported as .largeFile")
     }
 
+    // MARK: - Virtual disk images
+
+    /// A sparse `Docker.raw` VM volume must be skipped: deleting it destroys
+    /// Docker's data, and its logical size is a phantom that would otherwise
+    /// dominate the whole scan. Gated by its container-store path so a real
+    /// camera `.raw` is unaffected.
+    func test_scan_excludesDockerRawVirtualDisk() async throws {
+        let dockerRaw = bigRecentFile(
+            "/Users/me/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw"
+        )
+        let files = try await scanEmitting([dockerRaw])
+        XCTAssertTrue(files.isEmpty, "A sparse Docker.raw VM disk must be skipped")
+    }
+
+    /// Unambiguous VM/container disk-image extensions are skipped regardless of
+    /// path — deleting them is destructive and their size is sparse.
+    func test_scan_excludesVirtualDiskExtensions() async throws {
+        let emitted = [
+            bigRecentFile("/Users/me/VMs/Ubuntu.utm"),
+            bigRecentFile("/Users/me/Backups/disk.sparsebundle"),
+            bigRecentFile("/Users/me/VMs/win.vmdk")
+        ]
+        let files = try await scanEmitting(emitted)
+        XCTAssertTrue(files.isEmpty, "Every VM/container disk image must be skipped, got \(files)")
+    }
+
+    /// A camera `.raw` photo outside any container/VM store is a legitimate
+    /// large file and must NOT be hidden.
+    func test_scan_keepsCameraRawOutsideVMPaths() async throws {
+        let photo = bigRecentFile("/Users/me/Pictures/Shoot/IMG_2401.raw")
+        let files = try await scanEmitting([photo])
+        XCTAssertEqual(files.count, 1, "A camera .raw outside a VM store must be surfaced")
+    }
+
+    /// Safe installer disk images (`.dmg`/`.iso`) are the legit purpose of the
+    /// Archives tile and stay in the results.
+    func test_scan_keepsInstallerDiskImages() async throws {
+        let dmg = bigRecentFile("/Users/me/Downloads/App.dmg")
+        let files = try await scanEmitting([dmg])
+        XCTAssertEqual(files.count, 1, "Installer .dmg downloads must be kept")
+    }
+
     // MARK: - Unknown access date
 
     /// Files whose `lastAccessDate` is `nil` cannot be classified by age and,
@@ -496,6 +538,30 @@ final class LargeOldFilesScannerTests: XCTestCase {
         values.contentModificationDate = date
         var mutable = url
         try mutable.setResourceValues(values)
+    }
+
+    /// A synthetic above-threshold, recently-accessed `ScannedFile` at `path`.
+    /// Recent + large means the only thing that can drop it is the virtual-disk
+    /// guard, so these fixtures isolate the exclusion from the size/age filter.
+    private func bigRecentFile(_ path: String) -> ScannedFile {
+        ScannedFile(
+            url: URL(fileURLWithPath: path),
+            size: LargeOldFilesScanner.sizeThresholdBytes + 1,
+            lastAccessDate: referenceNow.addingTimeInterval(-3_600),
+            lastModifiedDate: nil,
+            category: .largeFile
+        )
+    }
+
+    /// Runs the scanner over a `FakeFileScanner` emitting `emitted`, returning
+    /// the matched files.
+    private func scanEmitting(_ emitted: [ScannedFile]) async throws -> [ScannedFile] {
+        let scanner = LargeOldFilesScanner(
+            fileScanner: FakeFileScanner(emitted: emitted),
+            pathProvider: StubUserFilesPathProvider(roots: [tempRoot]),
+            now: { self.referenceNow }
+        )
+        return try await scanner.scan(excluding: [])
     }
 
     private func createSparseFile(at url: URL, size: Int64) throws {

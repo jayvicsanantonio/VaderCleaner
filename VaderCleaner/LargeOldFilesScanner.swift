@@ -22,6 +22,38 @@ struct LargeOldFilesScanner {
     /// the constant is unit-clear at the call site.
     static let ageThresholdSeconds: TimeInterval = 60 * 60 * 24 * 30 * 6
 
+    /// Extensions for app-managed virtual disks and VM/container volumes. The
+    /// scan skips these for two reasons: deleting one destroys the owning app's
+    /// data (Docker images, virtual machines, disk-image backups), so it is not
+    /// "reclaimable junk"; and they are sparse, so their logical size wildly
+    /// overstates what they actually occupy on disk (a 2 TB `Docker.raw` may
+    /// use a fraction of that). `.raw` is handled separately because a bare
+    /// `.raw` can also be a camera photo.
+    static let virtualDiskExtensions: Set<String> = [
+        "utm", "vmdk", "qcow2", "qcow", "vdi", "vhd", "vhdx", "hds",
+        "pvm", "vbox", "vmwarevm", "sparsebundle", "sparseimage"
+    ]
+
+    /// Path fragments that mark a container/VM data store. Used to gate the
+    /// ambiguous `.raw` extension: a Docker VM volume lives at
+    /// `…/com.docker.docker/Data/vms/0/data/Docker.raw`, whereas a camera
+    /// `.raw` photo lives under Pictures and must not be hidden.
+    private static let virtualDiskPathMarkers: [String] = [
+        "/vms/", "com.docker", "/.docker/", "colima", "orbstack", "/lima/", "podman"
+    ]
+
+    /// Whether `url` is an app-managed virtual disk image the scan should skip.
+    /// Unambiguous VM/disk-image extensions always match; the catch-all `.raw`
+    /// matches only inside a known container/VM store so genuine camera RAW
+    /// photos are still surfaced.
+    static func isVirtualDiskImage(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if virtualDiskExtensions.contains(ext) { return true }
+        guard ext == "raw" else { return false }
+        let path = url.path.lowercased()
+        return virtualDiskPathMarkers.contains { path.contains($0) }
+    }
+
     private let fileScanner: FileScanning
     private let pathProvider: UserFilesPathProviding
     private let now: () -> Date
@@ -112,6 +144,11 @@ struct LargeOldFilesScanner {
     /// threshold. This avoids a stale-volume backup folder showing every
     /// 4-byte file as "ancient" just because its access date is missing.
     private static func classify(_ file: ScannedFile, cutoff: Date) -> ScannedFile? {
+        // Skip app-managed virtual disks (Docker.raw, *.utm, *.sparsebundle, …)
+        // before any size/age check: deleting them is destructive, and their
+        // sparse logical size would otherwise dominate the results with a
+        // phantom multi-terabyte entry.
+        if isVirtualDiskImage(file.url) { return nil }
         let isLarge = file.size > sizeThresholdBytes
         let isOld: Bool = {
             guard let lastAccess = file.lastAccessDate else { return false }
