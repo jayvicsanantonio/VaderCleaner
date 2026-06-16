@@ -19,15 +19,18 @@ struct ApplicationsDashboardView: View {
     let onRescan: () -> Void
 
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 16) {
             header
-            if result.recommendations.isEmpty {
-                allClear
-            } else {
-                cardLayout
+            Group {
+                if result.recommendations.isEmpty {
+                    allClear
+                } else {
+                    cardLayout
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("applications.dashboard")
     }
 
@@ -38,6 +41,10 @@ struct ApplicationsDashboardView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("applications.installedCount")
+            Text(recommendationCountText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
 
             HStack(spacing: 12) {
                 Button(action: onOpenManage) {
@@ -51,7 +58,7 @@ struct ApplicationsDashboardView: View {
 
                 Button(action: onRescan) {
                     Text(String(
-                        localized: "Rescan",
+                        localized: "Re-scan",
                         comment: "Button that re-runs the Applications scan."
                     ))
                 }
@@ -110,26 +117,49 @@ struct ApplicationsDashboardView: View {
         result.recommendations.map(spec(for:))
     }
 
-    /// The card layout, mirroring the Optimization dashboard exactly so the two
-    /// share one look and identical tile widths: the first recommendation is a
-    /// tall hero card capped at 320pt on the left, and the rest flow through an
-    /// adaptive `LazyVGrid` whose columns match Optimization's (minimum 260pt,
-    /// 16pt gaps).
+    /// Applications' own layout: the top recommendation is a full-width hero
+    /// banner, and the rest divide the space beneath in equal-height rows of
+    /// two. Bounded so the dashboard fills the pane without scrolling.
+    @ViewBuilder
     private var cardLayout: some View {
-        HStack(alignment: .top, spacing: 16) {
+        if recommendationSpecs.count <= 1 {
             if let hero = recommendationSpecs.first {
                 card(hero, isHero: true)
-                    .frame(maxWidth: 320)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
-                alignment: .leading,
-                spacing: 16
-            ) {
-                ForEach(recommendationSpecs.dropFirst()) { spec in
-                    card(spec, isHero: false)
+        } else {
+            VStack(spacing: 16) {
+                card(recommendationSpecs[0], isHero: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                tileRows(Array(recommendationSpecs.dropFirst()))
+            }
+        }
+    }
+
+    /// The non-hero recommendations in equal-height rows of two, grouped in a
+    /// `GlassEffectContainer` so neighbouring glass cards refract together.
+    private func tileRows(_ specs: [CardSpec]) -> some View {
+        GlassEffectContainer(spacing: 16) {
+            VStack(spacing: 16) {
+                ForEach(Array(rows(of: specs).enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 16) {
+                        ForEach(row) { spec in
+                            card(spec, isHero: false)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
                 }
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Chunks the non-hero specs into rows of at most two so the band beneath the
+    /// hero banner fills the remaining height.
+    private func rows(of specs: [CardSpec]) -> [[CardSpec]] {
+        stride(from: 0, to: specs.count, by: 2).map {
+            Array(specs[$0..<min($0 + 2, specs.count)])
         }
     }
 
@@ -181,6 +211,14 @@ struct ApplicationsDashboardView: View {
             comment: "Applications dashboard headline; %lld is the installed-app count."
         )
         return String.localizedStringWithFormat(format, Int64(result.installedCount))
+    }
+
+    private var recommendationCountText: String {
+        let format = String(
+            localized: "%lld recommendations to review.",
+            comment: "Applications dashboard subtitle; %lld is the number of cleanup recommendations."
+        )
+        return String.localizedStringWithFormat(format, Int64(result.recommendations.count))
     }
 
     private var updateLabel: String {

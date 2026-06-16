@@ -157,19 +157,17 @@ struct OptimizationView: View {
             )
         } else {
             VStack(spacing: 0) {
-                ScrollView {
-                    OptimizationDashboardView(
-                        recommendations: viewModel.recommendations,
-                        completedKinds: viewModel.completedRecommendations,
-                        onAction: handleRecommendation,
-                        onViewAllTasks: {
-                            catalogPane = .maintenanceTasks
-                            showAllTasks = true
-                        }
-                    )
-                    .padding(24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                OptimizationDashboardView(
+                    recommendations: viewModel.recommendations,
+                    completedKinds: viewModel.completedRecommendations,
+                    onAction: handleRecommendation,
+                    onViewAllTasks: {
+                        catalogPane = .maintenanceTasks
+                        showAllTasks = true
+                    }
+                )
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 HStack {
                     Spacer()

@@ -85,23 +85,21 @@ struct ApplicationsView: View {
     private func resultsContent(_ result: ApplicationsScanResult) -> some View {
         switch detail {
         case .dashboard:
-            // Mirrors the Optimization dashboard host: a scrolling hero +
-            // adaptive card grid, so the two dashboards share one look and the
-            // tiles share one width.
-            ScrollView {
-                ApplicationsDashboardView(
-                    result: result,
-                    onOpenManage: { detail = .manage(.uninstaller) },
-                    onOpenInstallationFiles: { detail = .installationFiles },
-                    onOpenUnsupported: { detail = .unsupported },
-                    onOpenUnused: { detail = .unused },
-                    onOpenUpdates: { detail = .manage(.updater) },
-                    onOpenLeftovers: { detail = .leftovers },
-                    onRescan: { Task { await viewModel.scan() } }
-                )
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            // The dashboard divides the pane height into a hero banner and a
+            // grid of equal-height tiles, so it fills the detail area without a
+            // scroll view.
+            ApplicationsDashboardView(
+                result: result,
+                onOpenManage: { detail = .manage(.uninstaller) },
+                onOpenInstallationFiles: { detail = .installationFiles },
+                onOpenUnsupported: { detail = .unsupported },
+                onOpenUnused: { detail = .unused },
+                onOpenUpdates: { detail = .manage(.updater) },
+                onOpenLeftovers: { detail = .leftovers },
+                onRescan: { Task { await viewModel.scan() } }
+            )
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .manage(let pane):
             // Full multi-pane manager (Uninstaller / Updater / Leftovers),
             // styled like the Optimization "View All Tasks" catalog — it owns

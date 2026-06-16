@@ -218,7 +218,7 @@ struct HealthMonitorView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("health.filevault")
     }
@@ -303,13 +303,13 @@ private struct MacHealthHero: View {
             }
         }
         .padding(24)
-        .frame(maxWidth: .infinity, minHeight: 300, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
         .background(heroBackground)
-        .clipShape(.rect(cornerRadius: 20))
+        .clipShape(.rect(cornerRadius: 12))
         // A hairline accent border and a soft green lift set the hero apart
         // from the flat glass tiles without leaving the section's palette.
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(sectionAccent.opacity(0.30), lineWidth: 1)
         )
         .shadow(color: sectionAccent.opacity(0.20), radius: 20, y: 8)
@@ -506,7 +506,7 @@ private struct HealthCard<Content: View>: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
     /// Prominent rounded icon tile in the shared verdict accent, echoing the

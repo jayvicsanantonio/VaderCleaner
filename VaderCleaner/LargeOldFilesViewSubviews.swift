@@ -207,11 +207,12 @@ struct LargeOldFilesResultsContent: View {
 }
 
 /// Post-scan landing surface for Large & Old Files: a summary header and a grid
-/// of category tiles. Modelled on the Health Monitor dashboard — the whole
-/// surface fills the detail pane without a scroll view: the heaviest category is
-/// a tall hero in a fixed-width left column, and the remaining tiles divide the
-/// right column's height into equal rows so the grid never overflows. Each
-/// tile's Review button drills into that category's filtered file list.
+/// of category tiles. Its layout is unique to this section — the heaviest
+/// category is a full-width hero across the top row, and the remaining tiles sit
+/// in equal-height rows of two beneath it, every row sharing the pane height.
+/// The whole surface divides the detail pane's height without a scroll view, so
+/// the grid never overflows. Each tile's Review button drills into that
+/// category's filtered file list.
 struct LargeOldFilesDashboardView: View {
     /// All precomputed by the view-model when the file set changes — never
     /// derived here, so a huge scan doesn't re-scan the files on every render.
@@ -225,17 +226,13 @@ struct LargeOldFilesDashboardView: View {
     let onViewAll: () -> Void
     let onRescan: () -> Void
 
-    /// Fixed width of the hero column so it keeps a stable shape while the right
-    /// tiles absorb the remaining width — mirrors `HealthMonitorView`.
-    private let leftColumnWidth: CGFloat = 340
-
     var body: some View {
         VStack(spacing: 16) {
             header
             cardLayout
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(20)
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("large-old.dashboard")
     }
@@ -277,12 +274,12 @@ struct LargeOldFilesDashboardView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The Health Monitor layout: a tall hero in the left column with a shorter
-    /// secondary card tucked beneath it, and the remaining tiles dividing the
-    /// right column into equal-height rows of two. Mixing the tall hero, the
-    /// compact left card, and the right grid keeps the tiles from all sharing
-    /// one size. Lower tile counts degrade gracefully so the pane never shows an
-    /// orphaned hero beside empty space.
+    /// Large & Old Files' own layout — distinct from every other section: the
+    /// heaviest category is a full-width hero across the top row, and the
+    /// remaining categories sit in equal-height rows of two beneath it. The hero
+    /// and every row take an *equal* share of the pane height, so no card is
+    /// stretched into a tall, near-empty banner, and the whole surface divides
+    /// the pane height without scrolling. A lone hero simply fills the pane.
     @ViewBuilder
     private var cardLayout: some View {
         switch tiles.count {
@@ -291,78 +288,32 @@ struct LargeOldFilesDashboardView: View {
         case 1:
             card(tiles[0], isHero: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case 2:
-            HStack(alignment: .top, spacing: 16) {
-                card(tiles[0], isHero: true)
-                    .frame(width: leftColumnWidth)
-                    .frame(maxHeight: .infinity)
-                card(tiles[1], isHero: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
         default:
-            HStack(alignment: .top, spacing: 16) {
-                leftColumn
-                rightGrid(gridTiles)
-            }
-        }
-    }
-
-    /// The hero plus the compact secondary card. The hero stretches to fill the
-    /// column height while the secondary keeps its natural (shorter) height, so
-    /// the two read as clearly different sizes — the Health Monitor hero +
-    /// `fileVaultCard` stack.
-    private var leftColumn: some View {
-        VStack(spacing: 16) {
-            card(tiles[0], isHero: true)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let secondaryTile {
-                card(secondaryTile, isHero: false)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .frame(width: leftColumnWidth)
-    }
-
-    /// The non-hero tiles, excluding the one promoted to the compact left card.
-    private var nonHeroTiles: [LargeOldFilesTile] { Array(tiles.dropFirst()) }
-
-    /// The smallest non-hero category by reclaimable size becomes the compact
-    /// card under the hero — a small tile for a small bucket.
-    private var secondaryTile: LargeOldFilesTile? {
-        nonHeroTiles.min { $0.totalBytes < $1.totalBytes }
-    }
-
-    /// What flows through the right grid: every non-hero tile except the one
-    /// shown as the compact left card.
-    private var gridTiles: [LargeOldFilesTile] {
-        nonHeroTiles.filter { $0.id != secondaryTile?.id }
-    }
-
-    /// The non-hero tiles in equal-height rows of two. Grouped in a
-    /// `GlassEffectContainer` so adjacent glass cards sample each other and
-    /// refract consistently, exactly as the Health Monitor metric grid does.
-    private func rightGrid(_ gridTiles: [LargeOldFilesTile]) -> some View {
-        GlassEffectContainer(spacing: 16) {
-            VStack(spacing: 16) {
-                ForEach(Array(rows(of: gridTiles).enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: 16) {
-                        ForEach(row) { tile in
-                            card(tile, isHero: false)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            GlassEffectContainer(spacing: 16) {
+                VStack(spacing: 16) {
+                    card(tiles[0], isHero: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ForEach(Array(rows(of: Array(tiles.dropFirst())).enumerated()), id: \.offset) { _, row in
+                        HStack(spacing: 16) {
+                            ForEach(row) { tile in
+                                card(tile, isHero: false)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
+                        .frame(maxHeight: .infinity)
                     }
-                    .frame(maxHeight: .infinity)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Chunks the grid tiles into rows of at most two so the right column reads
-    /// as a two-up grid that fills the height.
-    private func rows(of gridTiles: [LargeOldFilesTile]) -> [[LargeOldFilesTile]] {
-        stride(from: 0, to: gridTiles.count, by: 2).map {
-            Array(gridTiles[$0..<min($0 + 2, gridTiles.count)])
+    /// Chunks the non-hero tiles into rows of at most two so the categories
+    /// beneath the hero read as a balanced two-up grid — four categories form a
+    /// clean 2×2 rather than leaving a single tile stretched across a full row.
+    private func rows(of stripTiles: [LargeOldFilesTile]) -> [[LargeOldFilesTile]] {
+        stride(from: 0, to: stripTiles.count, by: 2).map {
+            Array(stripTiles[$0..<min($0 + 2, stripTiles.count)])
         }
     }
 

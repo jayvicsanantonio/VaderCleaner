@@ -23,16 +23,23 @@ struct OptimizationDashboardView: View {
         recommendations.filter { !$0.isHero }
     }
 
+    /// Fixed width of the left-hand hero column so it keeps a stable shape while
+    /// the right tiles absorb the remaining width.
+    private let heroColumnWidth: CGFloat = 340
+
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 16) {
             header
-            if recommendations.isEmpty {
-                emptyState
-            } else {
-                cardLayout
+            Group {
+                if recommendations.isEmpty {
+                    emptyState
+                } else {
+                    cardLayout
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("optimization.dashboard")
     }
 
@@ -57,30 +64,50 @@ struct OptimizationDashboardView: View {
         }
     }
 
+    /// Optimization's own layout: the hero recommendation is a tall card pinned
+    /// to the left, and the remaining recommendations stack as full-width cards
+    /// down the right, each dividing the column height. Bounded so the dashboard
+    /// fills the pane without scrolling, and the wide right cards keep their copy
+    /// from wrapping the way narrow columns force it to.
+    @ViewBuilder
     private var cardLayout: some View {
-        HStack(alignment: .top, spacing: 16) {
+        if standardCards.isEmpty {
             if let hero {
-                PerformanceRecommendationCard(
-                    recommendation: hero,
-                    isCompleted: completedKinds.contains(hero.kind)
-                ) { onAction(hero) }
-                    .frame(maxWidth: 320)
+                recommendationCard(hero)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
-                alignment: .leading,
-                spacing: 16
-            ) {
-                ForEach(standardCards) { recommendation in
-                    PerformanceRecommendationCard(
-                        recommendation: recommendation,
-                        isCompleted: completedKinds.contains(recommendation.kind)
-                    ) {
-                        onAction(recommendation)
-                    }
+        } else {
+            HStack(alignment: .top, spacing: 16) {
+                if let hero {
+                    recommendationCard(hero)
+                        .frame(width: heroColumnWidth)
+                        .frame(maxHeight: .infinity)
+                }
+                rightStack
+            }
+        }
+    }
+
+    private func recommendationCard(_ recommendation: PerformanceRecommendation) -> some View {
+        PerformanceRecommendationCard(
+            recommendation: recommendation,
+            isCompleted: completedKinds.contains(recommendation.kind)
+        ) { onAction(recommendation) }
+    }
+
+    /// The non-hero recommendations as full-width cards stacked down the right,
+    /// each taking an equal share of the column height. Grouped in a
+    /// `GlassEffectContainer` so neighbouring glass cards refract together.
+    private var rightStack: some View {
+        GlassEffectContainer(spacing: 16) {
+            VStack(spacing: 16) {
+                ForEach(standardCards) { rec in
+                    recommendationCard(rec)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {

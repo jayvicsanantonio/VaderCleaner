@@ -111,22 +111,21 @@ struct PrivacyView: View {
     private var previewContent: some View {
         switch previewDetail {
         case .dashboard:
-            // Mirrors the Applications dashboard host: a scrolling hero +
-            // adaptive card grid, so the two share one look.
-            ScrollView {
-                PrivacyDashboardView(
-                    browserCount: viewModel.detectedBrowsers.count,
-                    totalFoundSize: viewModel.totalFoundSize,
-                    categories: viewModel.dashboardCategories(),
-                    categorySize: { viewModel.size(forCategory: $0) },
-                    onReviewCategory: { openCatalog(on: .category($0)) },
-                    onReviewSystem: { openCatalog(on: .system) },
-                    onViewAllData: { openCatalog(on: .category(.history)) },
-                    onRescan: viewModel.scanAgain
-                )
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            // The dashboard divides the pane height into a hero column and a
+            // grid of equal-height tiles, so it fills the detail area without a
+            // scroll view.
+            PrivacyDashboardView(
+                browserCount: viewModel.detectedBrowsers.count,
+                totalFoundSize: viewModel.totalFoundSize,
+                categories: viewModel.dashboardCategories(),
+                categorySize: { viewModel.size(forCategory: $0) },
+                onReviewCategory: { openCatalog(on: .category($0)) },
+                onReviewSystem: { openCatalog(on: .system) },
+                onViewAllData: { openCatalog(on: .category(.history)) },
+                onRescan: viewModel.scanAgain
+            )
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .catalog:
             PrivacyDataCatalogView(
                 pane: $catalogPane,
