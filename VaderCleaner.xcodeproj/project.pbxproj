@@ -249,6 +249,7 @@
 		DC099BEFD567C81EAA36519E /* ClamAVScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B32284509BF497C570E2FA /* ClamAVScannerTests.swift */; };
 		DD92247860ECAD88096590A9 /* DefaultSystemPathProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC956EC0DA96B13BC471FE24 /* DefaultSystemPathProviderTests.swift */; };
 		DD929B8195C7904CB4AC2E62 /* OptimizationViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1077EED505B80270E2E406A /* OptimizationViewSubviews.swift */; };
+		DE57DC92B2179CB856E0D558 /* ScanProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3BFBAF09EA79BE34F2ABCF /* ScanProgressIndicator.swift */; };
 		DFEDB8DF51CD2BA1732D3897 /* PrivacyDashboardSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867EACDA1946DCE20BAD163A /* PrivacyDashboardSubviews.swift */; };
 		E0420FF267A637AD7F530407 /* ExtensionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B8D75FB7A02DE3D470F0C4 /* ExtensionDiscovery.swift */; };
 		E2B25912B9BA5745454E137F /* SystemJunkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0A3D2497CF28388945BB57 /* SystemJunkUITests.swift */; };
@@ -618,6 +619,7 @@
 		FD357ABDE3B8870727141BD5 /* LaunchAgentManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentManagerTests.swift; sourceTree = "<group>"; };
 		FE6697CA6EEE719B2E2D46CE /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		FF079C62CE2E7C5C9B2B7C2C /* HealthMonitorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMonitorViewModel.swift; sourceTree = "<group>"; };
+		FF3BFBAF09EA79BE34F2ABCF /* ScanProgressIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanProgressIndicator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -784,6 +786,7 @@
 				374A11FF89347AF05A14498B /* ScannableSectionContent.swift */,
 				B0B017EBC3CA11CE939B3362 /* ScannedFile.swift */,
 				14A3AE9EED81844B80CF3A1A /* ScanProgressFormatting.swift */,
+				FF3BFBAF09EA79BE34F2ABCF /* ScanProgressIndicator.swift */,
 				92759EA8E508BD5B87FCAAD6 /* ScanResult.swift */,
 				9EFF573646C7B3E43AD2A96E /* SectionIntroView.swift */,
 				2FA0DB8537E6A360F24AB03E /* SectionPresentation.swift */,
@@ -1432,6 +1435,7 @@
 				BA47B242AAAE6EAD08CC7D23 /* ScanDiscWindowController.swift in Sources */,
 				4ED4E093FE7E2ADB381708F4 /* ScanDiscWindowFrame.swift in Sources */,
 				45825BEE32AC83FC8B685E28 /* ScanProgressFormatting.swift in Sources */,
+				DE57DC92B2179CB856E0D558 /* ScanProgressIndicator.swift in Sources */,
 				8340A2D44E8B2BCD2500B867 /* ScanResult.swift in Sources */,
 				80111FB2EC8ED204B993FC21 /* ScannableSectionContent.swift in Sources */,
 				494DBF4AEF6D8730DF44147E /* ScannedFile.swift in Sources */,

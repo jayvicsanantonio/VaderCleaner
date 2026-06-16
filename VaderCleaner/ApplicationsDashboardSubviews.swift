@@ -1158,8 +1158,7 @@ private struct LeftoverRow: View {
 struct ApplicationsProgressState: View {
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
+            ScanProgressIndicator()
             Text(String(
                 localized: "Scanning your applications…",
                 comment: "Progress label shown while the Applications scan runs."

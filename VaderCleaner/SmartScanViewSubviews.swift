@@ -14,8 +14,7 @@ struct SmartScanProgressState: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
+            ScanProgressIndicator()
             Text(label)
                 .font(.callout)
                 .foregroundStyle(.secondary)

@@ -102,8 +102,7 @@ struct SpaceLensView: View {
     // misreport completion on a volume larger than the estimate.
     private var scanningState: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
+            ScanProgressIndicator()
             Text("Scanning…")
                 .font(.callout)
                 .foregroundStyle(.secondary)

@@ -91,8 +91,7 @@ struct SystemJunkView: View {
 
     private func progressState(label: String, identifier: String, detail: String? = nil) -> some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
+            ScanProgressIndicator()
             Text(label)
                 .font(.callout)
                 .foregroundStyle(.secondary)
