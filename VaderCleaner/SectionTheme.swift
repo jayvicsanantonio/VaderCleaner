@@ -88,12 +88,14 @@ extension NavigationSection {
                 backdropBottom: Color(red: 0.09, green: 0.13, blue: 0.37)
             )
         case .healthMonitor:
-            // Vader identity: lightsaber crimson on a near-black, crimson-deep
-            // backdrop.
+            // Mac Health panel identity: a cool cornflower-blue accent on an
+            // indigo-violet → blue gradient, shifting from violet at the top to
+            // blue toward the bottom. Shared by the menu-bar popup so the two
+            // surfaces read as one product.
             return SectionTheme(
-                accent: .vaderCrimson,
-                backdropTop: Color(red: 0.10, green: 0.02, blue: 0.03),
-                backdropBottom: Color(red: 0.24, green: 0.04, blue: 0.07)
+                accent: Color(red: 0.40, green: 0.60, blue: 1.00),
+                backdropTop: Color(red: 0.16, green: 0.10, blue: 0.34),
+                backdropBottom: Color(red: 0.14, green: 0.18, blue: 0.46)
             )
         }
     }

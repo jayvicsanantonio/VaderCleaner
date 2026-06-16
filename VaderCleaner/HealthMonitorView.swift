@@ -25,8 +25,8 @@ struct HealthMonitorView: View {
     /// stable shape while the right tiles absorb the remaining width.
     private let leftColumnWidth: CGFloat = 340
 
-    /// The section's crimson accent — the Vader-identity chrome color used for
-    /// the prominent tile icons.
+    /// The section's blue accent — the Mac Health chrome color used for the
+    /// prominent tile icons.
     private let sectionAccent = NavigationSection.healthMonitor.theme.accent
 
     /// The overall Mac Health verdict color (gray while measuring). Drives the
@@ -372,15 +372,15 @@ private struct MacHealthHero: View {
             .accessibilityHidden(true)
     }
 
-    /// Near-black panel in the Vader identity that reads as an elevated, special
-    /// surface: a deep crimson-black base, a crimson bloom behind the ring, and
-    /// a soft top sheen for a premium, glassy lift.
+    /// Elevated indigo panel that reads as a special surface: a deep
+    /// indigo-violet base, a blue accent bloom behind the ring, and a soft top
+    /// sheen for a premium, glassy lift.
     private var heroBackground: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.11, green: 0.03, blue: 0.04),
-                    Color(red: 0.05, green: 0.02, blue: 0.03)
+                    Color(red: 0.20, green: 0.14, blue: 0.42),
+                    Color(red: 0.10, green: 0.08, blue: 0.26)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -478,7 +478,7 @@ extension MacHealthStatus {
 private struct HealthCard<Content: View>: View {
     let icon: String
     let title: String
-    /// Section accent (crimson) for the prominent icon tile.
+    /// Section accent (blue) for the prominent icon tile.
     let accent: Color
     /// Status dot color — the overall Mac Health verdict color, so the dot
     /// tracks the Mac's health at a glance.

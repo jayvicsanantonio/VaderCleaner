@@ -40,16 +40,22 @@ struct MenuBarContent: View {
         }
         .frame(width: 380)
         .background(panelBackground)
-        // Vader identity: crimson drives every tinted accent (icons, links,
-        // buttons, progress). Semantic status colors (health verdict, memory
-        // pressure, protection) stay as-is so they keep conveying meaning.
-        .tint(.vaderCrimson)
+        // The Mac Health panel shares the Health Monitor section's blue accent
+        // for every tinted control (icons, links, buttons, progress). Semantic
+        // status colors (health verdict, memory pressure, protection) stay as-is
+        // so they keep conveying meaning.
+        .tint(healthAccent)
         // Refresh the device list each time the panel opens — devices change
         // infrequently, so an on-open read beats a dedicated poll timer.
         .task { connectedDevices.refresh() }
     }
 
     // MARK: - Header
+
+    /// The Mac Health panel shares the Health Monitor section's colour identity
+    /// so the popup and the in-app section read as one product.
+    private var healthTheme: SectionTheme { NavigationSection.healthMonitor.theme }
+    private var healthAccent: Color { healthTheme.accent }
 
     /// The verdict's signature colour (gray while still measuring).
     private var verdictColor: Color { menuBar.macHealth?.accentColor ?? Color(white: 0.6) }
@@ -78,7 +84,7 @@ struct MenuBarContent: View {
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.white.opacity(0.95), Color.vaderCrimson.opacity(0.9)],
+                        colors: [.white.opacity(0.95), healthAccent.opacity(0.9)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -95,14 +101,14 @@ struct MenuBarContent: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.14, green: 0.04, blue: 0.06),
-                    Color(red: 0.07, green: 0.02, blue: 0.03)
+                    Color(red: 0.20, green: 0.13, blue: 0.42),
+                    Color(red: 0.12, green: 0.09, blue: 0.28)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             RadialGradient(
-                colors: [Color.vaderCrimson.opacity(0.32), .clear],
+                colors: [healthAccent.opacity(0.32), .clear],
                 center: UnitPoint(x: 0.85, y: 0.3),
                 startRadius: 4,
                 endRadius: 180
@@ -435,10 +441,7 @@ struct MenuBarContent: View {
 
     private var panelBackground: some View {
         LinearGradient(
-            colors: [
-                Color(red: 0.09, green: 0.04, blue: 0.05),
-                Color.vaderSpaceBlack
-            ],
+            colors: [healthTheme.backdropTop, healthTheme.backdropBottom],
             startPoint: .top,
             endPoint: .bottom
         )
