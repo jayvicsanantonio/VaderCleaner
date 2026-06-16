@@ -23,11 +23,11 @@ final class SystemJunkUITests: XCTestCase {
         app = nil
     }
 
-    /// Sidebar → System Junk → Scan must reveal the preview UI. We accept any
-    /// of the preview-state identifiers (the totalSelected label, the Clean
-    /// button, or the Re-scan button) as evidence that the preview rendered,
-    /// so the test does not depend on the scan returning at least one result —
-    /// an empty Caches directory on a freshly imaged CI host must not flake.
+    /// Sidebar → System Junk → Scan must reveal the post-scan UI. We accept any
+    /// of the landing identifiers (the dashboard container, its Re-scan button,
+    /// or the empty-state Scan Again) as evidence that results rendered, so the
+    /// test does not depend on the scan returning at least one result — an empty
+    /// Caches directory on a freshly imaged CI host must not flake.
     func test_navigateToSystemJunk_andScan_revealsPreview() throws {
         // The Full Disk Access onboarding sheet may be in the way. Dismiss it
         // through "Continue Without Access" if present so the sidebar is
@@ -58,25 +58,24 @@ final class SystemJunkUITests: XCTestCase {
         scanButton.click()
         proceedPastScanAccessPopoverIfNeeded()
 
-        // The scan completes once we land on the preview footer (Total
-        // selected label / Clean button), or — if no junk files were found —
-        // the empty preview list still rendered. The System Junk scan walks
-        // the entire home directory and there is no mock mode (project
-        // policy forbids one), so on a large real home folder the terminal
-        // state may not arrive within a tight UI-test window; the in-progress
-        // `system-junk.scanning` indicator is then accepted as proof the
-        // sidebar → view-model → view wiring is alive, matching the rationale
-        // `FinalPolishUITests` (Large & Old Files) and `SpaceLensUITests`
-        // already use for the same unbounded walk. Scan correctness itself is
-        // covered exhaustively by `SystemJunkScannerTests` /
-        // `SystemJunkViewModelTests`.
-        // Match every identifier the preview footer always renders — the
-        // total-selected label, the Clean button, and the Re-scan button —
-        // so an empty scan (which still lands on `.preview` with that footer)
-        // is recognised as terminal, not a false failure.
+        // The scan completes once we land on the dashboard (its container or
+        // header Re-scan), or — if no junk files were found — the empty state
+        // rendered. The System Junk scan walks the entire home directory and
+        // there is no mock mode (project policy forbids one), so on a large real
+        // home folder the terminal state may not arrive within a tight UI-test
+        // window; the in-progress `system-junk.scanning` indicator is then
+        // accepted as proof the sidebar → view-model → view wiring is alive,
+        // matching the rationale `FinalPolishUITests` (Large & Old Files) and
+        // `SpaceLensUITests` already use for the same unbounded walk. Scan
+        // correctness itself is covered exhaustively by `SystemJunkScannerTests`
+        // / `SystemJunkViewModelTests`.
+        // Match the identifiers the post-scan surface always renders — the
+        // dashboard container, its Re-scan button, or the empty-state Scan Again
+        // — so an empty scan (which lands on the empty state) is recognised as
+        // terminal, not a false failure.
         let terminal = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'system-junk.totalSelected', 'system-junk.clean', 'system-junk.rescan'}"
+                format: "identifier IN {'system-junk.dashboard', 'system-junk.rescan', 'system-junk.emptyScanAgain'}"
             ))
             .firstMatch
         if terminal.waitForExistence(timeout: 120) {
@@ -119,12 +118,11 @@ final class SystemJunkUITests: XCTestCase {
         proceedPastScanAccessPopoverIfNeeded()
 
         // The section has left `.intro` once it shows any non-intro state:
-        // the in-progress scanning indicator, or the preview footer (which
-        // always renders the total-selected label, Clean, and Re-scan, even
-        // for an empty scan).
+        // the in-progress scanning indicator, the dashboard (container or its
+        // Re-scan button), or the empty-state Scan Again.
         let nonIntroPredicate = NSPredicate(format:
-            "identifier IN {'system-junk.scanning', 'system-junk.totalSelected', "
-            + "'system-junk.clean', 'system-junk.rescan'}")
+            "identifier IN {'system-junk.scanning', 'system-junk.dashboard', "
+            + "'system-junk.rescan', 'system-junk.emptyScanAgain'}")
         let nonIntroState = app.descendants(matching: .any)
             .matching(nonIntroPredicate).firstMatch
         XCTAssertTrue(

@@ -10,12 +10,13 @@ import os.log
 /// The view-model owns four pieces of state:
 ///   - `phase`: the current step in the state machine, bound to the view's
 ///     switch on rendered content.
-///   - `checkedCategories`: the user's per-category opt-in/out. Defaults to
-///     every category present in the latest scan result on each successful
-///     `scan()`, so users never have to "select all" before cleaning.
+///   - `selectedURLs`: the user's per-file opt-in/out. Defaults to every file
+///     present in the latest scan result on each successful `scan()`, so users
+///     never have to "select all" before cleaning — junk is safe to remove, so
+///     selection is opt-out, not opt-in.
 ///   - `result`: the most recent `ScanResult`. Held alongside `phase` so
-///     toggling a checkbox can recompute `totalSelectedSize` without re-
-///     scanning, and so `clean()` can pick the right items to delete.
+///     toggling a row can recompute `totalSelectedSize` without re-scanning,
+///     and so `clean()` can pick the right items to delete.
 ///   - `errorMessage`: the surfaced description for the `.failed` phase.
 ///
 /// All collaborators are injected as closures so unit tests can drive every
@@ -61,7 +62,17 @@ final class SystemJunkViewModel {
     typealias Deleter = ([ScannedFile]) async throws -> Int64
 
     private(set) var phase: Phase = .idle
-    private(set) var checkedCategories: Set<ScanCategory> = []
+
+    /// URLs of the files the user has selected for cleaning. Defaults to every
+    /// file in the latest scan on success (opt-out), and is cleared on
+    /// `scanAgain()`. The view binds each review row's checkbox to
+    /// `isSelected` + `toggleSelection`.
+    private(set) var selectedURLs: Set<URL> = []
+
+    /// Running total of bytes for files in `selectedURLs`. Maintained
+    /// incrementally on every `toggleSelection` so the footer label updates in
+    /// O(1) rather than walking the (potentially large) result on every read.
+    private(set) var totalSelectedSize: Int64 = 0
 
     /// Running count of filesystem items the in-flight scan has walked. Reset
     /// to 0 at the start of each scan and fed by the scanner's progress
@@ -91,32 +102,34 @@ final class SystemJunkViewModel {
 
     // MARK: - Public surface
 
-    /// Sum of bytes for every file in a currently-checked category. Computed
-    /// from `latestResult.sizeByCategory` (built once when the result lands)
-    /// rather than walking `items` per query, so a hot toggle doesn't burn
-    /// CPU on hundreds of thousands of file records.
-    var totalSelectedSize: Int64 {
-        guard let sizes = latestResult?.sizeByCategory else { return 0 }
-        return checkedCategories.reduce(into: Int64(0)) { acc, category in
-            acc += sizes[category] ?? 0
-        }
-    }
-
     /// Convenience for the view layer — formatting once on the VM keeps the
     /// "human-readable size" rule in one place across cards and totals.
     var formattedTotalSelectedSize: String {
         Self.byteFormatter.string(fromByteCount: totalSelectedSize)
     }
 
-    /// Whether `category` is currently checked. The view binds each row's
-    /// `Toggle` to `Binding(get:set:)` over `isChecked` + `toggle`.
-    func isChecked(_ category: ScanCategory) -> Bool {
-        checkedCategories.contains(category)
+    /// Whether `file` is currently selected. The view binds each review row's
+    /// `Toggle` to `Binding(get:set:)` over `isSelected` + `toggleSelection`.
+    func isSelected(_ file: ScannedFile) -> Bool {
+        selectedURLs.contains(file.url)
+    }
+
+    /// Flip the selection state for `file` and adjust `totalSelectedSize` in
+    /// lockstep. Idempotent in the sense that two calls in a row return the VM
+    /// to its prior selection.
+    func toggleSelection(_ file: ScannedFile) {
+        if selectedURLs.contains(file.url) {
+            selectedURLs.remove(file.url)
+            totalSelectedSize -= file.size
+        } else {
+            selectedURLs.insert(file.url)
+            totalSelectedSize += file.size
+        }
     }
 
     /// Run the injected scanner and land in `.preview` (or `.failed`).
-    /// Marks every category present in the result as checked so the user is
-    /// at "select all" by default.
+    /// Selects every file present in the result so the user is at "select all"
+    /// by default.
     func scan() async {
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -140,21 +153,23 @@ final class SystemJunkViewModel {
                 }
             }
             self.latestResult = result
-            self.checkedCategories = Set(result.itemsByCategory.keys)
+            self.selectedURLs = Set(result.items.map(\.url))
+            self.totalSelectedSize = result.totalSize
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
             self.latestResult = nil
-            self.checkedCategories = []
+            self.selectedURLs = []
+            self.totalSelectedSize = 0
             self.phase = .failed(stage: .scanning, message: error.localizedDescription)
         }
     }
 
-    /// Hand the injected deleter every file in a checked category and land
-    /// in `.complete(bytesFreed:)`. A no-op when no category is checked.
+    /// Hand the injected deleter every currently-selected file and land in
+    /// `.complete(bytesFreed:)`. A no-op when nothing is selected.
     func clean() async {
-        guard let result = latestResult, !checkedCategories.isEmpty else { return }
-        let toDelete = result.items.filter { checkedCategories.contains($0.category) }
+        guard let result = latestResult, !selectedURLs.isEmpty else { return }
+        let toDelete = result.items.filter { selectedURLs.contains($0.url) }
         guard !toDelete.isEmpty else { return }
 
         phase = .cleaning
@@ -167,22 +182,13 @@ final class SystemJunkViewModel {
         }
     }
 
-    /// Flip the checkbox state for `category`. Idempotent in the sense that
-    /// two calls in a row return the VM to its prior selection, by design.
-    func toggle(_ category: ScanCategory) {
-        if checkedCategories.contains(category) {
-            checkedCategories.remove(category)
-        } else {
-            checkedCategories.insert(category)
-        }
-    }
-
     /// Reset the VM to `.idle`, dropping the cached result and selection so
     /// the next scan starts from a clean slate. Called from the "Scan Again"
-    /// button on the complete state and the "Re-scan" button on preview.
+    /// button on the complete state and the "Re-scan" button on the dashboard.
     func scanAgain() {
         latestResult = nil
-        checkedCategories = []
+        selectedURLs = []
+        totalSelectedSize = 0
         scannedItemCount = 0
         phase = .idle
     }
@@ -254,8 +260,8 @@ extension SystemJunkViewModel: ScanCoordinating {
     func beginScan() {
         // `scan()` has no internal re-entrancy guard, so a double-tapped
         // unified Scan button could race two concurrent disk walks whose
-        // `latestResult` / `checkedCategories` writes interleave. Gate on
-        // the in-flight phases, mirroring `SmartScanViewModel.scan()`.
+        // `latestResult` / `selectedURLs` writes interleave. Gate on the
+        // in-flight phases, mirroring `SmartScanViewModel.scan()`.
         guard phase != .scanning, phase != .cleaning else { return }
         Task { await scan() }
     }
