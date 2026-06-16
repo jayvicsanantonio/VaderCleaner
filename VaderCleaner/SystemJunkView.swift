@@ -19,6 +19,36 @@ struct SystemJunkView: View {
     private var viewModel: SystemJunkViewModel
     @Environment(AppState.self) private var appState
 
+    /// Shared icon cache so the review rows show each file's real type icon
+    /// instead of a generic glyph. Pre-loaded off the main thread by the review
+    /// content when it appears.
+    @State private var fileIconCache = FileIconCache()
+
+    /// What the user drilled into from the dashboard, or `nil` for the grid.
+    /// Held on the view (not the VM) because it is pure navigation state — the
+    /// same place `LargeOldFilesView` keeps its drill-down selection. Reset to
+    /// the dashboard at the start of every scan.
+    @State private var reviewing: ReviewTarget?
+
+    /// A drill-down destination: the complete list, or one category's slice.
+    private enum ReviewTarget: Equatable {
+        case all
+        case category(ScanCategory)
+
+        /// Title shown in the review screen's Back bar.
+        var title: String {
+            switch self {
+            case .all:
+                return String(
+                    localized: "All Junk Files",
+                    comment: "Back-bar title for the complete, unfiltered System Junk list."
+                )
+            case .category(let category):
+                return category.displayName
+            }
+        }
+    }
+
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
     }
@@ -50,6 +80,11 @@ struct SystemJunkView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(NavigationSection.systemJunk.title)
+        .onChange(of: viewModel.phase) { _, newPhase in
+            // A fresh scan always lands back on the dashboard grid, never a
+            // stale drill-down from the previous run.
+            if case .scanning = newPhase { reviewing = nil }
+        }
     }
 
     // MARK: - States
@@ -77,68 +112,105 @@ struct SystemJunkView: View {
     private func previewState(result: ScanResult) -> some View {
         if result.items.isEmpty {
             // A scan that found nothing collapses to the dedicated empty
-            // subview — the regular preview list + disabled Clean footer
-            // reads as "you did something wrong" when the truth is "nothing
-            // qualified." The empty subview also carries the FDA reminder
-            // for the silent-failure case.
+            // subview — the dashboard + disabled Clean footer reads as "you
+            // did something wrong" when the truth is "nothing qualified." The
+            // empty subview also carries the FDA reminder for the
+            // silent-failure case.
             SystemJunkEmptyPreviewState(
                 onScanAgain: viewModel.scanAgain,
                 hasFullDiskAccess: appState.hasFullDiskAccess,
                 onRefreshAccess: { appState.refresh() }
             )
         } else {
-            VStack(spacing: 0) {
-                previewList(result: result)
-                Divider()
-                previewFooter
-            }
+            resultsContent(result: result)
         }
     }
 
-    private func previewList(result: ScanResult) -> some View {
-        let categories = ScanCategory.allCases.filter { result.itemsByCategory[$0] != nil }
-        return List {
-            ForEach(categories, id: \.self) { category in
-                CategoryRow(
-                    category: category,
-                    itemCount: result.itemsByCategory[category]?.count ?? 0,
-                    sizeBytes: result.sizeByCategory[category] ?? 0,
-                    isChecked: Binding(
-                        get: { viewModel.isChecked(category) },
-                        set: { _ in viewModel.toggle(category) }
-                    )
-                )
-                .accessibilityIdentifier("system-junk.row.\(category.rawValue)")
-            }
+    /// The results surface: the category dashboard, or one drill-down's file
+    /// list behind a Back bar. A drill-down whose files were all cleaned falls
+    /// back to the dashboard so the user is never stranded on an empty review.
+    @ViewBuilder
+    private func resultsContent(result: ScanResult) -> some View {
+        if let target = reviewing, !files(for: target, in: result).isEmpty {
+            reviewScreen(for: target, in: result)
+        } else {
+            // No scroll view: the dashboard fills the detail pane and divides
+            // the available height between the header and the tile grid, like
+            // the Large & Old Files section.
+            SystemJunkDashboardView(
+                totalBytes: result.totalSize,
+                itemCount: result.items.count,
+                tiles: SystemJunkTile.tiles(from: result),
+                onReview: { reviewing = .category($0) },
+                onViewAll: { reviewing = .all },
+                onRescan: viewModel.scanAgain
+            )
         }
-        .scrollContentBackground(.hidden)
     }
 
-    private var previewFooter: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Total selected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(viewModel.formattedTotalSelectedSize)
-                    .font(.title3.weight(.semibold))
-                    .accessibilityIdentifier("system-junk.totalSelected")
+    /// A drill-down's file list, wrapped in a Back bar that returns to the
+    /// dashboard. Mirrors `LargeOldFilesView.reviewScreen`.
+    private func reviewScreen(for target: ReviewTarget, in result: ScanResult) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    reviewing = nil
+                } label: {
+                    // HStack(Image, Text) rather than Label so the control
+                    // surfaces reliably in XCUITest.
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text(String(
+                            localized: "Back",
+                            comment: "Back button returning from a System Junk drill-down to the dashboard."
+                        ))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("system-junk.backToDashboard")
+                Spacer()
+                Text(target.title)
+                    .font(.headline)
+                Spacer()
+                // Balances the leading Back button so the title stays centred.
+                Color.clear.frame(width: 44, height: 1)
             }
-            Spacer()
-            Button("Re-scan") {
-                viewModel.scanAgain()
-            }
-            .accessibilityIdentifier("system-junk.rescan")
-            Button("Clean") {
-                Task { await viewModel.clean() }
-            }
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.vaderProminent)
-            .disabled(viewModel.totalSelectedSize == 0)
-            .accessibilityIdentifier("system-junk.clean")
+            .padding(16)
+            Divider()
+            SystemJunkReviewContent(
+                files: files(for: target, in: result),
+                totalBytes: totalBytes(for: target, in: result),
+                totalSelectedSize: viewModel.totalSelectedSize,
+                canClean: !viewModel.selectedURLs.isEmpty,
+                fileIconCache: fileIconCache,
+                isSelected: viewModel.isSelected,
+                onToggleSelection: viewModel.toggleSelection,
+                onRescan: viewModel.scanAgain,
+                onClean: { Task { await viewModel.clean() } }
+            )
         }
-        .padding(16)
+    }
+
+    /// The files for a drill-down. `.all` is the full result set; a category is
+    /// served straight from the result's per-category grouping.
+    private func files(for target: ReviewTarget, in result: ScanResult) -> [ScannedFile] {
+        switch target {
+        case .all:
+            return result.items
+        case .category(let category):
+            return result.itemsByCategory[category] ?? []
+        }
+    }
+
+    /// Summed size for a drill-down, read from the result's precomputed totals
+    /// so the header never re-sums the files on render.
+    private func totalBytes(for target: ReviewTarget, in result: ScanResult) -> Int64 {
+        switch target {
+        case .all:
+            return result.totalSize
+        case .category(let category):
+            return result.sizeByCategory[category] ?? 0
+        }
     }
 
     private func completeState(bytesFreed: Int64) -> some View {
@@ -185,11 +257,9 @@ struct SystemJunkView: View {
     // MARK: - Formatter
 
     /// Shared `ByteCountFormatter` for the "freed" summary on the complete
-    /// state and every per-category row. `fileprivate` (not `private`) so
-    /// the `CategoryRow` subview below can reuse the same instance instead
-    /// of allocating its own. Kept as a static so the allocation does not
-    /// happen inside the view body's expression evaluator on every redraw.
-    fileprivate static let byteFormatter: ByteCountFormatter = {
+    /// state. Kept as a static so the allocation does not happen inside the
+    /// view body's expression evaluator on every redraw.
+    private static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.allowedUnits = .useAll
         f.countStyle = .file
@@ -198,35 +268,6 @@ struct SystemJunkView: View {
 }
 
 // MARK: - Subviews
-
-/// Single row in the preview list. Bound to a checkbox `Toggle` whose
-/// `Binding` drives `SystemJunkViewModel.toggle(_:)` on changes.
-private struct CategoryRow: View {
-    let category: ScanCategory
-    let itemCount: Int
-    let sizeBytes: Int64
-    @Binding var isChecked: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Toggle("", isOn: $isChecked)
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-            VStack(alignment: .leading, spacing: 2) {
-                Text(category.displayName)
-                    .font(.body.weight(.medium))
-                Text("\(itemCount) item\(itemCount == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(SystemJunkView.byteFormatter.string(fromByteCount: sizeBytes))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
-    }
-}
 
 /// Empty-result variant of the preview state. Surfaces when a scan returns
 /// zero items — without it, the user would land on the regular preview list

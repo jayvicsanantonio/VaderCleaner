@@ -77,6 +77,7 @@
 		382B47D59D79102AC6DFDEC0 /* PrivacyUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3913693728FE2B649B6A308F /* PrivacyUITests.swift */; };
 		390C48318F77FFB4378A7CBF /* MalwareViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9A2FDFC86DCAD4AF412E6E /* MalwareViewSubviews.swift */; };
 		3953A87FF8EF36CDB485809F /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5EE2C8752F5E1308B4FDF0 /* AppStateTests.swift */; };
+		3953FD2FDE6C5D300EE97BED /* SystemJunkDashboardSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2605C9D00F82838A6A9D11A3 /* SystemJunkDashboardSubviews.swift */; };
 		3A0AAEEE22026F9D96D875B2 /* PrivacyCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3BF28B70DA58E43E441AFF /* PrivacyCategory.swift */; };
 		3A3C0E7B444AE96C4C2D1C8F /* HealthMonitorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF079C62CE2E7C5C9B2B7C2C /* HealthMonitorViewModel.swift */; };
 		3A8A0ADAF5D89FD0223A9972 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5BE6E53E0A4ABB39A7B8B0C /* ContentView.swift */; };
@@ -376,6 +377,7 @@
 		22DEDDB1C46A745F0896DB18 /* SparkleUpdateCheckerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdateCheckerTests.swift; sourceTree = "<group>"; };
 		232219D61C4B82F4675EF95A /* DatabaseUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseUpdater.swift; sourceTree = "<group>"; };
 		25BF7F8FE4811CE7663B96F8 /* ActivationPolicyDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationPolicyDecisionTests.swift; sourceTree = "<group>"; };
+		2605C9D00F82838A6A9D11A3 /* SystemJunkDashboardSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkDashboardSubviews.swift; sourceTree = "<group>"; };
 		2617BC26104D5196DEDB3589 /* UpdateInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateInfo.swift; sourceTree = "<group>"; };
 		27F1DC062C52C51730548216 /* LoginItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItem.swift; sourceTree = "<group>"; };
 		2825A3B9ECD210BE8B10276D /* PrivacyViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyViewModelTests.swift; sourceTree = "<group>"; };
@@ -804,6 +806,7 @@
 				CEFFAA5C1164E12A4D5CBEA1 /* SparkleUpdateChecker.swift */,
 				44D42C1D0E2A41D26EF168F1 /* SunburstLayout.swift */,
 				7E22C1BDB2BEFB0F5CF93927 /* SunburstView.swift */,
+				2605C9D00F82838A6A9D11A3 /* SystemJunkDashboardSubviews.swift */,
 				16E73AF8C540E0F2A4BA092D /* SystemJunkDeleter.swift */,
 				9D7CECF29BA2A62749F36062 /* SystemJunkScanner.swift */,
 				A7D017D911C5C3674F2A6ECD /* SystemJunkView.swift */,
@@ -1452,6 +1455,7 @@
 				B9EF7AA9251121851DDEDB67 /* SparkleUpdateChecker.swift in Sources */,
 				948B522FF71E5F5417EC78E6 /* SunburstLayout.swift in Sources */,
 				486889584CC330C197D3641C /* SunburstView.swift in Sources */,
+				3953FD2FDE6C5D300EE97BED /* SystemJunkDashboardSubviews.swift in Sources */,
 				1067C5FF648F898628C6C987 /* SystemJunkDeleter.swift in Sources */,
 				DAFC4468D2644AE325EB44C7 /* SystemJunkScanner.swift in Sources */,
 				B2DD51B5035C90CF963595C5 /* SystemJunkView.swift in Sources */,

@@ -16,7 +16,7 @@ final class SystemJunkViewModelTests: XCTestCase {
     func test_init_phaseIsIdle() {
         let vm = makeViewModel()
         XCTAssertEqual(vm.phase, .idle)
-        XCTAssertTrue(vm.checkedCategories.isEmpty)
+        XCTAssertTrue(vm.selectedURLs.isEmpty)
         XCTAssertEqual(vm.totalSelectedSize, 0)
     }
 
@@ -89,20 +89,24 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTFail("Timed out waiting for: \(message)", file: file, line: line)
     }
 
-    /// All categories present in the scan result must be checked by default —
-    /// the user opts out of categories rather than opting in, matching the
-    /// expectation set in the plan and how cleaner UIs typically work.
-    func test_scan_marksEveryCategoryCheckedByDefault() async {
+    /// Every file in the scan result must be selected by default — the user
+    /// opts out of files rather than opting in, matching how cleaner UIs treat
+    /// safe-to-remove junk (and the section's prior "all categories checked"
+    /// behaviour, now expressed per file).
+    func test_scan_selectsEveryFileByDefault() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 200, category: .systemLogs)
+        let c = makeFile(name: "c", size: 300, category: .trash)
         let result = makeResult(
-            (.userCache, [makeFile(name: "a", size: 100, category: .userCache)]),
-            (.systemLogs, [makeFile(name: "b", size: 200, category: .systemLogs)]),
-            (.trash, [makeFile(name: "c", size: 300, category: .trash)])
+            (.userCache, [a]),
+            (.systemLogs, [b]),
+            (.trash, [c])
         )
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
 
         await vm.scan()
 
-        XCTAssertEqual(vm.checkedCategories, [.userCache, .systemLogs, .trash])
+        XCTAssertEqual(vm.selectedURLs, [a.url, b.url, c.url])
         XCTAssertEqual(vm.totalSelectedSize, 600)
     }
 
@@ -127,35 +131,36 @@ final class SystemJunkViewModelTests: XCTestCase {
 
     // MARK: - Selection
 
-    /// Toggling a category off must drop both the membership and its bytes
-    /// from `totalSelectedSize`. Toggling it back on must restore the total —
-    /// the selection state is purely additive, with no side-effects on the
+    /// Toggling a file off must drop both its URL and its bytes from
+    /// `totalSelectedSize`. Toggling it back on must restore the total — the
+    /// selection state is purely additive, with no side-effects on the
     /// underlying scan result.
-    func test_toggle_updatesCheckedCategoriesAndTotalSelectedSize() async {
+    func test_toggleSelection_updatesSelectedURLsAndTotalSelectedSize() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 250, category: .userLogs)
         let result = makeResult(
-            (.userCache, [makeFile(name: "a", size: 100, category: .userCache)]),
-            (.userLogs,  [makeFile(name: "b", size: 250, category: .userLogs)])
+            (.userCache, [a]),
+            (.userLogs,  [b])
         )
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
         await vm.scan()
         XCTAssertEqual(vm.totalSelectedSize, 350)
 
-        vm.toggle(.userCache)
-        XCTAssertFalse(vm.checkedCategories.contains(.userCache))
+        vm.toggleSelection(a)
+        XCTAssertFalse(vm.selectedURLs.contains(a.url))
         XCTAssertEqual(vm.totalSelectedSize, 250)
 
-        vm.toggle(.userCache)
-        XCTAssertTrue(vm.checkedCategories.contains(.userCache))
+        vm.toggleSelection(a)
+        XCTAssertTrue(vm.selectedURLs.contains(a.url))
         XCTAssertEqual(vm.totalSelectedSize, 350)
     }
 
     // MARK: - Clean
 
-    /// `clean()` must hand the deleter only the files whose category is
-    /// currently checked. An unchecked category's files must not be passed
-    /// through — we cannot rely on the deleter to filter, the view-model owns
-    /// the contract.
-    func test_clean_invokesDeleterOnlyForCheckedCategories() async {
+    /// `clean()` must hand the deleter only the files that are currently
+    /// selected. A deselected file must not be passed through — we cannot rely
+    /// on the deleter to filter, the view-model owns the contract.
+    func test_clean_invokesDeleterOnlyForSelectedFiles() async {
         let userFile = makeFile(name: "a", size: 100, category: .userCache)
         let logFile  = makeFile(name: "b", size: 250, category: .userLogs)
         let result = makeResult(
@@ -172,11 +177,11 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
 
         await vm.scan()
-        vm.toggle(.userLogs)  // uncheck user logs
+        vm.toggleSelection(logFile)  // deselect the log file
         await vm.clean()
 
         let received = await recorded.value
-        XCTAssertEqual(received, [userFile], "Deleter must receive only files in checked categories")
+        XCTAssertEqual(received, [userFile], "Deleter must receive only selected files")
     }
 
     /// After a successful clean, the phase becomes `.complete(bytesFreed)` so
@@ -222,13 +227,12 @@ final class SystemJunkViewModelTests: XCTestCase {
         }
     }
 
-    /// `clean()` is a no-op when nothing is checked — the View disables the
+    /// `clean()` is a no-op when nothing is selected — the View disables the
     /// button in this state, but the VM contract must hold even if a hot-key
     /// path or future caller bypasses the disabled state.
     func test_clean_withNoSelectionDoesNotInvokeDeleter() async {
-        let result = makeResult(
-            (.userCache, [makeFile(name: "a", size: 100, category: .userCache)])
-        )
+        let file = makeFile(name: "a", size: 100, category: .userCache)
+        let result = makeResult((.userCache, [file]))
         let invoked = ActorBox(false)
         let vm = makeViewModel(
             scanner: { result },
@@ -239,11 +243,11 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
 
         await vm.scan()
-        vm.toggle(.userCache)  // now nothing is checked
+        vm.toggleSelection(file)  // now nothing is selected
         await vm.clean()
 
         let didInvoke = await invoked.value
-        XCTAssertFalse(didInvoke, "Deleter must not be called when no category is checked")
+        XCTAssertFalse(didInvoke, "Deleter must not be called when no file is selected")
     }
 
     // MARK: - Scan again
@@ -266,7 +270,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         vm.scanAgain()
 
         XCTAssertEqual(vm.phase, .idle)
-        XCTAssertTrue(vm.checkedCategories.isEmpty)
+        XCTAssertTrue(vm.selectedURLs.isEmpty)
     }
 
     // MARK: - Scan progress count
