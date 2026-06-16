@@ -55,10 +55,11 @@ final class OptimizationUITests: XCTestCase {
         XCTAssertTrue(viewAllTasks.waitForExistence(timeout: 30),
                       "Expected the Optimization dashboard to reach its ready state")
 
-        // The in-content Refresh button renders alongside the ready state.
-        let refresh = app.buttons["optimization.refresh"]
-        XCTAssertTrue(refresh.waitForExistence(timeout: 5),
-                      "Expected Optimization Refresh control to render")
+        // The Re-scan button renders in the dashboard header alongside the
+        // ready state.
+        let rescan = app.buttons["optimization.rescan"]
+        XCTAssertTrue(rescan.waitForExistence(timeout: 5),
+                      "Expected Optimization Re-scan control to render")
 
         // Opening "View All Tasks" reveals the catalog with the maintenance
         // tasks — proves the dashboard → catalog swap wiring works.

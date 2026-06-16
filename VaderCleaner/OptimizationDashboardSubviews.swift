@@ -14,6 +14,7 @@ struct OptimizationDashboardView: View {
     let completedKinds: Set<PerformanceRecommendation.Kind>
     let onAction: (PerformanceRecommendation) -> Void
     let onViewAllTasks: () -> Void
+    let onRescan: () -> Void
 
     private var hero: PerformanceRecommendation? {
         recommendations.first { $0.isHero }
@@ -53,14 +54,25 @@ struct OptimizationDashboardView: View {
             .multilineTextAlignment(.center)
             .foregroundStyle(.secondary)
 
-            Button(action: onViewAllTasks) {
-                Text(String(
-                    localized: "View All Tasks",
-                    comment: "Button that opens the full maintenance-task catalog."
-                ))
+            HStack(spacing: 12) {
+                Button(action: onViewAllTasks) {
+                    Text(String(
+                        localized: "View All Tasks",
+                        comment: "Button that opens the full maintenance-task catalog."
+                    ))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("optimization.viewAllTasks")
+
+                Button(action: onRescan) {
+                    Text(String(
+                        localized: "Re-scan",
+                        comment: "Button that re-runs the Optimization scan from the dashboard."
+                    ))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("optimization.rescan")
             }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("optimization.viewAllTasks")
         }
     }
 
