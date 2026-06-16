@@ -25,11 +25,12 @@ extension NavigationSection {
     var theme: SectionTheme {
         switch self {
         case .smartScan:
-            // Keyed to the magenta-pink Smart Care hero asset.
+            // Smart Care identity: a vivid violet → purple gradient with a
+            // magenta-purple accent that drives the floating Run/Scan disc.
             return SectionTheme(
-                accent: Color(red: 0.90, green: 0.09, blue: 0.73),
-                backdropTop: Color(red: 0.12, green: 0.03, blue: 0.10),
-                backdropBottom: Color(red: 0.29, green: 0.06, blue: 0.24)
+                accent: Color(red: 0.78, green: 0.25, blue: 0.98),
+                backdropTop: Color(red: 0.20, green: 0.09, blue: 0.40),
+                backdropBottom: Color(red: 0.38, green: 0.18, blue: 0.66)
             )
         case .systemJunk:
             // Keyed to the green Cleanup disc asset.
