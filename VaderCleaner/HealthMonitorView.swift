@@ -342,6 +342,7 @@ private struct MacHealthHero: View {
         .popover(isPresented: $showingInfo, arrowEdge: .bottom) {
             Text("Your Mac's overall health, derived from how full the disk is and the individual hardware and security checks.")
                 .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(14)
                 .frame(maxWidth: 260)
         }
@@ -544,6 +545,7 @@ private struct HealthCard<Content: View>: View {
         .popover(isPresented: $showingInfo, arrowEdge: .top) {
             Text(info)
                 .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(14)
                 .frame(maxWidth: 240)
         }
