@@ -13,6 +13,7 @@
 		03E56C4EFC8903CA9291A959 /* InstallationFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C612F641A894AE10ADDA8F /* InstallationFile.swift */; };
 		04328806E7CBEC5AB0C6D3E0 /* HelperDeletionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7A5776AEA9716FAB1C8C1A /* HelperDeletionPolicyTests.swift */; };
 		04D9468D00A7CFE2758CDF8E /* LaunchAgentManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD357ABDE3B8870727141BD5 /* LaunchAgentManagerTests.swift */; };
+		070022969C225740C90D111D /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = CE304A4C8973520C602AE369 /* AppIcon.icon */; };
 		0849175D7723A3D6B17FACF1 /* ApplicationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5FD7F60311101E723D73E11 /* ApplicationsUITests.swift */; };
 		094E458AFC6976D25693B106 /* SystemStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4736E8C36A9E9F2ACADEE5EB /* SystemStatsService.swift */; };
 		09756E0B2E09D8BF521C1141 /* MalwareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7315AD5A081B0855C316F00F /* MalwareView.swift */; };
@@ -564,6 +565,7 @@
 		CAC2037BDF5D632418393BD9 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.stringsdict; name = en; path = en.lproj/Localizable.stringsdict; sourceTree = "<group>"; };
 		CC13455C35AFED113F2D85DE /* MaintenanceTaskRunners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaintenanceTaskRunners.swift; sourceTree = "<group>"; };
 		CE0EA3955C85E769BBC3C895 /* ClamAVOutputParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClamAVOutputParserTests.swift; sourceTree = "<group>"; };
+		CE304A4C8973520C602AE369 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		CE71FA16E4B413D837F097E2 /* UpdateProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateProbeTests.swift; sourceTree = "<group>"; };
 		CEAF96E747AD4C1378B4043D /* VersionComparator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionComparator.swift; sourceTree = "<group>"; };
 		CEFFAA5C1164E12A4D5CBEA1 /* SparkleUpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdateChecker.swift; sourceTree = "<group>"; };
@@ -676,6 +678,7 @@
 			children = (
 				5534E7E5B73EF84C82735B13 /* ActivationPolicyDecision.swift */,
 				B79E0766E335360E04FC6A53 /* AppDiscovery.swift */,
+				CE304A4C8973520C602AE369 /* AppIcon.icon */,
 				7F30A757E0739FCBD68B3EE8 /* AppIconCache.swift */,
 				673CA7922445475111927C0B /* AppInfo.swift */,
 				D631EBC782CB95D9221AD977 /* AppLeftover.swift */,
@@ -1127,6 +1130,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				070022969C225740C90D111D /* AppIcon.icon in Resources */,
 				C2542EE3974C2F9232EE74D1 /* Assets.xcassets in Resources */,
 				62A51901AE4CA4CE8FB58349 /* Localizable.strings in Resources */,
 				11C7DA0D7ECDCBF7DFB3C829 /* Localizable.stringsdict in Resources */,
