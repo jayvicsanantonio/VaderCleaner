@@ -285,7 +285,7 @@ private struct MacHealthHero: View {
 
                 HealthRing(color: accent, isMeasuring: status == nil)
                     .frame(width: 140, height: 140)
-                    .overlay { laptop }
+                    .overlay { heroArt }
                     .accessibilityIdentifier("health.hero.ring")
             }
 
@@ -358,17 +358,13 @@ private struct MacHealthHero: View {
         }
     }
 
-    /// Laptop glyph centered inside the ring.
-    private var laptop: some View {
-        Image(systemName: "laptopcomputer")
-            .font(.system(size: 44, weight: .light))
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [.white.opacity(0.95), sectionAccent.opacity(0.9)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+    /// The Smart Scan section's hero art centered inside the ring.
+    private var heroArt: some View {
+        Image("smartScan")
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 96, height: 96)
             .accessibilityHidden(true)
     }
 
