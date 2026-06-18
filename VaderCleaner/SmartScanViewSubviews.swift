@@ -379,7 +379,7 @@ struct SmartScanResultsState: View {
                 ),
                 metric: "—",
                 caption: String(
-                    localized: "ClamAV not installed",
+                    localized: "Antivirus engine not installed",
                     comment: "Caption on the Smart Scan malware card when ClamAV is absent."
                 )
             )
@@ -657,7 +657,7 @@ struct SmartScanDoneState: View {
         }
         if clauses.isEmpty {
             return String(
-                localized: "Nothing to report — every selected module was already in good shape.",
+                localized: "Nothing to report — every selected check was already in good shape.",
                 comment: "Smart Scan done summary when Run executed but produced no work (every module's selection drained to empty)."
             )
         }
@@ -671,7 +671,7 @@ struct SmartScanDoneState: View {
             .joined(separator: ", ")
         return String.localizedStringWithFormat(
             String(
-                localized: "Some modules couldn't complete: %@",
+                localized: "Some checks couldn't complete: %@",
                 comment: "Warning clause shown below the Smart Scan done summary when one or more modules failed. %@ is a comma-separated list of module names."
             ),
             names

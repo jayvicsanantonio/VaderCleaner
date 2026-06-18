@@ -275,11 +275,11 @@ struct OptimizationLaunchAgentRow: View {
                     .toggleStyle(.switch)
                     .help(agent.isEnabled
                           ? String(
-                                localized: "Loaded. Turn off to unload this agent and keep it off across logins.",
+                                localized: "On. Turn off to stop this from running, now and at every login.",
                                 comment: "Tooltip for an enabled user launch-agent toggle."
                             )
                           : String(
-                                localized: "Not loaded. Turn on to load this agent and keep it on across logins.",
+                                localized: "Off. Turn on to let this run, now and at every login.",
                                 comment: "Tooltip for a disabled user launch-agent toggle."
                             ))
                     .accessibilityIdentifier("\(identifier).toggle.\(agent.path.lastPathComponent)")
@@ -299,8 +299,8 @@ struct OptimizationLaunchAgentRow: View {
     }
 }
 
-/// A compact "Orphaned" badge placed next to a launch agent's name. It reads as
-/// a status pill but is tappable: clicking reveals what "orphaned" means in a
+/// A compact "Leftover" badge placed next to a launch agent's name. It reads as
+/// a status pill but is tappable: clicking reveals what it means in a
 /// popover, since hover tooltips don't fire reliably in this window. Built from
 /// an `HStack(Image, Text)` rather than a `Label` so the button still surfaces
 /// to UI tests.
@@ -317,7 +317,7 @@ struct OptimizationOrphanedBadge: View {
                 Image(systemName: "info.circle")
                     .imageScale(.small)
                 Text(String(
-                    localized: "Orphaned",
+                    localized: "Leftover",
                     comment: "Badge for a launch-agent plist that defines no runnable job and can only be removed."
                 ))
             }
@@ -331,7 +331,7 @@ struct OptimizationOrphanedBadge: View {
         .accessibilityIdentifier(accessibilityIdentifier)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             Text(String(
-                localized: "“Orphaned” means this is an empty leftover file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
+                localized: "“Leftover” means this is an empty file with no app or program to start, so there's nothing to turn on. It's safe to remove, though the app that left it behind may add it back later.",
                 comment: "Popover explaining what an orphaned launch agent is and why it shows no toggle."
             ))
             .font(.callout)

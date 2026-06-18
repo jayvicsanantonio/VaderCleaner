@@ -26,7 +26,7 @@ enum ExtensionType: String, CaseIterable, Identifiable, Sendable {
         case .chromeExtension:  return "Chrome Extensions"
         case .firefoxExtension: return "Firefox Extensions"
         case .mailPlugin:       return "Mail Plugins"
-        case .internetPlugin:   return "Internet Plug-ins"
+        case .internetPlugin:   return "Browser Plug-ins"
         }
     }
 }

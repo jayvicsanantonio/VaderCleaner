@@ -63,15 +63,15 @@ struct NavigationRailView: View {
     @ViewBuilder
     private func railIcon(_ section: NavigationSection, isActive: Bool) -> some View {
         if let asset = section.railIconAssetName {
-            railGlyph(asset, isActive: isActive, accent: section.theme.accent)
+            railGlyph(asset, isActive: isActive, accent: section.iconAccent)
         } else {
             Image(systemName: section.icon)
                 .symbolRenderingMode(.hierarchical)
                 .font(.title3)
                 // The symbol stays neutral — matching the inactive label —
                 // until the row is active or hovered, when it lights up in
-                // the section's accent.
-                .foregroundStyle(isActive ? section.theme.accent : Color.white.opacity(0.62))
+                // the section's icon accent.
+                .foregroundStyle(isActive ? section.iconAccent : Color.white.opacity(0.62))
                 .frame(width: 26)
         }
     }
@@ -164,8 +164,8 @@ struct NavigationRailView: View {
                                 .strokeBorder(
                                     LinearGradient(
                                         colors: [
-                                            section.theme.accent.opacity(0.85),
-                                            section.theme.accent.opacity(0.25),
+                                            section.iconAccent.opacity(0.85),
+                                            section.iconAccent.opacity(0.25),
                                         ],
                                         startPoint: .leading,
                                         endPoint: .trailing

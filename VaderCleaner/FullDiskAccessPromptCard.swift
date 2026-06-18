@@ -46,7 +46,10 @@ struct FullDiskAccessPromptCard: View {
                     Button("Open System Settings", action: openSettings)
                         .controlSize(.small)
                         .buttonStyle(.borderedProminent)
-                        .tint(accent)
+                        // Deepen bright section accents so the prominent button
+                        // keeps a legible white label rather than the system's
+                        // black-on-bright fill.
+                        .tint(accent.deepenedForWhite)
                         .accessibilityIdentifier("fda.openSettings")
                     Button("Check Again", action: onRecheck)
                         .controlSize(.small)

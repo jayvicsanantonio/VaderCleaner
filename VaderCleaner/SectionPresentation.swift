@@ -174,7 +174,7 @@ struct SectionPresentation {
                     ),
                     SectionFeature(
                         symbol: "cylinder",
-                        title: String(localized: "Signature Database", comment: "Malware Removal feature row.")
+                        title: String(localized: "Virus Definitions", comment: "Malware Removal feature row.")
                     ),
                     SectionFeature(
                         symbol: "xmark.shield",

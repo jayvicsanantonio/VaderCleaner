@@ -74,7 +74,10 @@ struct ScanAccessPopover: View {
                 )
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
-                    .tint(accent)
+                    // Deepen bright section accents (System Junk green, Large &
+                    // Old Files teal) so the prominent button keeps a legible
+                    // white label instead of the system's black-on-bright fill.
+                    .tint(accent.deepenedForWhite)
                     .accessibilityIdentifier("fda.popover.openSettings")
                 Button(
                     String(
@@ -96,6 +99,12 @@ struct ScanAccessPopover: View {
         }
         .padding(16)
         .frame(width: 300)
+        // Suppress the macOS keyboard focus ring. A popover moves focus to its
+        // first focusable control on appear, so "Open System Settings" would
+        // otherwise wear the system's blue halo the moment the popover opens —
+        // the same treatment the rail rows disable. The buttons stay focusable
+        // and operable; only the ring is hidden.
+        .focusEffectDisabled()
         // `.contain` keeps the two buttons independently queryable by their
         // own identifiers; without it the container identifier propagates
         // down and overwrites every child's, matching the pattern

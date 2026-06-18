@@ -342,7 +342,7 @@ struct OptimizationTaskCatalogView: View {
             paneScroll {
                 OptimizationLaunchAgentsSection(
                     title: String(
-                        localized: "Launch Agents (User)",
+                        localized: "Added by Your Apps",
                         comment: "Section header for user launch agents."
                     ),
                     identifier: "optimization.userAgents",
@@ -352,7 +352,7 @@ struct OptimizationTaskCatalogView: View {
                 )
                 OptimizationLaunchAgentsSection(
                     title: String(
-                        localized: "Launch Agents & Daemons (System)",
+                        localized: "Part of macOS",
                         comment: "Section header for system launch agents and daemons."
                     ),
                     subtitle: String(
@@ -527,13 +527,14 @@ struct TaskIconBadge: View {
     let tint: Color
 
     var body: some View {
+        let fill = tint.deepenedForWhite
         Image(systemName: symbol)
             .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(tint.legibleForeground)
+            .foregroundStyle(.white)
             .frame(width: 38, height: 38)
             .background(
                 LinearGradient(
-                    colors: [tint.opacity(0.95), tint.opacity(0.65)],
+                    colors: [fill.opacity(0.95), fill.opacity(0.65)],
                     startPoint: .top,
                     endPoint: .bottom
                 ),

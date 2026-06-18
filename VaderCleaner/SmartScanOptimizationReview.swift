@@ -19,12 +19,12 @@ struct SmartScanOptimizationReview: View {
     private var explainer: String {
         if maintenanceScriptsAvailable {
             return String(
-                localized: "Run will execute the system maintenance scripts (periodic daily, weekly, monthly).",
+                localized: "Run carries out macOS's built-in maintenance scripts — the daily, weekly, and monthly cleanup routines.",
                 comment: "Explainer at the top of the Smart Scan Performance Review screen."
             )
         }
         return String(
-            localized: "System maintenance scripts aren't available on this version of macOS. The login items below are shown for review.",
+            localized: "macOS's maintenance scripts aren't available on this version of macOS, so there's nothing to run here. The login items below are shown for review.",
             comment: "Explainer shown when periodic maintenance scripts are unavailable (macOS 26+)."
         )
     }

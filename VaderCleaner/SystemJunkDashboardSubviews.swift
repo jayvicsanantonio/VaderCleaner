@@ -164,6 +164,18 @@ struct SystemJunkDashboardView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
+            Label(
+                String(
+                    localized: "Safe to remove — your personal files and documents stay untouched.",
+                    comment: "Reassurance line on the System Junk dashboard; the listed junk is rebuildable cache/log/trash, never user data."
+                ),
+                systemImage: "checkmark.shield"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .labelStyle(.titleAndIcon)
+            .accessibilityIdentifier("system-junk.reassurance")
+
             HStack(spacing: 12) {
                 Button(String(
                     localized: "View All Files",

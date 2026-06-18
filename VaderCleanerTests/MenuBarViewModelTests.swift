@@ -87,7 +87,7 @@ final class MenuBarViewModelTests: XCTestCase {
     // MARK: - Pressure indicator
 
     func test_pressureLabel_returnsHumanReadable() {
-        XCTAssertEqual(MenuBarViewModel.pressureLabel(for: .nominal), "Nominal")
+        XCTAssertEqual(MenuBarViewModel.pressureLabel(for: .nominal), "Normal")
         XCTAssertEqual(MenuBarViewModel.pressureLabel(for: .fair), "Fair")
         XCTAssertEqual(MenuBarViewModel.pressureLabel(for: .critical), "Critical")
     }
