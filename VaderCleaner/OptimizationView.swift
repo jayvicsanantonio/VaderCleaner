@@ -128,8 +128,8 @@ struct OptimizationView: View {
     private var readyContent: some View {
         if showAllTasks {
             // The catalog owns its full-height layout (sub-nav + scrolling pane
-            // + pinned Run bar), so it is not wrapped in the dashboard's
-            // ScrollView / Refresh footer.
+            // + pinned Run bar), so it replaces the dashboard entirely rather
+            // than rendering inside it.
             OptimizationTaskCatalogView(
                 pane: $catalogPane,
                 selectedTaskIDs: $selectedTaskIDs,
@@ -156,33 +156,18 @@ struct OptimizationView: View {
                 onBack: { showAllTasks = false }
             )
         } else {
-            VStack(spacing: 0) {
-                ScrollView {
-                    OptimizationDashboardView(
-                        recommendations: viewModel.recommendations,
-                        completedKinds: viewModel.completedRecommendations,
-                        onAction: handleRecommendation,
-                        onViewAllTasks: {
-                            catalogPane = .maintenanceTasks
-                            showAllTasks = true
-                        }
-                    )
-                    .padding(24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Divider()
-                HStack {
-                    Spacer()
-                    Button(String(
-                        localized: "Refresh",
-                        comment: "Footer button that reloads Optimization data."
-                    )) {
-                        Task { await viewModel.refresh() }
-                    }
-                    .accessibilityIdentifier("optimization.refresh")
-                }
-                .padding(16)
-            }
+            OptimizationDashboardView(
+                recommendations: viewModel.recommendations,
+                completedKinds: viewModel.completedRecommendations,
+                onAction: handleRecommendation,
+                onViewAllTasks: {
+                    catalogPane = .maintenanceTasks
+                    showAllTasks = true
+                },
+                onRescan: { Task { await viewModel.refresh() } }
+            )
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

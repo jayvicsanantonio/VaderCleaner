@@ -102,16 +102,12 @@ struct SpaceLensView: View {
     // misreport completion on a volume larger than the estimate.
     private var scanningState: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Scanning…")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text(ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .contentTransition(.numericText())
-                .accessibilityIdentifier("space-lens.scanning.count")
+            ScanProgressIndicator()
+            ScanningStatusView(
+                phrases: ScanPhrases.scanning(for: .spaceLens),
+                count: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
+                countIdentifier: "space-lens.scanning.count"
+            )
         }
         .padding()
         .accessibilityElement(children: .contain)

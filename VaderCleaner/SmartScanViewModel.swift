@@ -171,6 +171,13 @@ final class SmartScanViewModel {
 
     private(set) var phase: Phase = .idle
 
+    /// Called with the aggregated result the moment a Smart Scan completes, so a
+    /// host (ContentView) can seed the same-scope standalone sections (System
+    /// Junk, Large & Old Files, Malware) and spare the user a re-scan. Settable
+    /// post-init so wiring it adds no constructor churn; `nil` by default (tests
+    /// and previews don't seed).
+    var onScanCompleted: ((SmartScanResult) -> Void)?
+
     /// Combined count of filesystem items walked by the two file-walk sub-scans
     /// (System Junk + My Clutter) during the in-flight Smart Scan. Reset to 0
     /// at scan start and surfaced as "Scanned N items…" beneath the stage label
@@ -367,6 +374,10 @@ final class SmartScanViewModel {
             // SwiftUI body re-eval as the user toggles individual files.
             sortedLargeOldFiles = largeFiles.sorted { $0.size > $1.size }
             phase = .results(result)
+            // Hand the aggregated result to whoever wired seeding (ContentView)
+            // so the same-scope standalone sections can show these results
+            // without making the user scan them again.
+            onScanCompleted?(result)
         } catch {
             log.error("Smart Scan failed: \(String(describing: error), privacy: .public)")
             phase = .failed(message: error.localizedDescription)

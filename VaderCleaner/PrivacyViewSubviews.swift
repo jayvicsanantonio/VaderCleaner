@@ -15,24 +15,20 @@ enum PrivacyViewFormatting {
 struct PrivacyProgressState: View {
     let label: String
     let identifier: String
-    /// Optional live progress line (e.g. "Scanned 24 items…") shown beneath the
-    /// label so the user can see the scan advancing.
+    /// Optional live progress line (e.g. "24 items") shown beneath the status
+    /// phrase so the user can see the scan advancing.
     var detail: String? = nil
+    /// Rotating personality phrases for the open scan; falls back to `label`.
+    var phrases: [String]? = nil
 
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            if let detail {
-                Text(detail)
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                    .accessibilityIdentifier("\(identifier).count")
-            }
+            ScanProgressIndicator()
+            ScanningStatusView(
+                phrases: phrases ?? [label],
+                count: detail,
+                countIdentifier: "\(identifier).count"
+            )
         }
         .padding()
         .accessibilityIdentifier(identifier)

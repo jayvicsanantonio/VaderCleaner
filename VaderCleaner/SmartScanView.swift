@@ -81,7 +81,8 @@ struct SmartScanView: View {
             SmartScanProgressState(
                 label: phase,
                 identifier: "smartScan.scanning",
-                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
+                phrases: ScanPhrases.scanning(for: .smartScan)
             )
         case .results(let result):
             resultsContent(result: result)

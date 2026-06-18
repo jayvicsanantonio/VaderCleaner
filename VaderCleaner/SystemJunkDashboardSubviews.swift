@@ -145,7 +145,7 @@ struct SystemJunkDashboardView: View {
             cardLayout
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(20)
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("system-junk.dashboard")
     }

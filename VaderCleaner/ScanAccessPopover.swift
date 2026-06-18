@@ -85,6 +85,11 @@ struct ScanAccessPopover: View {
                 )
                     .controlSize(.small)
                     .buttonStyle(.bordered)
+                    // Neutral white rather than the default system accent (which
+                    // clashes with the section themes), so this escape-hatch
+                    // action reads as the quieter secondary on every section and
+                    // "Open System Settings" stays the one highlighted action.
+                    .tint(.white)
                     .accessibilityIdentifier("fda.popover.scanAnyway")
             }
             .padding(.top, 2)

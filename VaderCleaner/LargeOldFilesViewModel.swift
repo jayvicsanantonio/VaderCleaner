@@ -237,6 +237,14 @@ final class LargeOldFilesViewModel {
         phase = .idle
     }
 
+    /// Adopt files produced by a Smart Scan (same `LargeOldFilesScanner`, same
+    /// scope) so the user lands on the results without scanning again. No-op
+    /// unless idle, so it never overwrites an in-progress or already-shown scan.
+    func seed(with files: [ScannedFile]) {
+        guard case .idle = phase else { return }
+        applyScanResult(files)
+    }
+
     // MARK: - Internals
 
     /// Lands the scanner output: empty → `.empty`, otherwise sort and stash

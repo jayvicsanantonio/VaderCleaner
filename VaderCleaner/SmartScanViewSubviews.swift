@@ -8,26 +8,20 @@ import SwiftUI
 struct SmartScanProgressState: View {
     let label: String
     let identifier: String
-    /// Optional live progress line (e.g. "Scanned 12,431 items…") shown beneath
-    /// the stage label so the user sees the composite scan advancing.
+    /// Optional live progress line (e.g. "12,431 items") shown beneath the
+    /// status phrase so the user sees the composite scan advancing.
     var detail: String? = nil
+    /// Rotating personality phrases for the open scan; falls back to `label`.
+    var phrases: [String]? = nil
 
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
-            if let detail {
-                Text(detail)
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                    .accessibilityIdentifier("\(identifier).count")
-            }
+            ScanProgressIndicator()
+            ScanningStatusView(
+                phrases: phrases ?? [label],
+                count: detail,
+                countIdentifier: "\(identifier).count"
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(identifier)
@@ -71,11 +65,12 @@ struct SmartScanFailedState: View {
 
 // MARK: - Results
 
-/// One dashboard tile: optional opt-in checkbox, category icon + title, a
-/// large metric number, a caption, and an optional "Review" button that
-/// drills into that tile's manager screen. The single circular CTA performs
-/// the actual work — each tile's checkbox gates whether that module
-/// participates in Run.
+/// One dashboard tile, modelled on the reference Smart Care card: the section's
+/// 3D art sits in the top-right corner over a soft accent bloom, an opt-in
+/// checkbox and title sit top-left, a large metric and small caption sit
+/// bottom-left, and a translucent "Review" button anchors bottom-right. The
+/// single circular CTA performs the actual work — each tile's checkbox gates
+/// whether that module participates in Run.
 ///
 /// Three independent presentation switches:
 ///   * `selection` nil → no checkbox (zero-work tiles, e.g. "No vital
@@ -85,7 +80,9 @@ struct SmartScanFailedState: View {
 ///   * `onReview` nil → Review button is hidden (zero-work tiles have
 ///     nothing to review).
 private struct SmartScanMetricCard: View {
-    let icon: String
+    /// Asset-catalog name of the section's pre-coloured 3D art for the corner.
+    let assetName: String
+    /// The section's accent — drives the soft corner bloom behind the art.
     let tint: Color
     let title: String
     let metric: String
@@ -101,63 +98,97 @@ private struct SmartScanMetricCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        ZStack(alignment: .topLeading) {
+            cornerArt
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .clipShape(.rect(cornerRadius: 20))
+        .opacity(isDeselected ? 0.5 : 1.0)
+        .animation(.smooth(duration: 0.25), value: isDeselected)
+    }
+
+    /// The section's art in the top-right corner over a soft accent bloom that
+    /// bleeds out of the corner, giving each tile its own colour glow.
+    private var cornerArt: some View {
+        RadialGradient(
+            colors: [tint.opacity(0.55), tint.opacity(0.0)],
+            center: .topTrailing,
+            startRadius: 0,
+            endRadius: 240
+        )
+        .overlay(alignment: .topTrailing) {
+            Image(assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 132, height: 132)
+                .padding(6)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
                 if let selection {
                     Toggle("", isOn: selection)
                         .toggleStyle(.checkbox)
                         .labelsHidden()
                         .accessibilityIdentifier(checkboxIdentifier ?? "")
                 }
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(tint)
                 Text(title)
                     .font(.headline)
-                Spacer()
+                    .foregroundStyle(.white.opacity(0.9))
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 12)
             Text(metric)
-                .font(.system(size: 30, weight: .bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.55)
                 .contentTransition(.numericText())
             HStack(alignment: .bottom) {
                 Text(caption)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.6))
                 Spacer()
-                // Render the Review button unconditionally so deselecting a
-                // tile doesn't pop it out of the layout (which would shrink
-                // the bottom HStack and shift the grid row). When the tile
-                // is deselected — or has no Review at all — the button is
-                // present in the tree but invisible and non-interactive, so
-                // the card's footprint never changes.
-                if let reviewIdentifier, let onReview {
-                    Button(String(
-                        localized: "Review",
-                        comment: "Per-card button on the Smart Scan dashboard that opens that tile's manager screen."
-                    ), action: onReview)
-                        .buttonStyle(.vaderProminent)
-                        .accessibilityIdentifier(reviewIdentifier)
-                        .opacity(isDeselected ? 0 : 1)
-                        .allowsHitTesting(!isDeselected)
-                        // The button still occupies its layout slot when
-                        // the tile is deselected (so the card footprint
-                        // stays stable), but a VoiceOver / Switch Control
-                        // user would otherwise land on an invisible target.
-                        // Hide it from the accessibility tree too.
-                        .accessibilityHidden(isDeselected)
-                }
+                reviewButton
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
-        // 12 matches HealthCard so the two dashboard card surfaces share one
-        // corner radius.
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
-        .opacity(isDeselected ? 0.55 : 1.0)
-        .animation(.smooth(duration: 0.25), value: isDeselected)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Translucent pill rather than an accent-filled button, matching the
+    /// reference. Rendered unconditionally so deselecting a tile doesn't pop it
+    /// out of the layout (which would shift the card footprint) — when the tile
+    /// is deselected, or has no Review, it stays in the tree but invisible and
+    /// non-interactive, and is hidden from assistive tech.
+    @ViewBuilder
+    private var reviewButton: some View {
+        if let reviewIdentifier, let onReview {
+            Button(action: onReview) {
+                Text(String(
+                    localized: "Review",
+                    comment: "Per-card button on the Smart Scan dashboard that opens that tile's manager screen."
+                ))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(.white.opacity(0.15), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(reviewIdentifier)
+            .opacity(isDeselected ? 0 : 1)
+            .allowsHitTesting(!isDeselected)
+            .accessibilityHidden(isDeselected)
+        }
     }
 }
 
@@ -198,14 +229,9 @@ struct SmartScanResultsState: View {
     let onRequestReview: (SmartScanModule) -> Void
     let onStartOver: () -> Void
 
-    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]
-
     /// Drives the one-shot staggered entrance of the metric tiles when the
     /// dashboard first appears.
     @State private var appeared = false
-
-    /// Order the tiles appear in, mirroring the reference's reading order.
-    private static let displayOrder: [SmartScanModule] = SmartScanModule.allCases
 
     var body: some View {
         VStack(spacing: 0) {
@@ -223,38 +249,55 @@ struct SmartScanResultsState: View {
             .padding(.horizontal, 24)
             .padding(.top, 16)
 
-            ScrollView {
-                VStack(spacing: 24) {
-                    Text(String(
-                        localized: "Your tasks are ready to run. Look what we found:",
-                        comment: "Heading on the Smart Scan results dashboard."
-                    ))
-                        .font(.title3.weight(.medium))
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("smartScan.resultsHeading")
+            VStack(spacing: 24) {
+                Text(String(
+                    localized: "Your tasks are ready to run. Look what we found:",
+                    comment: "Heading on the Smart Scan results dashboard."
+                ))
+                    .font(.title.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white)
+                    .accessibilityIdentifier("smartScan.resultsHeading")
 
-                    // One container so the tiles sample each other's glass and
-                    // refract consistently as the grid reflows on resize.
-                    GlassEffectContainer(spacing: 16) {
-                        LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(Array(Self.displayOrder.enumerated()), id: \.element) { index, module in
-                                tile(for: module)
-                                    .staggeredEntrance(index: index, appeared: appeared)
-                            }
+                // Three tiles on top, two wider tiles beneath — the reference's
+                // 3 + 2 arrangement. Both rows divide the available height so
+                // the grid fills the pane without scrolling. One container so
+                // the tiles sample each other's glass and refract consistently.
+                GlassEffectContainer(spacing: 16) {
+                    VStack(spacing: 16) {
+                        HStack(spacing: 16) {
+                            tileEntry(.systemJunk, index: 0)
+                            tileEntry(.malware, index: 1)
+                            tileEntry(.optimization, index: 2)
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        HStack(spacing: 16) {
+                            tileEntry(.applications, index: 3)
+                            tileEntry(.myClutter, index: 4)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                // Reserve the bottom band for the floating Run disc, so the
-                // last grid row never sits under it. Mirrors the
-                // SectionIntroView's `.padding(.bottom, 168)` reservation
-                // for the Scan disc.
-                .padding(.bottom, 168)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .onAppear { appeared = true }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            // Reserve the bottom band for the floating Run disc, so the last
+            // grid row never sits under it. Mirrors the SectionIntroView's
+            // `.padding(.bottom, 168)` reservation for the Scan disc.
+            .padding(.bottom, 168)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { appeared = true }
+    }
+
+    /// One grid cell: the module's tile, framed to fill its share of the row and
+    /// given a staggered entrance.
+    private func tileEntry(_ module: SmartScanModule, index: Int) -> some View {
+        tile(for: module)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .staggeredEntrance(index: index, appeared: appeared)
     }
 
     /// Whether the given module would actually produce work if Run were
@@ -296,8 +339,8 @@ struct SmartScanResultsState: View {
     private var systemJunkTile: some View {
         let hasWork = result.totalJunkBytes > 0
         return SmartScanMetricCard(
-            icon: "trash.fill",
-            tint: .blue,
+            assetName: "systemJunk",
+            tint: NavigationSection.systemJunk.theme.accent,
             title: String(
                 localized: "System Junk",
                 comment: "Smart Scan card title for the System Junk module."
@@ -328,8 +371,8 @@ struct SmartScanResultsState: View {
     private var malwareTile: some View {
         if !result.clamAVAvailable {
             SmartScanMetricCard(
-                icon: "shield.slash.fill",
-                tint: .secondary,
+                assetName: "malwareRemoval",
+                tint: NavigationSection.malwareRemoval.theme.accent,
                 title: String(
                     localized: "Protection",
                     comment: "Smart Scan card title for the Malware module."
@@ -342,8 +385,8 @@ struct SmartScanResultsState: View {
             )
         } else if result.threats.isEmpty {
             SmartScanMetricCard(
-                icon: "checkmark.shield.fill",
-                tint: .green,
+                assetName: "malwareRemoval",
+                tint: NavigationSection.malwareRemoval.theme.accent,
                 title: String(
                     localized: "Protection",
                     comment: "Smart Scan card title for the Malware module."
@@ -356,8 +399,8 @@ struct SmartScanResultsState: View {
             )
         } else {
             SmartScanMetricCard(
-                icon: "exclamationmark.shield.fill",
-                tint: .red,
+                assetName: "malwareRemoval",
+                tint: NavigationSection.malwareRemoval.theme.accent,
                 title: String(
                     localized: "Protection",
                     comment: "Smart Scan card title for the Malware module."
@@ -386,8 +429,8 @@ struct SmartScanResultsState: View {
         // variant. The login-item count is informational; Run's actual work
         // here is `MaintenanceScriptRunner`.
         SmartScanMetricCard(
-            icon: "slider.horizontal.3",
-            tint: .orange,
+            assetName: "optimization",
+            tint: NavigationSection.optimization.theme.accent,
             title: String(
                 localized: "Performance",
                 comment: "Smart Scan card title for the Optimization module."
@@ -411,8 +454,8 @@ struct SmartScanResultsState: View {
         let count = result.availableUpdates.count
         let hasWork = count > 0
         return SmartScanMetricCard(
-            icon: "arrow.triangle.2.circlepath",
-            tint: .purple,
+            assetName: "applications",
+            tint: NavigationSection.applications.theme.accent,
             title: String(
                 localized: "Applications",
                 comment: "Smart Scan card title for the App Updater module."
@@ -470,8 +513,8 @@ struct SmartScanResultsState: View {
                     selectedCount
                 ))
         return SmartScanMetricCard(
-            icon: "folder.fill",
-            tint: .teal,
+            assetName: "largeOldFiles",
+            tint: NavigationSection.largeOldFiles.theme.accent,
             title: String(
                 localized: "My Clutter",
                 comment: "Smart Scan card title for the Large & Old Files module."

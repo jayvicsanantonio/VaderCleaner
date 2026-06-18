@@ -29,12 +29,17 @@ struct PrivacyDashboardView: View {
     /// the Optimization dashboard's curated-recommendations feel.
     private static let maxCards = 4
 
+    /// Fixed width of the right-hand hero column so it keeps a stable shape while
+    /// the left tiles absorb the remaining width.
+    private let heroColumnWidth: CGFloat = 340
+
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 16) {
             header
             cardLayout
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("privacy.dashboard")
     }
 
@@ -45,6 +50,10 @@ struct PrivacyDashboardView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("privacy.foundTotal")
+            Text(categoryCountText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
 
             HStack(spacing: 12) {
                 Button(action: onViewAllData) {
@@ -123,24 +132,50 @@ struct PrivacyDashboardView: View {
         )
     }
 
-    /// The card layout, mirroring the Applications dashboard exactly so the
-    /// two share one look: the first card is a tall hero capped at 320pt on
-    /// the left, the rest flow through an adaptive grid.
+    /// Privacy's own layout: the heaviest category is a tall hero pinned to the
+    /// right, and the remaining cards divide the left side into equal-height rows
+    /// of two. Bounded so the dashboard fills the pane without scrolling.
+    @ViewBuilder
     private var cardLayout: some View {
-        HStack(alignment: .top, spacing: 16) {
+        if cardSpecs.count <= 1 {
             if let hero = cardSpecs.first {
                 card(hero, isHero: true)
-                    .frame(maxWidth: 320)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 260), spacing: 16)],
-                alignment: .leading,
-                spacing: 16
-            ) {
-                ForEach(cardSpecs.dropFirst()) { spec in
-                    card(spec, isHero: false)
+        } else {
+            HStack(alignment: .top, spacing: 16) {
+                tileRows(Array(cardSpecs.dropFirst()))
+                card(cardSpecs[0], isHero: true)
+                    .frame(width: heroColumnWidth)
+                    .frame(maxHeight: .infinity)
+            }
+        }
+    }
+
+    /// The non-hero cards in equal-height rows of two, grouped in a
+    /// `GlassEffectContainer` so neighbouring glass cards refract together.
+    private func tileRows(_ specs: [CardSpec]) -> some View {
+        GlassEffectContainer(spacing: 16) {
+            VStack(spacing: 16) {
+                ForEach(Array(rows(of: specs).enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 16) {
+                        ForEach(row) { spec in
+                            card(spec, isHero: false)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
                 }
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Chunks the non-hero specs into rows of at most two so the left band fills
+    /// the height beside the hero.
+    private func rows(of specs: [CardSpec]) -> [[CardSpec]] {
+        stride(from: 0, to: specs.count, by: 2).map {
+            Array(specs[$0..<min($0 + 2, specs.count)])
         }
     }
 
@@ -175,6 +210,14 @@ struct PrivacyDashboardView: View {
             PrivacyViewFormatting.byteFormatter.string(fromByteCount: totalFoundSize),
             Int64(browserCount)
         )
+    }
+
+    private var categoryCountText: String {
+        let format = String(
+            localized: "%lld data categories with findings.",
+            comment: "Privacy dashboard subtitle; %lld is the number of data categories that have findings."
+        )
+        return String.localizedStringWithFormat(format, Int64(categories.count))
     }
 
     private var reviewLabel: String {

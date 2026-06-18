@@ -59,8 +59,7 @@ struct AppUpdaterView: View {
 private struct AppUpdaterProgressState: View {
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
+            ScanProgressIndicator()
             Text(String(
                 localized: "Checking for updates…",
                 comment: "Progress label shown while the App Updater is fetching versions."

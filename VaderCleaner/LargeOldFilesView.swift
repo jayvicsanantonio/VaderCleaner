@@ -91,7 +91,8 @@ struct LargeOldFilesView: View {
             LargeOldFilesProgressState(
                 label: "Scanning…",
                 identifier: "large-old.scanning",
-                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
+                phrases: ScanPhrases.scanning(for: .largeOldFiles)
             )
         case .results:
             resultsContent

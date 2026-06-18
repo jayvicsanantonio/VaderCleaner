@@ -29,32 +29,6 @@ final class EmptyStateFullDiskAccessTests: XCTestCase {
         )
     }
 
-    func test_malwareCleanState_showsReminderOnlyWhenAccessIsMissing() {
-        let missing = MalwareCleanState(
-            lastScanDate: nil,
-            onScanAgain: {},
-            onDeepScan: nil,
-            hasFullDiskAccess: false,
-            onRefreshAccess: {}
-        )
-        XCTAssertTrue(
-            missing.shouldShowFullDiskAccessReminder,
-            "The clean state must surface the reminder when Full Disk Access is missing"
-        )
-
-        let granted = MalwareCleanState(
-            lastScanDate: nil,
-            onScanAgain: {},
-            onDeepScan: nil,
-            hasFullDiskAccess: true,
-            onRefreshAccess: {}
-        )
-        XCTAssertFalse(
-            granted.shouldShowFullDiskAccessReminder,
-            "The clean state must hide the reminder once Full Disk Access is granted"
-        )
-    }
-
     func test_systemJunkEmptyPreviewState_showsReminderOnlyWhenAccessIsMissing() {
         let missing = SystemJunkEmptyPreviewState(
             onScanAgain: {},
