@@ -58,6 +58,11 @@ struct PermissionOnboardingView: View {
         }
         .padding(28)
         .frame(width: 520)
+        // Suppress the macOS keyboard focus ring. On appear the first focusable
+        // control ("Continue Without Access") would otherwise wear the system's
+        // blue halo, matching the Scan-access popover. The buttons stay
+        // focusable and operable; only the ring is hidden.
+        .focusEffectDisabled()
     }
 }
 

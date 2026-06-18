@@ -100,4 +100,19 @@ extension NavigationSection {
             )
         }
     }
+
+    /// The tint used for this section's icon glyphs and its active rail state.
+    /// Matches `theme.accent` for every section except Health Monitor, whose
+    /// hero art and metric-card glyphs are pink rather than the chrome blue —
+    /// so its rail glyph and active pill rim light up pink to match, while the
+    /// section's ring, verdict, and progress bars stay on the blue accent.
+    var iconAccent: Color {
+        switch self {
+        case .healthMonitor:
+            return Color(red: 0.89, green: 0.39, blue: 0.78)
+        case .smartScan, .systemJunk, .largeOldFiles, .spaceLens,
+             .malwareRemoval, .optimization, .privacy, .applications:
+            return theme.accent
+        }
+    }
 }

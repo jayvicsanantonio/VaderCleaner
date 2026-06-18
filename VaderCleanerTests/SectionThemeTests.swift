@@ -44,6 +44,22 @@ final class SectionThemeTests: XCTestCase {
         }
     }
 
+    func test_iconAccent_matchesThemeAccentExceptHealthMonitor() {
+        // The icon-glyph / active-rail tint equals the chrome accent for every
+        // section except Health Monitor, whose pink hero family overrides it.
+        for section in NavigationSection.allCases where section != .healthMonitor {
+            XCTAssertEqual(
+                section.iconAccent, section.theme.accent,
+                "\(section) icon accent must track its chrome accent"
+            )
+        }
+        XCTAssertNotEqual(
+            NavigationSection.healthMonitor.iconAccent,
+            NavigationSection.healthMonitor.theme.accent,
+            "Health Monitor's icon accent must diverge (pink) from its blue chrome accent"
+        )
+    }
+
     func test_accentDiffersFromBackdrop() {
         // The accent blooms over the backdrop; if it equalled a backdrop stop
         // the hero glow and Scan disc would vanish into the background.

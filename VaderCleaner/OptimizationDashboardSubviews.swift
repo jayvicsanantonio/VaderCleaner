@@ -527,13 +527,14 @@ struct TaskIconBadge: View {
     let tint: Color
 
     var body: some View {
+        let fill = tint.deepenedForWhite
         Image(systemName: symbol)
             .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(tint.legibleForeground)
+            .foregroundStyle(.white)
             .frame(width: 38, height: 38)
             .background(
                 LinearGradient(
-                    colors: [tint.opacity(0.95), tint.opacity(0.65)],
+                    colors: [fill.opacity(0.95), fill.opacity(0.65)],
                     startPoint: .top,
                     endPoint: .bottom
                 ),

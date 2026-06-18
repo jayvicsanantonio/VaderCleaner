@@ -66,12 +66,30 @@ extension View {
 }
 
 extension Color {
-    /// A foreground colour guaranteed to read on top of `self` when `self` is
-    /// used as a fill: near-black on light fills, white on dark ones. Chosen by
-    /// the fill's perceived luminance so accent-filled badges and buttons stay
-    /// legible whether the section accent is a bright green or a deep blue.
-    var legibleForeground: Color {
-        Self.perceivedLuminance(of: self) > 0.45 ? Color(white: 0.08) : .white
+    /// A deepened shade of `self` dark enough to carry white text or glyphs,
+    /// returned only when `self` is too bright to do so as-is; otherwise `self`
+    /// is returned unchanged. Lets accent-filled badges and buttons pair a
+    /// single white foreground with the fill across every section — the bright
+    /// green and cyan sections deepen their fill rather than flipping the label
+    /// to black, while the already-deep accents stay exactly as they were.
+    var deepenedForWhite: Color {
+        guard Self.perceivedLuminance(of: self) > 0.45 else { return self }
+        let base = NSColor(self).usingColorSpace(.sRGB) ?? NSColor(white: 0.1, alpha: 1)
+        // Scale the channels toward black until white clears a comfortable
+        // contrast ratio — luminance ≤ 0.20 is roughly 4.4:1 against white.
+        var scale: CGFloat = 1.0
+        var candidate = base
+        while scale > 0.05,
+              Self.perceivedLuminance(of: Color(nsColor: candidate)) > 0.20 {
+            scale -= 0.05
+            candidate = NSColor(
+                srgbRed: base.redComponent * scale,
+                green: base.greenComponent * scale,
+                blue: base.blueComponent * scale,
+                alpha: 1
+            )
+        }
+        return Color(nsColor: candidate)
     }
 
     /// WCAG relative luminance (0…1) of a colour in sRGB.
@@ -101,11 +119,11 @@ extension EnvironmentValues {
     }
 }
 
-/// Prominent action button that fills with the section accent and chooses a
-/// legible label colour by the accent's luminance — so a bright green or cyan
-/// section keeps readable (near-black) button text where the system's fixed
-/// white label would wash out. Used for the section dashboards' and review
-/// screens' primary actions; onboarding/permission flows keep the system style.
+/// Prominent action button that fills with the section accent and labels it in
+/// white, deepening the fill when the accent is too bright to carry white text —
+/// so a bright green or cyan section reads as a deep, legible fill rather than
+/// flipping to black text. Used for the section dashboards' and review screens'
+/// primary actions; onboarding/permission flows keep the system style.
 struct VaderProminentButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         ProminentLabel(configuration: configuration)
@@ -124,10 +142,10 @@ struct VaderProminentButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.system(size: isLarge ? 15 : 13, weight: .semibold))
-                .foregroundStyle(accent.legibleForeground)
+                .foregroundStyle(.white)
                 .padding(.horizontal, isLarge ? 20 : 14)
                 .padding(.vertical, isLarge ? 9 : 6)
-                .background(Capsule().fill(accent))
+                .background(Capsule().fill(accent.deepenedForWhite))
                 .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1.0) : 0.45)
                 .contentShape(Capsule())
                 .animation(.easeOut(duration: 0.12), value: configuration.isPressed)

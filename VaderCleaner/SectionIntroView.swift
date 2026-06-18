@@ -275,8 +275,8 @@ struct SectionIntroView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            presentation.accent,
-                            presentation.accent.opacity(0.72),
+                            presentation.accent.deepenedForWhite,
+                            presentation.accent.deepenedForWhite.opacity(0.72),
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -286,7 +286,7 @@ struct SectionIntroView: View {
                 .overlay {
                     Image(systemName: feature.symbol)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(presentation.accent.legibleForeground)
+                        .foregroundStyle(.white)
                 }
                 .shadow(color: presentation.accent.opacity(0.4), radius: 7, y: 3)
             Text(feature.title)
