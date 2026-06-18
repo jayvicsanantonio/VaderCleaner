@@ -118,8 +118,11 @@ struct ApplicationsDashboardView: View {
     }
 
     /// Applications' own layout: the top recommendation is a full-width hero
-    /// banner, and the rest divide the space beneath in equal-height rows of
-    /// two. Bounded so the dashboard fills the pane without scrolling.
+    /// row, and the rest sit in rows of two beneath it. The hero and every row
+    /// take an *equal* share of the pane height (one flat stack of equal-height
+    /// rows), so the hero isn't a tall, near-empty banner and the rows below get
+    /// the room they need. Bounded so the dashboard fills the pane without
+    /// scrolling.
     @ViewBuilder
     private var cardLayout: some View {
         if recommendationSpecs.count <= 1 {
@@ -128,35 +131,32 @@ struct ApplicationsDashboardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
-            VStack(spacing: 16) {
-                card(recommendationSpecs[0], isHero: true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                tileRows(Array(recommendationSpecs.dropFirst()))
-            }
-        }
-    }
-
-    /// The non-hero recommendations in equal-height rows of two, grouped in a
-    /// `GlassEffectContainer` so neighbouring glass cards refract together.
-    private func tileRows(_ specs: [CardSpec]) -> some View {
-        GlassEffectContainer(spacing: 16) {
-            VStack(spacing: 16) {
-                ForEach(Array(rows(of: specs).enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: 16) {
-                        ForEach(row) { spec in
-                            card(spec, isHero: false)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            GlassEffectContainer(spacing: 16) {
+                VStack(spacing: 16) {
+                    // `isHero: false` so the top card uses the same minimum
+                    // height as the rows below — otherwise the taller hero
+                    // minimum makes it permanently bigger than the other rows
+                    // even though they all want to divide the height equally.
+                    // It still reads as the lead card by spanning the full width.
+                    card(recommendationSpecs[0], isHero: false)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ForEach(Array(rows(of: Array(recommendationSpecs.dropFirst())).enumerated()), id: \.offset) { _, row in
+                        HStack(spacing: 16) {
+                            ForEach(row) { spec in
+                                card(spec, isHero: false)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
+                        .frame(maxHeight: .infinity)
                     }
-                    .frame(maxHeight: .infinity)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Chunks the non-hero specs into rows of at most two so the band beneath the
-    /// hero banner fills the remaining height.
+    /// Chunks the non-hero specs into rows of at most two so the cards beneath
+    /// the hero read as a balanced two-up grid.
     private func rows(of specs: [CardSpec]) -> [[CardSpec]] {
         stride(from: 0, to: specs.count, by: 2).map {
             Array(specs[$0..<min($0 + 2, specs.count)])
