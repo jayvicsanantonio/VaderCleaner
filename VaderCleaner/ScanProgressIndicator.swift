@@ -118,19 +118,28 @@ struct ScanProgressIndicator: View {
 /// combined into one announcement for assistive tech. Honors Reduce Motion by
 /// holding on the first phrase.
 struct ScanningStatusView: View {
-    /// Headline phrases. One → static label; several → cycles every few seconds.
-    var phrases: [String]
     /// Preformatted live count, e.g. "12,431 items". `nil` omits the line.
-    var count: String? = nil
+    private let count: String?
     /// Accessibility identifier for the count line (preserved for UI tests).
-    var countIdentifier: String? = nil
+    private let countIdentifier: String?
 
     @Environment(\.sectionAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The phrases shuffled once when the view is first built, so each scan
+    /// starts on a different line and runs through them in a different order.
+    /// `@State(initialValue:)` keeps the shuffle stable for the life of one
+    /// scan (later re-inits from count updates reuse this storage).
+    @State private var order: [String]
     @State private var index = 0
 
+    init(phrases: [String], count: String? = nil, countIdentifier: String? = nil) {
+        self.count = count
+        self.countIdentifier = countIdentifier
+        _order = State(initialValue: phrases.shuffled())
+    }
+
     private var phrase: String {
-        phrases.isEmpty ? "" : phrases[index % phrases.count]
+        order.isEmpty ? "" : order[index % order.count]
     }
 
     var body: some View {
@@ -154,8 +163,8 @@ struct ScanningStatusView: View {
                     .accessibilityIdentifier(countIdentifier ?? "")
             }
         }
-        .task(id: phrases.count) {
-            guard !reduceMotion, phrases.count > 1 else { return }
+        .task(id: order.count) {
+            guard !reduceMotion, order.count > 1 else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 if Task.isCancelled { break }
