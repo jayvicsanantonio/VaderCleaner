@@ -66,7 +66,8 @@ struct SystemJunkView: View {
                 progressState(
                     label: "Scanning…",
                     identifier: "system-junk.scanning",
-                    detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+                    detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
+                    phrases: ScanPhrases.scanning(for: .systemJunk)
                 )
             case .preview(let result):
                 previewState(result: result)
@@ -89,19 +90,14 @@ struct SystemJunkView: View {
 
     // MARK: - States
 
-    private func progressState(label: String, identifier: String, detail: String? = nil) -> some View {
+    private func progressState(label: String, identifier: String, detail: String? = nil, phrases: [String]? = nil) -> some View {
         VStack(spacing: 16) {
             ScanProgressIndicator()
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            if let detail {
-                Text(detail)
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                    .accessibilityIdentifier("\(identifier).count")
-            }
+            ScanningStatusView(
+                phrases: phrases ?? [label],
+                count: detail,
+                countIdentifier: "\(identifier).count"
+            )
         }
         .padding()
         .accessibilityIdentifier(identifier)

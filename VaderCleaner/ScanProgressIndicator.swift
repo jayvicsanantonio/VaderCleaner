@@ -111,8 +111,158 @@ struct ScanProgressIndicator: View {
     }
 }
 
+/// The status text beneath the scan indicator. Rotates through a set of short,
+/// playful, section-flavored phrases (one phrase → static) so the wait has
+/// personality, with the live count shown beneath in the section accent. The
+/// count keeps its own accessibility identifier; the rotating phrase is
+/// combined into one announcement for assistive tech. Honors Reduce Motion by
+/// holding on the first phrase.
+struct ScanningStatusView: View {
+    /// Headline phrases. One → static label; several → cycles every few seconds.
+    var phrases: [String]
+    /// Preformatted live count, e.g. "12,431 items". `nil` omits the line.
+    var count: String? = nil
+    /// Accessibility identifier for the count line (preserved for UI tests).
+    var countIdentifier: String? = nil
+
+    @Environment(\.sectionAccent) private var accent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var index = 0
+
+    private var phrase: String {
+        phrases.isEmpty ? "" : phrases[index % phrases.count]
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Text(phrase)
+                    .id(phrase)
+                    .transition(.opacity)
+            }
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 460)
+            .animation(.smooth(duration: 0.5), value: phrase)
+
+            if let count {
+                Text(count)
+                    .font(.callout.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(accent)
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier(countIdentifier ?? "")
+            }
+        }
+        .task(id: phrases.count) {
+            guard !reduceMotion, phrases.count > 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                index += 1
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Short, playful, section-flavored status lines shown while a scan runs. Kept
+/// in one place so every section's loader has consistent voice. The switch is
+/// exhaustive so a new section is a compile-time prompt to give it a voice.
+enum ScanPhrases {
+    static func scanning(for section: NavigationSection) -> [String] {
+        switch section {
+        case .smartScan:
+            return [
+                "Casting a wide net…", "Rounding up every module…",
+                "Leaving no stone unturned…", "Doing the full rounds…",
+                "Checking under the hood…", "Lining up the whole crew…",
+                "Running the full playbook…", "Sweeping every corner at once…",
+                "Putting your Mac through its paces…", "Tag-teaming every scanner…",
+                "Giving everything a once-over…", "Coordinating the cleanup squad…",
+                "Firing on all cylinders…", "Taking the grand tour…",
+                "Looking high and low…",
+            ]
+        case .systemJunk:
+            return [
+                "Rooting through the caches…", "Shaking out the logs…",
+                "Sweeping up the crumbs…", "Emptying the junk drawer…",
+                "Dusting off forgotten temp files…", "Wrangling stray cache files…",
+                "Clearing the cobwebs…", "Bagging up the digital litter…",
+                "Scrubbing the nooks and crannies…", "Rounding up the leftovers…",
+                "Decluttering behind the scenes…", "Tidying the system shelves…",
+                "Chasing down stale caches…", "Raking up the loose ends…",
+                "Taking out the trash…",
+            ]
+        case .largeOldFiles:
+            return [
+                "Hunting for space hogs…", "Digging up forgotten files…",
+                "Weighing the heavy hitters…", "Following the dust trails…",
+                "Sizing up the giants…", "Unearthing ancient downloads…",
+                "Tracking down the big ones…", "Sifting through the archives…",
+                "Spotting the storage bullies…", "Measuring the heavyweights…",
+                "Finding what time forgot…", "Rummaging through old folders…",
+                "Flushing out the hoarders…", "Peeking into dusty corners…",
+                "Counting the calories on disk…",
+            ]
+        case .privacy:
+            return [
+                "Retracing your footsteps…", "Clearing the breadcrumbs…",
+                "Combing the history…", "Tidying the cookie jar…",
+                "Wiping the fingerprints…", "Shredding the paper trail…",
+                "Sweeping away the cookies…", "Covering your tracks…",
+                "Erasing the footprints…", "Checking who's been watching…",
+                "Closing the curtains…", "Clearing the recent trail…",
+                "Drawing the blinds…", "Tucking away the receipts…",
+                "Going incognito…",
+            ]
+        case .malwareRemoval:
+            return [
+                "Sniffing out bad actors…", "Checking every nook…",
+                "Matching against signatures…", "Standing guard…",
+                "Inspecting the suspects…", "Frisking incoming files…",
+                "Hunting for digital pests…", "Cross-checking the watchlist…",
+                "Shining a light in dark corners…", "Keeping the gremlins out…",
+                "Scanning for troublemakers…", "Patrolling the perimeter…",
+                "Reading the rap sheets…", "Sweeping for booby traps…",
+                "Holding the line…",
+            ]
+        case .spaceLens:
+            return [
+                "Mapping your disk…", "Measuring every folder…",
+                "Charting the territory…", "Sizing things up…",
+                "Surveying the landscape…", "Drawing the storage map…",
+                "Tallying up the folders…", "Plotting the big blocks…",
+                "Exploring the disk frontier…", "Counting every nook of storage…",
+                "Building the bird's-eye view…", "Tracing the directory tree…",
+                "Pacing out the territory…", "Sketching the layout…",
+                "Following every branch…",
+            ]
+        case .optimization, .applications, .healthMonitor:
+            return generic
+        }
+    }
+
+    /// Fallback voice for sections without a bespoke set.
+    static let generic = [
+        "Working through it…", "Crunching the numbers…",
+        "Almost there…", "Hang tight…",
+        "Tightening the bolts…", "Running the diagnostics…",
+        "Sorting it all out…", "Checking the gauges…",
+        "Doing the heavy lifting…", "Just a moment…",
+        "Warming up the engines…", "Putting things in order…",
+    ]
+}
+
 #Preview {
-    ScanProgressIndicator(accent: Color(red: 0.78, green: 0.25, blue: 0.98))
-        .frame(width: 320, height: 320)
-        .background(Color.black)
+    VStack(spacing: 24) {
+        ScanProgressIndicator(accent: Color(red: 0.78, green: 0.25, blue: 0.98))
+        ScanningStatusView(
+            phrases: ScanPhrases.scanning(for: .systemJunk),
+            count: "12,431 items"
+        )
+    }
+    .frame(width: 320, height: 360)
+    .environment(\.sectionAccent, Color(red: 0.13, green: 0.90, blue: 0.21))
+    .background(Color.black)
 }

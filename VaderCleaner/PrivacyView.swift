@@ -90,7 +90,8 @@ struct PrivacyView: View {
             PrivacyProgressState(
                 label: "Scanning…",
                 identifier: "privacy.scanning",
-                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount)
+                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
+                phrases: ScanPhrases.scanning(for: .privacy)
             )
         case .preview:
             previewContent

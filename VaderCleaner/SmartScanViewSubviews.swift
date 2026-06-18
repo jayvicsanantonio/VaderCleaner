@@ -8,25 +8,20 @@ import SwiftUI
 struct SmartScanProgressState: View {
     let label: String
     let identifier: String
-    /// Optional live progress line (e.g. "Scanned 12,431 items…") shown beneath
-    /// the stage label so the user sees the composite scan advancing.
+    /// Optional live progress line (e.g. "12,431 items") shown beneath the
+    /// status phrase so the user sees the composite scan advancing.
     var detail: String? = nil
+    /// Rotating personality phrases for the open scan; falls back to `label`.
+    var phrases: [String]? = nil
 
     var body: some View {
         VStack(spacing: 16) {
             ScanProgressIndicator()
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
-            if let detail {
-                Text(detail)
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                    .accessibilityIdentifier("\(identifier).count")
-            }
+            ScanningStatusView(
+                phrases: phrases ?? [label],
+                count: detail,
+                countIdentifier: "\(identifier).count"
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(identifier)

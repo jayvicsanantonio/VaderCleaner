@@ -103,14 +103,11 @@ struct SpaceLensView: View {
     private var scanningState: some View {
         VStack(spacing: 16) {
             ScanProgressIndicator()
-            Text("Scanning…")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text(ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .contentTransition(.numericText())
-                .accessibilityIdentifier("space-lens.scanning.count")
+            ScanningStatusView(
+                phrases: ScanPhrases.scanning(for: .spaceLens),
+                count: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
+                countIdentifier: "space-lens.scanning.count"
+            )
         }
         .padding()
         .accessibilityElement(children: .contain)
