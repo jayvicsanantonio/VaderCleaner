@@ -165,6 +165,18 @@ final class SystemJunkViewModel {
         }
     }
 
+    /// Adopt a result produced by a Smart Scan (same `SystemJunkScanner`, same
+    /// scope) so the user lands on the preview without scanning again. No-op
+    /// unless idle, so it never overwrites an in-progress or already-shown scan.
+    /// Mirrors `scan()`'s success path: select every file by default.
+    func seed(with result: ScanResult) {
+        guard case .idle = phase else { return }
+        latestResult = result
+        selectedURLs = Set(result.items.map(\.url))
+        totalSelectedSize = result.totalSize
+        phase = .preview(result)
+    }
+
     /// Hand the injected deleter every currently-selected file and land in
     /// `.complete(bytesFreed:)`. A no-op when nothing is selected.
     func clean() async {

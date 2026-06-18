@@ -321,6 +321,31 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: - Seed (from Smart Scan)
+
+    func test_seed_fromIdle_landsInPreviewWithEverythingSelected() {
+        let vm = makeViewModel()
+        let file = makeFile(name: "a", size: 100, category: .userCache)
+        let result = makeResult((.userCache, [file]))
+
+        vm.seed(with: result)
+
+        XCTAssertEqual(vm.phase, .preview(result))
+        XCTAssertEqual(vm.selectedURLs, Set(result.items.map(\.url)))
+        XCTAssertEqual(vm.totalSelectedSize, 100)
+    }
+
+    func test_seed_whenNotIdle_isIgnored() async {
+        let vm = makeViewModel(scanner: { ScanResult(items: []) })
+        await vm.scan() // leaves .idle for .preview(empty)
+
+        let file = makeFile(name: "a", size: 100, category: .userCache)
+        vm.seed(with: makeResult((.userCache, [file])))
+
+        // The seed is dropped because the section already left idle.
+        XCTAssertEqual(vm.phase, .preview(ScanResult(items: [])))
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(

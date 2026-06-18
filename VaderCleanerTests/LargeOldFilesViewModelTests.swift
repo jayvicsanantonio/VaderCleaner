@@ -398,6 +398,35 @@ final class LargeOldFilesViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: - Seed (from Smart Scan)
+
+    func test_seed_fromIdle_landsInResults() {
+        let vm = makeViewModel()
+        let file = makeFile(name: "a", size: 100, accessDaysAgo: 1, category: .largeFile)
+
+        vm.seed(with: [file])
+
+        XCTAssertEqual(vm.phase, .results([file]))
+    }
+
+    func test_seed_withNoFiles_landsInEmpty() {
+        let vm = makeViewModel()
+
+        vm.seed(with: [])
+
+        XCTAssertEqual(vm.phase, .empty)
+    }
+
+    func test_seed_whenNotIdle_isIgnored() async {
+        let vm = makeViewModel(scanner: { [] })
+        await vm.scan() // leaves .idle for .empty
+
+        let file = makeFile(name: "a", size: 100, accessDaysAgo: 1, category: .largeFile)
+        vm.seed(with: [file])
+
+        XCTAssertEqual(vm.phase, .empty)
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(

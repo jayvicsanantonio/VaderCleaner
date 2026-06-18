@@ -84,6 +84,33 @@ struct ContentView: View {
             privacyViewModel: privacyViewModel,
             applicationsViewModel: applicationsViewModel
         ))
+        // When a Smart Scan completes, populate every standalone section so the
+        // user never has to scan a section by hand after a Smart Scan.
+        //
+        // System Junk, Large & Old Files, and Malware run the exact same
+        // scanners Smart Scan already used, so they're seeded with the results
+        // directly — instant, no extra work.
+        //
+        // Applications and Optimization need heavier, multi-step scans that
+        // Smart Scan does not perform (full app analysis: updates, unused,
+        // unsupported, leftovers, installers; and launch agents / RAM /
+        // snapshots). Rather than show partial data, kick off each section's own
+        // full scan now so it finishes in the background and is ready by the
+        // time the user opens it.
+        //
+        // Every section is only populated when it is still idle, so this never
+        // disrupts a section the user has already scanned themselves.
+        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, largeOldFilesViewModel, malwareViewModel, applicationsViewModel, optimizationViewModel] result in
+            systemJunkViewModel.seed(with: result.junkResult)
+            largeOldFilesViewModel.seed(with: result.largeOldFiles)
+            malwareViewModel.seed(
+                threats: result.threats,
+                clamAVAvailable: result.clamAVAvailable,
+                scannedAt: Date()
+            )
+            if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
+            if case .idle = optimizationViewModel.phase { optimizationViewModel.beginScan() }
+        }
     }
 
     /// Colour identity of the section currently on screen. Drives the window
