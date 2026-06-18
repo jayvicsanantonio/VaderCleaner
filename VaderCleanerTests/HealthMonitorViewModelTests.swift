@@ -10,7 +10,7 @@ final class HealthMonitorViewModelTests: XCTestCase {
 
     // MARK: - CPU formatting
 
-    /// `cpuPercentString` is the value rendered in the CPU Load card. The
+    /// `cpuPercentString` is the value rendered in the CPU card. The
     /// service publishes a unit-interval `Double`; the card needs an integer
     /// percentage so a noisy reading doesn't visually thrash with decimals.
     func test_cpuPercentString_formatsZeroToOneDouble() {
@@ -78,7 +78,7 @@ final class HealthMonitorViewModelTests: XCTestCase {
     }
 
     func test_pressureLabel_isHumanReadable() {
-        XCTAssertEqual(HealthMonitorViewModel.pressureLabel(for: .nominal), "Nominal")
+        XCTAssertEqual(HealthMonitorViewModel.pressureLabel(for: .nominal), "Normal")
         XCTAssertEqual(HealthMonitorViewModel.pressureLabel(for: .fair), "Fair")
         XCTAssertEqual(HealthMonitorViewModel.pressureLabel(for: .critical), "Critical")
     }

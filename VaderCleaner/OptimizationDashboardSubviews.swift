@@ -342,7 +342,7 @@ struct OptimizationTaskCatalogView: View {
             paneScroll {
                 OptimizationLaunchAgentsSection(
                     title: String(
-                        localized: "Launch Agents (User)",
+                        localized: "Added by Your Apps",
                         comment: "Section header for user launch agents."
                     ),
                     identifier: "optimization.userAgents",
@@ -352,7 +352,7 @@ struct OptimizationTaskCatalogView: View {
                 )
                 OptimizationLaunchAgentsSection(
                     title: String(
-                        localized: "Launch Agents & Daemons (System)",
+                        localized: "Part of macOS",
                         comment: "Section header for system launch agents and daemons."
                     ),
                     subtitle: String(

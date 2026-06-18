@@ -129,7 +129,7 @@ struct HealthMonitorView: View {
             Text(viewModel.smartLabel)
                 .font(.title.weight(.semibold))
                 .accessibilityIdentifier("health.smart.label")
-            Text("SMART status")
+            Text("Drive self-check")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -139,10 +139,10 @@ struct HealthMonitorView: View {
     private var ramCard: some View {
         HealthCard(
             icon: "memorychip",
-            title: "RAM Pressure",
+            title: "Memory",
             accent: sectionAccent,
             statusColor: verdictAccent,
-            info: "Memory in use versus total, with the system's current memory-pressure level."
+            info: "How much memory your open apps are using right now, with the system's current memory-pressure level."
         ) {
             Text(viewModel.ramUsage)
                 .font(.title.weight(.semibold))
@@ -158,10 +158,10 @@ struct HealthMonitorView: View {
     private var cpuCard: some View {
         HealthCard(
             icon: "cpu",
-            title: "CPU Load",
+            title: "CPU",
             accent: sectionAccent,
             statusColor: verdictAccent,
-            info: "Share of processor capacity currently in use across all cores."
+            info: "How much of your processor's power is in use right now, across all cores."
         ) {
             Text(viewModel.cpuPercent)
                 .font(.title.weight(.semibold))
@@ -179,7 +179,7 @@ struct HealthMonitorView: View {
             title: "Disk Space",
             accent: sectionAccent,
             statusColor: verdictAccent,
-            info: "How full the boot volume is. Reclaiming space keeps your Mac responsive."
+            info: "How full your startup disk is. Freeing up space keeps your Mac responsive."
         ) {
             Text(viewModel.diskUsage)
                 .font(.title.weight(.semibold))

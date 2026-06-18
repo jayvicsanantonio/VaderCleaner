@@ -26,4 +26,4 @@
 "%@ will be moved out of these locations. This cannot be undone." = "%@ will be moved out of these locations. This cannot be undone.";
 "MemoryPressure.Critical" = "Critical";
 "MemoryPressure.Fair" = "Fair";
-"MemoryPressure.Nominal" = "Nominal";
+"MemoryPressure.Nominal" = "Normal";

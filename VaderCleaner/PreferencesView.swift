@@ -83,7 +83,7 @@ private struct ExclusionsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Paths listed here will be skipped by every scanner.")
+            Text("Files and folders listed here are skipped by every scan.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -105,7 +105,7 @@ private struct ExclusionsTab: View {
                     Label("Add", systemImage: "plus")
                         .labelStyle(.iconOnly)
                 }
-                .help("Add a file or folder to the exclusion list")
+                .help("Add a file or folder to skip during scans")
 
                 Button {
                     if let selected = selection {
@@ -117,7 +117,7 @@ private struct ExclusionsTab: View {
                         .labelStyle(.iconOnly)
                 }
                 .disabled(selection == nil)
-                .help("Remove the selected path")
+                .help("Remove the selected item")
 
                 Spacer()
             }
