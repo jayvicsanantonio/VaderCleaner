@@ -1,60 +1,101 @@
 // SmartScanJunkReview.swift
-// Per-category toggle list for the Smart Scan System Junk Review screen.
+// System Junk "Cleanup Manager" for Smart Scan — a three-pane (sections → categories → files) manager with per-file selection, search, sort, and a live selected-count footer.
 
 import SwiftUI
 
-/// Per-category toggle list for the System Junk Review. Reuses the row
-/// idiom from `SystemJunkView.CategoryRow` so the two surfaces stay visually
-/// consistent.
+/// System Junk Review, rendered through the shared `SmartScanReviewManager`.
+/// Builds the section/category/file hierarchy from the scan result and bridges
+/// the manager's selection callbacks to the view model's per-file junk
+/// selection.
 struct SmartScanJunkReview: View {
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
     let onBack: () -> Void
 
-    private var categories: [ScanCategory] {
-        ScanCategory.allCases.filter { result.junkResult.itemsByCategory[$0] != nil }
+    /// Left-pane groupings, mirroring the reference's "System Junk / Mail
+    /// Attachments / Trash" split. Only groups (and categories) with scanned
+    /// items are shown.
+    private static let groups: [(id: String, title: String, categories: [ScanCategory])] = [
+        ("systemJunk", String(localized: "System Junk", comment: "Cleanup Manager section grouping the general system/user caches and logs."),
+         [.systemCache, .userCache, .systemLogs, .userLogs, .languageFiles, .iosBackups]),
+        ("mailAttachments", String(localized: "Mail Attachments", comment: "Cleanup Manager section for mail attachment files."),
+         [.mailAttachments]),
+        ("trash", String(localized: "Trash", comment: "Cleanup Manager section for the trash bins."),
+         [.trash]),
+    ]
+
+    /// Flat lookup from a manager item's id (the file's path) back to its
+    /// `ScannedFile`, so the selection callbacks can reach the view model's
+    /// per-file API in O(1).
+    private var filesByID: [String: ScannedFile] {
+        Dictionary(result.junkResult.items.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    private var sections: [ManagerSection] {
+        Self.groups.compactMap { group in
+            let categories = group.categories.compactMap { managerCategory(for: $0) }
+            guard !categories.isEmpty else { return nil }
+            return ManagerSection(id: group.id, title: group.title, categories: categories)
+        }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            SmartScanReviewHeader(
-                title: String(
-                    localized: "Cleanup Manager",
-                    comment: "Title on the Smart Scan System Junk Review screen."
-                ),
-                onBack: onBack
-            )
-            List {
-                ForEach(categories, id: \.self) { category in
-                    HStack(spacing: 12) {
-                        Toggle("", isOn: Binding(
-                            get: { viewModel.isJunkCategorySelected(category) },
-                            set: { _ in viewModel.toggleJunkCategory(category) }
-                        ))
-                            .toggleStyle(.checkbox)
-                            .labelsHidden()
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(category.displayName)
-                                .font(.body.weight(.medium))
-                            let count = result.junkResult.itemsByCategory[category]?.count ?? 0
-                            Text("\(count) item\(count == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(smartScanByteFormatter.string(
-                            fromByteCount: result.junkResult.sizeByCategory[category] ?? 0
-                        ))
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                    .accessibilityIdentifier("smartScan.review.junk.\(category.rawValue)")
-                }
+        let files = filesByID
+        SmartScanReviewManager(
+            title: String(
+                localized: "Cleanup Manager",
+                comment: "Title on the Smart Scan System Junk Review screen."
+            ),
+            sections: sections,
+            isSelected: { id in
+                guard let file = files[id] else { return false }
+                return viewModel.isJunkFileSelected(file)
+            },
+            onToggle: { id in
+                guard let file = files[id] else { return }
+                viewModel.toggleJunkFile(file)
+            },
+            onSetCategory: { category, selected in
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return }
+                viewModel.setJunkCategory(scanCategory, selected: selected)
+            },
+            onBack: onBack,
+            accessibilityPrefix: "smartScan.review.junk"
+        )
+    }
+
+    private func managerCategory(for category: ScanCategory) -> ManagerCategory? {
+        guard let files = result.junkResult.itemsByCategory[category], !files.isEmpty else { return nil }
+        return ManagerCategory(
+            id: category.rawValue,
+            title: category.displayName,
+            systemImage: Self.icon(for: category),
+            iconColor: .green,
+            items: files.map { file in
+                ManagerItem(
+                    id: file.url.path,
+                    title: file.url.lastPathComponent,
+                    subtitle: file.url.deletingLastPathComponent().path,
+                    size: file.size,
+                    systemImage: file.url.pathExtension.isEmpty ? "folder.fill" : "doc.fill",
+                    iconColor: file.url.pathExtension.isEmpty ? .blue : .secondary
+                )
             }
-            .scrollContentBackground(.hidden)
+        )
+    }
+
+    /// SF Symbol for each junk category's middle-pane row.
+    private static func icon(for category: ScanCategory) -> String {
+        switch category {
+        case .systemCache: return "internaldrive"
+        case .userCache: return "clock.arrow.circlepath"
+        case .systemLogs: return "doc.text.magnifyingglass"
+        case .userLogs: return "doc.text"
+        case .languageFiles: return "globe"
+        case .mailAttachments: return "paperclip"
+        case .iosBackups: return "iphone"
+        case .trash: return "trash"
+        case .largeFile, .oldFile: return "doc"
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("smartScan.review.junk")
     }
 }

@@ -1,85 +1,91 @@
 // SmartScanMyClutterReview.swift
-// Per-file toggle list for the Smart Scan My Clutter Review, with Select All / Clear bulk actions in the footer.
+// My Clutter "Manager" for Smart Scan — the shared three-pane manager over large/old files, grouped by kind, with per-file selection. Selection defaults to empty (destructive deletes are opt-in).
 
 import SwiftUI
 
-/// Per-file toggle list for the My Clutter Review. Defaults to nothing
-/// selected (destructive deletes are opt-in); a footer offers Select All /
-/// Clear bulk actions.
+/// My Clutter Review, rendered through the shared `SmartScanReviewManager`.
+/// Files are grouped into Large vs. Old in the middle pane; selection bridges
+/// to the view model's per-file API. Nothing is selected by default — parity
+/// with `LargeOldFilesViewModel`, where destructive deletes are opt-in.
 struct SmartScanMyClutterReview: View {
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
     let onBack: () -> Void
 
-    /// Pre-sorted by `SmartScanViewModel` once when results land — reading
-    /// it here keeps the body free of O(N log N) work on every refresh
-    /// triggered by toggling individual files.
+    /// Pre-sorted by `SmartScanViewModel` when results land, so building the
+    /// manager model here doesn't re-sort on every refresh.
     private var sortedFiles: [ScannedFile] {
         viewModel.sortedLargeOldFiles
     }
 
+    private var filesByID: [String: ScannedFile] {
+        Dictionary(sortedFiles.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    private var sections: [ManagerSection] {
+        let categories = [
+            category(.largeFile,
+                     title: String(localized: "Large Files", comment: "Clutter Manager category for large files."),
+                     systemImage: "doc.fill"),
+            category(.oldFile,
+                     title: String(localized: "Old Files", comment: "Clutter Manager category for old files."),
+                     systemImage: "clock.fill"),
+        ].compactMap { $0 }
+        guard !categories.isEmpty else { return [] }
+        return [ManagerSection(
+            id: "myClutter",
+            title: String(localized: "My Clutter", comment: "Clutter Manager left-pane section title."),
+            categories: categories
+        )]
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            SmartScanReviewHeader(
-                title: String(
-                    localized: "Clutter Manager",
-                    comment: "Title on the Smart Scan My Clutter Review screen."
-                ),
-                onBack: onBack
-            )
-            List {
-                ForEach(sortedFiles, id: \.url) { file in
-                    HStack(spacing: 12) {
-                        Toggle("", isOn: Binding(
-                            get: { viewModel.isLargeFileSelected(file) },
-                            set: { _ in viewModel.toggleLargeFile(file) }
-                        ))
-                            .toggleStyle(.checkbox)
-                            .labelsHidden()
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.url.lastPathComponent)
-                                .font(.body.weight(.medium))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text(file.url.deletingLastPathComponent().path)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Spacer()
-                        Text(smartScanByteFormatter.string(fromByteCount: file.size))
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
+        let files = filesByID
+        SmartScanReviewManager(
+            title: String(
+                localized: "Clutter Manager",
+                comment: "Title on the Smart Scan My Clutter Review screen."
+            ),
+            sections: sections,
+            isSelected: { id in
+                guard let file = files[id] else { return false }
+                return viewModel.isLargeFileSelected(file)
+            },
+            onToggle: { id in
+                guard let file = files[id] else { return }
+                viewModel.toggleLargeFile(file)
+            },
+            onSetCategory: { category, selected in
+                let urls = category.items.map { URL(fileURLWithPath: $0.id) }
+                viewModel.setLargeFiles(urls, selected: selected)
+            },
+            onBack: onBack,
+            accessibilityPrefix: "smartScan.review.myClutter"
+        )
+    }
+
+    private func category(
+        _ scanCategory: ScanCategory,
+        title: String,
+        systemImage: String
+    ) -> ManagerCategory? {
+        let files = sortedFiles.filter { $0.category == scanCategory }
+        guard !files.isEmpty else { return nil }
+        return ManagerCategory(
+            id: scanCategory.rawValue,
+            title: title,
+            systemImage: systemImage,
+            iconColor: .orange,
+            items: files.map { file in
+                ManagerItem(
+                    id: file.url.path,
+                    title: file.url.lastPathComponent,
+                    subtitle: file.url.deletingLastPathComponent().path,
+                    size: file.size,
+                    systemImage: file.url.pathExtension.isEmpty ? "folder.fill" : "doc.fill",
+                    iconColor: file.url.pathExtension.isEmpty ? .blue : .secondary
+                )
             }
-            .scrollContentBackground(.hidden)
-            Divider()
-            HStack(spacing: 12) {
-                Button(String(
-                    localized: "Select All",
-                    comment: "Bulk action on the Smart Scan My Clutter Review — opt every file in for removal."
-                )) {
-                    // Single write to `largeFileSelection` — SwiftUI sees
-                    // one publish, not N. Per-file iteration here used to
-                    // stall the UI on large clutter scans.
-                    viewModel.selectAllLargeFiles()
-                }
-                .accessibilityIdentifier("smartScan.review.myClutter.selectAll")
-                Button(String(
-                    localized: "Clear",
-                    comment: "Bulk action on the Smart Scan My Clutter Review — opt every file out of removal."
-                )) {
-                    viewModel.clearLargeFileSelection()
-                }
-                .accessibilityIdentifier("smartScan.review.myClutter.clear")
-                Spacer()
-            }
-            .padding(16)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("smartScan.review.myClutter")
+        )
     }
 }

@@ -378,6 +378,131 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.isJunkCategorySelected(.userCache))
     }
 
+    func test_scan_defaultsJunkFileSelectionToAllScannedFiles() async {
+        let a = makeFile(name: "a", size: 1, category: .userCache)
+        let b = makeFile(name: "b", size: 2, category: .userLogs)
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [a]), (.userLogs, [b])) }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.junkFileSelection, [a.url, b.url],
+                       "Cleanup Manager opens with every junk file checked")
+    }
+
+    func test_toggleJunkFile_addsAndRemoves() async {
+        let a = makeFile(name: "a", size: 1, category: .userCache)
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [a])) }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isJunkFileSelected(a))
+
+        vm.toggleJunkFile(a)
+        XCTAssertFalse(vm.isJunkFileSelected(a))
+
+        vm.toggleJunkFile(a)
+        XCTAssertTrue(vm.isJunkFileSelected(a))
+    }
+
+    /// A category facade toggle is a bulk op over its files: deselecting one
+    /// file makes the category read as unselected, and toggling the category
+    /// re-selects every file in it.
+    func test_toggleJunkCategory_togglesEveryFileInCategory() async {
+        let a = makeFile(name: "a", size: 1, category: .userCache)
+        let b = makeFile(name: "b", size: 2, category: .userCache)
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [a, b])) }
+        )
+        await vm.scan()
+        XCTAssertTrue(vm.isJunkCategorySelected(.userCache))
+
+        // Deselecting a single file drops the category out of the derived set.
+        vm.toggleJunkFile(a)
+        XCTAssertFalse(vm.isJunkCategorySelected(.userCache))
+
+        // Toggling the partially-selected category selects all its files.
+        vm.toggleJunkCategory(.userCache)
+        XCTAssertTrue(vm.isJunkFileSelected(a))
+        XCTAssertTrue(vm.isJunkFileSelected(b))
+        XCTAssertTrue(vm.isJunkCategorySelected(.userCache))
+    }
+
+    /// Run cleans exactly the files left checked, at per-file granularity —
+    /// deselecting one file in a category keeps the rest.
+    func test_run_filtersJunkItemsByFileSelection() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 200, category: .userCache)
+        var receivedFiles: [ScannedFile] = []
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [a, b])) },
+            junkCleaner: { files in receivedFiles = files; return 0 }
+        )
+        await vm.scan()
+        vm.toggleJunkFile(a)   // uncheck one file within the category
+
+        await vm.run()
+
+        XCTAssertEqual(receivedFiles, [b],
+                       "Only files left checked may be handed to the cleaner")
+    }
+
+    func test_setJunkCategory_selectsAndClearsEveryFileInCategory() async {
+        let a = makeFile(name: "a", size: 1, category: .userCache)
+        let b = makeFile(name: "b", size: 2, category: .userCache)
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [a, b])) }
+        )
+        await vm.scan()
+
+        vm.setJunkCategory(.userCache, selected: false)
+        XCTAssertFalse(vm.isJunkFileSelected(a))
+        XCTAssertFalse(vm.isJunkFileSelected(b))
+
+        vm.setJunkCategory(.userCache, selected: true)
+        XCTAssertTrue(vm.isJunkFileSelected(a))
+        XCTAssertTrue(vm.isJunkFileSelected(b))
+    }
+
+    func test_setAllThreats_selectsAndClearsEveryThreat() async {
+        let second = MalwareThreat(filePath: URL(fileURLWithPath: "/Library/Caches/x"), threatName: "OSX.Bad")
+        let vm = makeViewModel(
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat, second] }
+        )
+        await vm.scan()
+
+        vm.setAllThreats(selected: false)
+        XCTAssertEqual(vm.threatSelection, [])
+
+        vm.setAllThreats(selected: true)
+        XCTAssertEqual(vm.threatSelection, [threat.filePath, second.filePath])
+    }
+
+    func test_setAllUpdates_selectsAndClearsEveryUpdate() async {
+        let vm = makeViewModel(updatesChecker: { [self.availableUpdate] })
+        await vm.scan()
+
+        vm.setAllUpdates(selected: false)
+        XCTAssertEqual(vm.updateSelection, [])
+
+        vm.setAllUpdates(selected: true)
+        XCTAssertEqual(vm.updateSelection, [availableUpdate.bundleID])
+    }
+
+    func test_setLargeFiles_selectsAndClearsTheGivenURLs() async {
+        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        await vm.scan()
+        XCTAssertEqual(vm.largeFileSelection, [], "Clutter starts opt-in (empty)")
+
+        vm.setLargeFiles([largeFile.url], selected: true)
+        XCTAssertTrue(vm.isLargeFileSelected(largeFile))
+
+        vm.setLargeFiles([largeFile.url], selected: false)
+        XCTAssertFalse(vm.isLargeFileSelected(largeFile))
+    }
+
     func test_toggleThreat_addsAndRemoves() async {
         let vm = makeViewModel(
             malwareInstalled: { true },
