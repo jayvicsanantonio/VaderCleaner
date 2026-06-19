@@ -22,6 +22,12 @@ struct SmartScanMyClutterReview: View {
         Dictionary(sortedFiles.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
+    /// Byte size keyed by file URL, so the footer's selected-bytes total is an
+    /// O(selected) sum rather than an O(all-files) scan on every checkbox tap.
+    private var sizeByURL: [URL: Int64] {
+        Dictionary(sortedFiles.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+    }
+
     private var sections: [ManagerSection] {
         let categories = [
             category(.largeFile,
@@ -41,6 +47,7 @@ struct SmartScanMyClutterReview: View {
 
     var body: some View {
         let files = filesByID
+        let sizes = sizeByURL
         SmartScanReviewManager(
             title: String(
                 localized: "Clutter Manager",
@@ -60,7 +67,12 @@ struct SmartScanMyClutterReview: View {
                 viewModel.setLargeFiles(urls, selected: selected)
             },
             onBack: onBack,
-            accessibilityPrefix: "smartScan.review.myClutter"
+            accessibilityPrefix: "smartScan.review.myClutter",
+            selectionSummary: {
+                let selection = viewModel.largeFileSelection
+                let bytes = selection.reduce(Int64(0)) { $0 + (sizes[$1] ?? 0) }
+                return ManagerSelectionSummary(count: selection.count, bytes: bytes)
+            }
         )
     }
 

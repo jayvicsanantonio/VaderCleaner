@@ -41,6 +41,14 @@ struct ManagerSection: Identifiable, Hashable {
     let categories: [ManagerCategory]
 }
 
+/// Pre-tallied selection totals for the footer, so it doesn't have to scan
+/// every item on each render. `bytes` is `nil` for tiles whose items carry no
+/// size (e.g. app updates, threats).
+struct ManagerSelectionSummary {
+    let count: Int
+    let bytes: Int64?
+}
+
 /// How the manager orders categories and items.
 enum ManagerSort: String, CaseIterable, Identifiable {
     case size
@@ -85,11 +93,22 @@ struct SmartScanReviewManager: View {
     /// Performance Manager's "Open Optimization" jump-link.
     var secondaryActionTitle: String? = nil
     var onSecondaryAction: (() -> Void)? = nil
+    /// Optional cheap selection tally for the footer. When provided the footer
+    /// reads it instead of scanning every item on each render — essential for
+    /// the file tiles (System Junk, My Clutter), which can hold tens of
+    /// thousands of items. `nil` falls back to a full scan (fine for the small
+    /// flat tiles).
+    var selectionSummary: (() -> ManagerSelectionSummary)? = nil
 
     @State private var selectedSectionID: String?
     @State private var selectedCategoryID: String?
     @State private var search = ""
     @State private var sort: ManagerSort = .size
+    /// The filtered + sorted items for the visible category, recomputed only
+    /// when the category, sort, or search changes — never on a selection
+    /// toggle. Re-sorting the whole list on every checkbox tap was the source
+    /// of the review-screen lag.
+    @State private var displayedItems: [ManagerItem] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,7 +126,13 @@ struct SmartScanReviewManager: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(accessibilityPrefix)
-        .onAppear { syncSelection() }
+        .onAppear {
+            syncSelection()
+            refreshDisplayedItems()
+        }
+        .onChange(of: selectedCategoryID) { _, _ in refreshDisplayedItems() }
+        .onChange(of: sort) { _, _ in refreshDisplayedItems() }
+        .onChange(of: search) { _, _ in refreshDisplayedItems() }
     }
 
     // MARK: - Header
@@ -233,7 +258,7 @@ struct SmartScanReviewManager: View {
                     .padding(.bottom, 8)
                 }
 
-                List(sortedItems(in: category)) { item in
+                List(displayedItems) { item in
                     itemRow(item)
                 }
                 .scrollContentBackground(.hidden)
@@ -309,6 +334,19 @@ struct SmartScanReviewManager: View {
                 total
             )
         }
+        let summary = selectionSummary?() ?? scannedSelectionSummary()
+        let countText = String.localizedStringWithFormat(
+            String(localized: "%lld Items Selected", comment: "Live count of selected items in a Smart Scan Manager footer."),
+            summary.count
+        )
+        guard let bytes = summary.bytes else { return countText }
+        return "\(countText)  ·  \(smartScanByteFormatter.string(fromByteCount: bytes))"
+    }
+
+    /// Full-scan fallback used only when the caller didn't supply a cheap
+    /// `selectionSummary` — fine for the small flat tiles (threats, updates),
+    /// never hit by the file tiles.
+    private func scannedSelectionSummary() -> ManagerSelectionSummary {
         var count = 0
         var bytes: Int64 = 0
         var hasSized = false
@@ -320,12 +358,7 @@ struct SmartScanReviewManager: View {
                 }
             }
         }
-        let countText = String.localizedStringWithFormat(
-            String(localized: "%lld Items Selected", comment: "Live count of selected items in a Smart Scan Manager footer."),
-            count
-        )
-        guard hasSized else { return countText }
-        return "\(countText)  ·  \(smartScanByteFormatter.string(fromByteCount: bytes))"
+        return ManagerSelectionSummary(count: count, bytes: hasSized ? bytes : nil)
     }
 
     // MARK: - Derived data
@@ -348,15 +381,19 @@ struct SmartScanReviewManager: View {
         sortedCategories.first { $0.id == selectedCategoryID } ?? sortedCategories.first
     }
 
-    private func sortedItems(in category: ManagerCategory) -> [ManagerItem] {
+    /// Rebuild the visible item list. Called only when the category, sort, or
+    /// search changes — never on a selection toggle — so checking a box stays
+    /// O(1) instead of re-sorting the whole category.
+    private func refreshDisplayedItems() {
+        guard let category = selectedCategory else { displayedItems = []; return }
         let filtered = search.isEmpty
             ? category.items
             : category.items.filter { $0.title.localizedCaseInsensitiveContains(search) }
         switch sort {
         case .size:
-            return filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
+            displayedItems = filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
         case .name:
-            return filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            displayedItems = filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         }
     }
 

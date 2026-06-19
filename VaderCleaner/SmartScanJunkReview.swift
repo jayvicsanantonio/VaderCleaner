@@ -31,6 +31,13 @@ struct SmartScanJunkReview: View {
         Dictionary(result.junkResult.items.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
+    /// Byte size keyed by file URL, so the footer's selected-bytes total is an
+    /// O(selected) sum over the selection set rather than an O(all-files) scan
+    /// on every checkbox tap.
+    private var sizeByURL: [URL: Int64] {
+        Dictionary(result.junkResult.items.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+    }
+
     private var sections: [ManagerSection] {
         Self.groups.compactMap { group in
             let categories = group.categories.compactMap { managerCategory(for: $0) }
@@ -41,6 +48,7 @@ struct SmartScanJunkReview: View {
 
     var body: some View {
         let files = filesByID
+        let sizes = sizeByURL
         SmartScanReviewManager(
             title: String(
                 localized: "Cleanup Manager",
@@ -60,7 +68,12 @@ struct SmartScanJunkReview: View {
                 viewModel.setJunkCategory(scanCategory, selected: selected)
             },
             onBack: onBack,
-            accessibilityPrefix: "smartScan.review.junk"
+            accessibilityPrefix: "smartScan.review.junk",
+            selectionSummary: {
+                let selection = viewModel.junkFileSelection
+                let bytes = selection.reduce(Int64(0)) { $0 + (sizes[$1] ?? 0) }
+                return ManagerSelectionSummary(count: selection.count, bytes: bytes)
+            }
         )
     }
 
