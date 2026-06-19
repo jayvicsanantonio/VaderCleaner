@@ -252,6 +252,38 @@ enum ScanPhrases {
         }
     }
 
+    /// Phrase set for the active Smart Scan stage, so the rotating status
+    /// follows whatever sub-scan is currently running rather than always
+    /// reading the broad "Casting a wide net…" voice. The broad file sweep
+    /// reuses the Smart Scan voice (it genuinely is the all-modules phase); the
+    /// malware content scan borrows the Malware Removal voice; and the
+    /// app-update probe gets its own dedicated set.
+    static func smartScanStage(_ stage: SmartScanStage) -> [String] {
+        switch stage {
+        case .sweepingFiles:
+            return scanning(for: .smartScan)
+        case .scanningThreats:
+            return scanning(for: .malwareRemoval)
+        case .checkingApps:
+            return checkingApps
+        }
+    }
+
+    /// App-update-flavored voice for the Smart Scan stage that probes installed
+    /// apps for newer versions. Kept distinct from the generic set so the
+    /// network-bound check that outlasts the file walks reads as deliberate
+    /// work, not a stalled spinner.
+    static let checkingApps = [
+        "Knocking on every app's door…", "Asking apps for their latest…",
+        "Checking the app shelves…", "Lining up the update queue…",
+        "Polling for fresher versions…", "Pinging the update feeds…",
+        "Seeing who's fallen behind…", "Comparing version numbers…",
+        "Rounding up the stragglers…", "Looking for newer builds…",
+        "Chasing down the latest releases…", "Taking app attendance…",
+        "Scouting for upgrades…", "Reading the release notes…",
+        "Tallying who needs a refresh…",
+    ]
+
     /// Fallback voice for sections without a bespoke set.
     static let generic = [
         "Working through it…", "Crunching the numbers…",

@@ -19,6 +19,22 @@ enum SmartScanModule: Hashable, CaseIterable {
     case myClutter
 }
 
+/// The phase the in-flight Smart Scan is currently focused on, derived from
+/// which sub-scans have finished. The five sub-scans run concurrently, so this
+/// reflects the most foundational work still running: the broad file sweep
+/// first, then the malware content scan, then the app-update probe — the same
+/// order in which they typically settle. The progress screen uses it to show a
+/// phrase set themed to whatever is actually being scanned right now.
+enum SmartScanStage: Hashable {
+    /// The two file-walk sub-scans (System Junk + My Clutter) are still
+    /// enumerating the disk.
+    case sweepingFiles
+    /// The file walks are done; the malware content scan is still running.
+    case scanningThreats
+    /// File walks and malware are done; the app-update probe is finishing up.
+    case checkingApps
+}
+
 /// One aggregated Smart Scan result, holding each sub-module's findings so the
 /// results screen can render a card per module. `clamAVAvailable` lets the
 /// Malware card hide its remove action when ClamAV is absent (the scan was
@@ -132,8 +148,11 @@ final class SmartScanViewModel {
     typealias MalwareInstalled = () -> Bool
     /// Malware scan source. Non-throwing and best-effort: a broken ClamAV
     /// install must not fail an otherwise-useful Smart Scan, so the live
-    /// wiring logs and yields `[]` rather than propagating.
-    typealias MalwareScanner = () async -> [MalwareThreat]
+    /// wiring logs and yields `[]` rather than propagating. The
+    /// `@Sendable (Int) -> Void` parameter receives the running files-checked
+    /// count so Smart Scan can show the malware sub-scan advancing after the
+    /// file-walk tally plateaus.
+    typealias MalwareScanner = (@escaping @Sendable (Int) -> Void) async -> [MalwareThreat]
     /// Login-item loader, mirroring `OptimizationViewModel.LoadLoginItems`.
     typealias LoginItemsLoader = () async -> [LoginItem]
     /// Large & Old Files scan source, fronting the My Clutter tile. Non-
@@ -147,8 +166,11 @@ final class SmartScanViewModel {
     typealias ClutterScanner = (@escaping @Sendable (Int) -> Void) async -> [ScannedFile]
     /// App-update check source, fronting the Applications tile. Non-throwing
     /// and best-effort for the same reason as `ClutterScanner` — a
-    /// network blip can't sink an otherwise-useful Smart Scan.
-    typealias UpdatesChecker = () async -> [UpdateInfo]
+    /// network blip can't sink an otherwise-useful Smart Scan. The
+    /// `@Sendable (Int, Int) -> Void` parameter receives the running
+    /// `(appsChecked, appsTotal)` so Smart Scan can show determinate progress
+    /// for the network-bound probe.
+    typealias UpdatesChecker = (@escaping @Sendable (_ checked: Int, _ total: Int) -> Void) async -> [UpdateInfo]
     /// Junk deletion sink — returns the bytes actually freed, mirroring
     /// `SystemJunkViewModel.Deleter`.
     typealias JunkCleaner = ([ScannedFile]) async throws -> Int64
@@ -183,6 +205,57 @@ final class SmartScanViewModel {
     /// at scan start and surfaced as "Scanned N items…" beneath the stage label
     /// so the user sees the composite scan advancing.
     private(set) var scannedItemCount: Int = 0
+
+    /// Running count of files the malware sub-scan has checked during the
+    /// in-flight Smart Scan. The file-walk tally (`scannedItemCount`) plateaus
+    /// the moment the two walks finish enumerating the disk, but the malware
+    /// content scan keeps running; surfacing its own count keeps the progress
+    /// readout honest about what is still happening. Reset to 0 at scan start.
+    private(set) var malwareFilesScanned: Int = 0
+
+    /// Determinate progress for the app-update sub-check: `appsChecked` of
+    /// `appsTotal` apps probed. The probe knows the total up front, so this
+    /// reads as bounded progress for the network-bound check that otherwise
+    /// outlasts the file walks with no visible movement. Both reset to 0 at
+    /// scan start.
+    private(set) var appsChecked: Int = 0
+    private(set) var appsTotal: Int = 0
+
+    /// Per-sub-scan completion flags, set as each sub-scan returns and reset at
+    /// scan start. `currentStage` reads them to decide which phrase set the
+    /// progress screen shows. Observed (not `@ObservationIgnored`) so the view
+    /// re-evaluates `currentStage` when a stage boundary is crossed.
+    private(set) var junkWalkComplete = false
+    private(set) var clutterWalkComplete = false
+    private(set) var malwareScanComplete = false
+
+    /// Both file walks have finished enumerating the disk.
+    private var fileWalksComplete: Bool { junkWalkComplete && clutterWalkComplete }
+
+    /// Which sub-scan the in-flight scan is currently focused on, by precedence
+    /// of the most foundational work still running. Only meaningful during
+    /// `.scanning`; the progress screen reads it to theme its rotating phrases.
+    var currentStage: SmartScanStage {
+        if !fileWalksComplete { return .sweepingFiles }
+        if !malwareScanComplete { return .scanningThreats }
+        return .checkingApps
+    }
+
+    /// One status line composing every active sub-scan signal — the file-walk
+    /// item count, the malware files-checked count, and the app-update
+    /// "N of M" — so the user always sees what the in-flight scan is doing,
+    /// even after the headline item count plateaus. Parts only appear once
+    /// their sub-scan has reported, so early ticks read as a plain item count.
+    var scanProgressDetail: String {
+        var parts = [ScanProgressFormatting.itemsScanned(scannedItemCount)]
+        if malwareFilesScanned > 0 {
+            parts.append(ScanProgressFormatting.threatsScanned(malwareFilesScanned))
+        }
+        if appsTotal > 0 {
+            parts.append(ScanProgressFormatting.appsChecked(appsChecked, of: appsTotal))
+        }
+        return parts.joined(separator: " · ")
+    }
 
     /// Which tiles on the dashboard are checked. Empty at `.idle`; seeded on
     /// the `.scanning → .results` transition to "every module that has
@@ -304,6 +377,12 @@ final class SmartScanViewModel {
         scannedItemCount = 0
         junkWalkCount = 0
         clutterWalkCount = 0
+        malwareFilesScanned = 0
+        appsChecked = 0
+        appsTotal = 0
+        junkWalkComplete = false
+        clutterWalkComplete = false
+        malwareScanComplete = false
 
         // The two file-walk sub-scans run concurrently and each report their own
         // monotonic walked count; sum them into one "Scanned N items…" tally.
@@ -336,20 +415,56 @@ final class SmartScanViewModel {
                 self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
             }
         }
+        // The two silent sub-scans report their own progress so the readout
+        // keeps moving after the file walks plateau. Same guard shape as the
+        // walk ticks: drop ticks from a superseded scan, from a terminal
+        // phase, or that would move a monotonic counter backwards.
+        let onMalwareProgress: @Sendable (Int) -> Void = { [weak self] count in
+            Task { @MainActor in
+                guard let self,
+                      self.scanGeneration == generation,
+                      case .scanning = self.phase,
+                      count > self.malwareFilesScanned else { return }
+                self.malwareFilesScanned = count
+            }
+        }
+        let onUpdatesProgress: @Sendable (Int, Int) -> Void = { [weak self] checked, total in
+            Task { @MainActor in
+                guard let self,
+                      self.scanGeneration == generation,
+                      case .scanning = self.phase,
+                      checked >= self.appsChecked else { return }
+                self.appsChecked = checked
+                self.appsTotal = total
+            }
+        }
 
         let clamAVAvailable = malwareInstalled()
 
         async let junk = junkScanner(onJunkProgress)
-        async let threats = scanForThreatsIfPossible(clamAVAvailable: clamAVAvailable)
+        async let threats = scanForThreatsIfPossible(
+            clamAVAvailable: clamAVAvailable,
+            onProgress: onMalwareProgress
+        )
         async let login = loginItemsLoader()
         async let large = largeOldFilesScanner(onClutterProgress)
-        async let updates = updatesChecker()
+        async let updates = updatesChecker(onUpdatesProgress)
 
         do {
+            // Await the two file walks first so their completion flags flip the
+            // moment the disk enumeration finishes — the malware content scan
+            // and app-update probe routinely outlast them, and the stage label
+            // must follow the work that is *actually* still running, not the
+            // textual order of these awaits. (`async let` already started all
+            // five concurrently, so collecting them in a different order is
+            // free.)
             let junkResult = try await junk
-            let foundThreats = await threats
-            let loginItems = await login
+            junkWalkComplete = true
             let largeFiles = await large
+            clutterWalkComplete = true
+            let loginItems = await login
+            let foundThreats = await threats
+            malwareScanComplete = true
             let foundUpdates = await updates
 
             let result = SmartScanResult(
@@ -387,9 +502,12 @@ final class SmartScanViewModel {
     /// Runs the malware scan only when ClamAV is present. Factored out of
     /// `scan()` so the `async let` site stays readable and the gating logic
     /// isn't buried in a conditional async closure.
-    private func scanForThreatsIfPossible(clamAVAvailable: Bool) async -> [MalwareThreat] {
+    private func scanForThreatsIfPossible(
+        clamAVAvailable: Bool,
+        onProgress: @escaping @Sendable (Int) -> Void
+    ) async -> [MalwareThreat] {
         guard clamAVAvailable else { return [] }
-        return await malwareScanner()
+        return await malwareScanner(onProgress)
     }
 
     // MARK: - Run
@@ -663,6 +781,12 @@ final class SmartScanViewModel {
         largeFileSelection = []
         sortedLargeOldFiles = []
         scannedItemCount = 0
+        malwareFilesScanned = 0
+        appsChecked = 0
+        appsTotal = 0
+        junkWalkComplete = false
+        clutterWalkComplete = false
+        malwareScanComplete = false
     }
 }
 
@@ -706,10 +830,18 @@ extension SmartScanViewModel {
             // rather than all of $HOME. A full-home clamscan reads every file's
             // contents and dominated Smart Scan's wall-clock time, since the
             // dashboard waits for every sub-scan before it can render.
-            malwareScanner: {
+            malwareScanner: { onProgress in
                 let quickPaths = MalwareViewModel.defaultQuickScanPaths()
+                // clamscan prints one line per file it checks, so counting the
+                // streamed lines is a faithful "files checked" tally — the same
+                // derivation the standalone Malware screen uses. The count is
+                // maintained here (off the main actor) and forwarded as a
+                // running total to the view model's monotonic progress sink.
+                let counter = ScanLineCounter()
                 do {
-                    return try await scanner.scan(paths: quickPaths, progress: { _ in })
+                    return try await scanner.scan(paths: quickPaths, progress: { _ in
+                        onProgress(counter.increment())
+                    })
                 } catch {
                     log.error("Smart Scan malware sub-scan failed, treating as no threats: \(String(describing: error), privacy: .public)")
                     return []
@@ -736,7 +868,7 @@ extension SmartScanViewModel {
             // `UpdateProbe.live()`) are the same ones
             // `AppUpdaterViewModel.live` uses, so the two surfaces produce
             // identical update lists.
-            updatesChecker: { await Self.fetchAvailableUpdates(log: log) },
+            updatesChecker: { onProgress in await Self.fetchAvailableUpdates(log: log, onProgress: onProgress) },
             junkCleaner: { try await SystemJunkDeleter().delete($0) },
             threatRemover: { await remover.remove($0) },
             // Wires identical to `OptimizationViewModel.live` so Smart Scan's
@@ -775,11 +907,14 @@ extension SmartScanViewModel {
     /// without this annotation the static would inherit `@MainActor` from
     /// the class extension and serialize on the UI thread, freezing every
     /// per-app hop on the scan's progress label.
-    nonisolated private static func fetchAvailableUpdates(log: Logger) async -> [UpdateInfo] {
+    nonisolated private static func fetchAvailableUpdates(
+        log: Logger,
+        onProgress: @escaping @Sendable (_ checked: Int, _ total: Int) -> Void
+    ) async -> [UpdateInfo] {
         let discovery = DefaultAppDiscovery()
         do {
             let apps = try await discovery.installedApps(includingSystemApps: false)
-            return await UpdateProbe.live().availableUpdates(for: apps)
+            return await UpdateProbe.live().availableUpdates(for: apps, onProgress: onProgress)
         } catch {
             log.error("Smart Scan updates check failed: \(String(describing: error), privacy: .public)")
             return []
@@ -808,6 +943,23 @@ extension SmartScanViewModel {
             }
         }
         return deleted
+    }
+}
+
+/// Thread-safe monotonic counter for the malware sub-scan's line stream.
+/// `ClamAVScanner` invokes its progress closure from a single background read
+/// loop, but the closure is `@escaping` and may outlive the call, so the
+/// counter is guarded the same way as `ClamAVScanner`'s own `ThreatCollector`.
+private final class ScanLineCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    /// Bumps the count and returns the new running total.
+    func increment() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
     }
 }
 

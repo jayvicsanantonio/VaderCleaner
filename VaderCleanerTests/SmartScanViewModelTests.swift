@@ -1032,7 +1032,7 @@ final class SmartScanViewModelTests: XCTestCase {
                 return ScanResult(items: [])
             },
             malwareInstalled: { false },
-            malwareScanner: { [] },
+            malwareScanner: { _ in [] },
             loginItemsLoader: { [] },
             largeOldFilesScanner: { progress in
                 progress(50)
@@ -1041,7 +1041,7 @@ final class SmartScanViewModelTests: XCTestCase {
                 await Task.yield()
                 return []
             },
-            updatesChecker: { [] },
+            updatesChecker: { _ in [] },
             junkCleaner: { _ in 0 },
             threatRemover: { _ in [] },
             maintenanceRunner: { "" },
@@ -1059,15 +1059,254 @@ final class SmartScanViewModelTests: XCTestCase {
         )
     }
 
+    /// The malware sub-scan must surface a running files-checked count so the
+    /// progress readout keeps moving after the file-walk tally plateaus.
+    func test_scan_reportsMalwareFilesScannedProgress() async {
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { progress in
+                progress(1)
+                await Task.yield()
+                progress(2)
+                await Task.yield()
+                progress(3)
+                await Task.yield()
+                return []
+            },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { _ in [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.malwareFilesScanned == 3 }
+
+        XCTAssertEqual(
+            vm.malwareFilesScanned,
+            3,
+            "Malware files-checked count must track the scanner's progress ticks"
+        )
+    }
+
+    /// A skipped malware sub-scan (ClamAV absent) must not run the scanner nor
+    /// move the files-checked count off zero.
+    func test_scan_doesNotReportMalwareProgressWhenClamAVAbsent() async {
+        var ranMalware = false
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in ScanResult(items: []) },
+            malwareInstalled: { false },
+            malwareScanner: { progress in
+                ranMalware = true
+                progress(5)
+                return []
+            },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { _ in [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        await vm.scan()
+
+        XCTAssertFalse(ranMalware, "Malware scanner must not run when ClamAV is absent")
+        XCTAssertEqual(vm.malwareFilesScanned, 0)
+    }
+
+    /// The app-update check must surface a determinate "checked of total" count
+    /// so the network-bound probe shows real progress while it runs.
+    func test_scan_reportsAppUpdateCheckProgress() async {
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in ScanResult(items: []) },
+            malwareInstalled: { false },
+            malwareScanner: { _ in [] },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { progress in
+                progress(0, 4)
+                await Task.yield()
+                progress(2, 4)
+                await Task.yield()
+                progress(4, 4)
+                await Task.yield()
+                return []
+            },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        await vm.scan()
+        await waitUntil { vm.appsChecked == 4 && vm.appsTotal == 4 }
+
+        XCTAssertEqual(vm.appsChecked, 4, "Apps-checked count must reach the total")
+        XCTAssertEqual(vm.appsTotal, 4, "Apps-total must reflect the discovered app count")
+    }
+
+    /// `scanProgressDetail` must compose the file-walk, malware, and app-update
+    /// signals into one status line so every active sub-scan is visible.
+    func test_scanProgressDetail_composesItemsThreatsAndApps() async {
+        let vm = SmartScanViewModel(
+            junkScanner: { progress in
+                progress(500)
+                await Task.yield()
+                return ScanResult(items: [])
+            },
+            malwareInstalled: { true },
+            malwareScanner: { progress in
+                progress(3)
+                await Task.yield()
+                return []
+            },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { progress in
+                progress(4, 4)
+                await Task.yield()
+                return []
+            },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        await vm.scan()
+        await waitUntil {
+            vm.scannedItemCount == 500 && vm.malwareFilesScanned == 3 && vm.appsTotal == 4
+        }
+
+        let detail = vm.scanProgressDetail
+        XCTAssertTrue(detail.contains("500"), "Detail must include the file-walk item count: \(detail)")
+        XCTAssertTrue(detail.contains("3"), "Detail must include the malware files-checked count: \(detail)")
+        XCTAssertTrue(detail.contains("4"), "Detail must include the app-update progress: \(detail)")
+    }
+
+    // MARK: - Scan stage (phrase theming)
+
+    /// While the file walks are still running, the current stage must read as
+    /// the broad file-sweep so the dashboard shows the all-modules phrasing.
+    func test_currentStage_isSweepingFiles_whileWalksRun() async {
+        let gate = AsyncGate()
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in await gate.wait(); return ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { _ in [] },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { _ in [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        let scanTask = Task { await vm.scan() }
+        await waitUntil { if case .scanning = vm.phase { return true } else { return false } }
+
+        XCTAssertEqual(vm.currentStage, .sweepingFiles,
+                       "A still-running file walk must keep the stage on the broad sweep")
+
+        gate.open()
+        await scanTask.value
+    }
+
+    /// Once the walks finish but the malware content scan is still running, the
+    /// stage must switch to threats so the malware-flavored phrases show.
+    func test_currentStage_isScanningThreats_whileMalwareRunsAfterWalks() async {
+        let gate = AsyncGate()
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { _ in await gate.wait(); return [] },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { _ in [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        let scanTask = Task { await vm.scan() }
+        await waitUntil { vm.currentStage == .scanningThreats }
+
+        XCTAssertEqual(vm.currentStage, .scanningThreats)
+
+        gate.open()
+        await scanTask.value
+        XCTAssertEqual(vm.currentStage, .checkingApps,
+                       "With walks and malware done, the stage rests on the app-update check")
+    }
+
+    /// With the walks and malware done, a still-running app-update probe must
+    /// put the stage on the app check.
+    func test_currentStage_isCheckingApps_whileUpdatesRunLast() async {
+        let gate = AsyncGate()
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in ScanResult(items: []) },
+            malwareInstalled: { false },
+            malwareScanner: { _ in [] },
+            loginItemsLoader: { [] },
+            largeOldFilesScanner: { _ in [] },
+            updatesChecker: { _ in await gate.wait(); return [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        let scanTask = Task { await vm.scan() }
+        await waitUntil { vm.currentStage == .checkingApps }
+
+        XCTAssertEqual(vm.currentStage, .checkingApps)
+
+        gate.open()
+        await scanTask.value
+    }
+
+    /// Each stage must resolve to a non-empty, section-appropriate phrase set:
+    /// the broad sweep reuses the Smart Scan voice, threats the Malware voice,
+    /// and the app check its own dedicated voice.
+    func test_smartScanStagePhrases_matchActiveSection() {
+        XCTAssertEqual(
+            ScanPhrases.smartScanStage(.sweepingFiles),
+            ScanPhrases.scanning(for: .smartScan)
+        )
+        XCTAssertEqual(
+            ScanPhrases.smartScanStage(.scanningThreats),
+            ScanPhrases.scanning(for: .malwareRemoval)
+        )
+        XCTAssertFalse(
+            ScanPhrases.smartScanStage(.checkingApps).isEmpty,
+            "The app-update stage must have its own phrase set"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
         junkScanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
-        malwareScanner: @escaping SmartScanViewModel.MalwareScanner = { [] },
+        malwareScanner: @escaping () async -> [MalwareThreat] = { [] },
         loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
         largeOldFilesScanner: @escaping () async -> [ScannedFile] = { [] },
-        updatesChecker: @escaping SmartScanViewModel.UpdatesChecker = { [] },
+        updatesChecker: @escaping () async -> [UpdateInfo] = { [] },
         junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
         threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
         maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
@@ -1081,10 +1320,10 @@ final class SmartScanViewModelTests: XCTestCase {
         SmartScanViewModel(
             junkScanner: { _ in try await junkScanner() },
             malwareInstalled: malwareInstalled,
-            malwareScanner: malwareScanner,
+            malwareScanner: { _ in await malwareScanner() },
             loginItemsLoader: loginItemsLoader,
             largeOldFilesScanner: { _ in await largeOldFilesScanner() },
-            updatesChecker: updatesChecker,
+            updatesChecker: { _ in await updatesChecker() },
             junkCleaner: junkCleaner,
             threatRemover: threatRemover,
             maintenanceRunner: maintenanceRunner,
@@ -1106,5 +1345,37 @@ final class SmartScanViewModelTests: XCTestCase {
             lastModifiedDate: nil,
             category: category
         )
+    }
+}
+
+/// A one-shot async gate used to hold a fake sub-scanner suspended so a test
+/// can observe the Smart Scan stage while exactly one sub-scan is still in
+/// flight. `wait()` suspends until `open()` is called (or returns immediately
+/// if already opened).
+private final class AsyncGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var opened = false
+
+    func wait() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if opened {
+                lock.unlock()
+                cont.resume()
+                return
+            }
+            continuation = cont
+            lock.unlock()
+        }
+    }
+
+    func open() {
+        lock.lock()
+        opened = true
+        let resume = continuation
+        continuation = nil
+        lock.unlock()
+        resume?.resume()
     }
 }

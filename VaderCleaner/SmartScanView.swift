@@ -78,12 +78,17 @@ struct SmartScanView: View {
             // only to keep the switch exhaustive over `Phase`.
             EmptyView()
         case .scanning(let phase):
+            // Key the progress view on the current stage so a stage change
+            // rebuilds ScanningStatusView with the new phrase set — it shuffles
+            // its phrases once at init, so a fresh identity is what swaps the
+            // voice from the broad sweep to threats to the app check.
             SmartScanProgressState(
                 label: phase,
                 identifier: "smartScan.scanning",
-                detail: ScanProgressFormatting.itemsScanned(viewModel.scannedItemCount),
-                phrases: ScanPhrases.scanning(for: .smartScan)
+                detail: viewModel.scanProgressDetail,
+                phrases: ScanPhrases.smartScanStage(viewModel.currentStage)
             )
+            .id(viewModel.currentStage)
         case .results(let result):
             resultsContent(result: result)
         case .cleaning:
@@ -169,7 +174,7 @@ struct SmartScanView: View {
             ])
         },
         malwareInstalled: { true },
-        malwareScanner: {
+        malwareScanner: { _ in
             [
                 MalwareThreat(
                     filePath: URL(fileURLWithPath: "/Users/me/Downloads/evil.bin"),
@@ -181,7 +186,7 @@ struct SmartScanView: View {
             [LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)]
         },
         largeOldFilesScanner: { _ in [] },
-        updatesChecker: { [] },
+        updatesChecker: { _ in [] },
         junkCleaner: { _ in 1_500_000_000 },
         threatRemover: { _ in [] },
         maintenanceRunner: { "Ran maintenance scripts." },
