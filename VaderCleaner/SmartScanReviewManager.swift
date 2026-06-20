@@ -360,13 +360,17 @@ struct SmartScanReviewManager: View {
                     .padding(.bottom, 8)
                 }
 
-                List(displayedItems) { item in
-                    itemRow(item)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                ManagerItemTable(
+                    items: displayedItems,
+                    showsSelection: showsSelection,
+                    isSelected: isSelected,
+                    onToggle: onToggle,
+                    accent: accent,
+                    rowHeight: 44,
+                    contentToken: "\(selectedCategoryID ?? "")|\(sort.rawValue)|\(search)",
+                    accessibilityPrefix: accessibilityPrefix
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Spacer()
                 Text(String(localized: "Nothing to review", comment: "Empty state in a Smart Scan Manager's detail pane."))
@@ -376,40 +380,6 @@ struct SmartScanReviewManager: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    }
-
-    private func itemRow(_ item: ManagerItem) -> some View {
-        // A lightweight, fixed-height row: a custom checkbox image (not a native
-        // `Toggle`, which is expensive to instantiate per row and stutters a
-        // large list) and a tap-anywhere toggle. Fixed height lets the list
-        // recycle rows smoothly while scrolling.
-        let selected = showsSelection && isSelected(item.id)
-        return HStack(spacing: 12) {
-            if showsSelection {
-                Image(systemName: selected ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 15))
-                    .foregroundStyle(selected ? accent : Color.secondary.opacity(0.7))
-            }
-            icon(item.systemImage, item.tint.color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.body.weight(.medium))
-                    .lineLimit(1).truncationMode(.middle)
-                if let subtitle = item.subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-            }
-            Spacer(minLength: 8)
-            if let sizeText = item.sizeText {
-                Text(sizeText)
-                    .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 4)
-        .frame(height: 44)
-        .contentShape(Rectangle())
-        .onTapGesture { if showsSelection { onToggle(item.id) } }
-        .accessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
     }
 
     // MARK: - Footer

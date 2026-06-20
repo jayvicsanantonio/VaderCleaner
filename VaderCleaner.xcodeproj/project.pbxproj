@@ -255,6 +255,7 @@
 		DE57DC92B2179CB856E0D558 /* ScanProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3BFBAF09EA79BE34F2ABCF /* ScanProgressIndicator.swift */; };
 		DFEDB8DF51CD2BA1732D3897 /* PrivacyDashboardSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867EACDA1946DCE20BAD163A /* PrivacyDashboardSubviews.swift */; };
 		E0420FF267A637AD7F530407 /* ExtensionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B8D75FB7A02DE3D470F0C4 /* ExtensionDiscovery.swift */; };
+		E1C1836BF10F1ED0E0B23E95 /* ManagerItemTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963EE90AA293C3991962768D /* ManagerItemTable.swift */; };
 		E2B25912B9BA5745454E137F /* SystemJunkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0A3D2497CF28388945BB57 /* SystemJunkUITests.swift */; };
 		E2BD46A6EEA03215B79433F7 /* LargeOldFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E602D46A51164E50C879C2 /* LargeOldFilesView.swift */; };
 		E357AD8EDB1FA65E6D5EB59E /* SmartScanViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB9C7A07E62C19FD94824B5 /* SmartScanViewSubviews.swift */; };
@@ -515,6 +516,7 @@
 		933E3B42C683C14A7398939F /* MailReindexerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailReindexerTests.swift; sourceTree = "<group>"; };
 		93E602D46A51164E50C879C2 /* LargeOldFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldFilesView.swift; sourceTree = "<group>"; };
 		9546ABE698D709FA5CB9ED29 /* BrowserDataClearer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDataClearer.swift; sourceTree = "<group>"; };
+		963EE90AA293C3991962768D /* ManagerItemTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagerItemTable.swift; sourceTree = "<group>"; };
 		963F8A6735414A3746D68C0F /* SmartScanReviewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanReviewManager.swift; sourceTree = "<group>"; };
 		9815EB34FC1894653528A9E0 /* SectionThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionThemeTests.swift; sourceTree = "<group>"; };
 		98D7B18095634307C5D7223D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -759,6 +761,7 @@
 				7315AD5A081B0855C316F00F /* MalwareView.swift */,
 				0FDFA9AEE80D49DAD57BC670 /* MalwareViewModel.swift */,
 				DB9A2FDFC86DCAD4AF412E6E /* MalwareViewSubviews.swift */,
+				963EE90AA293C3991962768D /* ManagerItemTable.swift */,
 				D2C2B92863509818189F46CD /* MenuBarContent.swift */,
 				8AE3D70086A4D06A40C2A899 /* MenuBarViewModel.swift */,
 				7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */,
@@ -1413,6 +1416,7 @@
 				09756E0B2E09D8BF521C1141 /* MalwareView.swift in Sources */,
 				4156DAE09EB7579F22FA6959 /* MalwareViewModel.swift in Sources */,
 				390C48318F77FFB4378A7CBF /* MalwareViewSubviews.swift in Sources */,
+				E1C1836BF10F1ED0E0B23E95 /* ManagerItemTable.swift in Sources */,
 				BA3D489D48265F806CC468A2 /* MenuBarContent.swift in Sources */,
 				C2F35144C0139C8829C4BB8A /* MenuBarViewModel.swift in Sources */,
 				5B37ECDBF03FBACFBE099816 /* MenuRouter.swift in Sources */,
