@@ -362,7 +362,10 @@ struct SmartScanReviewManager: View {
 
                 List(displayedItems) { item in
                     itemRow(item)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
+                .listStyle(.plain)
                 .scrollContentBackground(.hidden)
             } else {
                 Spacer()
@@ -376,14 +379,16 @@ struct SmartScanReviewManager: View {
     }
 
     private func itemRow(_ item: ManagerItem) -> some View {
-        HStack(spacing: 12) {
+        // A lightweight, fixed-height row: a custom checkbox image (not a native
+        // `Toggle`, which is expensive to instantiate per row and stutters a
+        // large list) and a tap-anywhere toggle. Fixed height lets the list
+        // recycle rows smoothly while scrolling.
+        let selected = showsSelection && isSelected(item.id)
+        return HStack(spacing: 12) {
             if showsSelection {
-                Toggle("", isOn: Binding(
-                    get: { isSelected(item.id) },
-                    set: { _ in onToggle(item.id) }
-                ))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+                Image(systemName: selected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 15))
+                    .foregroundStyle(selected ? accent : Color.secondary.opacity(0.7))
             }
             icon(item.systemImage, item.tint.color)
             VStack(alignment: .leading, spacing: 2) {
@@ -400,7 +405,10 @@ struct SmartScanReviewManager: View {
                     .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .frame(height: 44)
+        .contentShape(Rectangle())
+        .onTapGesture { if showsSelection { onToggle(item.id) } }
         .accessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
     }
 
