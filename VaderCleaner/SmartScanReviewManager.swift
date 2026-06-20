@@ -141,6 +141,11 @@ struct SmartScanReviewManager: View {
     /// flat tiles).
     var selectionSummary: (() -> ManagerSelectionSummary)? = nil
 
+    /// The active section accent (purple in Smart Scan), used to tint the
+    /// section/category selection so it matches the app rather than the grey
+    /// system list highlight.
+    @Environment(\.sectionAccent) private var accent
+
     /// The model, `nil` until the off-main build finishes (loading state).
     @State private var sections: [ManagerSection]?
     @State private var selectedSectionID: String?
@@ -242,44 +247,88 @@ struct SmartScanReviewManager: View {
     // MARK: - Panes
 
     private var sectionPane: some View {
-        List(loadedSections, selection: $selectedSectionID) { section in
-            Text(section.title)
-                .font(.body.weight(.medium))
-                .tag(section.id)
+        ScrollView {
+            VStack(spacing: 4) {
+                ForEach(loadedSections) { section in
+                    navRow(selected: section.id == selectedSection?.id) {
+                        selectedSectionID = section.id
+                        selectFirstCategory()
+                    } content: {
+                        Text(section.title)
+                            .font(.body.weight(.medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .padding(8)
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         .frame(width: 200)
-        .onChange(of: selectedSectionID) { _, _ in selectFirstCategory() }
     }
 
     private var categoryPane: some View {
-        List(sortedCategories, selection: $selectedCategoryID) { category in
-            HStack(spacing: 12) {
-                icon(category.systemImage, category.tint.color)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(category.title).font(.body.weight(.medium))
-                    if let text = category.totalSizeText {
-                        Text(text).font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text("\(category.items.count) item\(category.items.count == 1 ? "" : "s")")
-                            .font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(spacing: 4) {
+                ForEach(sortedCategories) { category in
+                    navRow(selected: category.id == selectedCategory?.id) {
+                        selectedCategoryID = category.id
+                    } content: {
+                        categoryRow(category)
                     }
-                }
-                Spacer(minLength: 8)
-                if let text = category.totalSizeText {
-                    Text(text)
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(.tint.opacity(0.18), in: Capsule())
+                    .accessibilityIdentifier("\(accessibilityPrefix).category.\(category.id)")
                 }
             }
-            .padding(.vertical, 4)
-            .tag(category.id)
-            .accessibilityIdentifier("\(accessibilityPrefix).category.\(category.id)")
+            .padding(8)
         }
-        .scrollContentBackground(.hidden)
         .frame(width: 320)
+    }
+
+    private func categoryRow(_ category: ManagerCategory) -> some View {
+        HStack(spacing: 12) {
+            icon(category.systemImage, category.tint.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(category.title).font(.body.weight(.medium))
+                if let text = category.totalSizeText {
+                    Text(text).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("\(category.items.count) item\(category.items.count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            if let text = category.totalSizeText {
+                Text(text)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(accent)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(accent.opacity(0.18), in: Capsule())
+            }
+        }
+    }
+
+    /// A selectable nav row in the section/category panes, tinted with the
+    /// section accent when selected so it reads as part of the app's glow
+    /// language instead of the grey system list highlight.
+    private func navRow<Content: View>(
+        selected: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Button(action: action) {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selected ? accent.opacity(0.22) : .clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var itemPane: some View {
