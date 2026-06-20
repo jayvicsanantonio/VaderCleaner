@@ -51,21 +51,14 @@ struct PreferencesView: View {
 private struct ScanningTab: View {
 
     /// Left-list selection: the whole Smart Care profile, or the Cleanup module
-    /// drilled down to its own categories.
+    /// drilled down to its own sub-tree.
     private enum SidebarItem: Hashable { case smartCare, cleanup }
 
     @Environment(SmartScanSettingsStore.self) private var settings
     @State private var selection: SidebarItem = .smartCare
-    @State private var cleanupExpanded = true
-
-    /// Shared column widths so the disclosure triangles and checkboxes line up.
-    private static let triangleWidth: CGFloat = 16
-    private static let checkboxWidth: CGFloat = 18
-
-    /// Every Smart Scan module except System Junk, which renders as the
-    /// expandable Cleanup parent above its own category sub-tree.
-    private static let standaloneModules: [SmartScanModule] =
-        SmartScanModule.allCases.filter { $0 != .systemJunk }
+    /// Node ids whose children are revealed. Cleanup opens by default so its
+    /// System Junk / Mail Attachments / Trash Bins sub-tree shows on first view.
+    @State private var expanded: Set<String> = ["module.systemJunk"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -131,16 +124,8 @@ private struct ScanningTab: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    cleanupParentRow
-                    if cleanupExpanded {
-                        ForEach(SmartScanSettingsStore.junkCategories, id: \.self) { category in
-                            categoryChildRow(category)
-                        }
-                    }
-                    if selection == .smartCare {
-                        ForEach(Self.standaloneModules, id: \.self) { module in
-                            moduleRow(module)
-                        }
+                    ForEach(rootNodes) { node in
+                        ScanNodeRow(node: node, level: 0, expanded: $expanded)
                     }
                 }
                 .padding(10)
@@ -153,98 +138,7 @@ private struct ScanningTab: View {
     }
 
     private var detailTitle: String {
-        selection == .cleanup ? "Categories to scan using Cleanup:" : "Modules to scan using Smart Care:"
-    }
-
-    // MARK: Rows
-
-    /// The expandable Cleanup parent: triangle, tri-state checkbox, badge, label.
-    private var cleanupParentRow: some View {
-        HStack(spacing: 8) {
-            disclosureTriangle
-            NativeTriStateCheckbox(
-                state: settings.junkCategoryState,
-                identifier: "scanning.module.\(SmartScanModule.systemJunk.rawValue)",
-                action: toggleCleanup
-            )
-            .frame(width: Self.checkboxWidth)
-            ScanBadgeIcon(systemName: Self.symbol(.systemJunk), tint: Self.tint(.systemJunk))
-            Text(Self.title(.systemJunk))
-                .font(.system(size: 15))
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 6)
-    }
-
-    /// A System Junk category, indented one level under Cleanup. Greyed and
-    /// non-interactive when the Cleanup module is off.
-    private func categoryChildRow(_ category: ScanCategory) -> some View {
-        let cleanupOn = settings.isModuleEnabled(.systemJunk)
-        return HStack(spacing: 8) {
-            leafCheckbox(
-                isOn: settings.isJunkCategoryEnabled(category),
-                identifier: "scanning.junkCategory.\(category.rawValue)"
-            ) { settings.setJunkCategory(category, enabled: $0) }
-            ScanBadgeIcon(systemName: Self.categorySymbol(category), tint: BadgePalette.green)
-            Text(category.displayName)
-                .font(.system(size: 15))
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 4)
-        .padding(.leading, Self.triangleWidth + Self.checkboxWidth + 16)
-        .padding(.trailing, 6)
-        .disabled(!cleanupOn)
-        .opacity(cleanupOn ? 1 : 0.45)
-    }
-
-    /// A module with no sub-tree: a triangle-width spacer keeps its checkbox in
-    /// the same column as the Cleanup parent's.
-    private func moduleRow(_ module: SmartScanModule) -> some View {
-        HStack(spacing: 8) {
-            Color.clear.frame(width: Self.triangleWidth, height: 1)
-            leafCheckbox(
-                isOn: settings.isModuleEnabled(module),
-                identifier: "scanning.module.\(module.rawValue)"
-            ) { settings.setModule(module, enabled: $0) }
-            ScanBadgeIcon(systemName: Self.symbol(module), tint: Self.tint(module))
-            Text(Self.title(module))
-                .font(.system(size: 15))
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 6)
-    }
-
-    // MARK: Building blocks
-
-    private var disclosureTriangle: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.18)) { cleanupExpanded.toggle() }
-        } label: {
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .rotationEffect(.degrees(cleanupExpanded ? 90 : 0))
-                .frame(width: Self.triangleWidth, height: Self.triangleWidth)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(cleanupExpanded ? "Collapse Cleanup" : "Expand Cleanup")
-    }
-
-    /// A native macOS checkbox sized to the shared column — used for the leaf
-    /// rows so they read as standard, fully-accessible controls.
-    private func leafCheckbox(
-        isOn: Bool,
-        identifier: String,
-        set: @escaping (Bool) -> Void
-    ) -> some View {
-        Toggle("", isOn: Binding(get: { isOn }, set: set))
-            .labelsHidden()
-            .toggleStyle(.checkbox)
-            .frame(width: Self.checkboxWidth, alignment: .leading)
-            .accessibilityIdentifier(identifier)
+        selection == .cleanup ? "Modules to scan using Cleanup:" : "Modules to scan using Smart Care:"
     }
 
     private var paneBackground: some View {
@@ -254,6 +148,128 @@ private struct ScanningTab: View {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(Color(nsColor: .separatorColor))
             )
+    }
+
+    // MARK: Tree model
+
+    /// The top-level nodes shown in the detail pane. `.smartCare` shows every
+    /// module; selecting Cleanup in the sidebar narrows to that one module.
+    private var rootNodes: [ScanNode] {
+        switch selection {
+        case .cleanup: return [cleanupNode]
+        case .smartCare:
+            return [cleanupNode]
+                + [moduleNode(.malware, featureTitle: "Malware Removal", featureSymbol: "ladybug.fill"),
+                   moduleNode(.optimization, featureTitle: "Maintenance Scripts", featureSymbol: "wrench.and.screwdriver.fill"),
+                   moduleNode(.applications, featureTitle: "App Updates", featureSymbol: "arrow.triangle.2.circlepath"),
+                   moduleNode(.myClutter, featureTitle: "Large & Old Files", featureSymbol: "doc.fill")]
+        }
+    }
+
+    /// Cleanup → System Junk (further expandable) / Mail Attachments / Trash
+    /// Bins, mirroring the reference's grouping of the System Junk categories.
+    private var cleanupNode: ScanNode {
+        ScanNode(
+            id: "module.systemJunk",
+            title: "Cleanup",
+            symbol: "sparkles",
+            tint: BadgePalette.green,
+            canMix: true,
+            checkboxID: "scanning.module.systemJunk",
+            state: { self.settings.junkCategoryState },
+            toggle: self.toggleCleanup,
+            isEnabled: { true },
+            children: [
+                systemJunkGroupNode,
+                categoryNode(.mailAttachments, title: "Mail Attachments"),
+                categoryNode(.trash, title: "Trash Bins"),
+            ]
+        )
+    }
+
+    /// The "System Junk" sub-group: a tri-state over the cache/log/language/
+    /// backup categories (everything under Cleanup except mail + trash).
+    private var systemJunkGroupNode: ScanNode {
+        let categories = SmartScanSettingsStore.junkCategories.filter {
+            $0 != .mailAttachments && $0 != .trash
+        }
+        return ScanNode(
+            id: "group.systemJunk",
+            title: "System Junk",
+            symbol: "xmark.bin.fill",
+            tint: BadgePalette.green,
+            canMix: true,
+            checkboxID: "scanning.junkGroup.systemJunk",
+            state: { self.groupState(categories) },
+            toggle: { self.setCategories(categories, enabled: !self.allEnabled(categories)) },
+            isEnabled: { self.settings.isModuleEnabled(.systemJunk) },
+            children: categories.map { categoryNode($0, title: $0.displayName) }
+        )
+    }
+
+    private func categoryNode(_ category: ScanCategory, title: String) -> ScanNode {
+        ScanNode(
+            id: "category.\(category.rawValue)",
+            title: title,
+            symbol: Self.categorySymbol(category),
+            tint: BadgePalette.green,
+            canMix: false,
+            checkboxID: "scanning.junkCategory.\(category.rawValue)",
+            state: { self.settings.isJunkCategoryEnabled(category) ? .on : .off },
+            toggle: { self.settings.setJunkCategory(category, enabled: !self.settings.isJunkCategoryEnabled(category)) },
+            isEnabled: { self.settings.isModuleEnabled(.systemJunk) }
+        )
+    }
+
+    /// A non-Cleanup module rendered as a parent over its single named feature,
+    /// matching the reference (Protection → Malware Removal, etc.). The parent
+    /// and the child are the same toggle — the module's on/off state.
+    private func moduleNode(_ module: SmartScanModule, featureTitle: String, featureSymbol: String) -> ScanNode {
+        let toggle = { self.settings.setModule(module, enabled: !self.settings.isModuleEnabled(module)) }
+        let state = { self.settings.isModuleEnabled(module) ? ScanState.on : .off }
+        return ScanNode(
+            id: "module.\(module.rawValue)",
+            title: Self.title(module),
+            symbol: Self.symbol(module),
+            tint: Self.tint(module),
+            canMix: false,
+            checkboxID: "scanning.module.\(module.rawValue)",
+            state: state,
+            toggle: toggle,
+            isEnabled: { true },
+            children: [
+                ScanNode(
+                    id: "feature.\(module.rawValue)",
+                    title: featureTitle,
+                    symbol: featureSymbol,
+                    tint: Self.tint(module),
+                    canMix: false,
+                    checkboxID: "scanning.feature.\(module.rawValue)",
+                    state: state,
+                    toggle: toggle,
+                    isEnabled: { true }
+                )
+            ]
+        )
+    }
+
+    // MARK: Derived state helpers
+
+    private func allEnabled(_ categories: [ScanCategory]) -> Bool {
+        categories.allSatisfy { settings.isJunkCategoryEnabled($0) }
+    }
+
+    private func groupState(_ categories: [ScanCategory]) -> ScanState {
+        let on = categories.filter { settings.isJunkCategoryEnabled($0) }.count
+        if on == 0 { return .off }
+        if on == categories.count { return .on }
+        return .mixed
+    }
+
+    private func setCategories(_ categories: [ScanCategory], enabled: Bool) {
+        for category in categories {
+            settings.setJunkCategory(category, enabled: enabled)
+        }
     }
 
     // MARK: Actions
@@ -320,6 +336,100 @@ private struct ScanningTab: View {
     }
 }
 
+/// Tri-state of a checkbox in the Smart Care tree. Aliased to the store's
+/// `CheckState` so the view and store share one vocabulary.
+private typealias ScanState = SmartScanSettingsStore.CheckState
+
+/// One node in the Smart Care tree. Carries closures (rather than a binding) so
+/// a module, a category group, an individual category, and a module's single
+/// named feature can all be expressed uniformly. The closures read/write the
+/// store, so reading them inside a row body keeps SwiftUI observation intact.
+private struct ScanNode: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let tint: Color
+    /// Whether this node can show the mixed (dash) state — true for parents
+    /// whose children can be partially selected, false for leaves.
+    let canMix: Bool
+    let checkboxID: String
+    let state: () -> ScanState
+    let toggle: () -> Void
+    /// Whether the row is interactive; a category is disabled when its Cleanup
+    /// module is off, so the whole subtree greys out.
+    let isEnabled: () -> Bool
+    var children: [ScanNode] = []
+}
+
+/// Renders a `ScanNode` and, when expanded, its children one indent level
+/// deeper — a disclosure triangle (only when there are children), a native
+/// checkbox, a glossy badge, and the title.
+private struct ScanNodeRow: View {
+
+    let node: ScanNode
+    let level: Int
+    @Binding var expanded: Set<String>
+
+    private static let triangleWidth: CGFloat = 16
+    private static let checkboxWidth: CGFloat = 18
+    private static let indentStep: CGFloat = 26
+
+    var body: some View {
+        let isOpen = expanded.contains(node.id)
+        let enabled = node.isEnabled()
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                triangle(isOpen: isOpen)
+                NativeTriStateCheckbox(
+                    state: node.state(),
+                    allowsMixed: node.canMix,
+                    identifier: node.checkboxID,
+                    action: node.toggle
+                )
+                .frame(width: Self.checkboxWidth)
+                ScanBadgeIcon(systemName: node.symbol, tint: node.tint)
+                Text(node.title)
+                    .font(.system(size: 15))
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 5)
+            .padding(.leading, CGFloat(level) * Self.indentStep)
+            .padding(.trailing, 6)
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.45)
+
+            if isOpen {
+                ForEach(node.children) { child in
+                    ScanNodeRow(node: child, level: level + 1, expanded: $expanded)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func triangle(isOpen: Bool) -> some View {
+        if node.children.isEmpty {
+            Color.clear.frame(width: Self.triangleWidth, height: 1)
+        } else {
+            Button {
+                withAnimation(.snappy(duration: 0.18)) {
+                    if expanded.contains(node.id) { expanded.remove(node.id) }
+                    else { expanded.insert(node.id) }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .frame(width: Self.triangleWidth, height: Self.triangleWidth)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isOpen ? "Collapse \(node.title)" : "Expand \(node.title)")
+        }
+    }
+}
+
 /// Glossy colored badge icon matching the Smart Care reference: a gradient-
 /// filled circle with a soft top highlight and a white SF Symbol. Built in
 /// SwiftUI so there are no image assets to maintain and the badges recolor with
@@ -377,6 +487,10 @@ private enum BadgePalette {
 private struct NativeTriStateCheckbox: NSViewRepresentable {
 
     let state: SmartScanSettingsStore.CheckState
+    /// Whether this checkbox can display the mixed (dash) state. Leaf rows pass
+    /// `false` so a click toggles cleanly off↔on instead of cycling through
+    /// mixed.
+    var allowsMixed: Bool = true
     let identifier: String
     let action: () -> Void
 
@@ -384,13 +498,14 @@ private struct NativeTriStateCheckbox: NSViewRepresentable {
         let button = NSButton(checkboxWithTitle: "",
                               target: context.coordinator,
                               action: #selector(Coordinator.didClick))
-        button.allowsMixedState = true
+        button.allowsMixedState = allowsMixed
         button.setAccessibilityIdentifier(identifier)
         return button
     }
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.action = action
+        button.allowsMixedState = allowsMixed
         button.state = Self.nsState(for: state)
     }
 
