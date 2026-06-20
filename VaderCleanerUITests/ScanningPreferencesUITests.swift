@@ -98,13 +98,16 @@ final class ScanningPreferencesUITests: XCTestCase {
         return button
     }
 
-    /// A checkbox `Toggle` surfaces as either a checkBox or a switch depending on
-    /// the macOS release — resolve whichever query holds the identifier.
+    /// A leaf checkbox `Toggle` surfaces as a checkBox or switch; the tri-state
+    /// Cleanup parent is a custom button. Resolve whichever query holds the
+    /// identifier.
     private func control(_ identifier: String) -> XCUIElement {
         let checkbox = app.checkBoxes[identifier]
         if checkbox.exists { return checkbox }
         let toggle = app.switches[identifier]
         if toggle.exists { return toggle }
+        let button = app.buttons[identifier]
+        if button.exists { return button }
         return checkbox
     }
 

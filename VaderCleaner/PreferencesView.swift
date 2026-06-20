@@ -42,93 +42,170 @@ struct PreferencesView: View {
 // MARK: - Scanning tab (Customize Smart Care)
 
 /// Lets the user choose which Smart Scan modules — and, within Cleanup, which
-/// System Junk categories — a scan includes. Laid out as a native grouped form
-/// (matching the other preference tabs): a Modules section, then a Cleanup
-/// Categories section that greys out when the Cleanup module is off, so a
-/// disabled module visibly excludes its whole subtree.
+/// System Junk categories — a scan includes. Laid out as CleanMyMac's "Customize
+/// Smart Care" hierarchical checkbox tree: the Cleanup parent carries a
+/// disclosure chevron and a tri-state checkbox over its System Junk category
+/// children; disabling a module greys out and excludes its whole subtree. The
+/// tree is hand-built (rather than `DisclosureGroup`) so the chevron, checkbox,
+/// icon, and label sit in fixed, aligned columns.
 private struct ScanningTab: View {
 
     @Environment(SmartScanSettingsStore.self) private var settings
+    @State private var cleanupExpanded = true
 
-    /// Every Smart Scan module, in dashboard reading order.
-    private static let modules: [SmartScanModule] = SmartScanModule.allCases
+    /// Width of the leading chevron column. Rows without a chevron reserve the
+    /// same width so every checkbox lines up in one column.
+    private static let chevronWidth: CGFloat = 18
+    /// Width reserved for a checkbox so the custom (tri-state) and native (leaf)
+    /// checkboxes share an alignment column.
+    private static let checkboxWidth: CGFloat = 18
+
+    /// Every Smart Scan module except System Junk, which renders as the
+    /// expandable Cleanup parent above its own category sub-tree.
+    private static let standaloneModules: [SmartScanModule] =
+        SmartScanModule.allCases.filter { $0 != .systemJunk }
 
     var body: some View {
-        Form {
-            Section {
-                ForEach(Self.modules, id: \.self) { module in
-                    moduleRow(module)
-                }
-            } header: {
-                Text("Specify the items you would like to include in your scans")
-            } footer: {
-                Text("Smart Scan runs only the checked modules. Unchecked modules are skipped entirely.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Specify the items you would like to include in your scans:")
+                .font(.callout)
+                .foregroundStyle(.secondary)
 
-            Section {
-                ForEach(SmartScanSettingsStore.junkCategories, id: \.self) { category in
-                    categoryRow(category)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    cleanupParentRow
+                    if cleanupExpanded {
+                        ForEach(SmartScanSettingsStore.junkCategories, id: \.self) { category in
+                            categoryChildRow(category)
+                        }
+                    }
+                    ForEach(Self.standaloneModules, id: \.self) { module in
+                        moduleRow(module)
+                    }
                 }
-            } header: {
-                Text("Cleanup Categories")
-            } footer: {
-                Text(cleanupFooter)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .disabled(!settings.isModuleEnabled(.systemJunk))
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.18)))
         }
-        .formStyle(.grouped)
+        .padding()
     }
 
     // MARK: Rows
 
-    private func moduleRow(_ module: SmartScanModule) -> some View {
-        Toggle(isOn: Binding(
-            get: { settings.isModuleEnabled(module) },
-            set: { settings.setModule(module, enabled: $0) }
-        )) {
-            Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.title(module))
-                    Text(Self.caption(module))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } icon: {
-                Image(systemName: Self.symbol(module))
-                    .foregroundStyle(.tint)
-            }
+    /// The expandable Cleanup parent: chevron, tri-state checkbox, icon, label.
+    private var cleanupParentRow: some View {
+        HStack(spacing: 6) {
+            chevron
+            CheckboxButton(state: settings.junkCategoryState, action: toggleCleanup)
+                .frame(width: Self.checkboxWidth)
+                .accessibilityIdentifier("scanning.module.\(SmartScanModule.systemJunk.rawValue)")
+            moduleLabel(.systemJunk)
         }
-        .toggleStyle(.checkbox)
-        .accessibilityIdentifier("scanning.module.\(module.rawValue)")
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
     }
 
-    private func categoryRow(_ category: ScanCategory) -> some View {
-        Toggle(category.displayName, isOn: Binding(
-            get: { settings.isJunkCategoryEnabled(category) },
-            set: { settings.setJunkCategory(category, enabled: $0) }
-        ))
-        .toggleStyle(.checkbox)
-        .accessibilityIdentifier("scanning.junkCategory.\(category.rawValue)")
+    /// A System Junk category, indented one level under Cleanup. Greyed and
+    /// non-interactive when the Cleanup module is off.
+    private func categoryChildRow(_ category: ScanCategory) -> some View {
+        let cleanupOn = settings.isModuleEnabled(.systemJunk)
+        return HStack(spacing: 6) {
+            nativeCheckbox(
+                isOn: settings.isJunkCategoryEnabled(category),
+                identifier: "scanning.junkCategory.\(category.rawValue)"
+            ) { settings.setJunkCategory(category, enabled: $0) }
+            Text(category.displayName)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 3)
+        .padding(.leading, Self.chevronWidth + Self.checkboxWidth + 6)
+        .padding(.trailing, 6)
+        .disabled(!cleanupOn)
+        .opacity(cleanupOn ? 1 : 0.45)
+    }
+
+    /// A module with no sub-tree: a chevron-width spacer keeps its checkbox in
+    /// the same column as the Cleanup parent's.
+    private func moduleRow(_ module: SmartScanModule) -> some View {
+        HStack(spacing: 6) {
+            Color.clear.frame(width: Self.chevronWidth, height: 1)
+            nativeCheckbox(
+                isOn: settings.isModuleEnabled(module),
+                identifier: "scanning.module.\(module.rawValue)"
+            ) { settings.setModule(module, enabled: $0) }
+            moduleLabel(module)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+    }
+
+    // MARK: Building blocks
+
+    private var chevron: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.18)) { cleanupExpanded.toggle() }
+        } label: {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(cleanupExpanded ? 90 : 0))
+                .frame(width: Self.chevronWidth, height: Self.chevronWidth)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(cleanupExpanded ? "Collapse Cleanup" : "Expand Cleanup")
+    }
+
+    /// A native macOS checkbox sized to the shared column. Used for the leaf
+    /// rows (modules without a sub-tree, and the categories) so they read as
+    /// standard, fully-accessible controls.
+    private func nativeCheckbox(
+        isOn: Bool,
+        identifier: String,
+        set: @escaping (Bool) -> Void
+    ) -> some View {
+        Toggle("", isOn: Binding(get: { isOn }, set: set))
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .frame(width: Self.checkboxWidth, alignment: .leading)
+            .accessibilityIdentifier(identifier)
+    }
+
+    private func moduleLabel(_ module: SmartScanModule) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: Self.symbol(module))
+                .foregroundStyle(.tint)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(Self.title(module))
+                Text(Self.caption(module))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: Actions
+
+    /// The Cleanup checkbox primarily controls whether the module is included:
+    /// clicking it while included (checked or mixed) excludes the whole subtree;
+    /// clicking it while excluded includes the module and every category. The
+    /// mixed glyph signals that some categories are individually deselected.
+    private func toggleCleanup() {
+        if settings.isModuleEnabled(.systemJunk) {
+            settings.setModule(.systemJunk, enabled: false)
+        } else {
+            settings.setModule(.systemJunk, enabled: true)
+            for category in SmartScanSettingsStore.junkCategories {
+                settings.setJunkCategory(category, enabled: true)
+            }
+        }
     }
 
     // MARK: Copy
-
-    /// Footer under the categories section, reflecting whether Cleanup is off,
-    /// fully included, or partially narrowed.
-    private var cleanupFooter: String {
-        switch settings.junkCategoryState {
-        case .off:
-            return "Enable Cleanup above to scan system junk."
-        case .mixed:
-            return "Some system junk categories are excluded from Cleanup."
-        case .on:
-            return "Choose which kinds of system junk Cleanup scans."
-        }
-    }
 
     private static func title(_ module: SmartScanModule) -> String {
         switch module {
@@ -157,6 +234,36 @@ private struct ScanningTab: View {
         case .optimization: return "bolt.fill"
         case .applications: return "app.badge"
         case .myClutter: return "doc.on.doc"
+        }
+    }
+}
+
+/// The tri-state checkbox for the Cleanup parent: checked (all categories in),
+/// unchecked (module excluded), or mixed (module in, some categories out).
+/// Built on a plain `Button` with an SF Symbol because `Toggle` can't render a
+/// mixed state; the symbols are tinted to read like the native macOS checkboxes
+/// used by the leaf rows.
+private struct CheckboxButton: View {
+
+    let state: SmartScanSettingsStore.CheckState
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16))
+                .foregroundStyle(state == .off ? Color.secondary : Color.accentColor)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(state == .off ? "0" : "1")
+    }
+
+    private var symbol: String {
+        switch state {
+        case .on: return "checkmark.square.fill"
+        case .off: return "square"
+        case .mixed: return "minus.square.fill"
         }
     }
 }
