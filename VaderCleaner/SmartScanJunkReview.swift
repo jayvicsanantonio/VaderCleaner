@@ -6,10 +6,21 @@ import SwiftUI
 /// System Junk Review, rendered through the shared `SmartScanReviewManager`.
 /// The section/category/file hierarchy is built off the main actor; selection
 /// callbacks bridge to the view model's per-file junk selection.
+/// Holds the id→file and url→size lookups the selection callbacks need. Built
+/// once on the same background task as the section model (so nothing O(N) runs
+/// on the main thread) and read on the main actor afterward; the manager only
+/// renders interactive rows once that build has finished, so there is no race.
+private final class JunkReviewLookups: @unchecked Sendable {
+    var filesByID: [String: ScannedFile] = [:]
+    var sizeByURL: [URL: Int64] = [:]
+}
+
 struct SmartScanJunkReview: View {
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
     let onBack: () -> Void
+
+    @State private var lookups = JunkReviewLookups()
 
     /// Left-pane groupings, mirroring the reference's "System Junk / Mail
     /// Attachments / Trash" split. Only groups (and categories) with scanned
@@ -23,21 +34,9 @@ struct SmartScanJunkReview: View {
          [.trash]),
     ]
 
-    /// Flat lookup from a manager item's id (the file's path) back to its
-    /// `ScannedFile`, so the selection callbacks reach the view model in O(1).
-    private var filesByID: [String: ScannedFile] {
-        Dictionary(result.junkResult.items.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    /// Byte size keyed by file URL, so the footer's selected-bytes total is an
-    /// O(selected) sum rather than an O(all-files) scan on every checkbox tap.
-    private var sizeByURL: [URL: Int64] {
-        Dictionary(result.junkResult.items.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
-    }
-
     var body: some View {
-        let files = filesByID
-        let sizes = sizeByURL
+        let lookups = self.lookups
+        let items = result.junkResult.items
         let itemsByCategory = result.junkResult.itemsByCategory
         let sizeByCategory = result.junkResult.sizeByCategory
         SmartScanReviewManager(
@@ -45,13 +44,19 @@ struct SmartScanJunkReview: View {
                 localized: "Cleanup Manager",
                 comment: "Title on the Smart Scan System Junk Review screen."
             ),
-            buildSections: { Self.buildSections(itemsByCategory: itemsByCategory, sizeByCategory: sizeByCategory) },
+            buildSections: {
+                // Build the selection lookups in the same off-main pass as the
+                // section model, so the main thread never does O(all-files) work.
+                lookups.filesByID = Dictionary(items.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
+                lookups.sizeByURL = Dictionary(items.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+                return Self.buildSections(itemsByCategory: itemsByCategory, sizeByCategory: sizeByCategory)
+            },
             isSelected: { id in
-                guard let file = files[id] else { return false }
+                guard let file = lookups.filesByID[id] else { return false }
                 return viewModel.isJunkFileSelected(file)
             },
             onToggle: { id in
-                guard let file = files[id] else { return }
+                guard let file = lookups.filesByID[id] else { return }
                 viewModel.toggleJunkFile(file)
             },
             onSetCategory: { category, selected in
@@ -62,7 +67,7 @@ struct SmartScanJunkReview: View {
             accessibilityPrefix: "smartScan.review.junk",
             selectionSummary: {
                 let selection = viewModel.junkFileSelection
-                let bytes = selection.reduce(Int64(0)) { $0 + (sizes[$1] ?? 0) }
+                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.sizeByURL[$1] ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }
         )

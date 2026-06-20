@@ -3,6 +3,14 @@
 
 import SwiftUI
 
+/// Holds the id→file and url→size lookups the selection callbacks need. Built
+/// on the same background task as the section model so nothing O(N) runs on the
+/// main thread; read on the main actor once that build has finished.
+private final class ClutterReviewLookups: @unchecked Sendable {
+    var filesByID: [String: ScannedFile] = [:]
+    var sizeByURL: [URL: Int64] = [:]
+}
+
 /// My Clutter Review, rendered through the shared `SmartScanReviewManager`.
 /// Files are grouped into Large vs. Old; selection bridges to the view model's
 /// per-file API. Nothing is selected by default — parity with
@@ -12,37 +20,34 @@ struct SmartScanMyClutterReview: View {
     let result: SmartScanResult
     let onBack: () -> Void
 
+    @State private var lookups = ClutterReviewLookups()
+
     /// Pre-sorted by `SmartScanViewModel` when results land.
     private var sortedFiles: [ScannedFile] {
         viewModel.sortedLargeOldFiles
     }
 
-    private var filesByID: [String: ScannedFile] {
-        Dictionary(sortedFiles.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    /// Byte size keyed by file URL, so the footer's selected-bytes total is an
-    /// O(selected) sum rather than an O(all-files) scan on every checkbox tap.
-    private var sizeByURL: [URL: Int64] {
-        Dictionary(sortedFiles.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
-    }
-
     var body: some View {
-        let files = filesByID
-        let sizes = sizeByURL
+        let lookups = self.lookups
         let allFiles = sortedFiles
         SmartScanReviewManager(
             title: String(
                 localized: "Clutter Manager",
                 comment: "Title on the Smart Scan My Clutter Review screen."
             ),
-            buildSections: { Self.buildSections(files: allFiles) },
+            buildSections: {
+                // Build the selection lookups on the same off-main pass as the
+                // section model, so the main thread never does O(all-files) work.
+                lookups.filesByID = Dictionary(allFiles.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
+                lookups.sizeByURL = Dictionary(allFiles.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+                return Self.buildSections(files: allFiles)
+            },
             isSelected: { id in
-                guard let file = files[id] else { return false }
+                guard let file = lookups.filesByID[id] else { return false }
                 return viewModel.isLargeFileSelected(file)
             },
             onToggle: { id in
-                guard let file = files[id] else { return }
+                guard let file = lookups.filesByID[id] else { return }
                 viewModel.toggleLargeFile(file)
             },
             onSetCategory: { category, selected in
@@ -53,7 +58,7 @@ struct SmartScanMyClutterReview: View {
             accessibilityPrefix: "smartScan.review.myClutter",
             selectionSummary: {
                 let selection = viewModel.largeFileSelection
-                let bytes = selection.reduce(Int64(0)) { $0 + (sizes[$1] ?? 0) }
+                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.sizeByURL[$1] ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }
         )
