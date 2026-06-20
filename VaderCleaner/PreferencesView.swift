@@ -80,14 +80,14 @@ private struct ScanningTab: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
             sidebarRow(.smartCare, title: "Smart Care",
-                       icon: ScanBadgeIcon(systemName: "display", tint: BadgePalette.pink))
+                       icon: ScanBadgeIcon(asset: "scanBadgeSmartCare"))
             Text("Modules")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.top, 12)
                 .padding(.leading, 8)
             sidebarRow(.cleanup, title: "Cleanup",
-                       icon: ScanBadgeIcon(systemName: "sparkles", tint: BadgePalette.green))
+                       icon: ScanBadgeIcon(asset: "scanBadgeCleanup"))
             Spacer(minLength: 0)
         }
         .padding(8)
@@ -159,10 +159,10 @@ private struct ScanningTab: View {
         case .cleanup: return [cleanupNode]
         case .smartCare:
             return [cleanupNode]
-                + [moduleNode(.malware, featureTitle: "Malware Removal", featureSymbol: "ladybug.fill"),
-                   moduleNode(.optimization, featureTitle: "Maintenance Scripts", featureSymbol: "wrench.and.screwdriver.fill"),
-                   moduleNode(.applications, featureTitle: "App Updates", featureSymbol: "arrow.triangle.2.circlepath"),
-                   moduleNode(.myClutter, featureTitle: "Large & Old Files", featureSymbol: "doc.fill")]
+                + [moduleNode(.malware, featureTitle: "Malware Removal", featureBadge: "scanBadgeMalware"),
+                   moduleNode(.optimization, featureTitle: "Maintenance Scripts", featureBadge: "scanBadgePerformance"),
+                   moduleNode(.applications, featureTitle: "App Updates", featureBadge: "scanBadgeApplications"),
+                   moduleNode(.myClutter, featureTitle: "Large & Old Files", featureBadge: "scanBadgeMyClutter")]
         }
     }
 
@@ -172,8 +172,7 @@ private struct ScanningTab: View {
         ScanNode(
             id: "module.systemJunk",
             title: "Cleanup",
-            symbol: "sparkles",
-            tint: BadgePalette.green,
+            badge: "scanBadgeCleanup",
             canMix: true,
             checkboxID: "scanning.module.systemJunk",
             state: { self.settings.junkCategoryState },
@@ -196,8 +195,7 @@ private struct ScanningTab: View {
         return ScanNode(
             id: "group.systemJunk",
             title: "System Junk",
-            symbol: "xmark.bin.fill",
-            tint: BadgePalette.green,
+            badge: "scanBadgeSystemJunk",
             canMix: true,
             checkboxID: "scanning.junkGroup.systemJunk",
             state: { self.groupState(categories) },
@@ -211,8 +209,7 @@ private struct ScanningTab: View {
         ScanNode(
             id: "category.\(category.rawValue)",
             title: title,
-            symbol: Self.categorySymbol(category),
-            tint: BadgePalette.green,
+            badge: Self.categoryBadge(category),
             canMix: false,
             checkboxID: "scanning.junkCategory.\(category.rawValue)",
             state: { self.settings.isJunkCategoryEnabled(category) ? .on : .off },
@@ -224,14 +221,13 @@ private struct ScanningTab: View {
     /// A non-Cleanup module rendered as a parent over its single named feature,
     /// matching the reference (Protection → Malware Removal, etc.). The parent
     /// and the child are the same toggle — the module's on/off state.
-    private func moduleNode(_ module: SmartScanModule, featureTitle: String, featureSymbol: String) -> ScanNode {
+    private func moduleNode(_ module: SmartScanModule, featureTitle: String, featureBadge: String) -> ScanNode {
         let toggle = { self.settings.setModule(module, enabled: !self.settings.isModuleEnabled(module)) }
         let state = { self.settings.isModuleEnabled(module) ? ScanState.on : .off }
         return ScanNode(
             id: "module.\(module.rawValue)",
             title: Self.title(module),
-            symbol: Self.symbol(module),
-            tint: Self.tint(module),
+            badge: Self.badge(module),
             canMix: false,
             checkboxID: "scanning.module.\(module.rawValue)",
             state: state,
@@ -241,8 +237,7 @@ private struct ScanningTab: View {
                 ScanNode(
                     id: "feature.\(module.rawValue)",
                     title: featureTitle,
-                    symbol: featureSymbol,
-                    tint: Self.tint(module),
+                    badge: featureBadge,
                     canMix: false,
                     checkboxID: "scanning.feature.\(module.rawValue)",
                     state: state,
@@ -301,37 +296,24 @@ private struct ScanningTab: View {
         }
     }
 
-    private static func symbol(_ module: SmartScanModule) -> String {
+    private static func badge(_ module: SmartScanModule) -> String {
         switch module {
-        case .systemJunk: return "sparkles"
-        case .malware: return "hand.raised.fill"
-        case .optimization: return "bolt.fill"
-        case .applications: return "square.grid.2x2.fill"
-        case .myClutter: return "doc.on.doc.fill"
+        case .systemJunk: return "scanBadgeCleanup"
+        case .malware: return "scanBadgeProtection"
+        case .optimization: return "scanBadgePerformance"
+        case .applications: return "scanBadgeApplications"
+        case .myClutter: return "scanBadgeMyClutter"
         }
     }
 
-    private static func tint(_ module: SmartScanModule) -> Color {
-        switch module {
-        case .systemJunk: return BadgePalette.green
-        case .malware: return BadgePalette.pink
-        case .optimization: return BadgePalette.orange
-        case .applications: return BadgePalette.blue
-        case .myClutter: return BadgePalette.purple
-        }
-    }
-
-    private static func categorySymbol(_ category: ScanCategory) -> String {
+    /// Badge artwork for a System Junk category. Mail and Trash have their own
+    /// emblems; the remaining cache/log/language/backup categories share the
+    /// System Junk bin badge.
+    private static func categoryBadge(_ category: ScanCategory) -> String {
         switch category {
-        case .systemCache: return "internaldrive.fill"
-        case .userCache: return "externaldrive.fill"
-        case .systemLogs: return "doc.text.fill"
-        case .userLogs: return "doc.plaintext.fill"
-        case .languageFiles: return "globe"
-        case .mailAttachments: return "envelope.fill"
-        case .iosBackups: return "iphone"
-        case .trash: return "trash.fill"
-        case .largeFile, .oldFile: return "doc.fill"
+        case .mailAttachments: return "scanBadgeMailAttachments"
+        case .trash: return "scanBadgeTrash"
+        default: return "scanBadgeSystemJunk"
         }
     }
 }
@@ -347,8 +329,8 @@ private typealias ScanState = SmartScanSettingsStore.CheckState
 private struct ScanNode: Identifiable {
     let id: String
     let title: String
-    let symbol: String
-    let tint: Color
+    /// Asset-catalog name of the glossy badge artwork for this row.
+    let badge: String
     /// Whether this node can show the mixed (dash) state — true for parents
     /// whose children can be partially selected, false for leaves.
     let canMix: Bool
@@ -387,7 +369,7 @@ private struct ScanNodeRow: View {
                     action: node.toggle
                 )
                 .frame(width: Self.checkboxWidth)
-                ScanBadgeIcon(systemName: node.symbol, tint: node.tint)
+                ScanBadgeIcon(asset: node.badge)
                 Text(node.title)
                     .font(.system(size: 15))
                 Spacer(minLength: 0)
@@ -430,53 +412,25 @@ private struct ScanNodeRow: View {
     }
 }
 
-/// Glossy colored badge icon matching the Smart Care reference: a gradient-
-/// filled circle with a soft top highlight and a white SF Symbol. Built in
-/// SwiftUI so there are no image assets to maintain and the badges recolor with
-/// the system appearance.
+/// Glossy 3D Smart Care badge — a baked PNG orb (gradient body, specular
+/// highlight, soft drop shadow) with a white emblem, in the MacPaw Smart Care
+/// style. The artwork lives in the asset catalog (`scanBadge*`); its SVG sources
+/// and the bake script are in `Scripts/ScanBadges`. The orb fills ~80% of the
+/// frame (the rest is its baked shadow), so `size` is sized a little larger than
+/// the visible orb.
 private struct ScanBadgeIcon: View {
 
-    let systemName: String
-    let tint: Color
-    var size: CGFloat = 26
+    let asset: String
+    var size: CGFloat = 30
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [tint.opacity(0.92), tint],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.45), Color.white.opacity(0.0)],
-                        startPoint: .top,
-                        endPoint: .center
-                    )
-                )
-            Circle()
-                .strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5)
-            Image(systemName: systemName)
-                .font(.system(size: size * 0.5, weight: .bold))
-                .foregroundStyle(.white)
-        }
-        .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
-        .accessibilityHidden(true)
+        Image(asset)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
-}
-
-/// The five Smart Care badge colors, tuned to the reference screenshot.
-private enum BadgePalette {
-    static let green = Color(red: 0.32, green: 0.76, blue: 0.36)
-    static let pink = Color(red: 0.93, green: 0.32, blue: 0.56)
-    static let orange = Color(red: 0.97, green: 0.55, blue: 0.16)
-    static let blue = Color(red: 0.26, green: 0.56, blue: 0.95)
-    static let purple = Color(red: 0.60, green: 0.42, blue: 0.90)
 }
 
 /// A truly native tri-state checkbox (`NSButton` with `allowsMixedState`) so the
