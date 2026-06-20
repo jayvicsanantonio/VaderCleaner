@@ -15,7 +15,7 @@ import Foundation
 ///
 /// `Equatable` and `Hashable` are derived so test fixtures can compare results
 /// directly and view models can use `Set<ScannedFile>` for selection state.
-struct ScannedFile: Equatable, Hashable {
+struct ScannedFile: Equatable, Hashable, Sendable {
     let url: URL
     let size: Int64
     let lastAccessDate: Date?

@@ -7,15 +7,33 @@ import SwiftUI
 /// `SmartScanReviewManager` in read-only mode. The actionable work — running
 /// the maintenance scripts — is the whole tile, not a per-item selection, so
 /// the login-item list is informational (no checkboxes). The footer's
-/// "Open Optimization" jump-link sends the user to the standalone screen to
-/// manage login items, launch agents, and RAM in detail.
+/// "Open Optimization" jump-link sends the user to the standalone screen.
 struct SmartScanOptimizationReview: View {
     let result: SmartScanResult
     let onBack: () -> Void
     let onOpenOptimization: () -> Void
 
-    private var sections: [ManagerSection] {
-        let items = result.optimizationItems.map { item in
+    var body: some View {
+        let items = result.optimizationItems
+        SmartScanReviewManager(
+            title: String(
+                localized: "Performance Manager",
+                comment: "Title on the Smart Scan Optimization Review screen."
+            ),
+            buildSections: { Self.buildSections(loginItems: items) },
+            onBack: onBack,
+            accessibilityPrefix: "smartScan.review.optimization",
+            showsSelection: false,
+            secondaryActionTitle: String(
+                localized: "Open Optimization",
+                comment: "Button on the Smart Scan Performance Review that jumps to the standalone Optimization screen."
+            ),
+            onSecondaryAction: onOpenOptimization
+        )
+    }
+
+    nonisolated private static func buildSections(loginItems: [LoginItem]) -> [ManagerSection] {
+        let items = loginItems.map { item in
             ManagerItem(
                 id: item.id,
                 title: item.name,
@@ -23,8 +41,9 @@ struct SmartScanOptimizationReview: View {
                     ? String(localized: "Enabled", comment: "Status label for a login item enabled at boot.")
                     : String(localized: "Disabled", comment: "Status label for a login item disabled at boot."),
                 size: nil,
+                sizeText: nil,
                 systemImage: "power",
-                iconColor: .orange
+                tint: .orange
             )
         }
         guard !items.isEmpty else { return [] }
@@ -35,27 +54,11 @@ struct SmartScanOptimizationReview: View {
                 id: "loginItems",
                 title: String(localized: "Login Items", comment: "Performance Manager category for the read-only login-item list."),
                 systemImage: "powerplug.fill",
-                iconColor: .orange,
-                items: items
+                tint: .orange,
+                items: items,
+                totalSize: nil,
+                totalSizeText: nil
             )]
         )]
-    }
-
-    var body: some View {
-        SmartScanReviewManager(
-            title: String(
-                localized: "Performance Manager",
-                comment: "Title on the Smart Scan Optimization Review screen."
-            ),
-            sections: sections,
-            onBack: onBack,
-            accessibilityPrefix: "smartScan.review.optimization",
-            showsSelection: false,
-            secondaryActionTitle: String(
-                localized: "Open Optimization",
-                comment: "Button on the Smart Scan Performance Review that jumps to the standalone Optimization screen."
-            ),
-            onSecondaryAction: onOpenOptimization
-        )
     }
 }

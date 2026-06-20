@@ -1,12 +1,11 @@
 // SmartScanJunkReview.swift
-// System Junk "Cleanup Manager" for Smart Scan — a three-pane (sections → categories → files) manager with per-file selection, search, sort, and a live selected-count footer.
+// System Junk "Cleanup Manager" for Smart Scan — a three-pane (sections → categories → files) manager with per-file selection, search, sort, and a live selected-count footer. The file model is built off the main thread so huge junk scans open without blocking the UI.
 
 import SwiftUI
 
 /// System Junk Review, rendered through the shared `SmartScanReviewManager`.
-/// Builds the section/category/file hierarchy from the scan result and bridges
-/// the manager's selection callbacks to the view model's per-file junk
-/// selection.
+/// The section/category/file hierarchy is built off the main actor; selection
+/// callbacks bridge to the view model's per-file junk selection.
 struct SmartScanJunkReview: View {
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
@@ -25,36 +24,28 @@ struct SmartScanJunkReview: View {
     ]
 
     /// Flat lookup from a manager item's id (the file's path) back to its
-    /// `ScannedFile`, so the selection callbacks can reach the view model's
-    /// per-file API in O(1).
+    /// `ScannedFile`, so the selection callbacks reach the view model in O(1).
     private var filesByID: [String: ScannedFile] {
         Dictionary(result.junkResult.items.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     /// Byte size keyed by file URL, so the footer's selected-bytes total is an
-    /// O(selected) sum over the selection set rather than an O(all-files) scan
-    /// on every checkbox tap.
+    /// O(selected) sum rather than an O(all-files) scan on every checkbox tap.
     private var sizeByURL: [URL: Int64] {
         Dictionary(result.junkResult.items.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    private var sections: [ManagerSection] {
-        Self.groups.compactMap { group in
-            let categories = group.categories.compactMap { managerCategory(for: $0) }
-            guard !categories.isEmpty else { return nil }
-            return ManagerSection(id: group.id, title: group.title, categories: categories)
-        }
     }
 
     var body: some View {
         let files = filesByID
         let sizes = sizeByURL
+        let itemsByCategory = result.junkResult.itemsByCategory
+        let sizeByCategory = result.junkResult.sizeByCategory
         SmartScanReviewManager(
             title: String(
                 localized: "Cleanup Manager",
                 comment: "Title on the Smart Scan System Junk Review screen."
             ),
-            sections: sections,
+            buildSections: { Self.buildSections(itemsByCategory: itemsByCategory, sizeByCategory: sizeByCategory) },
             isSelected: { id in
                 guard let file = files[id] else { return false }
                 return viewModel.isJunkFileSelected(file)
@@ -77,28 +68,49 @@ struct SmartScanJunkReview: View {
         )
     }
 
-    private func managerCategory(for category: ScanCategory) -> ManagerCategory? {
-        guard let files = result.junkResult.itemsByCategory[category], !files.isEmpty else { return nil }
-        return ManagerCategory(
-            id: category.rawValue,
-            title: category.displayName,
-            systemImage: Self.icon(for: category),
-            iconColor: .green,
-            items: files.map { file in
-                ManagerItem(
-                    id: file.url.path,
-                    title: file.url.lastPathComponent,
-                    subtitle: file.url.deletingLastPathComponent().path,
-                    size: file.size,
-                    systemImage: file.url.pathExtension.isEmpty ? "folder.fill" : "doc.fill",
-                    iconColor: file.url.pathExtension.isEmpty ? .blue : .secondary
+    /// Builds the section model off the main actor. Pure and `nonisolated`, over
+    /// `Sendable` inputs, so it can run on a background task. Each category's
+    /// files are pre-sorted by size (the manager's default order) and carry a
+    /// precomputed size string, so neither the build's caller nor scrolling
+    /// touches the main thread for sorting or formatting.
+    nonisolated private static func buildSections(
+        itemsByCategory: [ScanCategory: [ScannedFile]],
+        sizeByCategory: [ScanCategory: Int64]
+    ) -> [ManagerSection] {
+        groups.compactMap { group in
+            let categories = group.categories.compactMap { category -> ManagerCategory? in
+                guard let files = itemsByCategory[category], !files.isEmpty else { return nil }
+                let sortedFiles = files.sorted { $0.size > $1.size }
+                let items = sortedFiles.map { file in
+                    let isDir = file.url.pathExtension.isEmpty
+                    return ManagerItem(
+                        id: file.url.path,
+                        title: file.url.lastPathComponent,
+                        subtitle: file.url.deletingLastPathComponent().path,
+                        size: file.size,
+                        sizeText: ManagerByteText.string(file.size),
+                        systemImage: isDir ? "folder.fill" : "doc.fill",
+                        tint: isDir ? .blue : .secondary
+                    )
+                }
+                let total = sizeByCategory[category] ?? files.reduce(0) { $0 + $1.size }
+                return ManagerCategory(
+                    id: category.rawValue,
+                    title: category.displayName,
+                    systemImage: icon(for: category),
+                    tint: .green,
+                    items: items,
+                    totalSize: total,
+                    totalSizeText: ManagerByteText.string(total)
                 )
             }
-        )
+            guard !categories.isEmpty else { return nil }
+            return ManagerSection(id: group.id, title: group.title, categories: categories)
+        }
     }
 
     /// SF Symbol for each junk category's middle-pane row.
-    private static func icon(for category: ScanCategory) -> String {
+    nonisolated private static func icon(for category: ScanCategory) -> String {
         switch category {
         case .systemCache: return "internaldrive"
         case .userCache: return "clock.arrow.circlepath"

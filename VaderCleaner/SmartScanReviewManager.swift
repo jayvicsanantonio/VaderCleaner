@@ -1,41 +1,61 @@
 // SmartScanReviewManager.swift
-// Reusable three-pane "Manager" shell for every Smart Scan Review screen — sections list, category list with size badges, and a per-item checkbox list, with search, sort, and a live selected-count footer.
+// Reusable three-pane "Manager" shell for every Smart Scan Review screen — sections list, category list with size badges, and a per-item checkbox list, with search, sort, and a live selected-count footer. The item model is Sendable and built off the main thread so opening a manager over tens of thousands of files never blocks the UI.
 
 import SwiftUI
 
-/// One selectable leaf row in the manager's right-hand pane.
-struct ManagerItem: Identifiable, Hashable {
+/// Icon tint for a manager row. A plain `Sendable` enum (rather than a SwiftUI
+/// `Color`) so the whole item model can be built off the main actor; the view
+/// maps it to a `Color` at render time.
+enum ManagerTint: Sendable, Hashable {
+    case green, blue, red, orange, purple, secondary
+
+    var color: Color {
+        switch self {
+        case .green: return .green
+        case .blue: return .blue
+        case .red: return .red
+        case .orange: return .orange
+        case .purple: return .purple
+        case .secondary: return .secondary
+        }
+    }
+}
+
+/// One selectable leaf row in the manager's right-hand pane. Fully `Sendable`
+/// with a precomputed `sizeText` so building and scrolling never touch a
+/// `ByteCountFormatter` (which is slow per-row and stutters large lists).
+struct ManagerItem: Identifiable, Hashable, Sendable {
     /// Stable selection key (e.g. a file URL's path or a bundle id).
     let id: String
     let title: String
     let subtitle: String?
-    /// Byte size, when the item has one. Drives the row's trailing size text
-    /// and the footer's total. `nil` for items that aren't measured in bytes
-    /// (e.g. app updates).
+    /// Byte size, when the item has one. Used for sorting; `nil` for items not
+    /// measured in bytes (e.g. app updates).
     let size: Int64?
+    /// Pre-rendered size string, or `nil` for sizeless items.
+    let sizeText: String?
     let systemImage: String
-    let iconColor: Color
+    let tint: ManagerTint
 }
 
-/// A group of items shown in the manager's middle pane, with its own icon and
-/// aggregate size badge.
-struct ManagerCategory: Identifiable, Hashable {
+/// A group of items shown in the manager's middle pane. Its items are stored
+/// pre-sorted by size (descending) by the builder, so the default view needs no
+/// main-thread sort.
+struct ManagerCategory: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
     let systemImage: String
-    let iconColor: Color
+    let tint: ManagerTint
     let items: [ManagerItem]
-
     /// Sum of the category's item sizes, or `nil` when its items carry no size.
-    var totalSize: Int64? {
-        let sizes = items.compactMap(\.size)
-        return sizes.isEmpty ? nil : sizes.reduce(0, +)
-    }
+    let totalSize: Int64?
+    /// Pre-rendered total size string for the badge, or `nil`.
+    let totalSizeText: String?
 }
 
 /// A top-level grouping shown in the manager's left pane (e.g. "System Junk",
 /// "Mail Attachments", "Trash").
-struct ManagerSection: Identifiable, Hashable {
+struct ManagerSection: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
     let categories: [ManagerCategory]
@@ -47,6 +67,29 @@ struct ManagerSection: Identifiable, Hashable {
 struct ManagerSelectionSummary {
     let count: Int
     let bytes: Int64?
+}
+
+/// Fast, thread-safe byte formatter for the high-volume manager rows.
+/// `ByteCountFormatter` is too slow to call per row (it stutters scrolling) and
+/// isn't safe to share across threads; this approximates its file-style output
+/// (1000-based units) cheaply so sizes can be precomputed off the main actor.
+enum ManagerByteText {
+    static func string(_ bytes: Int64) -> String {
+        if bytes < 1000 {
+            return String.localizedStringWithFormat(
+                String(localized: "%lld bytes", comment: "Byte count under 1 KB in a Smart Scan Manager row."),
+                bytes
+            )
+        }
+        let units = ["KB", "MB", "GB", "TB", "PB"]
+        var value = Double(bytes) / 1000
+        var index = 0
+        while value >= 1000, index < units.count - 1 {
+            value /= 1000
+            index += 1
+        }
+        return String(format: "%.1f %@", value, units[index])
+    }
 }
 
 /// How the manager orders categories and items.
@@ -65,13 +108,16 @@ enum ManagerSort: String, CaseIterable, Identifiable {
     }
 }
 
-/// Reusable three-pane Cleanup-Manager-style Review shell. Selection is owned by
-/// the caller (the view model); the manager reads it through `isSelected` and
-/// drives it through `onToggle` / `onSetCategory`, so it stays stateless about
-/// what "selected" means for each tile.
+/// Reusable three-pane Cleanup-Manager-style Review shell. The data model is
+/// produced by an async `buildSections` closure that runs off the main actor,
+/// so opening a manager over a huge scan shows the chrome immediately and fills
+/// in when the model is ready. Selection is owned by the caller (the view
+/// model) and read through `isSelected` / driven through `onToggle` /
+/// `onSetCategory`.
 struct SmartScanReviewManager: View {
     let title: String
-    let sections: [ManagerSection]
+    /// Builds the (Sendable) section model off the main actor.
+    let buildSections: @Sendable () async -> [ManagerSection]
     /// Whether a leaf item (by `ManagerItem.id`) is currently checked. Unused
     /// when `showsSelection` is false.
     var isSelected: (String) -> Bool = { _ in false }
@@ -85,48 +131,56 @@ struct SmartScanReviewManager: View {
     let accessibilityPrefix: String
     /// When false the manager is read-only: item rows lose their checkboxes,
     /// the per-category "Select" menu is hidden, and the footer shows a plain
-    /// item count instead of a selected-count. Used by the Performance Manager,
-    /// whose login items are informational (Run executes maintenance scripts,
-    /// not a per-item selection).
+    /// item count instead of a selected-count.
     var showsSelection: Bool = true
-    /// Optional secondary footer button shown left of "Done" — e.g. the
-    /// Performance Manager's "Open Optimization" jump-link.
+    /// Optional secondary footer button shown left of "Done".
     var secondaryActionTitle: String? = nil
     var onSecondaryAction: (() -> Void)? = nil
-    /// Optional cheap selection tally for the footer. When provided the footer
-    /// reads it instead of scanning every item on each render — essential for
-    /// the file tiles (System Junk, My Clutter), which can hold tens of
-    /// thousands of items. `nil` falls back to a full scan (fine for the small
+    /// Optional cheap selection tally for the footer, so it needn't scan every
+    /// item on each render. `nil` falls back to a full scan (fine for the small
     /// flat tiles).
     var selectionSummary: (() -> ManagerSelectionSummary)? = nil
 
+    /// The model, `nil` until the off-main build finishes (loading state).
+    @State private var sections: [ManagerSection]?
     @State private var selectedSectionID: String?
     @State private var selectedCategoryID: String?
     @State private var search = ""
     @State private var sort: ManagerSort = .size
     /// The filtered + sorted items for the visible category, recomputed only
-    /// when the category, sort, or search changes — never on a selection
-    /// toggle. Re-sorting the whole list on every checkbox tap was the source
-    /// of the review-screen lag.
+    /// when the category, sort, or search changes — never on a selection toggle.
     @State private var displayedItems: [ManagerItem] = []
+
+    private var loadedSections: [ManagerSection] { sections ?? [] }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.4)
-            HStack(spacing: 0) {
-                sectionPane
-                Divider().opacity(0.4)
-                categoryPane
-                Divider().opacity(0.4)
-                itemPane
+            if sections == nil {
+                ProgressView()
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HStack(spacing: 0) {
+                    sectionPane
+                    Divider().opacity(0.4)
+                    categoryPane
+                    Divider().opacity(0.4)
+                    itemPane
+                }
             }
             Divider().opacity(0.4)
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(accessibilityPrefix)
-        .onAppear {
+        .task {
+            // Build off the main actor so a huge scan never beach-balls the UI.
+            let built = await Task.detached(priority: .userInitiated) {
+                await buildSections()
+            }.value
+            sections = built
             syncSelection()
             refreshDisplayedItems()
         }
@@ -188,7 +242,7 @@ struct SmartScanReviewManager: View {
     // MARK: - Panes
 
     private var sectionPane: some View {
-        List(sections, selection: $selectedSectionID) { section in
+        List(loadedSections, selection: $selectedSectionID) { section in
             Text(section.title)
                 .font(.body.weight(.medium))
                 .tag(section.id)
@@ -202,20 +256,19 @@ struct SmartScanReviewManager: View {
     private var categoryPane: some View {
         List(sortedCategories, selection: $selectedCategoryID) { category in
             HStack(spacing: 12) {
-                icon(category.systemImage, category.iconColor)
+                icon(category.systemImage, category.tint.color)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(category.title).font(.body.weight(.medium))
-                    if let total = category.totalSize {
-                        Text(smartScanByteFormatter.string(fromByteCount: total))
-                            .font(.caption).foregroundStyle(.secondary)
+                    if let text = category.totalSizeText {
+                        Text(text).font(.caption).foregroundStyle(.secondary)
                     } else {
                         Text("\(category.items.count) item\(category.items.count == 1 ? "" : "s")")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 8)
-                if let total = category.totalSize {
-                    Text(smartScanByteFormatter.string(fromByteCount: total))
+                if let text = category.totalSizeText {
+                    Text(text)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(.tint.opacity(0.18), in: Capsule())
@@ -231,8 +284,8 @@ struct SmartScanReviewManager: View {
 
     private var itemPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let category = selectedCategory {
-                if showsSelection {
+            if selectedCategory != nil {
+                if showsSelection, let category = selectedCategory {
                     HStack(spacing: 8) {
                         Text(String(localized: "Select:", comment: "Label before the bulk-select menu on a Smart Scan Manager."))
                             .foregroundStyle(.secondary)
@@ -283,7 +336,7 @@ struct SmartScanReviewManager: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
             }
-            icon(item.systemImage, item.iconColor)
+            icon(item.systemImage, item.tint.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.body.weight(.medium))
                     .lineLimit(1).truncationMode(.middle)
@@ -293,8 +346,8 @@ struct SmartScanReviewManager: View {
                 }
             }
             Spacer(minLength: 8)
-            if let size = item.size {
-                Text(smartScanByteFormatter.string(fromByteCount: size))
+            if let sizeText = item.sizeText {
+                Text(sizeText)
                     .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
@@ -328,7 +381,7 @@ struct SmartScanReviewManager: View {
         // Read-only managers (e.g. Performance) show a plain item count — their
         // rows have no checkbox, so a "selected" count would be meaningless.
         guard showsSelection else {
-            let total = sections.reduce(0) { $0 + $1.categories.reduce(0) { $0 + $1.items.count } }
+            let total = loadedSections.reduce(0) { $0 + $1.categories.reduce(0) { $0 + $1.items.count } }
             return String.localizedStringWithFormat(
                 String(localized: "%lld items", comment: "Plain item count in a read-only Smart Scan Manager footer."),
                 total
@@ -340,7 +393,7 @@ struct SmartScanReviewManager: View {
             summary.count
         )
         guard let bytes = summary.bytes else { return countText }
-        return "\(countText)  ·  \(smartScanByteFormatter.string(fromByteCount: bytes))"
+        return "\(countText)  ·  \(ManagerByteText.string(bytes))"
     }
 
     /// Full-scan fallback used only when the caller didn't supply a cheap
@@ -350,7 +403,7 @@ struct SmartScanReviewManager: View {
         var count = 0
         var bytes: Int64 = 0
         var hasSized = false
-        for section in sections {
+        for section in loadedSections {
             for category in section.categories {
                 for item in category.items where isSelected(item.id) {
                     count += 1
@@ -364,7 +417,7 @@ struct SmartScanReviewManager: View {
     // MARK: - Derived data
 
     private var selectedSection: ManagerSection? {
-        sections.first { $0.id == selectedSectionID } ?? sections.first
+        loadedSections.first { $0.id == selectedSectionID } ?? loadedSections.first
     }
 
     private var sortedCategories: [ManagerCategory] {
@@ -382,10 +435,14 @@ struct SmartScanReviewManager: View {
     }
 
     /// Rebuild the visible item list. Called only when the category, sort, or
-    /// search changes — never on a selection toggle — so checking a box stays
-    /// O(1) instead of re-sorting the whole category.
+    /// search changes — never on a selection toggle. The builder pre-sorts each
+    /// category by size, so the default view (size, no search) needs no sort.
     private func refreshDisplayedItems() {
         guard let category = selectedCategory else { displayedItems = []; return }
+        if search.isEmpty && sort == .size {
+            displayedItems = category.items
+            return
+        }
         let filtered = search.isEmpty
             ? category.items
             : category.items.filter { $0.title.localizedCaseInsensitiveContains(search) }
@@ -399,10 +456,8 @@ struct SmartScanReviewManager: View {
 
     // MARK: - Selection sync
 
-    /// Seed the section/category selection on first appearance so the panes
-    /// open on real content rather than blank.
     private func syncSelection() {
-        if selectedSectionID == nil { selectedSectionID = sections.first?.id }
+        if selectedSectionID == nil { selectedSectionID = loadedSections.first?.id }
         selectFirstCategory()
     }
 

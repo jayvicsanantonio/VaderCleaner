@@ -5,7 +5,7 @@ import Foundation
 import ServiceManagement
 
 /// A single managed login item shown in the Optimization view.
-struct LoginItem: Identifiable, Equatable {
+struct LoginItem: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let isEnabled: Bool
