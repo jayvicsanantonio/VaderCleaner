@@ -76,9 +76,19 @@ struct UpdateProbe: Sendable {
     /// at the iTunes Search API and assorted Sparkle feeds, inviting rate
     /// limiting. A sliding window keeps the checks parallel but caps
     /// in-flight work at `maxConcurrentChecks`.
-    func outcomes(for apps: [AppInfo]) async -> [UpdateProbeOutcome] {
+    ///
+    /// `onProgress` reports determinate progress: it fires once up front with
+    /// `(0, apps.count)` so a caller can show the total, then again after each
+    /// app's check completes with the running `(checked, total)`. The default
+    /// no-op keeps the callers that don't surface progress unchanged.
+    func outcomes(
+        for apps: [AppInfo],
+        onProgress: @Sendable (_ checked: Int, _ total: Int) -> Void = { _, _ in }
+    ) async -> [UpdateProbeOutcome] {
         let appStoreCheck = checkAppStore
         let sparkleCheck = checkSparkle
+        let total = apps.count
+        onProgress(0, total)
         return await withTaskGroup(of: UpdateProbeOutcome.self) { group -> [UpdateProbeOutcome] in
             var nextIndex = 0
             while nextIndex < apps.count, nextIndex < Self.maxConcurrentChecks {
@@ -95,6 +105,7 @@ struct UpdateProbe: Sendable {
             var results: [UpdateProbeOutcome] = []
             while let outcome = await group.next() {
                 results.append(outcome)
+                onProgress(results.count, total)
                 if nextIndex < apps.count {
                     let app = apps[nextIndex]
                     group.addTask {
@@ -113,9 +124,13 @@ struct UpdateProbe: Sendable {
 
     /// Convenience for surfaces that only need the update list (the
     /// Applications dashboard, Smart Scan): probes every app and returns
-    /// just the available updates.
-    func availableUpdates(for apps: [AppInfo]) async -> [UpdateInfo] {
-        Self.updates(in: await outcomes(for: apps))
+    /// just the available updates. `onProgress` forwards the per-app
+    /// completion ticks from `outcomes(for:onProgress:)`.
+    func availableUpdates(
+        for apps: [AppInfo],
+        onProgress: @Sendable (_ checked: Int, _ total: Int) -> Void = { _, _ in }
+    ) async -> [UpdateInfo] {
+        Self.updates(in: await outcomes(for: apps, onProgress: onProgress))
     }
 
     /// Extracts the `.update` payloads, sorted case-insensitively by app

@@ -97,23 +97,41 @@ private struct SmartScanMetricCard: View {
         return false
     }
 
+    /// Corner radius shared by the content clip and the glass shape so the two
+    /// stay concentric — a mismatch is what leaves a seam at the corners.
+    private let cornerRadius: CGFloat = 20
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             cornerArt
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
-        .clipShape(.rect(cornerRadius: 20))
-        .opacity(isDeselected ? 0.5 : 1.0)
+        // Clip the corner art + content to the rounded rect *before* the glass,
+        // so the square radial bloom doesn't spill past the corners. The glass
+        // is applied last and left un-clipped: re-clipping it with the same
+        // shape crops its specular highlight rim, which Liquid Glass paints
+        // strongest along the top edge — that crop is the hard bright seam that
+        // showed at the top-right corner.
+        .clipShape(.rect(cornerRadius: cornerRadius))
+        .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        // A deselected tile reads as "off" by losing its colour rather than
+        // fading toward the backdrop: the corner bloom and art desaturate (see
+        // `cornerArt`) and the whole card dims just slightly so it stays
+        // legible. A heavy transparency wash would make the metric hard to read
+        // and let the busy backdrop bleed through.
+        .opacity(isDeselected ? 0.9 : 1.0)
         .animation(.smooth(duration: 0.25), value: isDeselected)
     }
 
     /// The section's art in the top-right corner over a soft accent bloom that
-    /// bleeds out of the corner, giving each tile its own colour glow.
+    /// bleeds out of the corner, giving each tile its own colour glow. When the
+    /// tile is deselected the bloom fades out and the art desaturates, so the
+    /// card reads as muted/inactive — matching the dimmed, greyed-out look of an
+    /// unchecked tile in the reference design.
     private var cornerArt: some View {
         RadialGradient(
-            colors: [tint.opacity(0.55), tint.opacity(0.0)],
+            colors: [tint.opacity(isDeselected ? 0.0 : 0.55), tint.opacity(0.0)],
             center: .topTrailing,
             startRadius: 0,
             endRadius: 240
@@ -125,6 +143,8 @@ private struct SmartScanMetricCard: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 132, height: 132)
                 .padding(6)
+                .saturation(isDeselected ? 0.0 : 1.0)
+                .opacity(isDeselected ? 0.55 : 1.0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
