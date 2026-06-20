@@ -1423,6 +1423,114 @@ final class SmartScanViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: - Customize Smart Care: module gating
+
+    func test_scan_skipsDisabledModuleSubScan() async {
+        var ranJunk = false
+        var ranMalware = false
+        var ranLogin = false
+        var ranLarge = false
+        var ranUpdates = false
+        let vm = makeViewModel(
+            junkScanner: { ranJunk = true; return ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { ranMalware = true; return [self.threat] },
+            loginItemsLoader: { ranLogin = true; return [self.loginItem] },
+            largeOldFilesScanner: { ranLarge = true; return [self.largeFile] },
+            updatesChecker: { ranUpdates = true; return [self.availableUpdate] },
+            // Everything off except System Junk.
+            enabledModules: { [.systemJunk] }
+        )
+
+        await vm.scan()
+
+        XCTAssertTrue(ranJunk, "The enabled System Junk scan must still run")
+        XCTAssertFalse(ranMalware, "A disabled Malware module must not run its scan")
+        XCTAssertFalse(ranLogin, "A disabled Performance module must not read login items")
+        XCTAssertFalse(ranLarge, "A disabled My Clutter module must not run its scan")
+        XCTAssertFalse(ranUpdates, "A disabled Applications module must not run its check")
+    }
+
+    func test_scan_disabledModuleIsAbsentFromResultsAndSelection() async {
+        let junk = makeResult((.userCache, [makeFile(name: "a", size: 100, category: .userCache)]))
+        let vm = makeViewModel(
+            junkScanner: { junk },
+            malwareInstalled: { true },
+            malwareScanner: { [self.threat] },
+            largeOldFilesScanner: { [self.largeFile] },
+            updatesChecker: { [self.availableUpdate] },
+            // Malware off; everything else on.
+            enabledModules: { Set(SmartScanModule.allCases).subtracting([.malware]) }
+        )
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertTrue(result.threats.isEmpty, "Disabled Malware module must contribute no threats")
+        XCTAssertFalse(vm.isModuleSelected(.malware), "Disabled module must not auto-select")
+        XCTAssertTrue(vm.isModuleSelected(.myClutter), "An enabled module with work stays selected")
+    }
+
+    func test_scan_disabledOptimizationIsNotAutoSelected() async {
+        // Optimization auto-selects whenever maintenance scripts exist; disabling
+        // the module must override that so the tile never comes back checked.
+        let vm = makeViewModel(
+            maintenanceScriptsAvailable: true,
+            enabledModules: { Set(SmartScanModule.allCases).subtracting([.optimization]) }
+        )
+
+        await vm.scan()
+
+        XCTAssertFalse(vm.isModuleSelected(.optimization))
+    }
+
+    // MARK: - Customize Smart Care: System Junk category gating
+
+    func test_scan_filtersOutDisabledJunkCategories() async {
+        let junk = makeResult(
+            (.userCache, [makeFile(name: "keep", size: 100, category: .userCache)]),
+            (.trash, [makeFile(name: "drop", size: 250, category: .trash)])
+        )
+        let vm = makeViewModel(
+            junkScanner: { junk },
+            // Trash excluded from the System Junk sub-tree.
+            enabledJunkCategories: { Set(SmartScanSettingsStore.junkCategories).subtracting([.trash]) }
+        )
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertNil(result.junkResult.itemsByCategory[.trash], "Disabled category must be filtered out")
+        XCTAssertNotNil(result.junkResult.itemsByCategory[.userCache], "Enabled category must remain")
+        XCTAssertEqual(result.junkResult.totalSize, 100, "Only the kept category's bytes count")
+    }
+
+    func test_scan_defaultSettings_runEveryModule() async {
+        // The default providers (all-on) must preserve the pre-feature behavior.
+        var ranJunk = false
+        var ranMalware = false
+        var ranLogin = false
+        var ranLarge = false
+        var ranUpdates = false
+        let vm = makeViewModel(
+            junkScanner: { ranJunk = true; return ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { ranMalware = true; return [] },
+            loginItemsLoader: { ranLogin = true; return [] },
+            largeOldFilesScanner: { ranLarge = true; return [] },
+            updatesChecker: { ranUpdates = true; return [] }
+        )
+
+        await vm.scan()
+
+        XCTAssertTrue(ranJunk && ranMalware && ranLogin && ranLarge && ranUpdates,
+                      "With default (all-on) settings every sub-scan must run")
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
@@ -1437,7 +1545,9 @@ final class SmartScanViewModelTests: XCTestCase {
         maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
         updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
         largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] },
-        maintenanceScriptsAvailable: Bool = true
+        maintenanceScriptsAvailable: Bool = true,
+        enabledModules: @escaping () -> Set<SmartScanModule> = { Set(SmartScanModule.allCases) },
+        enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) }
     ) -> SmartScanViewModel {
         // Adapt the progress-free test closures to the production sub-scanner
         // signatures; the count test below constructs the VM directly to drive
@@ -1454,7 +1564,9 @@ final class SmartScanViewModelTests: XCTestCase {
             maintenanceRunner: maintenanceRunner,
             updateOpener: updateOpener,
             largeFileDeleter: largeFileDeleter,
-            maintenanceScriptsAvailable: maintenanceScriptsAvailable
+            maintenanceScriptsAvailable: maintenanceScriptsAvailable,
+            enabledModules: enabledModules,
+            enabledJunkCategories: enabledJunkCategories
         )
     }
 

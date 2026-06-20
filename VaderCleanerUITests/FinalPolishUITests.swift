@@ -294,14 +294,14 @@ final class FinalPolishUITests: XCTestCase {
 
     // MARK: - Preferences
 
-    /// Cmd+, opens the Settings scene; all four preference tabs must be
-    /// reachable and the Menu Bar tab must expose its toggle.
+    /// Cmd+, opens the Settings scene; every preference tab must be reachable
+    /// and the Menu Bar tab must expose its toggle.
     func test_preferences_allFourTabsAreAccessible() throws {
         dismissOnboardingIfNeeded()
 
         openPreferences()
 
-        for tab in ["Notifications", "Exclusions", "Startup", "Menu Bar"] {
+        for tab in ["Scanning", "Notifications", "Exclusions", "Startup", "Menu Bar"] {
             let button = preferenceTab(tab)
             XCTAssertTrue(
                 button.waitForExistence(timeout: 5),

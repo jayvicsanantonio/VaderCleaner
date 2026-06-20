@@ -11,7 +11,11 @@ import os.log
 /// selection set the user toggles on the dashboard. The case order mirrors
 /// the left-to-right reading order on the dashboard so iterating
 /// `allCases` lays the tiles out the same way the reference does.
-enum SmartScanModule: Hashable, CaseIterable {
+///
+/// Raw values are stable string keys (the case names) so the Scanning
+/// preferences can persist which modules the user includes in Smart Scan;
+/// they must not change once shipped.
+enum SmartScanModule: String, Hashable, CaseIterable {
     case systemJunk
     case malware
     case optimization
@@ -121,7 +125,7 @@ struct SmartScanSummary: Equatable {
 /// Collaborators are injected as closures — each mirrors the contract of the
 /// sub-module it fronts — so unit tests can exercise every transition without
 /// touching the real filesystem, ClamAV, or the privileged helper. Production
-/// wiring lives in `SmartScanViewModel.live(exclusions:)`.
+/// wiring lives in `SmartScanViewModel.live(exclusions:settings:)`.
 @MainActor
 @Observable
 final class SmartScanViewModel {
@@ -330,6 +334,16 @@ final class SmartScanViewModel {
     /// has nothing to run, so it is not auto-selected and Run skips it.
     @ObservationIgnored private let maintenanceScriptsAvailable: Bool
 
+    /// "Customize Smart Care" gate: the set of modules the user includes in
+    /// Smart Scan. Read once per `scan()` (snapshot, like the exclusions store)
+    /// so a preference change takes effect on the next scan. Defaults to all
+    /// modules so unconfigured installs scan everything.
+    @ObservationIgnored private let enabledModules: () -> Set<SmartScanModule>
+    /// Companion gate for the Cleanup (System Junk) sub-tree: the categories the
+    /// user includes. Only consulted when `.systemJunk` is enabled. Defaults to
+    /// every System Junk category.
+    @ObservationIgnored private let enabledJunkCategories: () -> Set<ScanCategory>
+
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
 
@@ -345,7 +359,9 @@ final class SmartScanViewModel {
         maintenanceRunner: @escaping MaintenanceRunner,
         updateOpener: @escaping UpdateOpener,
         largeFileDeleter: @escaping LargeFileDeleter,
-        maintenanceScriptsAvailable: Bool = true
+        maintenanceScriptsAvailable: Bool = true,
+        enabledModules: @escaping () -> Set<SmartScanModule> = { Set(SmartScanModule.allCases) },
+        enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) }
     ) {
         self.junkScanner = junkScanner
         self.malwareInstalled = malwareInstalled
@@ -359,6 +375,8 @@ final class SmartScanViewModel {
         self.updateOpener = updateOpener
         self.largeFileDeleter = largeFileDeleter
         self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
+        self.enabledModules = enabledModules
+        self.enabledJunkCategories = enabledJunkCategories
     }
 
     // MARK: - Scan
@@ -454,14 +472,21 @@ final class SmartScanViewModel {
 
         let clamAVAvailable = malwareInstalled()
 
-        async let junk = junkScanner(onJunkProgress)
+        // "Customize Smart Care" gate: snapshot the user's module/category
+        // choices once up front (mirroring the exclusions snapshot) so a
+        // disabled module's sub-scan is skipped entirely and a disabled System
+        // Junk category is filtered out of the results below.
+        let mods = enabledModules()
+        let cats = enabledJunkCategories()
+
+        async let junk = scanJunkIfEnabled(mods.contains(.systemJunk), onProgress: onJunkProgress)
         async let threats = scanForThreatsIfPossible(
-            clamAVAvailable: clamAVAvailable,
+            clamAVAvailable: clamAVAvailable && mods.contains(.malware),
             onProgress: onMalwareProgress
         )
-        async let login = loginItemsLoader()
-        async let large = largeOldFilesScanner(onClutterProgress)
-        async let updates = updatesChecker(onUpdatesProgress)
+        async let login = mods.contains(.optimization) ? loginItemsLoader() : []
+        async let large = mods.contains(.myClutter) ? largeOldFilesScanner(onClutterProgress) : []
+        async let updates = mods.contains(.applications) ? updatesChecker(onUpdatesProgress) : []
 
         do {
             // Await the two file walks first so their completion flags flip the
@@ -471,7 +496,11 @@ final class SmartScanViewModel {
             // textual order of these awaits. (`async let` already started all
             // five concurrently, so collecting them in a different order is
             // free.)
-            let junkResult = try await junk
+            // Filter the System Junk findings down to the categories the user
+            // kept enabled in the Cleanup sub-tree. Done here (rather than in the
+            // scanner) so the scanner stays category-agnostic and the same walk
+            // serves every caller.
+            let junkResult = Self.filteringJunkCategories(try await junk, to: cats)
             junkWalkComplete = true
             let largeFiles = await large
             clutterWalkComplete = true
@@ -488,10 +517,13 @@ final class SmartScanViewModel {
                 availableUpdates: foundUpdates,
                 clamAVAvailable: clamAVAvailable
             )
+            // Intersect with the enabled modules so a module the user excluded
+            // never comes back auto-selected — notably Optimization, which
+            // otherwise auto-selects whenever maintenance scripts exist.
             tileSelection = Self.defaultTileSelection(
                 for: result,
                 maintenanceScriptsAvailable: maintenanceScriptsAvailable
-            )
+            ).intersection(mods)
             junkFileSelection = Set(result.junkResult.items.map(\.url))
             threatSelection = Set(foundThreats.map(\.filePath))
             updateSelection = Set(foundUpdates.map(\.bundleID))
@@ -510,6 +542,31 @@ final class SmartScanViewModel {
             log.error("Smart Scan failed: \(String(describing: error), privacy: .public)")
             phase = .failed(message: error.localizedDescription)
         }
+    }
+
+    /// Runs the System Junk scan only when its module is enabled. Factored out
+    /// of `scan()` so the throwing `async let` site stays readable — a ternary
+    /// around a `try await` call reads poorly. Disabled yields an empty result,
+    /// which still flips `junkWalkComplete` cleanly when awaited.
+    private func scanJunkIfEnabled(
+        _ enabled: Bool,
+        onProgress: @escaping @Sendable (Int) -> Void
+    ) async throws -> ScanResult {
+        guard enabled else { return ScanResult(items: []) }
+        return try await junkScanner(onProgress)
+    }
+
+    /// Returns a `ScanResult` containing only the files whose category the user
+    /// kept enabled in the Cleanup sub-tree. A no-op (returns the input) when
+    /// every category is enabled, so the common path allocates nothing extra.
+    private static func filteringJunkCategories(
+        _ result: ScanResult,
+        to categories: Set<ScanCategory>
+    ) -> ScanResult {
+        guard categories.count != SmartScanSettingsStore.junkCategories.count else {
+            return result
+        }
+        return ScanResult(items: result.items.filter { categories.contains($0.category) })
     }
 
     /// Runs the malware scan only when ClamAV is present. Factored out of
@@ -870,9 +927,14 @@ extension SmartScanViewModel {
     ///
     /// The exclusions snapshot is captured per scan so a freshly-added
     /// Preferences exclusion takes effect on the next run, matching
-    /// `SystemJunkViewModel.live`.
+    /// `SystemJunkViewModel.live`. The Scanning preferences (`settings`) are
+    /// captured the same way, so a module or category the user toggles in
+    /// Settings → Scanning takes effect on the next Smart Scan.
     @MainActor
-    static func live(exclusions: ExclusionsStore) -> SmartScanViewModel {
+    static func live(
+        exclusions: ExclusionsStore,
+        settings: SmartScanSettingsStore
+    ) -> SmartScanViewModel {
         let detector = ClamAVDetector()
         let scanner = ClamAVScanner(detector: detector)
         let remover = MalwareThreatRemover()
@@ -961,7 +1023,16 @@ extension SmartScanViewModel {
             // `periodic` was removed in macOS 26; when it's absent the
             // Performance tile's maintenance action is skipped rather than
             // erroring with "The file 'periodic' doesn't exist."
-            maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic")
+            maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic"),
+            // Snapshot the "Customize Smart Care" choices per scan so a toggle in
+            // Settings → Scanning takes effect on the next run, mirroring the
+            // exclusions snapshot above.
+            enabledModules: { [weak settings] in
+                settings?.enabledModules ?? Set(SmartScanModule.allCases)
+            },
+            enabledJunkCategories: { [weak settings] in
+                settings?.enabledJunkCategories ?? Set(SmartScanSettingsStore.junkCategories)
+            }
         )
     }
 

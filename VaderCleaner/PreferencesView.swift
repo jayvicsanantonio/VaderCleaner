@@ -16,6 +16,9 @@ struct PreferencesView: View {
 
     var body: some View {
         TabView {
+            ScanningTab()
+                .tabItem { Label("Scanning", systemImage: "magnifyingglass") }
+
             NotificationsTab()
                 .tabItem { Label("Notifications", systemImage: "bell.badge") }
 
@@ -28,9 +31,133 @@ struct PreferencesView: View {
             MenuBarTab()
                 .tabItem { Label("Menu Bar", systemImage: "menubar.rectangle") }
         }
-        // Fixed width so all four tabs share the same window size and the
-        // window doesn't jump as the user switches tabs.
-        .frame(width: 460, height: 340)
+        // Fixed width so all tabs share the same window size and the window
+        // doesn't jump as the user switches tabs. The height accommodates the
+        // Scanning tab's module tree; the shorter tabs simply have more breathing
+        // room.
+        .frame(width: 480, height: 420)
+    }
+}
+
+// MARK: - Scanning tab (Customize Smart Care)
+
+/// Lets the user choose which Smart Scan modules — and, within Cleanup, which
+/// System Junk categories — a scan includes. Laid out as a native grouped form
+/// (matching the other preference tabs): a Modules section, then a Cleanup
+/// Categories section that greys out when the Cleanup module is off, so a
+/// disabled module visibly excludes its whole subtree.
+private struct ScanningTab: View {
+
+    @Environment(SmartScanSettingsStore.self) private var settings
+
+    /// Every Smart Scan module, in dashboard reading order.
+    private static let modules: [SmartScanModule] = SmartScanModule.allCases
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(Self.modules, id: \.self) { module in
+                    moduleRow(module)
+                }
+            } header: {
+                Text("Specify the items you would like to include in your scans")
+            } footer: {
+                Text("Smart Scan runs only the checked modules. Unchecked modules are skipped entirely.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                ForEach(SmartScanSettingsStore.junkCategories, id: \.self) { category in
+                    categoryRow(category)
+                }
+            } header: {
+                Text("Cleanup Categories")
+            } footer: {
+                Text(cleanupFooter)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(!settings.isModuleEnabled(.systemJunk))
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: Rows
+
+    private func moduleRow(_ module: SmartScanModule) -> some View {
+        Toggle(isOn: Binding(
+            get: { settings.isModuleEnabled(module) },
+            set: { settings.setModule(module, enabled: $0) }
+        )) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.title(module))
+                    Text(Self.caption(module))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: Self.symbol(module))
+                    .foregroundStyle(.tint)
+            }
+        }
+        .toggleStyle(.checkbox)
+        .accessibilityIdentifier("scanning.module.\(module.rawValue)")
+    }
+
+    private func categoryRow(_ category: ScanCategory) -> some View {
+        Toggle(category.displayName, isOn: Binding(
+            get: { settings.isJunkCategoryEnabled(category) },
+            set: { settings.setJunkCategory(category, enabled: $0) }
+        ))
+        .toggleStyle(.checkbox)
+        .accessibilityIdentifier("scanning.junkCategory.\(category.rawValue)")
+    }
+
+    // MARK: Copy
+
+    /// Footer under the categories section, reflecting whether Cleanup is off,
+    /// fully included, or partially narrowed.
+    private var cleanupFooter: String {
+        switch settings.junkCategoryState {
+        case .off:
+            return "Enable Cleanup above to scan system junk."
+        case .mixed:
+            return "Some system junk categories are excluded from Cleanup."
+        case .on:
+            return "Choose which kinds of system junk Cleanup scans."
+        }
+    }
+
+    private static func title(_ module: SmartScanModule) -> String {
+        switch module {
+        case .systemJunk: return "Cleanup"
+        case .malware: return "Protection"
+        case .optimization: return "Performance"
+        case .applications: return "Applications"
+        case .myClutter: return "My Clutter"
+        }
+    }
+
+    private static func caption(_ module: SmartScanModule) -> String {
+        switch module {
+        case .systemJunk: return "System junk: caches, logs, language files, and more"
+        case .malware: return "Scan for malware and adware"
+        case .optimization: return "Run system maintenance scripts"
+        case .applications: return "Find available app updates"
+        case .myClutter: return "Find large and old files"
+        }
+    }
+
+    private static func symbol(_ module: SmartScanModule) -> String {
+        switch module {
+        case .systemJunk: return "trash"
+        case .malware: return "shield.lefthalf.filled"
+        case .optimization: return "bolt.fill"
+        case .applications: return "app.badge"
+        case .myClutter: return "doc.on.doc"
+        }
     }
 }
 
@@ -191,4 +318,5 @@ private struct MenuBarTab: View {
     PreferencesView()
         .environment(PreferencesStore())
         .environment(ExclusionsStore())
+        .environment(SmartScanSettingsStore())
 }

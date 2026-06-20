@@ -414,7 +414,10 @@ private extension AnyTransition {
             dispatcher: notificationManager,
             preferences: prefs
         ),
-        smartScanViewModel: SmartScanViewModel.live(exclusions: exclusions)
+        smartScanViewModel: SmartScanViewModel.live(
+            exclusions: exclusions,
+            settings: SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!)
+        )
     )
         .environment(AppState(checker: { true }))
         .environment(PermissionOnboardingViewModel())
