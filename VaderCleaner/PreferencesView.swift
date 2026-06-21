@@ -407,6 +407,7 @@ private struct ScanNodeRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .accessibilityLabel(isOpen ? "Collapse \(node.title)" : "Expand \(node.title)")
         }
     }
