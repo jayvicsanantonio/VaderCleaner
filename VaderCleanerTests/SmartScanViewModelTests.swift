@@ -22,6 +22,20 @@ final class SmartScanViewModelTests: XCTestCase {
         category: .userCache
     )
 
+    /// A duplicate group fronting the My Clutter tile: a kept original plus one
+    /// redundant copy (so `reclaimableBytes == 1000` and one copy is deletable).
+    private var dupGroup: DuplicateGroup {
+        DuplicateGroup(files: [
+            ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/report.pdf"),
+                        size: 1000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile),
+            ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/report copy.pdf"),
+                        size: 1000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile),
+        ])
+    }
+
+    /// The redundant (deletable) copy inside `dupGroup`.
+    private var dupCopy: ScannedFile { dupGroup.redundantCopies[0] }
+
     private let availableUpdate = UpdateInfo(
         appName: "Example",
         bundleID: "com.example.app",
@@ -165,22 +179,22 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(result.optimizationItems, [])
     }
 
-    func test_scan_populatesLargeOldFilesFromScanner() async {
-        var ranLargeOldFiles = false
+    func test_scan_populatesDuplicatesFromScanner() async {
+        var ranDuplicates = false
         let vm = makeViewModel(
-            largeOldFilesScanner: {
-                ranLargeOldFiles = true
-                return [self.largeFile]
+            duplicatesScanner: {
+                ranDuplicates = true
+                return [self.dupGroup]
             }
         )
 
         await vm.scan()
 
-        XCTAssertTrue(ranLargeOldFiles, "Smart Scan must run the Large & Old Files scan")
+        XCTAssertTrue(ranDuplicates, "Smart Scan must run the duplicate-files scan")
         guard case .results(let result) = vm.phase else {
             return XCTFail("Expected .results, got \(vm.phase)")
         }
-        XCTAssertEqual(result.largeOldFiles, [largeFile])
+        XCTAssertEqual(result.duplicateGroups, [dupGroup])
     }
 
     func test_scan_populatesAvailableUpdatesFromChecker() async {
@@ -201,7 +215,7 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(result.availableUpdates, [availableUpdate])
     }
 
-    func test_scan_emptyLargeOldFilesAndUpdates_defaultEmpty() async {
+    func test_scan_emptyDuplicatesAndUpdates_defaultEmpty() async {
         let vm = makeViewModel()
 
         await vm.scan()
@@ -209,7 +223,7 @@ final class SmartScanViewModelTests: XCTestCase {
         guard case .results(let result) = vm.phase else {
             return XCTFail("Expected .results, got \(vm.phase)")
         }
-        XCTAssertEqual(result.largeOldFiles, [])
+        XCTAssertEqual(result.duplicateGroups, [])
         XCTAssertEqual(result.availableUpdates, [])
     }
 
@@ -246,16 +260,16 @@ final class SmartScanViewModelTests: XCTestCase {
     }
 
     func test_scan_defaultsTileSelectionToModulesWithCleanableWork() async {
-        // Junk has bytes, malware has a threat, updates has one entry, large
-        // old files has one entry, login items has one — every module should
+        // Junk has bytes, malware has a threat, updates has one entry,
+        // duplicates has one group, login items has one — every module should
         // default to checked. Optimization additionally is always actionable
-        // (maintenance scripts always available on macOS), so it is also on.
+        // (its DNS flush always has work), so it is also on.
         let vm = makeViewModel(
             junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) },
             malwareInstalled: { true },
             malwareScanner: { [self.threat] },
             loginItemsLoader: { [self.loginItem] },
-            largeOldFilesScanner: { [self.largeFile] },
+            duplicatesScanner: { [self.dupGroup] },
             updatesChecker: { [self.availableUpdate] }
         )
 
@@ -351,17 +365,19 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(vm.updateSelection, [availableUpdate.bundleID])
     }
 
-    func test_scan_defaultsLargeFileSelectionToEmpty() async {
-        // Destructive deletes mirror `LargeOldFilesViewModel`'s contract:
-        // nothing is selected by default — the user must explicitly opt
-        // individual files into removal via the Review screen.
+    func test_scan_defaultsLargeFileSelectionToRedundantCopies() async {
+        // A duplicate delete always leaves one copy, so the redundant copies are
+        // selected by default (matching Smart Care). The kept original is never
+        // selected, so Run can't remove the last copy.
         let vm = makeViewModel(
-            largeOldFilesScanner: { [self.largeFile] }
+            duplicatesScanner: { [self.dupGroup] }
         )
 
         await vm.scan()
 
-        XCTAssertEqual(vm.largeFileSelection, [])
+        XCTAssertEqual(vm.largeFileSelection, [dupCopy.url])
+        XCTAssertFalse(vm.largeFileSelection.contains(dupGroup.original.url),
+                       "The kept original must never be selected for deletion")
     }
 
     func test_toggleJunkCategory_addsAndRemoves() async {
@@ -492,15 +508,16 @@ final class SmartScanViewModelTests: XCTestCase {
     }
 
     func test_setLargeFiles_selectsAndClearsTheGivenURLs() async {
-        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        let vm = makeViewModel(duplicatesScanner: { [self.dupGroup] })
         await vm.scan()
-        XCTAssertEqual(vm.largeFileSelection, [], "Clutter starts opt-in (empty)")
+        // Redundant copies default to selected.
+        XCTAssertTrue(vm.isLargeFileSelected(dupCopy))
 
-        vm.setLargeFiles([largeFile.url], selected: true)
-        XCTAssertTrue(vm.isLargeFileSelected(largeFile))
+        vm.setLargeFiles([dupCopy.url], selected: false)
+        XCTAssertFalse(vm.isLargeFileSelected(dupCopy))
 
-        vm.setLargeFiles([largeFile.url], selected: false)
-        XCTAssertFalse(vm.isLargeFileSelected(largeFile))
+        vm.setLargeFiles([dupCopy.url], selected: true)
+        XCTAssertTrue(vm.isLargeFileSelected(dupCopy))
     }
 
     func test_toggleThreat_addsAndRemoves() async {
@@ -532,66 +549,34 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.isUpdateSelected(availableUpdate))
     }
 
-    func test_scan_cachesLargeOldFilesSortedBySizeDescending() async {
-        let small = ScannedFile(
-            url: URL(fileURLWithPath: "/Users/me/Movies/small.mov"),
-            size: 1_000,
-            lastAccessDate: nil,
-            lastModifiedDate: nil,
-            category: .userCache
-        )
-        let big = ScannedFile(
-            url: URL(fileURLWithPath: "/Users/me/Movies/big.mov"),
-            size: 5_000_000_000,
-            lastAccessDate: nil,
-            lastModifiedDate: nil,
-            category: .userCache
-        )
-        let mid = ScannedFile(
-            url: URL(fileURLWithPath: "/Users/me/Movies/mid.mov"),
-            size: 50_000,
-            lastAccessDate: nil,
-            lastModifiedDate: nil,
-            category: .userCache
-        )
-        let vm = makeViewModel(
-            largeOldFilesScanner: { [small, big, mid] }
-        )
+    func test_scan_preservesDuplicateGroupOrderFromScanner() async {
+        // The scanner already orders groups by reclaimable bytes; the result must
+        // surface them in that same order for the Review list.
+        let small = DuplicateGroup(files: [
+            ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/s1"), size: 1_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile),
+            ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/s2"), size: 1_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile),
+        ])
+        let big = DuplicateGroup(files: [
+            ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/b1"), size: 9_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile),
+            ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/b2"), size: 9_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile),
+        ])
+        let vm = makeViewModel(duplicatesScanner: { [big, small] })
 
         await vm.scan()
 
-        XCTAssertEqual(
-            vm.sortedLargeOldFiles.map(\.url),
-            [big.url, mid.url, small.url],
-            "Sort cache must rank large/old files biggest-first so the Review list opens on the most reclaimable thing"
-        )
+        guard case .results(let result) = vm.phase else { return XCTFail("Expected .results") }
+        XCTAssertEqual(result.duplicateGroups, [big, small])
     }
 
-    func test_reset_clearsSortedLargeOldFilesCache() async {
-        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+    func test_selectAllLargeFiles_selectsEveryRedundantCopyWithOneWrite() async {
+        let vm = makeViewModel(duplicatesScanner: { [self.dupGroup] })
         await vm.scan()
-        XCTAssertFalse(vm.sortedLargeOldFiles.isEmpty)
-
-        vm.reset()
-
-        XCTAssertTrue(vm.sortedLargeOldFiles.isEmpty)
-    }
-
-    func test_selectAllLargeFiles_optsEveryDetectedFileInWithOneWrite() async {
-        let other = ScannedFile(
-            url: URL(fileURLWithPath: "/Users/me/Movies/other.mov"),
-            size: 100_000,
-            lastAccessDate: nil,
-            lastModifiedDate: nil,
-            category: .userCache
-        )
-        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile, other] })
-        await vm.scan()
+        vm.clearLargeFileSelection()
         XCTAssertTrue(vm.largeFileSelection.isEmpty)
 
         vm.selectAllLargeFiles()
 
-        XCTAssertEqual(vm.largeFileSelection, [largeFile.url, other.url])
+        XCTAssertEqual(vm.largeFileSelection, [dupCopy.url])
     }
 
     func test_selectAllLargeFiles_outsideResults_isNoop() {
@@ -602,9 +587,8 @@ final class SmartScanViewModelTests: XCTestCase {
     }
 
     func test_clearLargeFileSelection_emptiesTheSet() async {
-        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+        let vm = makeViewModel(duplicatesScanner: { [self.dupGroup] })
         await vm.scan()
-        vm.selectAllLargeFiles()
         XCTAssertFalse(vm.largeFileSelection.isEmpty)
 
         vm.clearLargeFileSelection()
@@ -614,16 +598,17 @@ final class SmartScanViewModelTests: XCTestCase {
 
     func test_toggleLargeFile_addsAndRemoves() async {
         let vm = makeViewModel(
-            largeOldFilesScanner: { [self.largeFile] }
+            duplicatesScanner: { [self.dupGroup] }
         )
         await vm.scan()
-        XCTAssertFalse(vm.isLargeFileSelected(largeFile))
+        // The redundant copy is selected by default.
+        XCTAssertTrue(vm.isLargeFileSelected(dupCopy))
 
-        vm.toggleLargeFile(largeFile)
-        XCTAssertTrue(vm.isLargeFileSelected(largeFile))
+        vm.toggleLargeFile(dupCopy)
+        XCTAssertFalse(vm.isLargeFileSelected(dupCopy))
 
-        vm.toggleLargeFile(largeFile)
-        XCTAssertFalse(vm.isLargeFileSelected(largeFile))
+        vm.toggleLargeFile(dupCopy)
+        XCTAssertTrue(vm.isLargeFileSelected(dupCopy))
     }
 
     func test_reset_clearsAllSubSelections() async {
@@ -631,11 +616,12 @@ final class SmartScanViewModelTests: XCTestCase {
             junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 1, category: .userCache)])) },
             malwareInstalled: { true },
             malwareScanner: { [self.threat] },
-            largeOldFilesScanner: { [self.largeFile] },
+            duplicatesScanner: { [self.dupGroup] },
             updatesChecker: { [self.availableUpdate] }
         )
         await vm.scan()
-        vm.toggleLargeFile(largeFile)
+        // The redundant copy is selected by default, so largeFileSelection is
+        // already non-empty — no manual toggle needed.
         XCTAssertFalse(vm.junkCategorySelection.isEmpty)
         XCTAssertFalse(vm.threatSelection.isEmpty)
         XCTAssertFalse(vm.updateSelection.isEmpty)
@@ -991,41 +977,40 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(openedURLs, [availableUpdate.updateURL])
     }
 
-    // MARK: - Run: My Clutter (delete selected large files)
+    // MARK: - Run: My Clutter (delete selected duplicate copies)
 
-    func test_run_deletesSelectedLargeFiles() async {
+    func test_run_deletesSelectedDuplicateCopies() async {
         var receivedURLs: [URL] = []
         let vm = makeViewModel(
-            largeOldFilesScanner: { [self.largeFile] },
+            duplicatesScanner: { [self.dupGroup] },
             largeFileDeleter: { urls in
                 receivedURLs = urls
                 return Set(urls)
             }
         )
         await vm.scan()
-        vm.toggleLargeFile(largeFile)   // opt the file in
+        // The redundant copy is selected by default — no manual opt-in needed.
 
         await vm.run()
 
-        XCTAssertEqual(receivedURLs, [largeFile.url])
+        XCTAssertEqual(receivedURLs, [dupCopy.url])
         guard case .done(let summary) = vm.phase else {
             return XCTFail("Expected .done, got \(vm.phase)")
         }
         XCTAssertEqual(summary.clutterFilesRemoved, 1)
-        XCTAssertEqual(summary.clutterBytesRemoved, largeFile.size)
+        XCTAssertEqual(summary.clutterBytesRemoved, dupCopy.size)
     }
 
     func test_run_skipsMyClutterWhenNothingSelected() async {
-        // Tile is selected by default (largeOldFiles non-empty), but no
-        // individual file is opted in — deleter must NOT be called with [].
+        // Deselecting every copy must mean the deleter is NOT called with [].
         var deleterCalls = 0
         let vm = makeViewModel(
-            largeOldFilesScanner: { [self.largeFile] },
+            duplicatesScanner: { [self.dupGroup] },
             largeFileDeleter: { _ in deleterCalls += 1; return [] }
         )
         await vm.scan()
         XCTAssertTrue(vm.isModuleSelected(.myClutter))
-        XCTAssertTrue(vm.largeFileSelection.isEmpty)
+        vm.clearLargeFileSelection()
 
         await vm.run()
 
@@ -1033,22 +1018,21 @@ final class SmartScanViewModelTests: XCTestCase {
     }
 
     func test_run_recordsClutterPartialSuccess() async {
-        let other = ScannedFile(
-            url: URL(fileURLWithPath: "/Users/me/Movies/locked.mov"),
-            size: 9_000_000_000,
-            lastAccessDate: nil,
-            lastModifiedDate: nil,
-            category: .userCache
-        )
+        // A group with two redundant copies; the deleter removes only one.
+        let original = ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/clip.mov"),
+                                   size: 9_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
+        let copy1 = ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/clip copy.mov"),
+                                size: 9_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
+        let copy2 = ScannedFile(url: URL(fileURLWithPath: "/Users/me/Downloads/clip locked.mov"),
+                                size: 9_000, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
+        let group = DuplicateGroup(files: [original, copy1, copy2])
         let vm = makeViewModel(
-            largeOldFilesScanner: { [self.largeFile, other] },
-            // Deleter reports only `largeFile` as actually removed — `other`
-            // was locked / permission-denied.
-            largeFileDeleter: { _ in [self.largeFile.url] }
+            duplicatesScanner: { [group] },
+            // Deleter reports only `copy1` removed — `copy2` was locked.
+            largeFileDeleter: { _ in [copy1.url] }
         )
         await vm.scan()
-        vm.toggleLargeFile(largeFile)
-        vm.toggleLargeFile(other)
+        // Both copies are selected by default.
 
         await vm.run()
 
@@ -1056,7 +1040,8 @@ final class SmartScanViewModelTests: XCTestCase {
             return XCTFail("Expected .done, got \(vm.phase)")
         }
         XCTAssertEqual(summary.clutterFilesRemoved, 1)
-        XCTAssertEqual(summary.clutterBytesRemoved, largeFile.size)
+        XCTAssertEqual(summary.clutterBytesRemoved, copy1.size)
+        XCTAssertTrue(summary.failedModules.contains(.myClutter))
     }
 
     // MARK: - Executable work surface
@@ -1098,15 +1083,15 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertFalse(vm.willExecute(.systemJunk))
     }
 
-    func test_willExecute_myClutterRequiresAtLeastOneFileSelected() async {
-        let vm = makeViewModel(largeOldFilesScanner: { [self.largeFile] })
+    func test_willExecute_myClutterRequiresAtLeastOneCopySelected() async {
+        let vm = makeViewModel(duplicatesScanner: { [self.dupGroup] })
         await vm.scan()
         XCTAssertTrue(vm.isModuleSelected(.myClutter))
-        // Largeold files defaults to nothing selected — tile is on, no work.
-        XCTAssertFalse(vm.willExecute(.myClutter))
-
-        vm.toggleLargeFile(largeFile)
+        // Redundant copies default to selected, so the tile has work.
         XCTAssertTrue(vm.willExecute(.myClutter))
+
+        vm.clearLargeFileSelection()
+        XCTAssertFalse(vm.willExecute(.myClutter))
     }
 
     // MARK: - Maintenance-scripts availability (periodic removed in macOS 26)
@@ -1118,29 +1103,52 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.willExecute(.optimization))
     }
 
-    func test_optimization_isNotActionableOrSelectedWhenMaintenanceUnavailable() async {
+    func test_optimization_stillActionableAndSelectedWhenMaintenanceUnavailable() async {
+        // Even without periodic (macOS 26), Optimization keeps its DNS-cache
+        // flush, so it must stay actionable and auto-selected — matching Smart
+        // Care's Performance module (maintenance scripts + Flush DNS).
         let vm = makeViewModel(maintenanceScriptsAvailable: false)
         await vm.scan()
-        XCTAssertFalse(vm.isModuleSelected(.optimization),
-                       "Optimization must not auto-select when periodic is gone")
-        XCTAssertFalse(vm.willExecute(.optimization),
-                       "Optimization has no Run work when maintenance scripts are unavailable")
+        XCTAssertTrue(vm.isModuleSelected(.optimization),
+                      "Optimization auto-selects because the DNS flush always has work")
+        XCTAssertTrue(vm.willExecute(.optimization),
+                      "Optimization is actionable via the DNS flush even without periodic")
     }
 
-    func test_run_skipsMaintenanceWhenUnavailableEvenIfTileSelected() async {
-        var ran = false
+    func test_run_skipsMaintenanceScriptsButFlushesDNSWhenScriptsUnavailable() async {
+        var ranScripts = false
+        var ranDNS = false
         let vm = makeViewModel(
-            maintenanceRunner: { ran = true; return "ran" },
+            maintenanceRunner: { ranScripts = true; return "scripts" },
+            dnsFlusher: { ranDNS = true; return "flushed DNS" },
             maintenanceScriptsAvailable: false
         )
         await vm.scan()
-        // Force the tile on to prove the run-time guard, not just the seed.
-        vm.toggleModule(.optimization)
         XCTAssertTrue(vm.isModuleSelected(.optimization))
 
         await vm.run()
 
-        XCTAssertFalse(ran, "The removed periodic maintenance must never be invoked")
+        XCTAssertFalse(ranScripts, "The removed periodic maintenance must never be invoked")
+        XCTAssertTrue(ranDNS, "The DNS flush must still run — it needs no periodic")
+    }
+
+    func test_run_flushesDNSAndRunsScriptsWhenOptimizationSelected() async {
+        var ranScripts = false
+        var ranDNS = false
+        let vm = makeViewModel(
+            maintenanceRunner: { ranScripts = true; return "ran scripts" },
+            dnsFlusher: { ranDNS = true; return "flushed DNS" },
+            maintenanceScriptsAvailable: true
+        )
+        await vm.scan()
+
+        await vm.run()
+
+        XCTAssertTrue(ranScripts && ranDNS, "Performance runs both maintenance scripts and the DNS flush")
+        guard case .done(let summary) = vm.phase else { return XCTFail("Expected .done") }
+        let output = summary.maintenanceOutput ?? ""
+        XCTAssertTrue(output.contains("ran scripts"), "Summary must include the maintenance-scripts line")
+        XCTAssertTrue(output.contains("flushed DNS"), "Summary must include the DNS-flush line")
     }
 
     // MARK: - Scan progress count
@@ -1159,7 +1167,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { false },
             malwareScanner: { _ in [] },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { progress in
+            duplicatesScanner: { progress in
                 progress(50)
                 await Task.yield()
                 progress(200)
@@ -1200,7 +1208,7 @@ final class SmartScanViewModelTests: XCTestCase {
                 return []
             },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { _ in [] },
             junkCleaner: { _ in 0 },
             threatRemover: { _ in [] },
@@ -1232,7 +1240,7 @@ final class SmartScanViewModelTests: XCTestCase {
                 return []
             },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { _ in [] },
             junkCleaner: { _ in 0 },
             threatRemover: { _ in [] },
@@ -1255,7 +1263,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { false },
             malwareScanner: { _ in [] },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { progress in
                 progress(0, 4)
                 await Task.yield()
@@ -1295,7 +1303,7 @@ final class SmartScanViewModelTests: XCTestCase {
                 return []
             },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { progress in
                 progress(4, 4)
                 await Task.yield()
@@ -1330,7 +1338,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { true },
             malwareScanner: { _ in [] },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { _ in [] },
             junkCleaner: { _ in 0 },
             threatRemover: { _ in [] },
@@ -1358,7 +1366,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { true },
             malwareScanner: { _ in await gate.wait(); return [] },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { _ in [] },
             junkCleaner: { _ in 0 },
             threatRemover: { _ in [] },
@@ -1387,7 +1395,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { false },
             malwareScanner: { _ in [] },
             loginItemsLoader: { [] },
-            largeOldFilesScanner: { _ in [] },
+            duplicatesScanner: { _ in [] },
             updatesChecker: { _ in await gate.wait(); return [] },
             junkCleaner: { _ in 0 },
             threatRemover: { _ in [] },
@@ -1436,7 +1444,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { true },
             malwareScanner: { ranMalware = true; return [self.threat] },
             loginItemsLoader: { ranLogin = true; return [self.loginItem] },
-            largeOldFilesScanner: { ranLarge = true; return [self.largeFile] },
+            duplicatesScanner: { ranLarge = true; return [self.dupGroup] },
             updatesChecker: { ranUpdates = true; return [self.availableUpdate] },
             // Everything off except System Junk.
             enabledModules: { [.systemJunk] }
@@ -1457,7 +1465,7 @@ final class SmartScanViewModelTests: XCTestCase {
             junkScanner: { junk },
             malwareInstalled: { true },
             malwareScanner: { [self.threat] },
-            largeOldFilesScanner: { [self.largeFile] },
+            duplicatesScanner: { [self.dupGroup] },
             updatesChecker: { [self.availableUpdate] },
             // Malware off; everything else on.
             enabledModules: { Set(SmartScanModule.allCases).subtracting([.malware]) }
@@ -1521,7 +1529,7 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: { true },
             malwareScanner: { ranMalware = true; return [] },
             loginItemsLoader: { ranLogin = true; return [] },
-            largeOldFilesScanner: { ranLarge = true; return [] },
+            duplicatesScanner: { ranLarge = true; return [] },
             updatesChecker: { ranUpdates = true; return [] }
         )
 
@@ -1538,11 +1546,12 @@ final class SmartScanViewModelTests: XCTestCase {
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
         malwareScanner: @escaping () async -> [MalwareThreat] = { [] },
         loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
-        largeOldFilesScanner: @escaping () async -> [ScannedFile] = { [] },
+        duplicatesScanner: @escaping () async -> [DuplicateGroup] = { [] },
         updatesChecker: @escaping () async -> [UpdateInfo] = { [] },
         junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
         threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
         maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
+        dnsFlusher: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
         updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
         largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] },
         maintenanceScriptsAvailable: Bool = true,
@@ -1557,11 +1566,12 @@ final class SmartScanViewModelTests: XCTestCase {
             malwareInstalled: malwareInstalled,
             malwareScanner: { _ in await malwareScanner() },
             loginItemsLoader: loginItemsLoader,
-            largeOldFilesScanner: { _ in await largeOldFilesScanner() },
+            duplicatesScanner: { _ in await duplicatesScanner() },
             updatesChecker: { _ in await updatesChecker() },
             junkCleaner: junkCleaner,
             threatRemover: threatRemover,
             maintenanceRunner: maintenanceRunner,
+            dnsFlusher: dnsFlusher,
             updateOpener: updateOpener,
             largeFileDeleter: largeFileDeleter,
             maintenanceScriptsAvailable: maintenanceScriptsAvailable,

@@ -184,7 +184,7 @@ struct SmartScanView: View {
         loginItemsLoader: {
             [LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)]
         },
-        largeOldFilesScanner: { _ in [] },
+        duplicatesScanner: { _ in [] },
         updatesChecker: { _ in [] },
         junkCleaner: { _ in 1_500_000_000 },
         threatRemover: { _ in [] },
@@ -196,6 +196,7 @@ struct SmartScanView: View {
         viewModel: vm,
         onOpenOptimization: {}
     )
+        .environment(SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!))
         .frame(width: 900, height: 600)
         .task { await vm.scan() }
 }

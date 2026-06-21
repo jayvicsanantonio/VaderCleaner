@@ -47,15 +47,15 @@ struct SmartScanResult: Equatable {
     let junkResult: ScanResult
     let threats: [MalwareThreat]
     let optimizationItems: [LoginItem]
-    /// Files surfaced by the Large & Old Files sub-scan, fronting the
-    /// "My Clutter" tile on the dashboard. Empty when the scan found nothing
-    /// — or, in live wiring, when the underlying scanner failed (failures are
-    /// swallowed to `[]` so one bad probe never sinks an otherwise-useful
-    /// Smart Scan).
-    let largeOldFiles: [ScannedFile]
+    /// Duplicate-file groups surfaced by the duplicate sub-scan, fronting the
+    /// "My Clutter" tile on the dashboard (matching Smart Care, which finds
+    /// duplicate files in Downloads). Empty when the scan found nothing — or, in
+    /// live wiring, when the underlying scanner failed (failures are swallowed to
+    /// `[]` so one bad probe never sinks an otherwise-useful Smart Scan).
+    let duplicateGroups: [DuplicateGroup]
     /// Per-app updates surfaced by the App Updater sub-check, fronting the
     /// "Applications" tile. Same partial-degradation contract as `threats`
-    /// and `largeOldFiles` — a network failure yields `[]`, not `.failed`.
+    /// and `duplicateGroups` — a network failure yields `[]`, not `.failed`.
     let availableUpdates: [UpdateInfo]
     let clamAVAvailable: Bool
 
@@ -159,15 +159,12 @@ final class SmartScanViewModel {
     typealias MalwareScanner = (@escaping @Sendable (Int) -> Void) async -> [MalwareThreat]
     /// Login-item loader, mirroring `OptimizationViewModel.LoadLoginItems`.
     typealias LoginItemsLoader = () async -> [LoginItem]
-    /// Large & Old Files scan source, fronting the My Clutter tile. Non-
-    /// throwing and best-effort: a partly-blocked filesystem walk must not
-    /// fail the whole Smart Scan, so the live wiring catches and yields `[]`
-    /// (same shape as the malware sub-scan). Named `ClutterScanner` rather
-    /// than `LargeOldFilesScanner` to keep the typealias from colliding
-    /// with the underlying `LargeOldFilesScanner` *class* in `.live`. The
-    /// `@Sendable (Int) -> Void` parameter receives the running walked-item
-    /// count so Smart Scan can show its sub-scans advancing.
-    typealias ClutterScanner = (@escaping @Sendable (Int) -> Void) async -> [ScannedFile]
+    /// Duplicate-file scan source, fronting the My Clutter tile. Non-throwing
+    /// and best-effort: a partly-blocked filesystem walk must not fail the whole
+    /// Smart Scan, so the live wiring catches and yields `[]` (same shape as the
+    /// malware sub-scan). The `@Sendable (Int) -> Void` parameter receives the
+    /// running walked-item count so Smart Scan can show its sub-scans advancing.
+    typealias ClutterScanner = (@escaping @Sendable (Int) -> Void) async -> [DuplicateGroup]
     /// App-update check source, fronting the Applications tile. Non-throwing
     /// and best-effort for the same reason as `ClutterScanner` — a
     /// network blip can't sink an otherwise-useful Smart Scan. The
@@ -296,17 +293,12 @@ final class SmartScanViewModel {
     /// selected updates to the opener one by one.
     private(set) var updateSelection: Set<String> = []
 
-    /// Per-file gate inside the My Clutter tile's Review screen, keyed by
-    /// `ScannedFile.url`. Seeded *empty* — large-file deletion is destructive
-    /// and irreversible, so parity with `LargeOldFilesViewModel` requires the
-    /// user to opt each file in explicitly before Run can remove it.
+    /// Per-copy gate inside the My Clutter tile's Review screen, keyed by
+    /// `ScannedFile.url`. Seeded to every **redundant copy** (every duplicate
+    /// except the kept original) — deleting a duplicate always leaves one copy
+    /// behind, so default-on is safe and matches Smart Care. Kept originals are
+    /// never added here, so Run can never delete the last copy.
     private(set) var largeFileSelection: Set<URL> = []
-
-    /// `result.largeOldFiles` pre-sorted by size descending, so the My
-    /// Clutter Review's list reads "biggest forgotten thing first" without
-    /// the view re-sorting on every body re-evaluation. Recomputed once
-    /// when results land; cleared on `reset()`.
-    private(set) var sortedLargeOldFiles: [ScannedFile] = []
 
     /// Per-source walked counts for the two concurrent file-walk sub-scans.
     /// `scannedItemCount` is their sum; tracking them separately lets each
@@ -322,11 +314,17 @@ final class SmartScanViewModel {
     @ObservationIgnored private let malwareInstalled: MalwareInstalled
     @ObservationIgnored private let malwareScanner: MalwareScanner
     @ObservationIgnored private let loginItemsLoader: LoginItemsLoader
-    @ObservationIgnored private let largeOldFilesScanner: ClutterScanner
+    @ObservationIgnored private let duplicatesScanner: ClutterScanner
     @ObservationIgnored private let updatesChecker: UpdatesChecker
     @ObservationIgnored private let junkCleaner: JunkCleaner
     @ObservationIgnored private let threatRemover: ThreatRemover
     @ObservationIgnored private let maintenanceRunner: MaintenanceRunner
+    /// Flushes the system DNS cache via the privileged helper. Part of the
+    /// Performance/Optimization module alongside the maintenance scripts,
+    /// matching Smart Care (which runs maintenance scripts *and* Flush DNS).
+    /// Needs no `periodic`, so it runs even on macOS 26 where the scripts are
+    /// gone — which is why Optimization always has Run work.
+    @ObservationIgnored private let dnsFlusher: MaintenanceRunner
     @ObservationIgnored private let updateOpener: UpdateOpener
     @ObservationIgnored private let largeFileDeleter: LargeFileDeleter
     /// Whether `/usr/sbin/periodic` exists — false on macOS 26+, where Apple
@@ -352,11 +350,12 @@ final class SmartScanViewModel {
         malwareInstalled: @escaping MalwareInstalled,
         malwareScanner: @escaping MalwareScanner,
         loginItemsLoader: @escaping LoginItemsLoader,
-        largeOldFilesScanner: @escaping ClutterScanner,
+        duplicatesScanner: @escaping ClutterScanner,
         updatesChecker: @escaping UpdatesChecker,
         junkCleaner: @escaping JunkCleaner,
         threatRemover: @escaping ThreatRemover,
         maintenanceRunner: @escaping MaintenanceRunner,
+        dnsFlusher: @escaping MaintenanceRunner = { "" },
         updateOpener: @escaping UpdateOpener,
         largeFileDeleter: @escaping LargeFileDeleter,
         maintenanceScriptsAvailable: Bool = true,
@@ -367,11 +366,12 @@ final class SmartScanViewModel {
         self.malwareInstalled = malwareInstalled
         self.malwareScanner = malwareScanner
         self.loginItemsLoader = loginItemsLoader
-        self.largeOldFilesScanner = largeOldFilesScanner
+        self.duplicatesScanner = duplicatesScanner
         self.updatesChecker = updatesChecker
         self.junkCleaner = junkCleaner
         self.threatRemover = threatRemover
         self.maintenanceRunner = maintenanceRunner
+        self.dnsFlusher = dnsFlusher
         self.updateOpener = updateOpener
         self.largeFileDeleter = largeFileDeleter
         self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
@@ -399,7 +399,7 @@ final class SmartScanViewModel {
         }
 
         phase = .scanning(phase: String(
-            localized: "Scanning cleanup, protection, performance, applications, and clutter…",
+            localized: "Scanning cleanup, protection, performance, applications, and duplicates…",
             comment: "Progress label shown while the Smart Scan runs all five sub-scans — uses the user-facing tile names from the results dashboard."
         ))
 
@@ -485,7 +485,7 @@ final class SmartScanViewModel {
             onProgress: onMalwareProgress
         )
         async let login = mods.contains(.optimization) ? loginItemsLoader() : []
-        async let large = mods.contains(.myClutter) ? largeOldFilesScanner(onClutterProgress) : []
+        async let large = mods.contains(.myClutter) ? duplicatesScanner(onClutterProgress) : []
         async let updates = mods.contains(.applications) ? updatesChecker(onUpdatesProgress) : []
 
         do {
@@ -502,7 +502,7 @@ final class SmartScanViewModel {
             // serves every caller.
             let junkResult = Self.filteringJunkCategories(try await junk, to: cats)
             junkWalkComplete = true
-            let largeFiles = await large
+            let duplicates = await large
             clutterWalkComplete = true
             let loginItems = await login
             let foundThreats = await threats
@@ -513,26 +513,22 @@ final class SmartScanViewModel {
                 junkResult: junkResult,
                 threats: foundThreats,
                 optimizationItems: loginItems,
-                largeOldFiles: largeFiles,
+                duplicateGroups: duplicates,
                 availableUpdates: foundUpdates,
                 clamAVAvailable: clamAVAvailable
             )
             // Intersect with the enabled modules so a module the user excluded
             // never comes back auto-selected — notably Optimization, which
-            // otherwise auto-selects whenever maintenance scripts exist.
-            tileSelection = Self.defaultTileSelection(
-                for: result,
-                maintenanceScriptsAvailable: maintenanceScriptsAvailable
-            ).intersection(mods)
+            // otherwise always auto-selects (its DNS flush always has work).
+            tileSelection = Self.defaultTileSelection(for: result).intersection(mods)
             junkFileSelection = Set(result.junkResult.items.map(\.url))
             threatSelection = Set(foundThreats.map(\.filePath))
             updateSelection = Set(foundUpdates.map(\.bundleID))
-            // largeFileSelection stays empty — parity with
-            // `LargeOldFilesViewModel` (destructive deletes are opt-in).
-            largeFileSelection = []
-            // Sort once here so the Review list doesn't re-sort on every
-            // SwiftUI body re-eval as the user toggles individual files.
-            sortedLargeOldFiles = largeFiles.sorted { $0.size > $1.size }
+            // Seed every redundant copy (every duplicate except the kept
+            // original) so Run removes the extras by default — a copy is always
+            // retained, so this is safe. The scanner already orders groups by
+            // reclaimable bytes, so no re-sort is needed for the Review list.
+            largeFileSelection = Set(duplicates.flatMap { $0.redundantCopies.map(\.url) })
             phase = .results(result)
             // Hand the aggregated result to whoever wired seeding (ContentView)
             // so the same-scope standalone sections can show these results
@@ -633,16 +629,31 @@ final class SmartScanViewModel {
             }
         }
 
-        // `maintenanceScriptsAvailable` guards the run even if the tile is
-        // somehow selected — periodic was removed in macOS 26, so running it
-        // would only surface "The file 'periodic' doesn't exist."
-        if tileSelection.contains(.optimization), maintenanceScriptsAvailable {
+        // Performance runs two tasks, matching Smart Care: the periodic
+        // maintenance scripts and a DNS-cache flush. Each is in its own catch so
+        // one failing doesn't sink the other, and their result lines are folded
+        // into one `maintenanceOutput`. `maintenanceScriptsAvailable` still gates
+        // the scripts (periodic was removed in macOS 26, so running it would only
+        // surface "The file 'periodic' doesn't exist."); the DNS flush needs no
+        // periodic, so it always runs when the tile is selected.
+        if tileSelection.contains(.optimization) {
+            var lines: [String] = []
+            if maintenanceScriptsAvailable {
+                do {
+                    lines.append(try await maintenanceRunner())
+                } catch {
+                    log.error("Smart Scan maintenance failed: \(String(describing: error), privacy: .public)")
+                    failedModules.insert(.optimization)
+                }
+            }
             do {
-                maintenanceOutput = try await maintenanceRunner()
+                let dnsLine = try await dnsFlusher()
+                if !dnsLine.isEmpty { lines.append(dnsLine) }
             } catch {
-                log.error("Smart Scan maintenance failed: \(String(describing: error), privacy: .public)")
+                log.error("Smart Scan DNS flush failed: \(String(describing: error), privacy: .public)")
                 failedModules.insert(.optimization)
             }
+            if !lines.isEmpty { maintenanceOutput = lines.joined(separator: "\n") }
         }
 
         if tileSelection.contains(.applications) {
@@ -659,9 +670,10 @@ final class SmartScanViewModel {
             let urls = Array(largeFileSelection)
             let removed = await largeFileDeleter(urls)
             clutterFilesRemoved = removed.count
-            // Walk the scan's recorded file list to total bytes the deleter
-            // actually freed, since the deleter only reports URLs.
-            clutterBytesRemoved = result.largeOldFiles
+            // Walk every duplicate copy the scan recorded to total bytes the
+            // deleter actually freed, since the deleter only reports URLs.
+            clutterBytesRemoved = result.duplicateGroups
+                .flatMap { $0.files }
                 .filter { removed.contains($0.url) }
                 .reduce(Int64(0)) { $0 + $1.size }
             if removed.count < urls.count {
@@ -798,14 +810,14 @@ final class SmartScanViewModel {
         }
     }
 
-    /// Opt every detected large/old file in for removal in one write to
-    /// `largeFileSelection`. Done as a single set assignment so SwiftUI
-    /// observes one publish instead of N (one per `toggleLargeFile` call),
-    /// which on large clutter scans would otherwise stall the UI behind
-    /// the cascade of refreshes.
+    /// Select every redundant duplicate copy for removal in one write to
+    /// `largeFileSelection` (kept originals are never included, so a copy always
+    /// survives). A single set assignment so SwiftUI observes one publish instead
+    /// of N (one per `toggleLargeFile` call), which on large scans would
+    /// otherwise stall the UI behind the cascade of refreshes.
     func selectAllLargeFiles() {
         guard case .results(let result) = phase else { return }
-        largeFileSelection = Set(result.largeOldFiles.map(\.url))
+        largeFileSelection = Set(result.duplicateGroups.flatMap { $0.redundantCopies.map(\.url) })
     }
 
     /// Opt every file back out — single-write counterpart to
@@ -828,9 +840,9 @@ final class SmartScanViewModel {
 
     /// Whether the given module would actually produce work if Run were
     /// pressed right now. The tile must be selected, *and* its sub-selection
-    /// must filter down to at least one item. Optimization's only Run work is
-    /// the system maintenance scripts, so it produces work iff those scripts are
-    /// available on this macOS (`periodic` was removed in macOS 26).
+    /// must filter down to at least one item. Optimization always produces work
+    /// because its DNS-cache flush needs no `periodic` (the maintenance scripts
+    /// are an extra task that's skipped where `periodic` is gone in macOS 26).
     ///
     /// Read by both the dashboard's per-tile caption decisions and the
     /// floating Run disc's visibility gate, so the two surfaces share one
@@ -849,7 +861,10 @@ final class SmartScanViewModel {
                 threatSelection.contains($0.filePath)
             }
         case .optimization:
-            return maintenanceScriptsAvailable
+            // The DNS-cache flush always has work (no `periodic` dependency),
+            // so Optimization is actionable on every macOS — even where the
+            // maintenance scripts are gone.
+            return true
         case .applications:
             return result.availableUpdates.contains {
                 updateSelection.contains($0.bundleID)
@@ -873,19 +888,17 @@ final class SmartScanViewModel {
 
     /// Default tile-selection seed for a freshly-landed `.results` payload.
     /// A module starts checked iff it has actionable work for Run. Optimization
-    /// starts on only when the system maintenance scripts are available — its
-    /// Run action has nothing to do otherwise (`periodic` was removed in macOS
-    /// 26). The user can still deselect it on the dashboard.
+    /// always starts on because its DNS-cache flush always has work (the
+    /// maintenance scripts are an extra, gated at Run time). The user can still
+    /// deselect any tile on the dashboard.
     private static func defaultTileSelection(
-        for result: SmartScanResult,
-        maintenanceScriptsAvailable: Bool
+        for result: SmartScanResult
     ) -> Set<SmartScanModule> {
-        var selection: Set<SmartScanModule> = []
-        if maintenanceScriptsAvailable { selection.insert(.optimization) }
+        var selection: Set<SmartScanModule> = [.optimization]
         if result.totalJunkBytes > 0 { selection.insert(.systemJunk) }
         if !result.threats.isEmpty { selection.insert(.malware) }
         if !result.availableUpdates.isEmpty { selection.insert(.applications) }
-        if !result.largeOldFiles.isEmpty { selection.insert(.myClutter) }
+        if !result.duplicateGroups.isEmpty { selection.insert(.myClutter) }
         return selection
     }
 
@@ -902,7 +915,6 @@ final class SmartScanViewModel {
         threatSelection = []
         updateSelection = []
         largeFileSelection = []
-        sortedLargeOldFiles = []
         scannedItemCount = 0
         malwareFilesScanned = 0
         appsChecked = 0
@@ -976,17 +988,16 @@ extension SmartScanViewModel {
                 }
             },
             loginItemsLoader: { loginManager.items() },
-            // Same `LargeOldFilesScanner` the standalone Large & Old Files
-            // section uses. A partly-blocked filesystem walk must not sink
-            // the whole Smart Scan, so failures are logged and degraded to
-            // an empty list (same partial-degradation contract as the
-            // malware scanner above).
-            largeOldFilesScanner: { [weak exclusions] onProgress in
+            // Duplicate files in Downloads, fronting the My Clutter tile to match
+            // Smart Care. A partly-blocked filesystem walk must not sink the
+            // whole Smart Scan, so failures are logged and degraded to an empty
+            // list (same partial-degradation contract as the malware scanner).
+            duplicatesScanner: { [weak exclusions] onProgress in
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
                 do {
-                    return try await LargeOldFilesScanner().scan(excluding: excluded, onProgress: onProgress)
+                    return try await DuplicateScanner().scan(excluding: excluded, onProgress: onProgress)
                 } catch {
-                    log.error("Smart Scan large/old files sub-scan failed, treating as no files: \(String(describing: error), privacy: .public)")
+                    log.error("Smart Scan duplicates sub-scan failed, treating as no files: \(String(describing: error), privacy: .public)")
                     return []
                 }
             },
@@ -1003,6 +1014,10 @@ extension SmartScanViewModel {
             // Performance tile runs the same maintenance scripts the
             // standalone Optimization screen does.
             maintenanceRunner: { try await MaintenanceScriptRunner().run() },
+            // Flush the DNS cache through the same privileged helper task the
+            // standalone Optimization screen uses, matching Smart Care's
+            // Performance module (maintenance scripts + Flush DNS).
+            dnsFlusher: { try await DNSCacheFlusher().run() },
             // Open every selected update URL via `NSWorkspace.open`. Mirrors
             // `AppUpdaterViewModel.live`'s opener — kept local rather than
             // shared because the two surfaces have no other state to share.

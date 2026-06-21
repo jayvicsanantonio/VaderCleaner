@@ -235,6 +235,7 @@ struct VaderCleanerApp: App {
                 .environment(onboardingViewModel)
                 .environment(preferences)
                 .environment(exclusions)
+                .environment(smartScanSettings)
                 .environment(systemStats)
                 .environment(notificationMonitor)
                 .environment(menuRouter)
