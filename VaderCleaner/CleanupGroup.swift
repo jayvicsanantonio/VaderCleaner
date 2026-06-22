@@ -46,11 +46,13 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
 
     /// The Cleanup Manager category a card's "Review" should open to. The
     /// single-category cards (Trash Bins, Xcode Junk, Document Versions) deep
-    /// link straight to that sub-category; System Junk is the umbrella, so it
-    /// opens its section at the default first category (`nil`).
+    /// link straight to that sub-category. System Junk opens to User Caches —
+    /// the largest category in its group — so the right pane lands on items that
+    /// are part of the card's (pre-selected) group rather than a sibling
+    /// category that belongs to a different card.
     var managerCategory: ScanCategory? {
         switch self {
-        case .systemJunk:       return nil
+        case .systemJunk:       return .userCache
         case .trashBins:        return .trash
         case .xcodeJunk:        return .xcodeJunk
         case .documentVersions: return .documentVersions

@@ -253,6 +253,28 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTAssertFalse(didInvoke, "Deleter must not be called when no file is selected")
     }
 
+    /// `selectOnly(categories:)` backs a card's Review: it must replace the
+    /// selection with exactly that group's files, so the selected total equals
+    /// the card's displayed size.
+    func test_selectOnly_replacesSelectionWithGroupFiles() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 200, category: .systemCache)
+        let trash  = makeFile(name: "t", size: 400, category: .trash)
+        let result = makeResult(
+            (.userCache, [cacheA]),
+            (.systemCache, [cacheB]),
+            (.trash, [trash])
+        )
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+        vm.toggleSelection(trash) // a pre-existing selection that must be cleared
+
+        vm.selectOnly(categories: [.userCache, .systemCache])
+
+        XCTAssertEqual(vm.selectedURLs, [cacheA.url, cacheB.url])
+        XCTAssertEqual(vm.totalSelectedSize, 300)
+    }
+
     // MARK: - Clean by category (dashboard card "Clean")
 
     /// `clean(categories:)` backs a dashboard card's Clean button: it must

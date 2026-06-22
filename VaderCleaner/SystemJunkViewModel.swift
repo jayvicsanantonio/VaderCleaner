@@ -127,6 +127,22 @@ final class SystemJunkViewModel {
         }
     }
 
+    /// Replace the selection with every file in `categories` — backs a
+    /// dashboard card's "Review", which opens the manager with that card's whole
+    /// group pre-selected. The resulting `totalSelectedSize` therefore matches
+    /// the card's displayed size.
+    func selectOnly(categories: Set<ScanCategory>) {
+        guard let result = latestResult else { return }
+        var urls: Set<URL> = []
+        var total: Int64 = 0
+        for file in result.items where categories.contains(file.category) {
+            urls.insert(file.url)
+            total += file.size
+        }
+        selectedURLs = urls
+        totalSelectedSize = total
+    }
+
     /// Run the injected scanner and land in `.preview` (or `.failed`).
     /// Selects every file present in the result so the user is at "select all"
     /// by default.
