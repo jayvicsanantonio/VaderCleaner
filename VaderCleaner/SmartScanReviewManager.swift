@@ -601,6 +601,13 @@ private struct ManagerSurfaceModifier: ViewModifier {
             content
                 .environment(\.colorScheme, .light)
                 .background(Color.white)
+                // A big rounded card, inset so the window's green gradient stays
+                // visible around its edges.
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 14)
         } else {
             content
         }

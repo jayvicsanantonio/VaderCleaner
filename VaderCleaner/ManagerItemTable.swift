@@ -94,6 +94,7 @@ struct ManagerItemTable: NSViewRepresentable {
         private var showsSparkle = false
         private var isExpanded: (String) -> Bool = { _ in false }
         private var onToggleExpand: (String) -> Void = { _ in }
+        private var roundedCheckbox = false
         fileprivate var contentToken = ""
         weak var table: NSTableView?
 
@@ -107,6 +108,8 @@ struct ManagerItemTable: NSViewRepresentable {
             showsSparkle = source.showsSparkle
             isExpanded = source.isExpanded
             onToggleExpand = source.onToggleExpand
+            // The white Cleanup card uses the rounded, accent-outlined checkbox.
+            roundedCheckbox = source.forcesLightAppearance
             contentToken = source.contentToken
         }
 
@@ -125,7 +128,8 @@ struct ManagerItemTable: NSViewRepresentable {
                 accent: accent,
                 showsSparkle: showsSparkle,
                 isExpanded: isExpanded(item.id),
-                onToggleExpand: onToggleExpand
+                onToggleExpand: onToggleExpand,
+                roundedCheckbox: roundedCheckbox
             )
             cell.setAccessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
             return cell
@@ -174,6 +178,9 @@ final class ManagerRowCellView: NSTableCellView {
 
     /// Invoked when the disclosure chevron is clicked. Set per `configure`.
     private var onChevron: (() -> Void)?
+    /// Whether to draw the rounded, accent-outlined checkbox (Cleanup card)
+    /// instead of the system SF-symbol checkbox.
+    private var roundedCheckbox = false
 
     init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
         textStack = NSStackView(views: [titleField, subtitleField])
@@ -248,8 +255,10 @@ final class ManagerRowCellView: NSTableCellView {
         accent: NSColor,
         showsSparkle: Bool,
         isExpanded: Bool,
-        onToggleExpand: @escaping (String) -> Void
+        onToggleExpand: @escaping (String) -> Void,
+        roundedCheckbox: Bool
     ) {
+        self.roundedCheckbox = roundedCheckbox
         indentWidth.constant = CGFloat(item.indentLevel) * Self.indentStep
         checkbox.isHidden = !showsCheckbox
         if item.usesFileIcon {
@@ -300,11 +309,18 @@ final class ManagerRowCellView: NSTableCellView {
 
     func setSelected(_ selected: Bool, accent: NSColor) {
         guard !checkbox.isHidden else { return }
-        checkbox.image = ManagerSymbolCache.image(
-            selected ? "checkmark.square.fill" : "square",
-            pointSize: 15
-        )
-        checkbox.contentTintColor = selected ? accent : .tertiaryLabelColor
+        if roundedCheckbox {
+            // A rounded square: an accent-outlined box when unchecked, filled
+            // with a white check when selected — matching the reference card.
+            checkbox.image = ManagerCheckboxImage.image(checked: selected, accent: accent)
+            checkbox.contentTintColor = nil
+        } else {
+            checkbox.image = ManagerSymbolCache.image(
+                selected ? "checkmark.square.fill" : "square",
+                pointSize: 15
+            )
+            checkbox.contentTintColor = selected ? accent : .tertiaryLabelColor
+        }
     }
 }
 
@@ -318,6 +334,49 @@ private enum ManagerSymbolCache {
         if let cached = cache[key] { return cached }
         let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular))
+        cache[key] = image
+        return image
+    }
+}
+
+/// Draws and caches the rounded checkbox used on the Cleanup card: an
+/// accent-outlined rounded square when unchecked, filled with a white check when
+/// selected. Keyed by checked-state + accent so it redraws only when those
+/// change. Main-thread only (cells are configured on the main actor).
+private enum ManagerCheckboxImage {
+    private static var cache: [String: NSImage] = [:]
+
+    static func image(checked: Bool, accent: NSColor) -> NSImage {
+        let srgb = accent.usingColorSpace(.sRGB) ?? accent
+        let key = "\(checked)|\(Int(srgb.redComponent * 255))-\(Int(srgb.greenComponent * 255))-\(Int(srgb.blueComponent * 255))"
+        if let cached = cache[key] { return cached }
+
+        let side: CGFloat = 18
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let box = NSRect(x: 1.5, y: 1.5, width: side - 3, height: side - 3)
+            let path = NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5)
+            if checked {
+                accent.setFill()
+                path.fill()
+                let check = NSBezierPath()
+                check.lineWidth = 2
+                check.lineCapStyle = .round
+                check.lineJoinStyle = .round
+                check.move(to: NSPoint(x: box.minX + box.width * 0.26, y: box.minY + box.height * 0.52))
+                check.line(to: NSPoint(x: box.minX + box.width * 0.43, y: box.minY + box.height * 0.34))
+                check.line(to: NSPoint(x: box.minX + box.width * 0.74, y: box.minY + box.height * 0.68))
+                NSColor.white.setStroke()
+                check.stroke()
+            } else {
+                // A softened accent for the empty outline so it reads as a light
+                // pink border rather than the bolder filled state.
+                let outline = accent.blended(withFraction: 0.25, of: .white) ?? accent
+                outline.setStroke()
+                path.lineWidth = 1.5
+                path.stroke()
+            }
+            return true
+        }
         cache[key] = image
         return image
     }

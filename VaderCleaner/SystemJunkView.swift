@@ -204,7 +204,15 @@ struct SystemJunkView: View {
                 )
             }
         )
+        // The Cleanup Manager uses a magenta accent (not the section's green)
+        // to match the reference: it tints the sort/select values, chevrons,
+        // selection, checkboxes, and the Clean Up button.
+        .tint(Self.managerAccent)
+        .environment(\.sectionAccent, Self.managerAccent)
     }
+
+    /// Magenta accent for the Cleanup Manager card.
+    private static let managerAccent = Color(red: 0.81, green: 0.10, blue: 0.55)
 
     private func completeState(bytesFreed: Int64) -> some View {
         VStack(spacing: 16) {
