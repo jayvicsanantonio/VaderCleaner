@@ -191,8 +191,6 @@ struct SmartScanReviewManager: View {
     @State private var selectedCategoryID: String?
     @State private var search = ""
     @State private var sort: ManagerSort = .size
-    /// The section/category row the pointer is over, for the hover highlight.
-    @State private var hoveredNavID: String?
     /// IDs of the expanded top-level rows, so each disclosed row reveals its
     /// one level of children. Cleared when the visible category changes.
     @State private var expandedIDs: Set<String> = []
@@ -300,7 +298,7 @@ struct SmartScanReviewManager: View {
         ScrollView {
             VStack(spacing: 4) {
                 ForEach(loadedSections) { section in
-                    navRow(id: section.id, selected: section.id == selectedSection?.id) {
+                    NavRow(selected: section.id == selectedSection?.id) {
                         selectedSectionID = section.id
                         selectFirstCategory()
                     } content: {
@@ -319,7 +317,7 @@ struct SmartScanReviewManager: View {
         ScrollView {
             VStack(spacing: 4) {
                 ForEach(sortedCategories) { category in
-                    navRow(id: category.id, selected: category.id == selectedCategory?.id) {
+                    NavRow(selected: category.id == selectedCategory?.id) {
                         selectedCategoryID = category.id
                     } content: {
                         categoryRow(category)
@@ -362,39 +360,6 @@ struct SmartScanReviewManager: View {
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(accent, in: Capsule())
             }
-        }
-    }
-
-    /// A selectable nav row in the section/category panes, tinted with the
-    /// section accent when selected so it reads as part of the app's glow
-    /// language instead of the grey system list highlight. A quieter fill marks
-    /// the hovered row.
-    private func navRow<Content: View>(
-        id: String,
-        selected: Bool,
-        action: @escaping () -> Void,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        let hovered = hoveredNavID == id && !selected
-        return Button(action: action) {
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? accent.opacity(0.22) : (hovered ? accent.opacity(0.08) : .clear))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .onHover { inside in
-            if inside { hoveredNavID = id }
-            else if hoveredNavID == id { hoveredNavID = nil }
         }
     }
 
@@ -613,6 +578,44 @@ struct SmartScanReviewManager: View {
             return String(localized: "All", comment: "Bulk-select trigger when everything in the category is selected.")
         }
         return String(localized: "Some", comment: "Bulk-select trigger when part of the category is selected.")
+    }
+}
+
+/// A selectable section/category row with the section-accent selection pill and
+/// a quieter hover fill. Its own view with local hover `@State`, so moving the
+/// pointer between rows re-renders only the rows involved — never the whole
+/// manager (whose body recomputes per-category sizes and the item table).
+private struct NavRow<Content: View>: View {
+    let selected: Bool
+    let action: () -> Void
+    let content: Content
+    @Environment(\.sectionAccent) private var accent
+    @State private var hovered = false
+
+    init(selected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.selected = selected
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selected ? accent.opacity(0.22) : (hovered ? accent.opacity(0.08) : .clear))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 
