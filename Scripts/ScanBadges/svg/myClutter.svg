@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <defs>
+    <radialGradient id="body" cx="50%" cy="36%" r="66%">
+      <stop offset="0%" stop-color="#c9a8f5"/>
+      <stop offset="55%" stop-color="#9a5fe0"/>
+      <stop offset="100%" stop-color="#6a34b0"/>
+    </radialGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <filter id="es" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <g filter="url(#ds)">
+    <circle cx="120" cy="118" r="98" fill="url(#body)"/>
+    <ellipse cx="120" cy="70" rx="78" ry="46" fill="url(#gloss)"/>
+    <circle cx="120" cy="118" r="98" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  </g>
+  <g filter="url(#es)">
+      <rect x="88" y="84" width="52" height="66" rx="8" fill="#ffffff" opacity="0.5"/>
+      <rect x="104" y="100" width="52" height="66" rx="8" fill="#ffffff"/>
+    </g>
+</svg>

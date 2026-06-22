@@ -26,6 +26,7 @@ struct VaderCleanerApp: App {
     @State private var menuBarViewModel: MenuBarViewModel
     @State private var preferences: PreferencesStore
     @State private var exclusions: ExclusionsStore
+    @State private var smartScanSettings: SmartScanSettingsStore
     @State private var systemJunkViewModel: SystemJunkViewModel
     @State private var largeOldFilesViewModel: LargeOldFilesViewModel
     @State private var spaceLensViewModel: DiskScannerViewModel
@@ -78,6 +79,12 @@ struct VaderCleanerApp: App {
         // same exclusions store and snapshot it per scan.
         let exclusions = ExclusionsStore()
         _exclusions = State(initialValue: exclusions)
+        // "Customize Smart Care" choices (which Smart Scan modules and System
+        // Junk categories to include). Captured by `SmartScanViewModel.live`
+        // below, which snapshots it per scan so a Settings toggle takes effect
+        // on the next run.
+        let smartScanSettings = SmartScanSettingsStore()
+        _smartScanSettings = State(initialValue: smartScanSettings)
         _systemJunkViewModel = State(
             initialValue: SystemJunkViewModel.live(exclusions: exclusions)
         )
@@ -139,7 +146,7 @@ struct VaderCleanerApp: App {
         // the standalone junk scanner uses and snapshots it per scan, so an
         // exclusion added in Preferences takes effect on the next Smart Scan.
         _smartScanViewModel = State(
-            initialValue: SmartScanViewModel.live(exclusions: exclusions)
+            initialValue: SmartScanViewModel.live(exclusions: exclusions, settings: smartScanSettings)
         )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
@@ -228,6 +235,7 @@ struct VaderCleanerApp: App {
                 .environment(onboardingViewModel)
                 .environment(preferences)
                 .environment(exclusions)
+                .environment(smartScanSettings)
                 .environment(systemStats)
                 .environment(notificationMonitor)
                 .environment(menuRouter)
@@ -257,6 +265,7 @@ struct VaderCleanerApp: App {
             PreferencesView()
                 .environment(preferences)
                 .environment(exclusions)
+                .environment(smartScanSettings)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user

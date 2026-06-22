@@ -91,11 +91,22 @@ private struct SmartScanMetricCard: View {
     var checkboxIdentifier: String? = nil
     var reviewIdentifier: String? = nil
     var onReview: (() -> Void)?
+    /// When set, the tile renders muted with an "Enable" button instead of the
+    /// checkbox/Review — for a module the user excluded in Settings → Scanning,
+    /// matching Smart Care's greyed-out-with-Enable results behavior.
+    var enableAction: (() -> Void)? = nil
+    var enableIdentifier: String? = nil
 
-    private var isDeselected: Bool {
+    private var isDisabled: Bool { enableAction != nil }
+
+    /// Muted when deselected on the dashboard *or* disabled in Settings.
+    private var isMuted: Bool {
+        if isDisabled { return true }
         if let selection { return !selection.wrappedValue }
         return false
     }
+
+    private var isDeselected: Bool { isMuted }
 
     /// Corner radius shared by the content clip and the glass shape so the two
     /// stay concentric — a mismatch is what leaves a seam at the corners.
@@ -176,7 +187,11 @@ private struct SmartScanMetricCard: View {
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.6))
                 Spacer()
-                reviewButton
+                if isDisabled {
+                    enableButton
+                } else {
+                    reviewButton
+                }
             }
         }
         .padding(20)
@@ -208,6 +223,29 @@ private struct SmartScanMetricCard: View {
             .opacity(isDeselected ? 0 : 1)
             .allowsHitTesting(!isDeselected)
             .accessibilityHidden(isDeselected)
+        }
+    }
+
+    /// "Enable" pill shown on a tile the user disabled in Settings → Scanning.
+    /// Tapping it re-includes the module and re-runs Smart Scan so the tile
+    /// fills in — the reference's greyed-out-with-Enable behavior.
+    @ViewBuilder
+    private var enableButton: some View {
+        if let enableAction {
+            Button(action: enableAction) {
+                Text(String(
+                    localized: "Enable",
+                    comment: "Per-card button on the Smart Scan dashboard that re-includes a module the user disabled in Settings."
+                ))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(.white.opacity(0.18), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(enableIdentifier ?? "")
         }
     }
 }
@@ -244,6 +282,7 @@ private extension View {
 /// position. The dashboard reserves bottom padding so the floating Run disc
 /// never overlaps the bottom-most grid row.
 struct SmartScanResultsState: View {
+    @Environment(SmartScanSettingsStore.self) private var settings
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
     let onRequestReview: (SmartScanModule) -> Void
@@ -330,17 +369,68 @@ struct SmartScanResultsState: View {
 
     @ViewBuilder
     private func tile(for module: SmartScanModule) -> some View {
+        if !settings.isModuleEnabled(module) {
+            disabledTile(module)
+        } else {
+            switch module {
+            case .systemJunk:
+                systemJunkTile
+            case .malware:
+                malwareTile
+            case .optimization:
+                optimizationTile
+            case .applications:
+                applicationsTile
+            case .myClutter:
+                myClutterTile
+            }
+        }
+    }
+
+    /// A module the user excluded in Settings → Scanning: rendered muted with an
+    /// "Enable" button that re-includes it and re-runs Smart Scan so its tile
+    /// fills in — matching Smart Care's greyed-out-with-Enable results.
+    private func disabledTile(_ module: SmartScanModule) -> some View {
+        let meta = Self.tileMeta(module)
+        return SmartScanMetricCard(
+            assetName: meta.asset,
+            tint: meta.tint,
+            title: meta.title,
+            metric: String(
+                localized: "Off",
+                comment: "Metric shown on a Smart Scan tile for a module disabled in Settings."
+            ),
+            caption: String(
+                localized: "Excluded from Smart Scan",
+                comment: "Caption on a Smart Scan tile for a module disabled in Settings → Scanning."
+            ),
+            enableAction: {
+                settings.setModule(module, enabled: true)
+                viewModel.beginScan()
+            },
+            enableIdentifier: "smartScan.enable.\(module.rawValue)"
+        )
+    }
+
+    /// Per-module art, accent, and title for the disabled-tile variant —
+    /// mirroring the values each live tile uses.
+    private static func tileMeta(_ module: SmartScanModule) -> (asset: String, tint: Color, title: String) {
         switch module {
         case .systemJunk:
-            systemJunkTile
+            return ("systemJunk", NavigationSection.systemJunk.theme.accent,
+                    String(localized: "System Junk", comment: "Smart Scan card title for the System Junk module."))
         case .malware:
-            malwareTile
+            return ("malwareRemoval", NavigationSection.malwareRemoval.theme.accent,
+                    String(localized: "Malware", comment: "Smart Scan card title for the Malware module."))
         case .optimization:
-            optimizationTile
+            return ("optimization", NavigationSection.optimization.theme.accent,
+                    String(localized: "Optimization", comment: "Smart Scan card title for the Optimization module."))
         case .applications:
-            applicationsTile
+            return ("applications", NavigationSection.applications.theme.accent,
+                    String(localized: "Applications", comment: "Smart Scan card title for the Applications module."))
         case .myClutter:
-            myClutterTile
+            return ("largeOldFiles", NavigationSection.largeOldFiles.theme.accent,
+                    String(localized: "My Clutter", comment: "Smart Scan card title for the My Clutter module."))
         }
     }
 
@@ -508,26 +598,26 @@ struct SmartScanResultsState: View {
     }
 
     private var myClutterTile: some View {
-        let count = result.largeOldFiles.count
+        // Count the redundant copies — the files Run can remove while keeping one
+        // copy of each duplicate.
+        let count = result.duplicateGroups.reduce(0) { $0 + $1.redundantCopies.count }
         let hasWork = count > 0
-        // When the tile is checked but no individual file is opted in, the
-        // caption nudges the user to Review and pick — Run would otherwise
-        // silently skip the tile (large-file deletion is opt-in per
-        // `largeFileSelection`).
+        // The redundant copies default to selected; the caption reflects how many
+        // remain checked for removal.
         let selectedCount = viewModel.largeFileSelection.count
         let captionWhenWork: String = selectedCount == 0
             ? String(
-                localized: "Tap Review to pick files",
-                comment: "Caption on the Smart Scan My Clutter card when files were found but none have been selected for removal."
+                localized: "Tap Review to pick copies",
+                comment: "Caption on the Smart Scan My Clutter card when duplicates were found but none are selected for removal."
             )
             : (selectedCount == 1
                 ? String(
-                    localized: "1 file selected",
-                    comment: "Singular caption on the Smart Scan My Clutter card when one file has been opted in for removal."
+                    localized: "1 copy selected",
+                    comment: "Singular caption on the Smart Scan My Clutter card when one duplicate copy is selected for removal."
                 )
                 : String.localizedStringWithFormat(
                     String(
-                        localized: "%d files selected",
+                        localized: "%d copies selected",
                         comment: "Plural caption on the Smart Scan My Clutter card; %d is a count."
                     ),
                     selectedCount
@@ -537,29 +627,29 @@ struct SmartScanResultsState: View {
             tint: NavigationSection.largeOldFiles.theme.accent,
             title: String(
                 localized: "My Clutter",
-                comment: "Smart Scan card title for the Large & Old Files module."
+                comment: "Smart Scan card title for the duplicate-files module."
             ),
             metric: hasWork
                 ? (count == 1
                     ? String(
-                        localized: "1 file",
-                        comment: "Singular metric on the Smart Scan My Clutter card when one large/old file was found."
+                        localized: "1 duplicate",
+                        comment: "Singular metric on the Smart Scan My Clutter card when one duplicate copy was found."
                     )
                     : String.localizedStringWithFormat(
                         String(
-                            localized: "%d files",
+                            localized: "%d duplicates",
                             comment: "Plural metric on the Smart Scan My Clutter card; %d is a count."
                         ),
                         count
                     ))
                 : String(
-                    localized: "Nothing clutters",
+                    localized: "No duplicates",
                     comment: "Zero-work metric on the Smart Scan My Clutter card."
                 ),
             caption: hasWork
                 ? captionWhenWork
                 : String(
-                    localized: "your downloads",
+                    localized: "in your downloads",
                     comment: "Zero-work caption on the Smart Scan My Clutter card."
                 ),
             selection: hasWork ? tileBinding(.myClutter) : nil,

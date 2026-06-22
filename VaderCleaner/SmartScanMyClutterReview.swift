@@ -1,5 +1,5 @@
 // SmartScanMyClutterReview.swift
-// My Clutter "Manager" for Smart Scan — the shared three-pane manager over large/old files, grouped by kind, with per-file selection. Selection defaults to empty (destructive deletes are opt-in). The model is built off the main thread so large clutter scans open without blocking.
+// My Clutter "Manager" for Smart Scan — the shared three-pane manager over duplicate-file groups. One category per group lists the redundant copies (the kept original is named but never listed, so it can't be deleted). The model is built off the main thread so large scans open without blocking.
 
 import SwiftUI
 
@@ -12,9 +12,10 @@ private final class ClutterReviewLookups: @unchecked Sendable {
 }
 
 /// My Clutter Review, rendered through the shared `SmartScanReviewManager`.
-/// Files are grouped into Large vs. Old; selection bridges to the view model's
-/// per-file API. Nothing is selected by default — parity with
-/// `LargeOldFilesViewModel`, where destructive deletes are opt-in.
+/// Each duplicate group is one category whose items are the redundant copies;
+/// the kept original is named in the category title but never listed, so it can
+/// never be selected for deletion. Redundant copies default to selected (a copy
+/// always survives), matching Smart Care.
 struct SmartScanMyClutterReview: View {
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
@@ -22,25 +23,23 @@ struct SmartScanMyClutterReview: View {
 
     @State private var lookups = ClutterReviewLookups()
 
-    /// Pre-sorted by `SmartScanViewModel` when results land.
-    private var sortedFiles: [ScannedFile] {
-        viewModel.sortedLargeOldFiles
-    }
-
     var body: some View {
         let lookups = self.lookups
-        let allFiles = sortedFiles
+        let groups = result.duplicateGroups
         SmartScanReviewManager(
             title: String(
-                localized: "Clutter Manager",
-                comment: "Title on the Smart Scan My Clutter Review screen."
+                localized: "Duplicates Manager",
+                comment: "Title on the Smart Scan My Clutter (duplicates) Review screen."
             ),
             buildSections: {
                 // Build the selection lookups on the same off-main pass as the
                 // section model, so the main thread never does O(all-files) work.
-                lookups.filesByID = Dictionary(allFiles.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
-                lookups.sizeByURL = Dictionary(allFiles.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
-                return Self.buildSections(files: allFiles)
+                // Only the redundant copies are deletable, so only they enter the
+                // lookups — the kept originals can never be toggled.
+                let copies = groups.flatMap { $0.redundantCopies }
+                lookups.filesByID = Dictionary(copies.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
+                lookups.sizeByURL = Dictionary(copies.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+                return Self.buildSections(groups: groups)
             },
             isSelected: { id in
                 guard let file = lookups.filesByID[id] else { return false }
@@ -64,33 +63,22 @@ struct SmartScanMyClutterReview: View {
         )
     }
 
-    nonisolated private static func buildSections(files: [ScannedFile]) -> [ManagerSection] {
-        let categories = [
-            category(files, scanCategory: .largeFile,
-                     title: String(localized: "Large Files", comment: "Clutter Manager category for large files."),
-                     systemImage: "doc.fill"),
-            category(files, scanCategory: .oldFile,
-                     title: String(localized: "Old Files", comment: "Clutter Manager category for old files."),
-                     systemImage: "clock.fill"),
-        ].compactMap { $0 }
+    nonisolated private static func buildSections(groups: [DuplicateGroup]) -> [ManagerSection] {
+        let categories = groups.compactMap { category(for: $0) }
         guard !categories.isEmpty else { return [] }
         return [ManagerSection(
-            id: "myClutter",
-            title: String(localized: "My Clutter", comment: "Clutter Manager left-pane section title."),
+            id: "duplicates",
+            title: String(localized: "Duplicates", comment: "Duplicates Manager left-pane section title."),
             categories: categories
         )]
     }
 
-    nonisolated private static func category(
-        _ files: [ScannedFile],
-        scanCategory: ScanCategory,
-        title: String,
-        systemImage: String
-    ) -> ManagerCategory? {
-        // `files` arrives pre-sorted by size, so the filtered slice stays sorted.
-        let matching = files.filter { $0.category == scanCategory }
-        guard !matching.isEmpty else { return nil }
-        let items = matching.map { file -> ManagerItem in
+    /// One category per duplicate group: its items are the redundant copies, and
+    /// its title names the original that will be kept.
+    nonisolated private static func category(for group: DuplicateGroup) -> ManagerCategory? {
+        let copies = group.redundantCopies
+        guard !copies.isEmpty else { return nil }
+        let items = copies.map { file -> ManagerItem in
             let isDir = file.url.pathExtension.isEmpty
             return ManagerItem(
                 id: file.url.path,
@@ -98,15 +86,19 @@ struct SmartScanMyClutterReview: View {
                 subtitle: file.url.deletingLastPathComponent().path,
                 size: file.size,
                 sizeText: ManagerByteText.string(file.size),
-                systemImage: isDir ? "folder.fill" : "doc.fill",
+                systemImage: isDir ? "folder.fill" : "doc.on.doc.fill",
                 tint: isDir ? .blue : .secondary
             )
         }
-        let total = matching.reduce(Int64(0)) { $0 + $1.size }
+        let total = group.reclaimableBytes
+        let keptName = group.original.url.lastPathComponent
         return ManagerCategory(
-            id: scanCategory.rawValue,
-            title: title,
-            systemImage: systemImage,
+            id: group.original.url.path,
+            title: String(
+                localized: "Copies of “\(keptName)”",
+                comment: "Duplicates Manager category title; the named file is the copy that is kept."
+            ),
+            systemImage: "doc.on.doc.fill",
             tint: .orange,
             items: items,
             totalSize: total,

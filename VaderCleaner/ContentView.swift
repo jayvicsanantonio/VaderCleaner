@@ -102,12 +102,16 @@ struct ContentView: View {
         // disrupts a section the user has already scanned themselves.
         smartScanViewModel.onScanCompleted = { [systemJunkViewModel, largeOldFilesViewModel, malwareViewModel, applicationsViewModel, optimizationViewModel] result in
             systemJunkViewModel.seed(with: result.junkResult)
-            largeOldFilesViewModel.seed(with: result.largeOldFiles)
             malwareViewModel.seed(
                 threats: result.threats,
                 clamAVAvailable: result.clamAVAvailable,
                 scannedAt: Date()
             )
+            // Smart Scan's My Clutter tile now scans for duplicates, not large &
+            // old files, so the standalone Large & Old Files section can't be
+            // seeded from the result — kick off its own scan instead, like the
+            // other sections Smart Scan doesn't produce data for.
+            if case .idle = largeOldFilesViewModel.phase { largeOldFilesViewModel.beginScan() }
             if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
             if case .idle = optimizationViewModel.phase { optimizationViewModel.beginScan() }
         }
@@ -414,9 +418,13 @@ private extension AnyTransition {
             dispatcher: notificationManager,
             preferences: prefs
         ),
-        smartScanViewModel: SmartScanViewModel.live(exclusions: exclusions)
+        smartScanViewModel: SmartScanViewModel.live(
+            exclusions: exclusions,
+            settings: SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!)
+        )
     )
         .environment(AppState(checker: { true }))
+        .environment(SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!))
         .environment(PermissionOnboardingViewModel())
         .environment(stats)
         .environment(NotificationThresholdMonitor(
