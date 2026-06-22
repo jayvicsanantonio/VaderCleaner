@@ -47,8 +47,7 @@ struct ManagerItemTable: NSViewRepresentable {
         table.usesAlternatingRowBackgroundColors = false
         table.rowHeight = rowHeight
         table.intercellSpacing = NSSize(width: 0, height: 4)
-        table.target = context.coordinator
-        table.action = #selector(Coordinator.rowClicked(_:))
+        // No table-wide click action: only the row's checkbox toggles selection.
         table.onHoverRowChange = { [weak coordinator = context.coordinator] row in
             coordinator?.setHoveredRow(row)
         }
@@ -135,16 +134,11 @@ struct ManagerItemTable: NSViewRepresentable {
                 showsSparkle: showsSparkle,
                 isExpanded: isExpanded(item.id),
                 onToggleExpand: onToggleExpand,
+                onToggleSelection: onToggle,
                 roundedCheckbox: roundedCheckbox
             )
             cell.setAccessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
             return cell
-        }
-
-        @objc func rowClicked(_ sender: NSTableView) {
-            let row = sender.clickedRow
-            guard showsSelection, row >= 0, row < items.count else { return }
-            onToggle(items[row].id)
         }
 
         /// Vends a row view that can draw the hover highlight.
@@ -240,7 +234,7 @@ final class HoverTableRowView: NSTableRowView {
 /// scrolling.
 final class ManagerRowCellView: NSTableCellView {
     private let indentSpacer = NSView()
-    private let checkbox = NSImageView()
+    private let checkbox = NSButton()
     private let iconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
@@ -256,6 +250,8 @@ final class ManagerRowCellView: NSTableCellView {
 
     /// Invoked when the disclosure chevron is clicked. Set per `configure`.
     private var onChevron: (() -> Void)?
+    /// Invoked when the checkbox is clicked — the only way to (de)select a row.
+    private var onCheckbox: (() -> Void)?
     /// Whether to draw the rounded, accent-outlined checkbox (Cleanup card)
     /// instead of the system SF-symbol checkbox.
     private var roundedCheckbox = false
@@ -303,6 +299,16 @@ final class ManagerRowCellView: NSTableCellView {
         // so the size column to its left stays aligned across every row.
         chevron.widthAnchor.constraint(equalToConstant: 16).isActive = true
 
+        // The checkbox is a borderless image button so only a click on it
+        // toggles selection (a click anywhere else in the row does nothing).
+        checkbox.isBordered = false
+        checkbox.bezelStyle = .regularSquare
+        checkbox.imagePosition = .imageOnly
+        checkbox.setButtonType(.momentaryChange)
+        checkbox.title = ""
+        checkbox.focusRingType = .none
+        checkbox.target = self
+        checkbox.action = #selector(checkboxTapped)
         checkbox.setContentHuggingPriority(.required, for: .horizontal)
         iconView.setContentHuggingPriority(.required, for: .horizontal)
         indentSpacer.setContentHuggingPriority(.required, for: .horizontal)
@@ -334,11 +340,14 @@ final class ManagerRowCellView: NSTableCellView {
         showsSparkle: Bool,
         isExpanded: Bool,
         onToggleExpand: @escaping (String) -> Void,
+        onToggleSelection: @escaping (String) -> Void,
         roundedCheckbox: Bool
     ) {
         self.roundedCheckbox = roundedCheckbox
         indentWidth.constant = CGFloat(item.indentLevel) * Self.indentStep
         checkbox.isHidden = !showsCheckbox
+        let selectionID = item.id
+        onCheckbox = { onToggleSelection(selectionID) }
         if item.usesFileIcon {
             // The real Finder icon for the file/app, so rows read like Finder.
             iconView.image = ManagerFileIconCache.icon(forPath: item.id)
@@ -395,9 +404,11 @@ final class ManagerRowCellView: NSTableCellView {
         chevron.alphaValue = 0
         chevron.isEnabled = false
         onChevron = nil
+        onCheckbox = nil
     }
 
     @objc private func chevronTapped() { onChevron?() }
+    @objc private func checkboxTapped() { onCheckbox?() }
 
     func setSelected(_ selected: Bool, accent: NSColor) {
         guard !checkbox.isHidden else { return }

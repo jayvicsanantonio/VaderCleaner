@@ -53,38 +53,39 @@ enum CleanupManagerModel {
         }
     }
 
-    /// One-line explanation shown as the right pane's header for a category.
+    /// One-line explanation shown as the right pane's header for a category —
+    /// what the files are and whether they're safe to remove.
     nonisolated static func categoryDescription(for category: ScanCategory) -> String? {
         switch category {
         case .userCache:
-            return String(localized: "Originally intended to improve startup times, the cache files of your applications ultimately accumulate and result in improper functioning or an overall performance drop.",
+            return String(localized: "Cache files your apps create to load faster. They're rebuilt automatically, so they're safe to remove.",
                           comment: "Cleanup Manager User Caches category description.")
         case .systemCache:
-            return String(localized: "Caches written by macOS that it rebuilds automatically when needed.",
+            return String(localized: "Caches macOS writes to speed up the system. They're rebuilt as needed, so they're safe to remove.",
                           comment: "Cleanup Manager System Caches category description.")
         case .userLogs:
-            return String(localized: "Diagnostic logs written by your apps. Safe to remove.",
+            return String(localized: "Diagnostic logs your apps write. Safe to remove — new ones are created as needed.",
                           comment: "Cleanup Manager User Logs category description.")
         case .systemLogs:
-            return String(localized: "Diagnostic logs written by macOS. Safe to remove.",
+            return String(localized: "Diagnostic logs macOS writes. Safe to remove — the system creates new ones as needed.",
                           comment: "Cleanup Manager System Logs category description.")
         case .languageFiles:
-            return String(localized: "Localizations for languages you don't use, bundled inside your apps.",
+            return String(localized: "Translations for languages you don't use, bundled inside apps. Safe to remove — your active languages and English are kept.",
                           comment: "Cleanup Manager Language Files category description.")
         case .mailAttachments:
-            return String(localized: "Downloaded copies of email attachments that you can re-download anytime.",
+            return String(localized: "Local copies of email attachments downloaded by Mail. Safe to remove — you can re-download them from the original messages.",
                           comment: "Cleanup Manager Mail Attachments category description.")
         case .iosBackups:
-            return String(localized: "Backups of your iPhone and iPad stored on this Mac.",
+            return String(localized: "Backups of your iPhone and iPad stored on this Mac. Not rebuilt — remove only if you have another backup.",
                           comment: "Cleanup Manager iOS Backups category description.")
         case .xcodeJunk:
-            return String(localized: "Derived data, archives, and old device support left behind by Xcode.",
+            return String(localized: "Derived data, archives, and old device support left behind by Xcode. Derived data and device support rebuild on demand; archives are your saved builds, so review those before removing.",
                           comment: "Cleanup Manager Xcode Junk category description.")
         case .documentVersions:
-            return String(localized: "Saved revisions of edited documents kept by macOS autosave.",
+            return String(localized: "Earlier revisions macOS keeps so you can “Revert To” previous versions of documents. Removing them clears that history.",
                           comment: "Cleanup Manager Document Versions category description.")
         case .trash:
-            return String(localized: "Items you've moved to the Trash that still take up disk space until emptied.",
+            return String(localized: "Items you've already moved to the Trash. Cleaning them empties the Trash to reclaim the space.",
                           comment: "Cleanup Manager Trash category description.")
         case .largeFile, .oldFile:
             return nil
