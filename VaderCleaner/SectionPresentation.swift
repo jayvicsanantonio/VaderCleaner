@@ -39,6 +39,11 @@ struct SectionPresentation {
     /// The section's vivid hue — mirrors `NavigationSection.theme.accent` so
     /// the intro elements match the window backdrop.
     let accent: Color
+    /// Hero heading shown on the intro screen when it should differ from the
+    /// sidebar's `NavigationSection.title`. `nil` falls back to the section
+    /// title — most sections share one name in both places; Cleanup is the
+    /// exception (sidebar "Cleanup", hero "Junk Cleanup").
+    let heroTitle: String?
     /// One-line description shown under the section title.
     let tagline: String
     /// The 2–4 descriptive rows summarizing what the scan covers.
@@ -59,6 +64,7 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "Quick maintenance that takes care of the essentials.",
                     comment: "Smart Scan intro tagline."
@@ -85,26 +91,26 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: String(
+                    localized: "Junk Cleanup",
+                    comment: "Cleanup intro hero heading (the sidebar label is the shorter \"Cleanup\")."
+                ),
                 tagline: String(
-                    localized: "Clean your system to reclaim space and boost performance.",
-                    comment: "System Junk intro tagline."
+                    localized: "Clean your system to achieve maximum performance and reclaim more free space.",
+                    comment: "Cleanup intro tagline."
                 ),
                 features: [
                     SectionFeature(
-                        symbol: "internaldrive",
-                        title: String(localized: "System Caches", comment: "System Junk feature row.")
-                    ),
-                    SectionFeature(
-                        symbol: "doc.text",
-                        title: String(localized: "Logs", comment: "System Junk feature row.")
+                        symbol: "archivebox",
+                        title: String(localized: "System Junk", comment: "Cleanup feature row.")
                     ),
                     SectionFeature(
                         symbol: "envelope",
-                        title: String(localized: "Mail Attachments", comment: "System Junk feature row.")
+                        title: String(localized: "Mail Attachments", comment: "Cleanup feature row.")
                     ),
                     SectionFeature(
                         symbol: "trash",
-                        title: String(localized: "Trash Bins", comment: "System Junk feature row.")
+                        title: String(localized: "Trash Bins", comment: "Cleanup feature row.")
                     ),
                 ]
             )
@@ -115,6 +121,7 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "Find big and forgotten files taking up space.",
                     comment: "Large & Old Files intro tagline."
@@ -141,6 +148,7 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "See what's using your storage with an interactive map.",
                     comment: "Space Lens intro tagline."
@@ -163,6 +171,7 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "Check your Mac for threats and vulnerabilities.",
                     comment: "Malware Removal intro tagline."
@@ -189,6 +198,7 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
                     comment: "Optimization intro tagline."
@@ -219,6 +229,7 @@ struct SectionPresentation {
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "Clear browsing history, cookies, and caches across your browsers.",
                     comment: "Privacy intro tagline."
@@ -253,6 +264,7 @@ struct SectionPresentation {
                 // heroModelScale); kept at the struct's required default.
                 heroModelScale: 1.5,
                 accent: section.theme.accent,
+                heroTitle: nil,
                 tagline: String(
                     localized: "Review updates, unused apps, and leftovers in one place.",
                     comment: "Applications intro tagline."

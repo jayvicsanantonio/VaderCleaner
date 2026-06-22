@@ -69,7 +69,8 @@ final class HelperProtocolTests: XCTestCase {
             "flushInactiveMemoryWithReply:",
             "flushDNSCacheWithReply:",
             "reindexSpotlightWithReply:",
-            "thinTimeMachineSnapshotsWithReply:"
+            "thinTimeMachineSnapshotsWithReply:",
+            "scanDocumentVersionsWithReply:"
         ]
 
         for selectorName in expectedSelectors {

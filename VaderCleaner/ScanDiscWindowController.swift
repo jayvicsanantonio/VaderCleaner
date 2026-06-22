@@ -92,6 +92,15 @@ final class ScanDiscWindowController {
         reposition()
     }
 
+    /// Updates the rail width the disc centers against and re-positions the
+    /// panel. ContentView calls this when the rail collapses/expands so the disc
+    /// stays centered over the (now wider or narrower) detail area.
+    func setRailWidth(_ width: CGFloat) {
+        guard railWidth != width else { return }
+        railWidth = width
+        reposition()
+    }
+
     /// Shows or hides the panel. The panel is ordered in only while a scannable
     /// section's disc should be on screen, so its transparent margin never
     /// intercepts clicks meant for the main window behind it.

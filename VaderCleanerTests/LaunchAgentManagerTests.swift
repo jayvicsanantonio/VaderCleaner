@@ -253,4 +253,5 @@ private final class FakeRemovalHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
     func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }

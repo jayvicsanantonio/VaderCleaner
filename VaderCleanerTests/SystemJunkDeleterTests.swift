@@ -37,6 +37,16 @@ final class SystemJunkDeleterTests: XCTestCase {
         XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/Volumes/External/.Trashes/501/file"))
     }
 
+    /// The Document Versions store (`/.DocumentRevisions-V100`) is owned by
+    /// root, so deleting saved revisions inside it must go through the helper —
+    /// an in-process `removeItem` would silently fail. Covers both the firmlink
+    /// at the data-volume root and the `/System/Volumes/Data` spelling (already
+    /// helper-only via the `/System/` prefix).
+    func test_requiresHelper_routesDocumentVersionsThroughHelper() {
+        XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/.DocumentRevisions-V100/PerUID/501/x/abc"))
+        XCTAssertTrue(SystemJunkDeleter.requiresHelper(path: "/System/Volumes/Data/.DocumentRevisions-V100/PerUID/501/x"))
+    }
+
     /// `/Applications` is owned by `root:wheel` on a default macOS install
     /// and most system-installed `.app` bundles inside it are not writable
     /// by the user process, so language-file pruning under them must go
@@ -59,6 +69,15 @@ final class SystemJunkDeleterTests: XCTestCase {
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Users/alice/Applications/MyApp.app/Contents/Resources/de.lproj/x"))
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/tmp/whatever"))
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Volumes/External/Movies/clip.mov"))
+    }
+
+    /// Home-Trash items are emptied permanently; everything else user-domain
+    /// goes to the Trash (recoverable). Mounted-volume trashes are helper-routed,
+    /// not matched here.
+    func test_isInUserTrash_matchesHomeTrashOnly() {
+        XCTAssertTrue(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/.Trash/old.dmg"))
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/Library/Caches/x"))
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Volumes/External/.Trashes/501/y"))
     }
 
     // MARK: - User-domain deletion
@@ -232,6 +251,7 @@ private final class FakeHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
     func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }
 
 /// Helper stand-in that intentionally drops the reply block on the floor —
@@ -249,4 +269,5 @@ private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) {}
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }

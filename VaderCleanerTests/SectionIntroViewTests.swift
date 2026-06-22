@@ -32,10 +32,13 @@ final class SectionIntroViewTests: XCTestCase {
             )
             let view = SectionIntroView(presentation: presentation, section: section)
 
+            // The hero heading prefers the presentation's `heroTitle` override
+            // (Cleanup shows "Junk Cleanup" while the sidebar reads "Cleanup")
+            // and otherwise falls back to the section title.
             XCTAssertEqual(
                 view.title,
-                section.title,
-                "SectionIntroView must surface the title it was given for \(section)"
+                presentation.heroTitle ?? section.title,
+                "SectionIntroView must surface its hero title (falling back to the section title) for \(section)"
             )
             XCTAssertEqual(
                 view.presentation.features.count,

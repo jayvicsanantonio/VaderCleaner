@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <defs>
+    <radialGradient id="body" cx="50%" cy="36%" r="66%">
+      <stop offset="0%" stop-color="#7be88a"/>
+      <stop offset="55%" stop-color="#3fc24f"/>
+      <stop offset="100%" stop-color="#1f8a32"/>
+    </radialGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <filter id="es" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <g filter="url(#ds)">
+    <circle cx="120" cy="118" r="98" fill="url(#body)"/>
+    <ellipse cx="120" cy="70" rx="78" ry="46" fill="url(#gloss)"/>
+    <circle cx="120" cy="118" r="98" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  </g>
+  <g filter="url(#es)">
+      <path d="M84 74 H136 L160 98 V172 Q160 176 156 176 H84 Q80 176 80 172 V78 Q80 74 84 74 Z"
+            fill="#ffffff"/>
+      <path d="M136 74 L160 98 H136 Z" fill="#1f8a32"/>
+      <g stroke="#1f8a32" stroke-width="7" stroke-linecap="round">
+        <line x1="94" y1="104" x2="144" y2="104"/>
+        <line x1="94" y1="122" x2="144" y2="122"/>
+        <line x1="94" y1="140" x2="124" y2="140"/>
+      </g>
+    </g>
+</svg>

@@ -36,6 +36,23 @@ struct ManagerItem: Identifiable, Hashable, Sendable {
     let sizeText: String?
     let systemImage: String
     let tint: ManagerTint
+    /// When true the row shows the real Finder icon for the file at `id` (a file
+    /// path) instead of `systemImage` — used by the Cleanup Manager so app and
+    /// document rows look like Finder. Other managers leave this off and keep
+    /// their tinted SF Symbol.
+    var usesFileIcon: Bool = false
+    /// Immediate children revealed when this row is expanded (one level only).
+    /// Empty for leaf rows and for managers that don't show a tree.
+    var children: [ManagerItem] = []
+    /// Indentation depth: 0 for a top-level row, 1 for an expanded child.
+    var indentLevel: Int = 0
+    /// Leaf file paths this row covers, for aggregate folder selection. A leaf
+    /// file is `[its path]`; a folder is every scanned file beneath it. Empty
+    /// for managers whose selection is keyed directly by `id`.
+    var selectionPaths: [String] = []
+
+    /// Whether this row has children to disclose.
+    var isExpandable: Bool { !children.isEmpty }
 }
 
 /// A group of items shown in the manager's middle pane. Its items are stored
@@ -46,11 +63,18 @@ struct ManagerCategory: Identifiable, Hashable, Sendable {
     let title: String
     let systemImage: String
     let tint: ManagerTint
+    /// Asset-catalog name of the glossy 3D badge shown for the category. When
+    /// `nil` the row falls back to the tinted `systemImage`. The Cleanup Manager
+    /// sets this so its categories match the dashboard's badge artwork.
+    var badgeAsset: String? = nil
     let items: [ManagerItem]
     /// Sum of the category's item sizes, or `nil` when its items carry no size.
     let totalSize: Int64?
     /// Pre-rendered total size string for the badge, or `nil`.
     let totalSizeText: String?
+    /// One-line explanation shown as the right pane's header when this category
+    /// is selected. `nil` hides the header.
+    var description: String? = nil
 }
 
 /// A top-level grouping shown in the manager's left pane (e.g. "System Junk",
@@ -59,6 +83,9 @@ struct ManagerSection: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
     let categories: [ManagerCategory]
+    /// One-line explanation shown as the middle pane's header when this section
+    /// is selected. `nil` hides the header.
+    var description: String? = nil
 }
 
 /// Pre-tallied selection totals for the footer, so it doesn't have to scan
@@ -126,6 +153,15 @@ struct SmartScanReviewManager: View {
     /// Bulk select/clear every item in a category (the "Select" menu). Unused
     /// when `showsSelection` is false.
     var onSetCategory: (ManagerCategory, Bool) -> Void = { _, _ in }
+    /// Total bytes currently selected within a category, for the middle-pane
+    /// badge. Returns `nil` (no badge) when the caller doesn't track it or
+    /// nothing in the category is selected.
+    var categorySelectedBytes: (ManagerCategory) -> Int64? = { _ in nil }
+    /// Builds the rows for one category on demand (by `ManagerCategory.id`). When
+    /// set, `buildSections` only needs to return the lightweight shell and each
+    /// category's rows are loaded lazily here. `nil` keeps the eager behavior
+    /// where the rows live on `ManagerCategory.items`.
+    var loadItems: (@Sendable (String) async -> [ManagerItem])? = nil
     let onBack: () -> Void
     /// Accessibility-identifier root, e.g. "smartScan.review.junk".
     let accessibilityPrefix: String
@@ -133,9 +169,28 @@ struct SmartScanReviewManager: View {
     /// the per-category "Select" menu is hidden, and the footer shows a plain
     /// item count instead of a selected-count.
     var showsSelection: Bool = true
-    /// Optional secondary footer button shown left of "Done".
+    /// When true the manager renders on a white, light-mode surface (matching
+    /// the reference Cleanup Manager) instead of inheriting the section's dark
+    /// gradient. Smart Scan's managers leave this off.
+    var lightSurface: Bool = false
+    /// When true each item row shows a decorative pink "smart suggestion"
+    /// sparkle (non-interactive). Off for Smart Scan's managers.
+    var showsSparkle: Bool = false
+    /// Section/category to pre-select when the manager opens, for deep linking
+    /// from a dashboard card's "Review". `nil` falls back to the first section
+    /// and that section's first category.
+    var initialSectionID: String? = nil
+    var initialCategoryID: String? = nil
+    /// Optional secondary footer button shown left of the primary action.
     var secondaryActionTitle: String? = nil
     var onSecondaryAction: (() -> Void)? = nil
+    /// Optional override for the prominent primary footer button. When `nil` the
+    /// footer shows "Done" wired to `onBack` (the Smart Scan default); supplying
+    /// a title (e.g. "Clean Up") swaps the label and runs `onPrimaryAction`,
+    /// disabled while `primaryActionEnabled` is false.
+    var primaryActionTitle: String? = nil
+    var onPrimaryAction: (() -> Void)? = nil
+    var primaryActionEnabled: Bool = true
     /// Optional cheap selection tally for the footer, so it needn't scan every
     /// item on each render. `nil` falls back to a full scan (fine for the small
     /// flat tiles).
@@ -152,9 +207,18 @@ struct SmartScanReviewManager: View {
     @State private var selectedCategoryID: String?
     @State private var search = ""
     @State private var sort: ManagerSort = .size
-    /// The filtered + sorted items for the visible category, recomputed only
-    /// when the category, sort, or search changes — never on a selection toggle.
+    /// IDs of the expanded top-level rows, so each disclosed row reveals its
+    /// one level of children. Cleared when the visible category changes.
+    @State private var expandedIDs: Set<String> = []
+    /// The filtered + sorted items for the visible category — flattened to
+    /// include the children of any expanded row. Recomputed when the category,
+    /// sort, search, or expansion changes — never on a selection toggle.
     @State private var displayedItems: [ManagerItem] = []
+    /// Lazily-loaded rows per category id (when `loadItems` is set), cached for
+    /// this manager session.
+    @State private var lazyItemsByCategory: [String: [ManagerItem]] = [:]
+    /// True while the selected category's rows are being loaded lazily.
+    @State private var isLoadingItems = false
 
     private var loadedSections: [ManagerSection] { sections ?? [] }
 
@@ -179,6 +243,7 @@ struct SmartScanReviewManager: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(ManagerSurfaceModifier(light: lightSurface))
         .accessibilityIdentifier(accessibilityPrefix)
         .task {
             // Build off the main actor so a huge scan never beach-balls the UI.
@@ -189,9 +254,30 @@ struct SmartScanReviewManager: View {
             syncSelection()
             refreshDisplayedItems()
         }
-        .onChange(of: selectedCategoryID) { _, _ in refreshDisplayedItems() }
+        .onChange(of: selectedCategoryID) { _, _ in
+            // A fresh category starts fully collapsed.
+            expandedIDs = []
+        }
+        // Load the selected category's rows (lazily when `loadItems` is set),
+        // then refresh the visible list. Runs on first appearance and whenever
+        // the category changes.
+        .task(id: selectedCategoryID) {
+            await loadSelectedCategoryIfNeeded()
+            refreshDisplayedItems()
+        }
         .onChange(of: sort) { _, _ in refreshDisplayedItems() }
         .onChange(of: search) { _, _ in refreshDisplayedItems() }
+    }
+
+    /// Builds the selected category's rows on demand when `loadItems` is set,
+    /// caching them for this session. No-op for eager managers.
+    private func loadSelectedCategoryIfNeeded() async {
+        guard let loadItems, let id = selectedCategoryID, lazyItemsByCategory[id] == nil else { return }
+        isLoadingItems = true
+        let built = await loadItems(id)
+        // Guard against the category having changed while loading.
+        if selectedCategoryID == id { lazyItemsByCategory[id] = built }
+        isLoadingItems = false
     }
 
     // MARK: - Header
@@ -250,7 +336,7 @@ struct SmartScanReviewManager: View {
         ScrollView {
             VStack(spacing: 4) {
                 ForEach(loadedSections) { section in
-                    navRow(selected: section.id == selectedSection?.id) {
+                    NavRow(selected: section.id == selectedSection?.id) {
                         selectedSectionID = section.id
                         selectFirstCategory()
                     } content: {
@@ -266,25 +352,55 @@ struct SmartScanReviewManager: View {
     }
 
     private var categoryPane: some View {
-        ScrollView {
-            VStack(spacing: 4) {
-                ForEach(sortedCategories) { category in
-                    navRow(selected: category.id == selectedCategory?.id) {
-                        selectedCategoryID = category.id
-                    } content: {
-                        categoryRow(category)
-                    }
-                    .accessibilityIdentifier("\(accessibilityPrefix).category.\(category.id)")
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            // Header describing the selected section.
+            if let section = selectedSection, let description = section.description {
+                paneHeader(title: section.title, description: description)
             }
-            .padding(8)
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(sortedCategories) { category in
+                        NavRow(selected: category.id == selectedCategory?.id) {
+                            selectedCategoryID = category.id
+                        } content: {
+                            categoryRow(category)
+                        }
+                        .accessibilityIdentifier("\(accessibilityPrefix).category.\(category.id)")
+                    }
+                }
+                .padding(8)
+            }
         }
-        .frame(width: 320)
+        .frame(width: 280)
+    }
+
+    /// The title + one-line description shown atop the middle and right panes,
+    /// reflecting the selected section/category.
+    private func paneHeader(title: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.title3.weight(.semibold))
+            Text(description)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
     }
 
     private func categoryRow(_ category: ManagerCategory) -> some View {
         HStack(spacing: 12) {
-            icon(category.systemImage, category.tint.color)
+            if let badge = category.badgeAsset {
+                Image(badge)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 32, height: 32)
+            } else {
+                icon(category.systemImage, category.tint.color)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(category.title).font(.body.weight(.medium))
                 if let text = category.totalSizeText {
@@ -295,58 +411,47 @@ struct SmartScanReviewManager: View {
                 }
             }
             Spacer(minLength: 8)
-            if let text = category.totalSizeText {
-                Text(text)
+            // Selected-size badge: the running total of what's checked in this
+            // category. Hidden when nothing is selected.
+            if let selectedBytes = categorySelectedBytes(category), selectedBytes > 0 {
+                Text(ManagerByteText.string(selectedBytes))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(accent)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(accent.opacity(0.18), in: Capsule())
+                    .background(accent, in: Capsule())
             }
         }
-    }
-
-    /// A selectable nav row in the section/category panes, tinted with the
-    /// section accent when selected so it reads as part of the app's glow
-    /// language instead of the grey system list highlight.
-    private func navRow<Content: View>(
-        selected: Bool,
-        action: @escaping () -> Void,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        Button(action: action) {
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? accent.opacity(0.22) : .clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     private var itemPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             if selectedCategory != nil {
+                // Header describing the selected category.
+                if let category = selectedCategory, let description = category.description {
+                    paneHeader(title: category.title, description: description)
+                }
                 if showsSelection, let category = selectedCategory {
+                    // Counts come from the visible (loaded) rows, not the shell
+                    // category, which carries no items when loading is lazy.
+                    let rows = currentCategoryItems
+                    let selectedCount = rows.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
                     HStack(spacing: 8) {
                         Text(String(localized: "Select:", comment: "Label before the bulk-select menu on a Smart Scan Manager."))
                             .foregroundStyle(.secondary)
                         Menu {
-                            Button(String(localized: "All", comment: "Bulk-select every item in the category.")) {
+                            Button(String(localized: "Smartly", comment: "Bulk-select the recommended items in the category.")) {
                                 onSetCategory(category, true)
                             }
-                            Button(String(localized: "None", comment: "Bulk-deselect every item in the category.")) {
+                            Button(String(localized: "Select All", comment: "Bulk-select every item in the category.")) {
+                                onSetCategory(category, true)
+                            }
+                            .disabled(selectedCount == rows.count)
+                            Button(String(localized: "Deselect All", comment: "Bulk-deselect every item in the category.")) {
                                 onSetCategory(category, false)
                             }
+                            .disabled(selectedCount == 0)
                         } label: {
-                            Text(String(localized: "Smartly", comment: "Default bulk-select mode label on a Smart Scan Manager."))
+                            Text(bulkSelectLabel(selected: selectedCount, total: rows.count))
                                 .foregroundStyle(.tint)
                         }
                         .menuStyle(.borderlessButton)
@@ -360,17 +465,33 @@ struct SmartScanReviewManager: View {
                     .padding(.bottom, 8)
                 }
 
-                ManagerItemTable(
-                    items: displayedItems,
-                    showsSelection: showsSelection,
-                    isSelected: isSelected,
-                    onToggle: onToggle,
-                    accent: accent,
-                    rowHeight: 44,
-                    contentToken: "\(selectedCategoryID ?? "")|\(sort.rawValue)|\(search)",
-                    accessibilityPrefix: accessibilityPrefix
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if isLoadingItems && displayedItems.isEmpty {
+                    ProgressView()
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ManagerItemTable(
+                        items: displayedItems,
+                        showsSelection: showsSelection,
+                        isSelected: isSelected,
+                        onToggle: onToggle,
+                        accent: accent,
+                        rowHeight: 44,
+                        // Key the table reload to the *actual* displayed rows, not
+                        // the inputs: `selectedCategoryID` changes a render before
+                        // `displayedItems` is recomputed, so an input-based token
+                        // would reload with the previous category's row count and
+                        // then skip the reload once the real rows arrive — leaving
+                        // stale, unconfigured cells.
+                        contentToken: "\(displayedItems.count)|\(displayedItems.first?.id ?? "")|\(displayedItems.last?.id ?? "")|\(sort.rawValue)|\(search)",
+                        accessibilityPrefix: accessibilityPrefix,
+                        forcesLightAppearance: lightSurface,
+                        showsSparkle: showsSparkle,
+                        isExpanded: { expandedIDs.contains($0) },
+                        onToggleExpand: { toggleExpand($0) }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 Spacer()
                 Text(String(localized: "Nothing to review", comment: "Empty state in a Smart Scan Manager's detail pane."))
@@ -395,10 +516,16 @@ struct SmartScanReviewManager: View {
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("\(accessibilityPrefix).secondary")
             }
-            Button(String(localized: "Done", comment: "Confirms the Manager selection and returns to the Smart Scan dashboard."), action: onBack)
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("\(accessibilityPrefix).done")
+            Button(
+                primaryActionTitle ?? String(localized: "Done", comment: "Confirms the Manager selection and returns to the Smart Scan dashboard."),
+                action: onPrimaryAction ?? onBack
+            )
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            // Only the custom primary action (e.g. Clean Up) gates on enablement;
+            // the default "Done" is always available.
+            .disabled(primaryActionTitle != nil && !primaryActionEnabled)
+            .accessibilityIdentifier("\(accessibilityPrefix).done")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
@@ -415,10 +542,12 @@ struct SmartScanReviewManager: View {
             )
         }
         let summary = selectionSummary?() ?? scannedSelectionSummary()
-        let countText = String.localizedStringWithFormat(
-            String(localized: "%lld Items Selected", comment: "Live count of selected items in a Smart Scan Manager footer."),
-            summary.count
-        )
+        let countText = summary.count == 0
+            ? String(localized: "No Items Selected", comment: "Smart Scan Manager footer when nothing is selected.")
+            : String.localizedStringWithFormat(
+                String(localized: "%lld Items Selected", comment: "Live count of selected items in a Smart Scan Manager footer."),
+                summary.count
+            )
         guard let bytes = summary.bytes else { return countText }
         return "\(countText)  ·  \(ManagerByteText.string(bytes))"
     }
@@ -443,6 +572,15 @@ struct SmartScanReviewManager: View {
 
     // MARK: - Derived data
 
+    /// The selected category's rows — lazily loaded when `loadItems` is set,
+    /// otherwise the eager rows carried on the category.
+    private var currentCategoryItems: [ManagerItem] {
+        if loadItems != nil {
+            return selectedCategoryID.flatMap { lazyItemsByCategory[$0] } ?? []
+        }
+        return selectedCategory?.items ?? []
+    }
+
     private var selectedSection: ManagerSection? {
         loadedSections.first { $0.id == selectedSectionID } ?? loadedSections.first
     }
@@ -461,31 +599,56 @@ struct SmartScanReviewManager: View {
         sortedCategories.first { $0.id == selectedCategoryID } ?? sortedCategories.first
     }
 
-    /// Rebuild the visible item list. Called only when the category, sort, or
-    /// search changes — never on a selection toggle. The builder pre-sorts each
-    /// category by size, so the default view (size, no search) needs no sort.
+    /// Rebuild the visible item list. Called only when the category, sort,
+    /// search, or expansion changes — never on a selection toggle. The builder
+    /// pre-sorts each category by size, so the default view (size, no search)
+    /// needs no top-level sort. Expanded rows are followed by their (already
+    /// size-sorted) children.
     private func refreshDisplayedItems() {
-        guard let category = selectedCategory else { displayedItems = []; return }
-        if search.isEmpty && sort == .size {
-            displayedItems = category.items
-            return
-        }
+        guard selectedCategory != nil else { displayedItems = []; return }
+        let categoryItems = currentCategoryItems
         let filtered = search.isEmpty
-            ? category.items
-            : category.items.filter { $0.title.localizedCaseInsensitiveContains(search) }
+            ? categoryItems
+            : categoryItems.filter { $0.title.localizedCaseInsensitiveContains(search) }
+        let topLevel: [ManagerItem]
         switch sort {
         case .size:
-            displayedItems = filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
+            topLevel = search.isEmpty ? filtered : filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
         case .name:
-            displayedItems = filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            topLevel = filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         }
+        var rows: [ManagerItem] = []
+        for item in topLevel {
+            rows.append(item)
+            if item.isExpandable, expandedIDs.contains(item.id) {
+                rows.append(contentsOf: item.children)
+            }
+        }
+        displayedItems = rows
+    }
+
+    /// Toggle a top-level row's disclosure and rebuild the visible list.
+    private func toggleExpand(_ id: String) {
+        if expandedIDs.contains(id) { expandedIDs.remove(id) } else { expandedIDs.insert(id) }
+        refreshDisplayedItems()
     }
 
     // MARK: - Selection sync
 
     private func syncSelection() {
-        if selectedSectionID == nil { selectedSectionID = loadedSections.first?.id }
-        selectFirstCategory()
+        if selectedSectionID == nil {
+            // Deep-link target (from a dashboard card's Review) if it exists,
+            // else the first section.
+            let target = initialSectionID.flatMap { id in loadedSections.first { $0.id == id }?.id }
+            selectedSectionID = target ?? loadedSections.first?.id
+        }
+        // Honor a deep-link category when it lives in the selected section,
+        // otherwise fall back to that section's first category.
+        if let initialCategoryID, sortedCategories.contains(where: { $0.id == initialCategoryID }) {
+            selectedCategoryID = initialCategoryID
+        } else {
+            selectFirstCategory()
+        }
     }
 
     private func selectFirstCategory() {
@@ -497,5 +660,83 @@ struct SmartScanReviewManager: View {
             .font(.system(size: 18))
             .foregroundStyle(color)
             .frame(width: 28, height: 28)
+    }
+
+    /// The bulk-select menu's trigger label, reflecting the visible category's
+    /// current selection: "None", "All", or "Some".
+    private func bulkSelectLabel(selected: Int, total: Int) -> String {
+        if selected == 0 || total == 0 {
+            return String(localized: "None", comment: "Bulk-select trigger when nothing in the category is selected.")
+        }
+        if selected == total {
+            return String(localized: "All", comment: "Bulk-select trigger when everything in the category is selected.")
+        }
+        return String(localized: "Some", comment: "Bulk-select trigger when part of the category is selected.")
+    }
+}
+
+/// A selectable section/category row with the section-accent selection pill and
+/// a quieter hover fill. Its own view with local hover `@State`, so moving the
+/// pointer between rows re-renders only the rows involved — never the whole
+/// manager (whose body recomputes per-category sizes and the item table).
+private struct NavRow<Content: View>: View {
+    let selected: Bool
+    let action: () -> Void
+    let content: Content
+    @Environment(\.sectionAccent) private var accent
+    @State private var hovered = false
+
+    init(selected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.selected = selected
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selected ? accent.opacity(0.22) : (hovered ? accent.opacity(0.08) : .clear))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+}
+
+/// Applies the white, light-mode surface for the standalone Cleanup Manager.
+/// A no-op when `light` is false so Smart Scan's managers keep inheriting the
+/// section's dark gradient. The `colorScheme` override flips the SwiftUI chrome
+/// to dark-on-light; the AppKit item table is switched separately via
+/// `ManagerItemTable.forcesLightAppearance`.
+private struct ManagerSurfaceModifier: ViewModifier {
+    let light: Bool
+
+    func body(content: Content) -> some View {
+        if light {
+            content
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
+                // A big rounded card with an even margin on every side so the
+                // window's green gradient shows as a thin border around it.
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+                .padding(14)
+                // Extend up under the title-bar safe area so the top margin is
+                // as thin as the sides instead of leaving the toolbar's tall
+                // green band above the card.
+                .ignoresSafeArea(.container, edges: .top)
+        } else {
+            content
+        }
     }
 }

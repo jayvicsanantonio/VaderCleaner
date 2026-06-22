@@ -19,7 +19,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var title: String {
         switch self {
         case .smartScan:       return String(localized: "Smart Scan")
-        case .systemJunk:      return String(localized: "System Junk")
+        case .systemJunk:      return String(localized: "Cleanup")
         case .largeOldFiles:   return String(localized: "Large & Old Files")
         case .spaceLens:       return String(localized: "Space Lens")
         case .malwareRemoval:  return String(localized: "Malware Removal")

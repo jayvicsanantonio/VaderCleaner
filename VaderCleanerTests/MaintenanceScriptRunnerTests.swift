@@ -67,6 +67,7 @@ private final class DroppingMaintenanceHelper: NSObject, VaderCleanerHelperProto
     func flushDNSCache(reply: @escaping (Error?) -> Void) {}
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }
 
 private final class SpyMaintenanceHelper: NSObject, VaderCleanerHelperProtocol {
@@ -86,4 +87,5 @@ private final class SpyMaintenanceHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
     func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }

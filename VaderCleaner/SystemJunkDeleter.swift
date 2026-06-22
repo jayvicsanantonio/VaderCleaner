@@ -44,7 +44,10 @@ struct SystemJunkDeleter {
         "/Library/",
         "/private/var/",
         "/System/",
-        "/Applications/"
+        "/Applications/",
+        // The Document Versions store at the data-volume root is owned by root;
+        // saved revisions inside it can only be removed by the privileged helper.
+        "/.DocumentRevisions-V100/"
     ]
 
     /// Substring that, when paired with `/Volumes/` rooting, marks per-volume
@@ -69,13 +72,26 @@ struct SystemJunkDeleter {
 
     /// Deletes every file in `files` and returns the sum of byte sizes for
     /// the ones that were successfully removed.
+    ///
+    /// User-domain files are moved to the **Trash** (recoverable) rather than
+    /// deleted outright, so a Clean can be undone from Finder. Two cases stay a
+    /// permanent removal because the Trash doesn't apply: items already in a
+    /// Trash (emptying the Trash Bins), and system/root files routed through the
+    /// privileged helper (rebuildable caches/logs and the root-owned Document
+    /// Versions store, which can't move to the user's Trash).
     func delete(_ files: [ScannedFile]) async throws -> Int64 {
         let (helperFiles, userFiles) = partition(files)
 
         var bytesFreed: Int64 = 0
         for file in userFiles {
             do {
-                try fileManager.removeItem(at: file.url)
+                if Self.isInUserTrash(path: file.url.path) {
+                    // Emptying the Trash is, by definition, permanent.
+                    try fileManager.removeItem(at: file.url)
+                } else {
+                    // Recoverable: move to the Trash instead of deleting.
+                    try fileManager.trashItem(at: file.url, resultingItemURL: nil)
+                }
                 bytesFreed += file.size
             } catch {
                 log.debug("Skipping unremovable user file \(file.url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)")
@@ -113,6 +129,14 @@ struct SystemJunkDeleter {
             return true
         }
         return false
+    }
+
+    /// True when `path` is inside the user's home Trash (`~/.Trash`). Such items
+    /// are deleted permanently rather than moved to the Trash, since the whole
+    /// point of cleaning the Trash Bins is to empty it. (Mounted-volume trashes
+    /// match `/.Trashes/` and are routed through the helper instead.)
+    static func isInUserTrash(path: String) -> Bool {
+        path.contains("/.Trash/")
     }
 
     /// Attempts a single batched helper call. The XPC interface uses the

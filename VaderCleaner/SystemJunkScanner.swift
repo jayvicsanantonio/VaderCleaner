@@ -21,15 +21,32 @@ import Foundation
 /// any locked descendants.
 struct SystemJunkScanner {
 
+    /// Source of extra `ScannedFile`s that can't be read by the in-process
+    /// `FileScanner` and must come from the privileged helper — currently the
+    /// root-owned Document Versions store. Async + `@Sendable` so production can
+    /// wrap `DocumentVersionsScanner`; the default is a no-op so unit tests stay
+    /// hermetic (no XPC) unless they wire one in.
+    typealias PrivilegedEnumerator = @Sendable () async -> [ScannedFile]
+
     private let fileScanner: FileScanning
     private let pathProvider: SystemPathProviding
+    private let documentVersionsEnumerator: PrivilegedEnumerator
 
     init(
         fileScanner: FileScanning = FileScanner(),
-        pathProvider: SystemPathProviding = DefaultSystemPathProvider()
+        pathProvider: SystemPathProviding = DefaultSystemPathProvider(),
+        documentVersionsEnumerator: @escaping PrivilegedEnumerator = { [] }
     ) {
         self.fileScanner = fileScanner
         self.pathProvider = pathProvider
+        self.documentVersionsEnumerator = documentVersionsEnumerator
+    }
+
+    /// Production scanner wired to enumerate the Document Versions store through
+    /// the privileged helper. Used by the Cleanup section and Smart Scan so both
+    /// surface the same junk categories.
+    static func live() -> SystemJunkScanner {
+        SystemJunkScanner(documentVersionsEnumerator: { await DocumentVersionsScanner().scan() })
     }
 
     /// Runs the scan and returns aggregated results. `excluding` is forwarded
@@ -43,6 +60,11 @@ struct SystemJunkScanner {
     ) async throws -> ScanResult {
         let roots = pathProvider.roots()
         let files = try await fileScanner.scan(roots: roots, excluding: excluding, onProgress: onProgress)
-        return ScanResult(items: files)
+        // Document Versions live in a root-owned store the in-process walk can't
+        // read, so they come from the privileged enumerator and are merged in.
+        // The default enumerator returns nothing, so this is a no-op unless the
+        // production scanner wired one in.
+        let documentVersions = await documentVersionsEnumerator()
+        return ScanResult(items: files + documentVersions)
     }
 }

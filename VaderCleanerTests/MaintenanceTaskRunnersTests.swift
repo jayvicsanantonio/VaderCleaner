@@ -128,6 +128,7 @@ private final class RecordingHelper: NSObject, VaderCleanerHelperProtocol {
         calledSelectors.append("thinTimeMachineSnapshots")
         reply(replyError)
     }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }
 
 /// Drops every reply block — models a dead NSXPCConnection where the
@@ -141,4 +142,5 @@ private final class DroppingHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) {}
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }
