@@ -159,6 +159,34 @@ final class CleanupManagerModelTests: XCTestCase {
         XCTAssertEqual(lazy.map(\.size), eager.map(\.size))
     }
 
+    // MARK: - Pane descriptions
+
+    /// Sections and categories carry the header descriptions the panes show.
+    func test_descriptions_areProvided() {
+        XCTAssertNotNil(CleanupManagerModel.sectionDescription(forID: "systemJunk"))
+        XCTAssertNotNil(CleanupManagerModel.sectionDescription(forID: "mailAttachments"))
+        XCTAssertNotNil(CleanupManagerModel.sectionDescription(forID: "trashBins"))
+        XCTAssertNil(CleanupManagerModel.sectionDescription(forID: "unknown"))
+
+        XCTAssertNotNil(CleanupManagerModel.categoryDescription(for: .userCache))
+        XCTAssertNotNil(CleanupManagerModel.categoryDescription(for: .xcodeJunk))
+        XCTAssertNil(CleanupManagerModel.categoryDescription(for: .largeFile))
+    }
+
+    /// The shell threads the descriptions onto its sections and categories.
+    func test_buildShell_carriesDescriptions() {
+        let result = ScanResult(items: [file("/Users/me/Library/Caches/Google/a", 1, .userCache)])
+        let shell = CleanupManagerModel.buildShell(
+            itemsByCategory: result.itemsByCategory,
+            sizeByCategory: result.sizeByCategory,
+            includeEmptySections: true
+        )
+        let systemJunk = shell.first { $0.id == "systemJunk" }
+        XCTAssertEqual(systemJunk?.description, CleanupManagerModel.sectionDescription(forID: "systemJunk"))
+        let userCaches = systemJunk?.categories.first { $0.id == "userCache" }
+        XCTAssertEqual(userCaches?.description, CleanupManagerModel.categoryDescription(for: .userCache))
+    }
+
     // MARK: - Helpers
 
     private func file(_ path: String, _ size: Int64, _ category: ScanCategory) -> ScannedFile {

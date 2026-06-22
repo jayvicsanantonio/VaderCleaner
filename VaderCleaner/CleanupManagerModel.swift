@@ -36,6 +36,61 @@ enum CleanupManagerModel {
         groups.first { $0.categories.contains(category) }?.id
     }
 
+    /// One-line explanation shown as the middle pane's header for a section.
+    nonisolated static func sectionDescription(forID id: String) -> String? {
+        switch id {
+        case "systemJunk":
+            return String(localized: "Redundant files that clog up device storage and impede optimal performance.",
+                          comment: "Cleanup Manager System Junk section description.")
+        case "mailAttachments":
+            return String(localized: "Local copies of email attachments Mail downloaded, which you can safely remove.",
+                          comment: "Cleanup Manager Mail Attachments section description.")
+        case "trashBins":
+            return String(localized: "Items in your Trash that still use disk space until the Trash is emptied.",
+                          comment: "Cleanup Manager Trash Bins section description.")
+        default:
+            return nil
+        }
+    }
+
+    /// One-line explanation shown as the right pane's header for a category.
+    nonisolated static func categoryDescription(for category: ScanCategory) -> String? {
+        switch category {
+        case .userCache:
+            return String(localized: "Originally intended to improve startup times, the cache files of your applications ultimately accumulate and result in improper functioning or an overall performance drop.",
+                          comment: "Cleanup Manager User Caches category description.")
+        case .systemCache:
+            return String(localized: "Caches written by macOS that it rebuilds automatically when needed.",
+                          comment: "Cleanup Manager System Caches category description.")
+        case .userLogs:
+            return String(localized: "Diagnostic logs written by your apps. Safe to remove.",
+                          comment: "Cleanup Manager User Logs category description.")
+        case .systemLogs:
+            return String(localized: "Diagnostic logs written by macOS. Safe to remove.",
+                          comment: "Cleanup Manager System Logs category description.")
+        case .languageFiles:
+            return String(localized: "Localizations for languages you don't use, bundled inside your apps.",
+                          comment: "Cleanup Manager Language Files category description.")
+        case .mailAttachments:
+            return String(localized: "Downloaded copies of email attachments that you can re-download anytime.",
+                          comment: "Cleanup Manager Mail Attachments category description.")
+        case .iosBackups:
+            return String(localized: "Backups of your iPhone and iPad stored on this Mac.",
+                          comment: "Cleanup Manager iOS Backups category description.")
+        case .xcodeJunk:
+            return String(localized: "Derived data, archives, and old device support left behind by Xcode.",
+                          comment: "Cleanup Manager Xcode Junk category description.")
+        case .documentVersions:
+            return String(localized: "Saved revisions of edited documents kept by macOS autosave.",
+                          comment: "Cleanup Manager Document Versions category description.")
+        case .trash:
+            return String(localized: "Items you've moved to the Trash that still take up disk space until emptied.",
+                          comment: "Cleanup Manager Trash category description.")
+        case .largeFile, .oldFile:
+            return nil
+        }
+    }
+
     /// SF Symbol for each junk category's middle-pane row (the fallback when no
     /// badge artwork is available).
     nonisolated static func icon(for category: ScanCategory) -> String {
@@ -105,11 +160,17 @@ enum CleanupManagerModel {
                     badgeAsset: badgeAsset(for: category),
                     items: items,
                     totalSize: total,
-                    totalSizeText: ManagerByteText.string(total)
+                    totalSizeText: ManagerByteText.string(total),
+                    description: categoryDescription(for: category)
                 )
             }
             if categories.isEmpty && !includeEmptySections { return nil }
-            return ManagerSection(id: group.id, title: group.title, categories: categories)
+            return ManagerSection(
+                id: group.id,
+                title: group.title,
+                categories: categories,
+                description: sectionDescription(forID: group.id)
+            )
         }
     }
 
@@ -134,11 +195,17 @@ enum CleanupManagerModel {
                     badgeAsset: badgeAsset(for: category),
                     items: [],
                     totalSize: total,
-                    totalSizeText: ManagerByteText.string(total)
+                    totalSizeText: ManagerByteText.string(total),
+                    description: categoryDescription(for: category)
                 )
             }
             if categories.isEmpty && !includeEmptySections { return nil }
-            return ManagerSection(id: group.id, title: group.title, categories: categories)
+            return ManagerSection(
+                id: group.id,
+                title: group.title,
+                categories: categories,
+                description: sectionDescription(forID: group.id)
+            )
         }
     }
 

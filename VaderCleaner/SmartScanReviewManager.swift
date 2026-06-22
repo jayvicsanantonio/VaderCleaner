@@ -72,6 +72,9 @@ struct ManagerCategory: Identifiable, Hashable, Sendable {
     let totalSize: Int64?
     /// Pre-rendered total size string for the badge, or `nil`.
     let totalSizeText: String?
+    /// One-line explanation shown as the right pane's header when this category
+    /// is selected. `nil` hides the header.
+    var description: String? = nil
 }
 
 /// A top-level grouping shown in the manager's left pane (e.g. "System Junk",
@@ -80,6 +83,9 @@ struct ManagerSection: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
     let categories: [ManagerCategory]
+    /// One-line explanation shown as the middle pane's header when this section
+    /// is selected. `nil` hides the header.
+    var description: String? = nil
 }
 
 /// Pre-tallied selection totals for the footer, so it doesn't have to scan
@@ -346,20 +352,42 @@ struct SmartScanReviewManager: View {
     }
 
     private var categoryPane: some View {
-        ScrollView {
-            VStack(spacing: 4) {
-                ForEach(sortedCategories) { category in
-                    NavRow(selected: category.id == selectedCategory?.id) {
-                        selectedCategoryID = category.id
-                    } content: {
-                        categoryRow(category)
-                    }
-                    .accessibilityIdentifier("\(accessibilityPrefix).category.\(category.id)")
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            // Header describing the selected section.
+            if let section = selectedSection, let description = section.description {
+                paneHeader(title: section.title, description: description)
             }
-            .padding(8)
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(sortedCategories) { category in
+                        NavRow(selected: category.id == selectedCategory?.id) {
+                            selectedCategoryID = category.id
+                        } content: {
+                            categoryRow(category)
+                        }
+                        .accessibilityIdentifier("\(accessibilityPrefix).category.\(category.id)")
+                    }
+                }
+                .padding(8)
+            }
         }
         .frame(width: 280)
+    }
+
+    /// The title + one-line description shown atop the middle and right panes,
+    /// reflecting the selected section/category.
+    private func paneHeader(title: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.title3.weight(.semibold))
+            Text(description)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
     }
 
     private func categoryRow(_ category: ManagerCategory) -> some View {
@@ -398,6 +426,10 @@ struct SmartScanReviewManager: View {
     private var itemPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             if selectedCategory != nil {
+                // Header describing the selected category.
+                if let category = selectedCategory, let description = category.description {
+                    paneHeader(title: category.title, description: description)
+                }
                 if showsSelection, let category = selectedCategory {
                     // Counts come from the visible (loaded) rows, not the shell
                     // category, which carries no items when loading is lazy.
