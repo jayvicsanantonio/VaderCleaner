@@ -71,6 +71,15 @@ final class SystemJunkDeleterTests: XCTestCase {
         XCTAssertFalse(SystemJunkDeleter.requiresHelper(path: "/Volumes/External/Movies/clip.mov"))
     }
 
+    /// Home-Trash items are emptied permanently; everything else user-domain
+    /// goes to the Trash (recoverable). Mounted-volume trashes are helper-routed,
+    /// not matched here.
+    func test_isInUserTrash_matchesHomeTrashOnly() {
+        XCTAssertTrue(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/.Trash/old.dmg"))
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/Library/Caches/x"))
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Volumes/External/.Trashes/501/y"))
+    }
+
     // MARK: - User-domain deletion
 
     /// Files under the temp root (a user-writable location) must go through
