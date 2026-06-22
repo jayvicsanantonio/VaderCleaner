@@ -187,6 +187,11 @@ struct SystemJunkView: View {
                     }
                 }
             },
+            categorySelectedBytes: { category in
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
+                let files = itemsByCategory[scanCategory] ?? []
+                return files.reduce(Int64(0)) { $0 + (viewModel.isSelected($1) ? $1.size : 0) }
+            },
             onBack: { showingManager = false },
             accessibilityPrefix: "system-junk.review",
             lightSurface: true,

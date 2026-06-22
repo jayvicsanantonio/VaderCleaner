@@ -38,7 +38,7 @@ struct ManagerItemTable: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let table = NSTableView()
+        let table = HoverTableView()
         table.headerView = nil
         table.backgroundColor = .clear
         table.style = .plain
@@ -49,6 +49,9 @@ struct ManagerItemTable: NSViewRepresentable {
         table.intercellSpacing = NSSize(width: 0, height: 4)
         table.target = context.coordinator
         table.action = #selector(Coordinator.rowClicked(_:))
+        table.onHoverRowChange = { [weak coordinator = context.coordinator] row in
+            coordinator?.setHoveredRow(row)
+        }
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
         column.resizingMask = .autoresizingMask
@@ -77,6 +80,7 @@ struct ManagerItemTable: NSViewRepresentable {
         let reload = coordinator.contentToken != contentToken
         coordinator.apply(self)
         if reload {
+            coordinator.setHoveredRow(nil) // a stale hover index can't survive a reload
             coordinator.table?.reloadData()
             coordinator.table?.scroll(.zero)
         } else {
@@ -143,6 +147,31 @@ struct ManagerItemTable: NSViewRepresentable {
             onToggle(items[row].id)
         }
 
+        /// Vends a row view that can draw the hover highlight.
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let id = NSUserInterfaceItemIdentifier("HoverRow")
+            let view = (tableView.makeView(withIdentifier: id, owner: self) as? HoverTableRowView)
+                ?? HoverTableRowView()
+            view.identifier = id
+            view.isHovered = (row == hoveredRow)
+            return view
+        }
+
+        private var hoveredRow: Int?
+
+        /// Move the hover highlight to `row` (or clear it), redrawing only the
+        /// row views that changed.
+        func setHoveredRow(_ row: Int?) {
+            let newRow = (row.map { $0 >= 0 && $0 < items.count ? $0 : nil } ?? nil)
+            guard newRow != hoveredRow else { return }
+            let previous = hoveredRow
+            hoveredRow = newRow
+            guard let table else { return }
+            for index in [previous, newRow].compactMap({ $0 }) {
+                (table.rowView(atRow: index, makeIfNecessary: false) as? HoverTableRowView)?.isHovered = index == newRow
+            }
+        }
+
         /// Refresh only the checkbox state of on-screen rows — used on a
         /// selection change so a toggle doesn't reload the whole table.
         func refreshVisibleSelection() {
@@ -154,6 +183,53 @@ struct ManagerItemTable: NSViewRepresentable {
                 cell.setSelected(showsSelection && isSelected(items[row].id), accent: accent)
             }
         }
+    }
+}
+
+/// `NSTableView` that reports which row the pointer is over so the delegate can
+/// draw a hover highlight (the table has no system selection highlight).
+final class HoverTableView: NSTableView {
+    var onHoverRowChange: ((Int?) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        onHoverRowChange?(row >= 0 ? row : nil)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHoverRowChange?(nil)
+    }
+}
+
+/// Row view that draws a soft, rounded hover fill behind its cell.
+final class HoverTableRowView: NSTableRowView {
+    var isHovered = false {
+        didSet { if isHovered != oldValue { needsDisplay = true } }
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isHovered else { return }
+        let inset = bounds.insetBy(dx: 8, dy: 1)
+        NSColor(white: 0.5, alpha: 0.16).setFill()
+        NSBezierPath(roundedRect: inset, xRadius: 8, yRadius: 8).fill()
     }
 }
 

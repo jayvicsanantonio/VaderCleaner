@@ -147,6 +147,10 @@ struct SmartScanReviewManager: View {
     /// Bulk select/clear every item in a category (the "Select" menu). Unused
     /// when `showsSelection` is false.
     var onSetCategory: (ManagerCategory, Bool) -> Void = { _, _ in }
+    /// Total bytes currently selected within a category, for the middle-pane
+    /// badge. Returns `nil` (no badge) when the caller doesn't track it or
+    /// nothing in the category is selected.
+    var categorySelectedBytes: (ManagerCategory) -> Int64? = { _ in nil }
     let onBack: () -> Void
     /// Accessibility-identifier root, e.g. "smartScan.review.junk".
     let accessibilityPrefix: String
@@ -187,6 +191,8 @@ struct SmartScanReviewManager: View {
     @State private var selectedCategoryID: String?
     @State private var search = ""
     @State private var sort: ManagerSort = .size
+    /// The section/category row the pointer is over, for the hover highlight.
+    @State private var hoveredNavID: String?
     /// IDs of the expanded top-level rows, so each disclosed row reveals its
     /// one level of children. Cleared when the visible category changes.
     @State private var expandedIDs: Set<String> = []
@@ -294,7 +300,7 @@ struct SmartScanReviewManager: View {
         ScrollView {
             VStack(spacing: 4) {
                 ForEach(loadedSections) { section in
-                    navRow(selected: section.id == selectedSection?.id) {
+                    navRow(id: section.id, selected: section.id == selectedSection?.id) {
                         selectedSectionID = section.id
                         selectFirstCategory()
                     } content: {
@@ -313,7 +319,7 @@ struct SmartScanReviewManager: View {
         ScrollView {
             VStack(spacing: 4) {
                 ForEach(sortedCategories) { category in
-                    navRow(selected: category.id == selectedCategory?.id) {
+                    navRow(id: category.id, selected: category.id == selectedCategory?.id) {
                         selectedCategoryID = category.id
                     } content: {
                         categoryRow(category)
@@ -323,7 +329,7 @@ struct SmartScanReviewManager: View {
             }
             .padding(8)
         }
-        .frame(width: 200)
+        .frame(width: 280)
     }
 
     private func categoryRow(_ category: ManagerCategory) -> some View {
@@ -347,25 +353,37 @@ struct SmartScanReviewManager: View {
                 }
             }
             Spacer(minLength: 8)
+            // Selected-size badge: the running total of what's checked in this
+            // category. Hidden when nothing is selected.
+            if let selectedBytes = categorySelectedBytes(category), selectedBytes > 0 {
+                Text(ManagerByteText.string(selectedBytes))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(accent, in: Capsule())
+            }
         }
     }
 
     /// A selectable nav row in the section/category panes, tinted with the
     /// section accent when selected so it reads as part of the app's glow
-    /// language instead of the grey system list highlight.
+    /// language instead of the grey system list highlight. A quieter fill marks
+    /// the hovered row.
     private func navRow<Content: View>(
+        id: String,
         selected: Bool,
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        Button(action: action) {
+        let hovered = hoveredNavID == id && !selected
+        return Button(action: action) {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? accent.opacity(0.22) : .clear)
+                        .fill(selected ? accent.opacity(0.22) : (hovered ? accent.opacity(0.08) : .clear))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -374,6 +392,10 @@ struct SmartScanReviewManager: View {
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { inside in
+            if inside { hoveredNavID = id }
+            else if hoveredNavID == id { hoveredNavID = nil }
+        }
     }
 
     private var itemPane: some View {
