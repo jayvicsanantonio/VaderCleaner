@@ -113,6 +113,44 @@ enum CleanupManagerModel {
         }
     }
 
+    /// Builds just the section/category *shell* — the left and middle panes —
+    /// with each category's size and badge but **no items**. Cheap (no file-tree
+    /// walking), so the manager can paint its panes immediately and fill each
+    /// category's rows lazily via `items(forCategory:in:)`.
+    nonisolated static func buildShell(
+        itemsByCategory: [ScanCategory: [ScannedFile]],
+        sizeByCategory: [ScanCategory: Int64],
+        includeEmptySections: Bool
+    ) -> [ManagerSection] {
+        groups.compactMap { group in
+            let categories = group.categories.compactMap { category -> ManagerCategory? in
+                guard let files = itemsByCategory[category], !files.isEmpty else { return nil }
+                let total = sizeByCategory[category] ?? files.reduce(0) { $0 + $1.size }
+                return ManagerCategory(
+                    id: category.rawValue,
+                    title: category.displayName,
+                    systemImage: icon(for: category),
+                    tint: .green,
+                    badgeAsset: badgeAsset(for: category),
+                    items: [],
+                    totalSize: total,
+                    totalSizeText: ManagerByteText.string(total)
+                )
+            }
+            if categories.isEmpty && !includeEmptySections { return nil }
+            return ManagerSection(id: group.id, title: group.title, categories: categories)
+        }
+    }
+
+    /// The one-level folder tree for a single category — the right pane's rows.
+    /// Built on demand so opening the manager never walks every category.
+    nonisolated static func items(
+        forCategory category: ScanCategory,
+        in itemsByCategory: [ScanCategory: [ScannedFile]]
+    ) -> [ManagerItem] {
+        buildHierarchy(itemsByCategory[category] ?? [])
+    }
+
     /// The historical flat list: one leaf row per scanned file, size-sorted.
     private nonisolated static func flatItems(_ files: [ScannedFile]) -> [ManagerItem] {
         files.sorted { $0.size > $1.size }.map { file in

@@ -122,6 +122,43 @@ final class CleanupManagerModelTests: XCTestCase {
         XCTAssertFalse(loose!.isExpandable)
     }
 
+    // MARK: - Shell vs. items (lazy build)
+
+    /// The shell carries each category's size/badge but no rows, so the panes
+    /// can paint before any file tree is built.
+    func test_buildShell_hasSizesButNoItems() {
+        let result = ScanResult(items: [
+            file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache),
+            file("/Users/me/Library/Caches/Homebrew/b", 200, .userCache),
+        ])
+
+        let shell = CleanupManagerModel.buildShell(
+            itemsByCategory: result.itemsByCategory,
+            sizeByCategory: result.sizeByCategory,
+            includeEmptySections: true
+        )
+
+        let userCaches = shell.first { $0.id == "systemJunk" }?.categories.first { $0.id == "userCache" }
+        XCTAssertNotNil(userCaches)
+        XCTAssertTrue(userCaches!.items.isEmpty, "Shell categories must carry no rows")
+        XCTAssertEqual(userCaches!.totalSize, 500)
+    }
+
+    /// The per-category builder returns the same tree the full build would.
+    func test_items_forCategory_matchesHierarchy() {
+        let files = [
+            file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache),
+            file("/Users/me/Library/Caches/Homebrew/b", 200, .userCache),
+        ]
+        let result = ScanResult(items: files)
+
+        let lazy = CleanupManagerModel.items(forCategory: .userCache, in: result.itemsByCategory)
+        let eager = CleanupManagerModel.buildHierarchy(files)
+
+        XCTAssertEqual(lazy.map(\.id), eager.map(\.id))
+        XCTAssertEqual(lazy.map(\.size), eager.map(\.size))
+    }
+
     // MARK: - Helpers
 
     private func file(_ path: String, _ size: Int64, _ category: ScanCategory) -> ScannedFile {

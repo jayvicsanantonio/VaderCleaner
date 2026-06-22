@@ -151,6 +151,11 @@ struct SmartScanReviewManager: View {
     /// badge. Returns `nil` (no badge) when the caller doesn't track it or
     /// nothing in the category is selected.
     var categorySelectedBytes: (ManagerCategory) -> Int64? = { _ in nil }
+    /// Builds the rows for one category on demand (by `ManagerCategory.id`). When
+    /// set, `buildSections` only needs to return the lightweight shell and each
+    /// category's rows are loaded lazily here. `nil` keeps the eager behavior
+    /// where the rows live on `ManagerCategory.items`.
+    var loadItems: (@Sendable (String) async -> [ManagerItem])? = nil
     let onBack: () -> Void
     /// Accessibility-identifier root, e.g. "smartScan.review.junk".
     let accessibilityPrefix: String
@@ -203,6 +208,11 @@ struct SmartScanReviewManager: View {
     /// include the children of any expanded row. Recomputed when the category,
     /// sort, search, or expansion changes — never on a selection toggle.
     @State private var displayedItems: [ManagerItem] = []
+    /// Lazily-loaded rows per category id (when `loadItems` is set), cached for
+    /// this manager session.
+    @State private var lazyItemsByCategory: [String: [ManagerItem]] = [:]
+    /// True while the selected category's rows are being loaded lazily.
+    @State private var isLoadingItems = false
 
     private var loadedSections: [ManagerSection] { sections ?? [] }
 
@@ -241,10 +251,27 @@ struct SmartScanReviewManager: View {
         .onChange(of: selectedCategoryID) { _, _ in
             // A fresh category starts fully collapsed.
             expandedIDs = []
+        }
+        // Load the selected category's rows (lazily when `loadItems` is set),
+        // then refresh the visible list. Runs on first appearance and whenever
+        // the category changes.
+        .task(id: selectedCategoryID) {
+            await loadSelectedCategoryIfNeeded()
             refreshDisplayedItems()
         }
         .onChange(of: sort) { _, _ in refreshDisplayedItems() }
         .onChange(of: search) { _, _ in refreshDisplayedItems() }
+    }
+
+    /// Builds the selected category's rows on demand when `loadItems` is set,
+    /// caching them for this session. No-op for eager managers.
+    private func loadSelectedCategoryIfNeeded() async {
+        guard let loadItems, let id = selectedCategoryID, lazyItemsByCategory[id] == nil else { return }
+        isLoadingItems = true
+        let built = await loadItems(id)
+        // Guard against the category having changed while loading.
+        if selectedCategoryID == id { lazyItemsByCategory[id] = built }
+        isLoadingItems = false
     }
 
     // MARK: - Header
@@ -372,7 +399,10 @@ struct SmartScanReviewManager: View {
         VStack(alignment: .leading, spacing: 0) {
             if selectedCategory != nil {
                 if showsSelection, let category = selectedCategory {
-                    let selectedCount = category.items.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
+                    // Counts come from the visible (loaded) rows, not the shell
+                    // category, which carries no items when loading is lazy.
+                    let rows = currentCategoryItems
+                    let selectedCount = rows.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
                     HStack(spacing: 8) {
                         Text(String(localized: "Select:", comment: "Label before the bulk-select menu on a Smart Scan Manager."))
                             .foregroundStyle(.secondary)
@@ -383,13 +413,13 @@ struct SmartScanReviewManager: View {
                             Button(String(localized: "Select All", comment: "Bulk-select every item in the category.")) {
                                 onSetCategory(category, true)
                             }
-                            .disabled(selectedCount == category.items.count)
+                            .disabled(selectedCount == rows.count)
                             Button(String(localized: "Deselect All", comment: "Bulk-deselect every item in the category.")) {
                                 onSetCategory(category, false)
                             }
                             .disabled(selectedCount == 0)
                         } label: {
-                            Text(bulkSelectLabel(selected: selectedCount, total: category.items.count))
+                            Text(bulkSelectLabel(selected: selectedCount, total: rows.count))
                                 .foregroundStyle(.tint)
                         }
                         .menuStyle(.borderlessButton)
@@ -403,27 +433,33 @@ struct SmartScanReviewManager: View {
                     .padding(.bottom, 8)
                 }
 
-                ManagerItemTable(
-                    items: displayedItems,
-                    showsSelection: showsSelection,
-                    isSelected: isSelected,
-                    onToggle: onToggle,
-                    accent: accent,
-                    rowHeight: 44,
-                    // Key the table reload to the *actual* displayed rows, not
-                    // the inputs: `selectedCategoryID` changes a render before
-                    // `displayedItems` is recomputed, so an input-based token
-                    // would reload with the previous category's row count and
-                    // then skip the reload once the real rows arrive — leaving
-                    // stale, unconfigured cells.
-                    contentToken: "\(displayedItems.count)|\(displayedItems.first?.id ?? "")|\(displayedItems.last?.id ?? "")|\(sort.rawValue)|\(search)",
-                    accessibilityPrefix: accessibilityPrefix,
-                    forcesLightAppearance: lightSurface,
-                    showsSparkle: showsSparkle,
-                    isExpanded: { expandedIDs.contains($0) },
-                    onToggleExpand: { toggleExpand($0) }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if isLoadingItems && displayedItems.isEmpty {
+                    ProgressView()
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ManagerItemTable(
+                        items: displayedItems,
+                        showsSelection: showsSelection,
+                        isSelected: isSelected,
+                        onToggle: onToggle,
+                        accent: accent,
+                        rowHeight: 44,
+                        // Key the table reload to the *actual* displayed rows, not
+                        // the inputs: `selectedCategoryID` changes a render before
+                        // `displayedItems` is recomputed, so an input-based token
+                        // would reload with the previous category's row count and
+                        // then skip the reload once the real rows arrive — leaving
+                        // stale, unconfigured cells.
+                        contentToken: "\(displayedItems.count)|\(displayedItems.first?.id ?? "")|\(displayedItems.last?.id ?? "")|\(sort.rawValue)|\(search)",
+                        accessibilityPrefix: accessibilityPrefix,
+                        forcesLightAppearance: lightSurface,
+                        showsSparkle: showsSparkle,
+                        isExpanded: { expandedIDs.contains($0) },
+                        onToggleExpand: { toggleExpand($0) }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 Spacer()
                 Text(String(localized: "Nothing to review", comment: "Empty state in a Smart Scan Manager's detail pane."))
@@ -504,6 +540,15 @@ struct SmartScanReviewManager: View {
 
     // MARK: - Derived data
 
+    /// The selected category's rows — lazily loaded when `loadItems` is set,
+    /// otherwise the eager rows carried on the category.
+    private var currentCategoryItems: [ManagerItem] {
+        if loadItems != nil {
+            return selectedCategoryID.flatMap { lazyItemsByCategory[$0] } ?? []
+        }
+        return selectedCategory?.items ?? []
+    }
+
     private var selectedSection: ManagerSection? {
         loadedSections.first { $0.id == selectedSectionID } ?? loadedSections.first
     }
@@ -528,10 +573,11 @@ struct SmartScanReviewManager: View {
     /// needs no top-level sort. Expanded rows are followed by their (already
     /// size-sorted) children.
     private func refreshDisplayedItems() {
-        guard let category = selectedCategory else { displayedItems = []; return }
+        guard selectedCategory != nil else { displayedItems = []; return }
+        let categoryItems = currentCategoryItems
         let filtered = search.isEmpty
-            ? category.items
-            : category.items.filter { $0.title.localizedCaseInsensitiveContains(search) }
+            ? categoryItems
+            : categoryItems.filter { $0.title.localizedCaseInsensitiveContains(search) }
         let topLevel: [ManagerItem]
         switch sort {
         case .size:

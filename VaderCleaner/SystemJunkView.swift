@@ -28,10 +28,10 @@ struct SystemJunkView: View {
     @State private var managerInitialSection: String?
     @State private var managerInitialCategory: String?
 
-    /// Path → file lookup the manager's selection callbacks read. Built off the
-    /// main actor inside the manager's `buildSections` (so a huge scan never
-    /// does O(N) work on the main thread) and read on the main actor afterward.
-    @State private var lookups = CleanupReviewLookups()
+    /// Persistent, prebuilt model for the Cleanup Manager. Warmed in the
+    /// background as soon as a scan finishes so opening Review paints instantly,
+    /// and reused across opens.
+    @State private var managerStore = CleanupManagerStore()
 
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
@@ -69,6 +69,14 @@ struct SystemJunkView: View {
             // A fresh scan always lands back on the dashboard grid, never a
             // stale manager from the previous run.
             if case .scanning = newPhase { showingManager = false }
+            // Warm the Cleanup Manager model in the background the moment a scan
+            // (or seed) produces results, so opening Review is instant.
+            if case .preview(let result) = newPhase { managerStore.load(result: result) }
+        }
+        .task {
+            // Catch the case where results are already present on first appear
+            // (e.g. seeded from a Smart Scan before this view existed).
+            if case .preview(let result) = viewModel.phase { managerStore.load(result: result) }
         }
     }
 
@@ -145,71 +153,50 @@ struct SystemJunkView: View {
     }
 
     /// The shared three-pane Cleanup Manager (sections → categories → files),
-    /// wired to the view model's per-file selection. Both Review and Review All
-    /// Junk open the full manager; the "Clean Up" footer removes the current
-    /// selection. The id→file lookup is built off the main actor inside
-    /// `buildSections` so opening over a huge scan never blocks the UI.
+    /// served by `managerStore` so the panes paint instantly and each category's
+    /// rows come from the store's (pre-built, cached) trees.
     private func managerScreen(result: ScanResult) -> some View {
-        let lookups = self.lookups
-        let items = result.items
+        let store = self.managerStore
         let itemsByCategory = result.itemsByCategory
-        let sizeByCategory = result.sizeByCategory
         return SmartScanReviewManager(
             title: String(
                 localized: "Cleanup Manager",
                 comment: "Title on the standalone Cleanup section's Review screen."
             ),
-            buildSections: {
-                lookups.filesByID = Dictionary(
-                    items.map { ($0.url.path, $0) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                let sections = CleanupManagerModel.build(
-                    itemsByCategory: itemsByCategory,
-                    sizeByCategory: sizeByCategory,
-                    includeEmptySections: true,
-                    hierarchical: true
-                )
-                // Index every row (folders + their children) → the leaf file
-                // paths it covers, so a folder row's checkbox can select all of
-                // its descendants. Built here, off the main actor.
-                var pathsByID: [String: [String]] = [:]
-                func index(_ rows: [ManagerItem]) {
-                    for row in rows {
-                        pathsByID[row.id] = row.selectionPaths.isEmpty ? [row.id] : row.selectionPaths
-                        index(row.children)
-                    }
-                }
-                for section in sections { for category in section.categories { index(category.items) } }
-                lookups.pathsByID = pathsByID
-                return sections
-            },
+            // Cheap shell: sections + category sizes, no file trees.
+            buildSections: { store.sections() },
             isSelected: { id in
-                let paths = lookups.pathsByID[id] ?? [id]
-                return !paths.isEmpty && paths.allSatisfy { lookups.filesByID[$0].map(viewModel.isSelected) ?? false }
+                let paths = store.selectionPaths(forRowID: id)
+                return !paths.isEmpty && paths.allSatisfy { store.file(forPath: $0).map(viewModel.isSelected) ?? false }
             },
             onToggle: { id in
-                let paths = lookups.pathsByID[id] ?? [id]
+                let paths = store.selectionPaths(forRowID: id)
                 // Whole-folder toggle: if every descendant is selected, clear
                 // them; otherwise select them all.
-                let target = !paths.allSatisfy { lookups.filesByID[$0].map(viewModel.isSelected) ?? false }
+                let target = !paths.allSatisfy { store.file(forPath: $0).map(viewModel.isSelected) ?? false }
                 for path in paths {
-                    guard let file = lookups.filesByID[path] else { continue }
+                    guard let file = store.file(forPath: path) else { continue }
                     if viewModel.isSelected(file) != target { viewModel.toggleSelection(file) }
                 }
             },
             onSetCategory: { category, selected in
-                for item in category.items {
-                    for path in (item.selectionPaths.isEmpty ? [item.id] : item.selectionPaths) {
-                        guard let file = lookups.filesByID[path] else { continue }
-                        if viewModel.isSelected(file) != selected { viewModel.toggleSelection(file) }
-                    }
+                // Operate on the whole scan category (by id), independent of
+                // whether its rows are loaded yet.
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return }
+                for file in itemsByCategory[scanCategory] ?? [] {
+                    if viewModel.isSelected(file) != selected { viewModel.toggleSelection(file) }
                 }
             },
             categorySelectedBytes: { category in
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
                 let files = itemsByCategory[scanCategory] ?? []
                 return files.reduce(Int64(0)) { $0 + (viewModel.isSelected($1) ? $1.size : 0) }
+            },
+            loadItems: { id in
+                // Off-main: a cache hit (usually, thanks to the prebuild)
+                // returns instantly; a miss builds that one category's tree
+                // without blocking the UI.
+                await Task.detached(priority: .userInitiated) { store.items(forCategoryID: id) }.value
             },
             onBack: { showingManager = false },
             accessibilityPrefix: "system-junk.review",
@@ -292,19 +279,6 @@ struct SystemJunkView: View {
         f.countStyle = .file
         return f
     }()
-}
-
-/// Holds the path → file lookup the Cleanup Manager's selection callbacks read.
-/// Built once on the manager's background `buildSections` pass (so nothing O(N)
-/// runs on the main thread) and read on the main actor afterward; the manager
-/// only renders interactive rows once that build has finished, so there is no
-/// race. Mirrors `SmartScanJunkReview`'s lookups holder.
-private final class CleanupReviewLookups: @unchecked Sendable {
-    /// Leaf file path → scanned file.
-    var filesByID: [String: ScannedFile] = [:]
-    /// Row id (folder or file) → the leaf file paths it covers, for aggregate
-    /// folder-row selection.
-    var pathsByID: [String: [String]] = [:]
 }
 
 // MARK: - Subviews
