@@ -8,6 +8,14 @@ import Foundation
 /// and the app's NSXPCConnection. Defined here as the single source of truth.
 let kHelperMachServiceName = "com.personal.VaderCleaner.helper"
 
+/// Absolute path of the macOS Document Versions store — the Versions/autosave
+/// database of prior document revisions. It is owned by root and execute-only
+/// (`d--x--x--x root wheel`), so it can only be *enumerated* by the privileged
+/// helper running as root; a normal app process can't list it even with Full
+/// Disk Access. Shared so the helper and the app agree on the one path the
+/// `scanDocumentVersions` selector is allowed to read.
+let kDocumentVersionsStorePath = "/System/Volumes/Data/.DocumentRevisions-V100"
+
 enum HelperCodeSigningRequirements {
     static let appIdentifier = "com.personal.VaderCleaner"
     static let helperIdentifier = "com.personal.VaderCleaner.helper"
@@ -126,4 +134,13 @@ protocol VaderCleanerHelperProtocol {
     /// (`tmutil thinlocalsnapshots / <bytes> 4`).
     @objc(thinTimeMachineSnapshotsWithReply:)
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void)
+
+    /// Recursively enumerates the regular files in the root-owned Document
+    /// Versions store (`kDocumentVersionsStorePath`), which the app can't list
+    /// itself. Replies with parallel arrays of absolute file paths and their
+    /// byte sizes, plus the first error encountered (if any). The path is fixed
+    /// helper-side — there is intentionally no caller-supplied path argument, so
+    /// this never becomes a general "enumerate any directory as root" capability.
+    @objc(scanDocumentVersionsWithReply:)
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void)
 }

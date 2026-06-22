@@ -73,6 +73,7 @@ private final class SpyFlushHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
     func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }
 
 private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol {
@@ -84,4 +85,5 @@ private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol {
     func flushDNSCache(reply: @escaping (Error?) -> Void) {}
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }

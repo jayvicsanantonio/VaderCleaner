@@ -96,6 +96,59 @@ EMBLEMS = {
       <rect x="88" y="84" width="52" height="66" rx="8" fill="#ffffff" opacity="0.5"/>
       <rect x="104" y="100" width="52" height="66" rx="8" fill="#ffffff"/>
     """,
+    "cleanupSystemJunk": """
+      <circle cx="106" cy="104" r="34" fill="#ffffff"/>
+      <g stroke="{dark}" stroke-width="8" stroke-linecap="round">
+        <line x1="106" y1="104" x2="106" y2="82"/>
+        <line x1="106" y1="104" x2="124" y2="112"/>
+      </g>
+      <circle cx="150" cy="150" r="28" fill="{dark}"/>
+      <circle cx="150" cy="142" r="10" fill="#ffffff"/>
+      <path d="M133 168 Q150 148 167 168 Z" fill="#ffffff"/>
+    """,
+    "xcodeJunk": """
+      <g fill="none" stroke="#ffffff" stroke-width="13"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M104 92 L82 121 L104 150"/>
+        <path d="M136 92 L158 121 L136 150"/>
+      </g>
+      <line x1="130" y1="88" x2="110" y2="154" stroke="#ffffff"
+            stroke-width="12" stroke-linecap="round"/>
+    """,
+    "documentVersions": """
+      <path d="M90 76 H132 L158 102 V164 Q158 171 151 171 H90 Q83 171 83 164 V83 Q83 76 90 76 Z"
+            fill="#ffffff"/>
+      <path d="M132 76 L158 102 H132 Z" fill="{dark}"/>
+      <g stroke="{dark}" stroke-width="6" stroke-linecap="round">
+        <line x1="97" y1="106" x2="127" y2="106"/>
+        <line x1="97" y1="120" x2="144" y2="120"/>
+      </g>
+      <path d="M100 146 l11 12 24 -28" fill="none" stroke="{dark}"
+            stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    """,
+    "logs": """
+      <path d="M84 74 H136 L160 98 V172 Q160 176 156 176 H84 Q80 176 80 172 V78 Q80 74 84 74 Z"
+            fill="#ffffff"/>
+      <path d="M136 74 L160 98 H136 Z" fill="{dark}"/>
+      <g stroke="{dark}" stroke-width="7" stroke-linecap="round">
+        <line x1="94" y1="104" x2="144" y2="104"/>
+        <line x1="94" y1="122" x2="144" y2="122"/>
+        <line x1="94" y1="140" x2="124" y2="140"/>
+      </g>
+    """,
+    "languageFiles": """
+      <circle cx="120" cy="118" r="46" fill="none" stroke="#ffffff" stroke-width="9"/>
+      <ellipse cx="120" cy="118" rx="20" ry="46" fill="none" stroke="#ffffff" stroke-width="7"/>
+      <g stroke="#ffffff" stroke-width="7" stroke-linecap="round">
+        <line x1="76" y1="104" x2="164" y2="104"/>
+        <line x1="76" y1="132" x2="164" y2="132"/>
+      </g>
+    """,
+    "iosBackups": """
+      <rect x="92" y="74" width="56" height="92" rx="12" fill="#ffffff"/>
+      <rect x="100" y="84" width="40" height="60" rx="4" fill="{dark}"/>
+      <circle cx="120" cy="156" r="6" fill="{dark}"/>
+    """,
 }
 
 # badge name -> color key
@@ -110,6 +163,21 @@ BADGES = {
     "performance": "orange",
     "applications": "blue",
     "myClutter": "purple",
+    "xcodeJunk": "green",
+    "documentVersions": "green",
+    "cleanupSystemJunk": "green",
+    "logs": "green",
+    "languageFiles": "green",
+    "iosBackups": "green",
+}
+
+# badge name -> body shape. Defaults to the glossy round orb; a few badges use a
+# rounded-square "app icon" (squircle) instead to match the reference Cleanup
+# tiles, where Xcode Junk and Document Versions read as app-style tiles rather
+# than orbs.
+SHAPES = {
+    "xcodeJunk": "squircle",
+    "documentVersions": "squircle",
 }
 
 TEMPLATE = """<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
@@ -130,14 +198,28 @@ TEMPLATE = """<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" v
       <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.18"/>
     </filter>
   </defs>
-  <g filter="url(#ds)">
-    <circle cx="120" cy="118" r="98" fill="url(#body)"/>
-    <ellipse cx="120" cy="70" rx="78" ry="46" fill="url(#gloss)"/>
-    <circle cx="120" cy="118" r="98" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
-  </g>
+  {shape}
   <g filter="url(#es)">{emblem}</g>
 </svg>
 """
+
+# The glossy round orb body: gradient fill, a top gloss highlight, and a faint
+# rim. Used by every badge unless overridden in SHAPES.
+ORB_SHAPE = """<g filter="url(#ds)">
+    <circle cx="120" cy="118" r="98" fill="url(#body)"/>
+    <ellipse cx="120" cy="70" rx="78" ry="46" fill="url(#gloss)"/>
+    <circle cx="120" cy="118" r="98" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  </g>"""
+
+# The rounded-square "app icon" body — same gradient, gloss, and rim as the orb
+# but a squircle silhouette, matching the reference's Xcode / Document tiles.
+SQUIRCLE_SHAPE = """<g filter="url(#ds)">
+    <rect x="26" y="24" width="188" height="188" rx="46" fill="url(#body)"/>
+    <rect x="40" y="38" width="160" height="96" rx="34" fill="url(#gloss)"/>
+    <rect x="26" y="24" width="188" height="188" rx="46" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  </g>"""
+
+SHAPE_BODIES = {"orb": ORB_SHAPE, "squircle": SQUIRCLE_SHAPE}
 
 
 def main():
@@ -146,7 +228,8 @@ def main():
     for name, color in BADGES.items():
         light, mid, edge, dark = COLORS[color]
         emblem = EMBLEMS[name].format(dark=dark)
-        svg = TEMPLATE.format(light=light, mid=mid, edge=edge, emblem=emblem)
+        shape = SHAPE_BODIES[SHAPES.get(name, "orb")]
+        svg = TEMPLATE.format(light=light, mid=mid, edge=edge, emblem=emblem, shape=shape)
         with open(os.path.join(out_dir, f"{name}.svg"), "w") as f:
             f.write(svg)
         print(f"wrote {name}.svg ({color})")

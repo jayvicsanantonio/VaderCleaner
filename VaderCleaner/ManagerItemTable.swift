@@ -22,6 +22,18 @@ struct ManagerItemTable: NSViewRepresentable {
     /// state (no reload) on a selection toggle.
     let contentToken: String
     let accessibilityPrefix: String
+    /// When true the table and its scroll view adopt the aqua (light) appearance
+    /// so their row text reads dark-on-white — matching the Cleanup Manager's
+    /// white surface. AppKit views follow `effectiveAppearance`, not SwiftUI's
+    /// `colorScheme`, so this must be set explicitly here.
+    var forcesLightAppearance: Bool = false
+    /// When true each row shows a decorative pink sparkle before its size.
+    var showsSparkle: Bool = false
+    /// Whether an expandable row (by `ManagerItem.id`) is currently disclosed —
+    /// drives the chevron direction.
+    var isExpanded: (String) -> Bool = { _ in false }
+    /// Toggle an expandable row's disclosure (chevron tap).
+    var onToggleExpand: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -52,6 +64,11 @@ struct ManagerItemTable: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.documentView = table
+        if forcesLightAppearance {
+            let aqua = NSAppearance(named: .aqua)
+            scroll.appearance = aqua
+            table.appearance = aqua
+        }
         return scroll
     }
 
@@ -74,6 +91,9 @@ struct ManagerItemTable: NSViewRepresentable {
         private var onToggle: (String) -> Void = { _ in }
         private var accent: NSColor = .controlAccentColor
         private var accessibilityPrefix = ""
+        private var showsSparkle = false
+        private var isExpanded: (String) -> Bool = { _ in false }
+        private var onToggleExpand: (String) -> Void = { _ in }
         fileprivate var contentToken = ""
         weak var table: NSTableView?
 
@@ -84,6 +104,9 @@ struct ManagerItemTable: NSViewRepresentable {
             onToggle = source.onToggle
             accent = NSColor(source.accent)
             accessibilityPrefix = source.accessibilityPrefix
+            showsSparkle = source.showsSparkle
+            isExpanded = source.isExpanded
+            onToggleExpand = source.onToggleExpand
             contentToken = source.contentToken
         }
 
@@ -99,7 +122,10 @@ struct ManagerItemTable: NSViewRepresentable {
                 item: item,
                 selected: showsSelection && isSelected(item.id),
                 showsCheckbox: showsSelection,
-                accent: accent
+                accent: accent,
+                showsSparkle: showsSparkle,
+                isExpanded: isExpanded(item.id),
+                onToggleExpand: onToggleExpand
             )
             cell.setAccessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
             return cell
@@ -125,21 +151,33 @@ struct ManagerItemTable: NSViewRepresentable {
     }
 }
 
-/// A native, recycled row cell: a checkbox image, a tinted icon, a title +
-/// optional subtitle, and an optional right-aligned size. Built from AppKit
-/// controls (not SwiftUI) so the table can recycle it cheaply while scrolling.
+/// A native, recycled row cell: an optional indent, a checkbox, a tinted icon
+/// or real Finder icon, a title + optional subtitle, an optional decorative
+/// sparkle, a right-aligned size, and an optional disclosure chevron. Built from
+/// AppKit controls (not SwiftUI) so the table can recycle it cheaply while
+/// scrolling.
 final class ManagerRowCellView: NSTableCellView {
+    private let indentSpacer = NSView()
     private let checkbox = NSImageView()
     private let iconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
+    private let sparkleView = NSImageView()
     private let sizeField = NSTextField(labelWithString: "")
+    private let chevron = NSButton()
     private let textStack: NSStackView
     private let rowStack: NSStackView
+    private var indentWidth: NSLayoutConstraint!
+
+    /// Per-indent-level inset (matches the icon column so children line up).
+    private static let indentStep: CGFloat = 28
+
+    /// Invoked when the disclosure chevron is clicked. Set per `configure`.
+    private var onChevron: (() -> Void)?
 
     init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
         textStack = NSStackView(views: [titleField, subtitleField])
-        rowStack = NSStackView(views: [checkbox, iconView, textStack, sizeField])
+        rowStack = NSStackView(views: [indentSpacer, checkbox, iconView, textStack, sparkleView, sizeField, chevron])
         super.init(frame: .zero)
         self.identifier = reuseIdentifier
         setup()
@@ -157,14 +195,34 @@ final class ManagerRowCellView: NSTableCellView {
         subtitleField.textColor = .secondaryLabelColor
         subtitleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        sparkleView.image = ManagerSymbolCache.image("sparkles", pointSize: 14)
+        sparkleView.contentTintColor = .systemPink
+        sparkleView.setContentHuggingPriority(.required, for: .horizontal)
+
         sizeField.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)
         sizeField.textColor = .secondaryLabelColor
         sizeField.alignment = .right
         sizeField.setContentHuggingPriority(.required, for: .horizontal)
         sizeField.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Fixed-width, right-aligned size column so every row's size lines up,
+        // parents and indented children alike.
+        sizeField.widthAnchor.constraint(equalToConstant: 86).isActive = true
+
+        chevron.isBordered = false
+        chevron.bezelStyle = .regularSquare
+        chevron.imagePosition = .imageOnly
+        chevron.target = self
+        chevron.action = #selector(chevronTapped)
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+        // The chevron always reserves its column even on rows without children,
+        // so the size column to its left stays aligned across every row.
+        chevron.widthAnchor.constraint(equalToConstant: 16).isActive = true
 
         checkbox.setContentHuggingPriority(.required, for: .horizontal)
         iconView.setContentHuggingPriority(.required, for: .horizontal)
+        indentSpacer.setContentHuggingPriority(.required, for: .horizontal)
+        indentWidth = indentSpacer.widthAnchor.constraint(equalToConstant: 0)
+        indentWidth.isActive = true
 
         textStack.orientation = .vertical
         textStack.alignment = .leading
@@ -183,10 +241,25 @@ final class ManagerRowCellView: NSTableCellView {
         ])
     }
 
-    func configure(item: ManagerItem, selected: Bool, showsCheckbox: Bool, accent: NSColor) {
+    func configure(
+        item: ManagerItem,
+        selected: Bool,
+        showsCheckbox: Bool,
+        accent: NSColor,
+        showsSparkle: Bool,
+        isExpanded: Bool,
+        onToggleExpand: @escaping (String) -> Void
+    ) {
+        indentWidth.constant = CGFloat(item.indentLevel) * Self.indentStep
         checkbox.isHidden = !showsCheckbox
-        iconView.image = ManagerSymbolCache.image(item.systemImage, pointSize: 16)
-        iconView.contentTintColor = item.tint.nsColor
+        if item.usesFileIcon {
+            // The real Finder icon for the file/app, so rows read like Finder.
+            iconView.image = ManagerFileIconCache.icon(forPath: item.id)
+            iconView.contentTintColor = nil
+        } else {
+            iconView.image = ManagerSymbolCache.image(item.systemImage, pointSize: 16)
+            iconView.contentTintColor = item.tint.nsColor
+        }
         titleField.stringValue = item.title
         if let subtitle = item.subtitle {
             subtitleField.stringValue = subtitle
@@ -194,14 +267,36 @@ final class ManagerRowCellView: NSTableCellView {
         } else {
             subtitleField.isHidden = true
         }
+        sparkleView.isHidden = !showsSparkle
         if let sizeText = item.sizeText {
             sizeField.stringValue = sizeText
             sizeField.isHidden = false
         } else {
             sizeField.isHidden = true
         }
+
+        // Disclosure chevron: pointing down when open. Expandable rows show and
+        // enable it; others keep the reserved column (alpha 0) so the size
+        // column stays aligned. The button consumes its own click so it never
+        // toggles selection.
+        if item.isExpandable {
+            chevron.image = ManagerSymbolCache.image(isExpanded ? "chevron.down" : "chevron.right", pointSize: 13)
+            chevron.contentTintColor = accent
+            chevron.alphaValue = 1
+            chevron.isEnabled = true
+            let id = item.id
+            onChevron = { onToggleExpand(id) }
+        } else {
+            chevron.image = nil
+            chevron.alphaValue = 0
+            chevron.isEnabled = false
+            onChevron = nil
+        }
+
         setSelected(selected, accent: accent)
     }
+
+    @objc private func chevronTapped() { onChevron?() }
 
     func setSelected(_ selected: Bool, accent: NSColor) {
         guard !checkbox.isHidden else { return }
@@ -224,6 +319,22 @@ private enum ManagerSymbolCache {
         let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular))
         cache[key] = image
+        return image
+    }
+}
+
+/// Caches the real Finder icons the Cleanup Manager rows show, keyed by path.
+/// `NSWorkspace.icon(forFile:)` is reasonably fast and OS-cached, but caching
+/// the sized `NSImage` here keeps scrolling smooth for large categories.
+/// Main-thread only (cells are configured on the main actor).
+private enum ManagerFileIconCache {
+    private static var cache: [String: NSImage] = [:]
+
+    static func icon(forPath path: String) -> NSImage {
+        if let cached = cache[path] { return cached }
+        let image = NSWorkspace.shared.icon(forFile: path)
+        image.size = NSSize(width: 28, height: 28)
+        cache[path] = image
         return image
     }
 }

@@ -18,6 +18,12 @@ struct NavigationRailView: View {
     /// state and any transition bookkeeping; the rail just reports the tap.
     let onSelect: (NavigationSection) -> Void
 
+    /// When `true` the rail shows icons only — labels are hidden and each row
+    /// centers its glyph in a compact pill. ContentView sets this once the
+    /// selected section leaves its intro (right after Scan), narrowing the rail
+    /// so the results have more room. Defaults to the expanded label layout.
+    var collapsed: Bool = false
+
     /// The section the pointer is currently over, if any. Drives the rail's
     /// hover highlight — a quieter pill than the selection's.
     @State private var hoveredSection: NavigationSection?
@@ -128,14 +134,17 @@ struct NavigationRailView: View {
         } label: {
             HStack(spacing: 14) {
                 railIcon(section, isActive: isSelected || isHovering)
-                Text(section.title)
-                    .font(.body)
-                Spacer(minLength: 0)
+                if !collapsed {
+                    Text(section.title)
+                        .font(.body)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
             }
             .foregroundStyle(isSelected || isHovering ? Color.white : Color.white.opacity(0.62))
-            .padding(.horizontal, 14)
+            .padding(.horizontal, collapsed ? 0 : 14)
             .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: collapsed ? .center : .leading)
             .background {
                 if isSelected {
                     // A translucent pill — the dark page shows through, lifted
@@ -208,6 +217,12 @@ struct NavigationRailView: View {
         .accessibilityIdentifier(section.accessibilityIdentifier)
         .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // With labels hidden in the collapsed rail, publish the hovered row's
+        // bounds so ContentView can float a name tooltip beside it — drawn at
+        // the window level so it escapes the narrow rail and the ScrollView clip.
+        .anchorPreference(key: RailTooltipPreferenceKey.self, value: .bounds) { anchor in
+            (collapsed && isHovering) ? RailTooltipAnchor(title: section.title, bounds: anchor) : nil
+        }
     }
 }
 
@@ -220,5 +235,70 @@ struct NavigationRailView: View {
 private struct RailButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+    }
+}
+
+// MARK: - Collapsed-rail hover tooltip
+
+/// The hovered collapsed-rail row's name and bounds, published up to ContentView
+/// so the tooltip can be drawn over the detail pane rather than clipped inside
+/// the narrow rail. `Anchor<CGRect>` isn't `Equatable`, so equality compares the
+/// title — sufficient for "is a different row hovered".
+struct RailTooltipAnchor: Equatable {
+    let title: String
+    let bounds: Anchor<CGRect>
+
+    static func == (lhs: RailTooltipAnchor, rhs: RailTooltipAnchor) -> Bool {
+        lhs.title == rhs.title
+    }
+}
+
+struct RailTooltipPreferenceKey: PreferenceKey {
+    static let defaultValue: RailTooltipAnchor? = nil
+    static func reduce(value: inout RailTooltipAnchor?, nextValue: () -> RailTooltipAnchor?) {
+        // At most one row is hovered, so keep the first non-nil contribution.
+        value = value ?? nextValue()
+    }
+}
+
+/// The floating name bubble shown beside a hovered icon in the collapsed rail:
+/// a dark rounded capsule with white text and a small left-pointing arrow
+/// aimed at the icon. Fixed height so the caller can vertically center it on
+/// the row.
+struct RailIconTooltip: View {
+    static let height: CGFloat = 34
+    let title: String
+
+    private let fill = Color.black.opacity(0.78)
+
+    var body: some View {
+        HStack(spacing: -1) {
+            LeftArrow()
+                .fill(fill)
+                .frame(width: 7, height: 13)
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .frame(height: Self.height)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(fill)
+                )
+        }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+    }
+
+    /// A left-pointing triangle for the bubble's pointer.
+    private struct LeftArrow: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+            return path
+        }
     }
 }

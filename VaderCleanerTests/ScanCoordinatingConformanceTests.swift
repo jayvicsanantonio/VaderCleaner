@@ -182,14 +182,16 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
 
     func test_systemJunk_cleaningMapsToWorking() async {
         let gate = ScanGate()
+        let file = makeFile(name: "a")
         let vm = makeSystemJunk(
-            scanner: { ScanResult(items: [self.makeFile(name: "a")]) },
+            scanner: { ScanResult(items: [file]) },
             deleter: { _ in
                 await gate.wait()
                 return 100
             }
         )
-        await vm.scan() // → .preview with one checked category, so clean() runs.
+        await vm.scan()
+        vm.toggleSelection(file) // opt the file in so clean() runs.
 
         let task = Task { await vm.clean() }
         await yieldUntil({ vm.phase == .cleaning }, ".cleaning")
@@ -200,11 +202,13 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_systemJunk_completeMapsToResults() async {
+        let file = makeFile(name: "a")
         let vm = makeSystemJunk(
-            scanner: { ScanResult(items: [self.makeFile(name: "a")]) },
+            scanner: { ScanResult(items: [file]) },
             deleter: { _ in 100 }
         )
         await vm.scan()
+        vm.toggleSelection(file) // opt in before cleaning
         await vm.clean()
         if case .complete = vm.phase {} else { XCTFail("expected .complete, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)

@@ -153,8 +153,10 @@ final class SystemJunkViewModel {
                 }
             }
             self.latestResult = result
-            self.selectedURLs = Set(result.items.map(\.url))
-            self.totalSelectedSize = result.totalSize
+            // Nothing is selected by default — the user opts in to what to
+            // clean in the Cleanup Manager.
+            self.selectedURLs = []
+            self.totalSelectedSize = 0
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
@@ -172,8 +174,9 @@ final class SystemJunkViewModel {
     func seed(with result: ScanResult) {
         guard case .idle = phase else { return }
         latestResult = result
-        selectedURLs = Set(result.items.map(\.url))
-        totalSelectedSize = result.totalSize
+        // Match `scan()`: start with nothing selected so the user opts in.
+        selectedURLs = []
+        totalSelectedSize = 0
         phase = .preview(result)
     }
 
@@ -182,6 +185,23 @@ final class SystemJunkViewModel {
     func clean() async {
         guard let result = latestResult, !selectedURLs.isEmpty else { return }
         let toDelete = result.items.filter { selectedURLs.contains($0.url) }
+        await performClean(toDelete)
+    }
+
+    /// Clean every file whose category is in `categories`, regardless of the
+    /// per-file selection — backs a dashboard card's "Clean" button, which acts
+    /// on the whole group. A no-op when the group produced no files.
+    func clean(categories: Set<ScanCategory>) async {
+        guard let result = latestResult else { return }
+        let toDelete = result.items.filter { categories.contains($0.category) }
+        await performClean(toDelete)
+    }
+
+    /// Shared clean pipeline: a no-op for an empty input, otherwise
+    /// `.cleaning` → `.complete(bytesFreed:)`, or `.failed` if the deleter
+    /// throws. `bytesFreed` comes from the deleter so partial-failure cases
+    /// report what was actually removed, not the requested total.
+    private func performClean(_ toDelete: [ScannedFile]) async {
         guard !toDelete.isEmpty else { return }
 
         phase = .cleaning
@@ -241,7 +261,7 @@ extension SystemJunkViewModel {
                 // `await`; `onProgress` is forwarded so the walked-item count
                 // reaches the scanning screen.
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await SystemJunkScanner().scan(excluding: excluded, onProgress: onProgress)
+                return try await SystemJunkScanner.live().scan(excluding: excluded, onProgress: onProgress)
             },
             deleter: { files in
                 try await SystemJunkDeleter().delete(files)

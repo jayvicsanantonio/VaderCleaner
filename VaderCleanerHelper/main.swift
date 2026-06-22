@@ -83,6 +83,40 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         )
     }
 
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {
+        // The path is fixed (not caller-supplied) so this can only ever read the
+        // Document Versions store, never an arbitrary directory as root.
+        let root = URL(fileURLWithPath: kDocumentVersionsStorePath, isDirectory: true)
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: keys,
+            options: [],
+            errorHandler: { _, _ in true }
+        ) else {
+            reply([], [], NSError(
+                domain: "com.personal.VaderCleaner.helper",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not open \(root.path)"]
+            ))
+            return
+        }
+
+        var paths: [String] = []
+        var sizes: [NSNumber] = []
+        let keySet = Set(keys)
+        while let url = enumerator.nextObject() as? URL {
+            let values = try? url.resourceValues(forKeys: keySet)
+            // Skip symlinks so a link inside the store can't pull in external
+            // content or double-count, mirroring the in-process FileScanner.
+            if values?.isSymbolicLink == true { continue }
+            guard values?.isRegularFile == true else { continue }
+            paths.append(url.path)
+            sizes.append(NSNumber(value: Int64(values?.fileSize ?? 0)))
+        }
+        reply(paths, sizes, nil)
+    }
+
     // MARK: - Private
 
     /// Runs each command in order and replies with the first failure, or `nil`

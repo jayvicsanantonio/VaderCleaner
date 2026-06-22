@@ -54,6 +54,32 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         ]
     }
 
+    /// Reclaimable Xcode developer junk. All under `~/Library/Developer`, so it
+    /// is user-domain (in-process deletable, no privileged helper). Derived data
+    /// and archives dominate the byte total; the per-platform DeviceSupport and
+    /// simulator caches accrete copies of OS symbols and disk images that Xcode
+    /// regenerates on demand. Emitted whether or not each directory exists —
+    /// `FileScanner` simply yields nothing for an absent root.
+    static func xcodeJunkRoots(homeDirectory: URL) -> [URL] {
+        let xcode = homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Developer", isDirectory: true)
+            .appendingPathComponent("Xcode", isDirectory: true)
+        let coreSimulator = homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Developer", isDirectory: true)
+            .appendingPathComponent("CoreSimulator", isDirectory: true)
+        return [
+            xcode.appendingPathComponent("DerivedData", isDirectory: true),
+            xcode.appendingPathComponent("Archives", isDirectory: true),
+            xcode.appendingPathComponent("iOS DeviceSupport", isDirectory: true),
+            xcode.appendingPathComponent("watchOS DeviceSupport", isDirectory: true),
+            xcode.appendingPathComponent("tvOS DeviceSupport", isDirectory: true),
+            xcode.appendingPathComponent("macOS DeviceSupport", isDirectory: true),
+            coreSimulator.appendingPathComponent("Caches", isDirectory: true),
+        ]
+    }
+
     func roots() -> [ScanRoot] {
         var roots: [ScanRoot] = []
 
@@ -80,6 +106,17 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         // Trash — home plus every mounted volume's per-user trash directory.
         roots.append(ScanRoot(url: homeDirectory.appendingPathComponent(".Trash", isDirectory: true), category: .trash))
         roots.append(contentsOf: volumeTrashRoots())
+
+        // Xcode developer junk — user-domain, readable and removable in-process.
+        roots.append(contentsOf: Self.xcodeJunkRoots(homeDirectory: homeDirectory).map {
+            ScanRoot(url: $0, category: .xcodeJunk)
+        })
+
+        // Document Versions is intentionally NOT a FileScanner root: its store
+        // (`kDocumentVersionsStorePath`) is root-owned and execute-only, so the
+        // in-process walk can't list it. `SystemJunkScanner` enumerates it via
+        // the privileged helper (`DocumentVersionsScanner`) and merges the
+        // results in.
 
         // Language files — non-active `.lproj` directories under
         // `defaultLanguageScanRoots`, each emitted as its own ScanRoot so

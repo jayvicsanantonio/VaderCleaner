@@ -19,35 +19,16 @@ struct SystemJunkView: View {
     private var viewModel: SystemJunkViewModel
     @Environment(AppState.self) private var appState
 
-    /// Shared icon cache so the review rows show each file's real type icon
-    /// instead of a generic glyph. Pre-loaded off the main thread by the review
-    /// content when it appears.
-    @State private var fileIconCache = FileIconCache()
+    /// Whether the Cleanup Manager (the three-pane Review) is showing over the
+    /// dashboard. Pure navigation state held on the view; reset to the dashboard
+    /// at the start of every scan. Both a card's "Review" and "Review All Junk"
+    /// open the same full manager.
+    @State private var showingManager = false
 
-    /// What the user drilled into from the dashboard, or `nil` for the grid.
-    /// Held on the view (not the VM) because it is pure navigation state — the
-    /// same place `LargeOldFilesView` keeps its drill-down selection. Reset to
-    /// the dashboard at the start of every scan.
-    @State private var reviewing: ReviewTarget?
-
-    /// A drill-down destination: the complete list, or one category's slice.
-    private enum ReviewTarget: Equatable {
-        case all
-        case category(ScanCategory)
-
-        /// Title shown in the review screen's Back bar.
-        var title: String {
-            switch self {
-            case .all:
-                return String(
-                    localized: "All Junk Files",
-                    comment: "Back-bar title for the complete, unfiltered System Junk list."
-                )
-            case .category(let category):
-                return category.displayName
-            }
-        }
-    }
+    /// Path → file lookup the manager's selection callbacks read. Built off the
+    /// main actor inside the manager's `buildSections` (so a huge scan never
+    /// does O(N) work on the main thread) and read on the main actor afterward.
+    @State private var lookups = CleanupReviewLookups()
 
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
@@ -83,8 +64,8 @@ struct SystemJunkView: View {
         .navigationTitle(NavigationSection.systemJunk.title)
         .onChange(of: viewModel.phase) { _, newPhase in
             // A fresh scan always lands back on the dashboard grid, never a
-            // stale drill-down from the previous run.
-            if case .scanning = newPhase { reviewing = nil }
+            // stale manager from the previous run.
+            if case .scanning = newPhase { showingManager = false }
         }
     }
 
@@ -121,91 +102,108 @@ struct SystemJunkView: View {
         }
     }
 
-    /// The results surface: the category dashboard, or one drill-down's file
-    /// list behind a Back bar. A drill-down whose files were all cleaned falls
-    /// back to the dashboard so the user is never stranded on an empty review.
+    /// The results surface: the category dashboard, or the three-pane Cleanup
+    /// Manager when the user taps Review / Review All Junk.
     @ViewBuilder
     private func resultsContent(result: ScanResult) -> some View {
-        if let target = reviewing, !files(for: target, in: result).isEmpty {
-            reviewScreen(for: target, in: result)
+        if showingManager {
+            managerScreen(result: result)
         } else {
             // No scroll view: the dashboard fills the detail pane and divides
             // the available height between the header and the tile grid, like
             // the Large & Old Files section.
             SystemJunkDashboardView(
                 totalBytes: result.totalSize,
-                itemCount: result.items.count,
-                tiles: SystemJunkTile.tiles(from: result),
-                onReview: { reviewing = .category($0) },
-                onViewAll: { reviewing = .all },
-                onRescan: viewModel.scanAgain
+                tiles: CleanupGroupTile.tiles(from: result),
+                onReview: { _ in showingManager = true },
+                onClean: { group in
+                    Task { await viewModel.clean(categories: Set(group.categories)) }
+                },
+                onReviewAll: { showingManager = true },
+                onStartOver: viewModel.scanAgain
             )
         }
     }
 
-    /// A drill-down's file list, wrapped in a Back bar that returns to the
-    /// dashboard. Mirrors `LargeOldFilesView.reviewScreen`.
-    private func reviewScreen(for target: ReviewTarget, in result: ScanResult) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button {
-                    reviewing = nil
-                } label: {
-                    // HStack(Image, Text) rather than Label so the control
-                    // surfaces reliably in XCUITest.
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(String(
-                            localized: "Back",
-                            comment: "Back button returning from a System Junk drill-down to the dashboard."
-                        ))
+    /// The shared three-pane Cleanup Manager (sections → categories → files),
+    /// wired to the view model's per-file selection. Both Review and Review All
+    /// Junk open the full manager; the "Clean Up" footer removes the current
+    /// selection. The id→file lookup is built off the main actor inside
+    /// `buildSections` so opening over a huge scan never blocks the UI.
+    private func managerScreen(result: ScanResult) -> some View {
+        let lookups = self.lookups
+        let items = result.items
+        let itemsByCategory = result.itemsByCategory
+        let sizeByCategory = result.sizeByCategory
+        return SmartScanReviewManager(
+            title: String(
+                localized: "Cleanup Manager",
+                comment: "Title on the standalone Cleanup section's Review screen."
+            ),
+            buildSections: {
+                lookups.filesByID = Dictionary(
+                    items.map { ($0.url.path, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                let sections = CleanupManagerModel.build(
+                    itemsByCategory: itemsByCategory,
+                    sizeByCategory: sizeByCategory,
+                    includeEmptySections: true,
+                    hierarchical: true
+                )
+                // Index every row (folders + their children) → the leaf file
+                // paths it covers, so a folder row's checkbox can select all of
+                // its descendants. Built here, off the main actor.
+                var pathsByID: [String: [String]] = [:]
+                func index(_ rows: [ManagerItem]) {
+                    for row in rows {
+                        pathsByID[row.id] = row.selectionPaths.isEmpty ? [row.id] : row.selectionPaths
+                        index(row.children)
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("system-junk.backToDashboard")
-                Spacer()
-                Text(target.title)
-                    .font(.headline)
-                Spacer()
-                // Balances the leading Back button so the title stays centred.
-                Color.clear.frame(width: 44, height: 1)
+                for section in sections { for category in section.categories { index(category.items) } }
+                lookups.pathsByID = pathsByID
+                return sections
+            },
+            isSelected: { id in
+                let paths = lookups.pathsByID[id] ?? [id]
+                return !paths.isEmpty && paths.allSatisfy { lookups.filesByID[$0].map(viewModel.isSelected) ?? false }
+            },
+            onToggle: { id in
+                let paths = lookups.pathsByID[id] ?? [id]
+                // Whole-folder toggle: if every descendant is selected, clear
+                // them; otherwise select them all.
+                let target = !paths.allSatisfy { lookups.filesByID[$0].map(viewModel.isSelected) ?? false }
+                for path in paths {
+                    guard let file = lookups.filesByID[path] else { continue }
+                    if viewModel.isSelected(file) != target { viewModel.toggleSelection(file) }
+                }
+            },
+            onSetCategory: { category, selected in
+                for item in category.items {
+                    for path in (item.selectionPaths.isEmpty ? [item.id] : item.selectionPaths) {
+                        guard let file = lookups.filesByID[path] else { continue }
+                        if viewModel.isSelected(file) != selected { viewModel.toggleSelection(file) }
+                    }
+                }
+            },
+            onBack: { showingManager = false },
+            accessibilityPrefix: "system-junk.review",
+            lightSurface: true,
+            showsSparkle: true,
+            primaryActionTitle: String(
+                localized: "Clean Up",
+                comment: "Footer button on the Cleanup Manager that removes the selected junk."
+            ),
+            onPrimaryAction: { Task { await viewModel.clean() } },
+            primaryActionEnabled: !viewModel.selectedURLs.isEmpty,
+            selectionSummary: {
+                ManagerSelectionSummary(
+                    count: viewModel.selectedURLs.count,
+                    bytes: viewModel.totalSelectedSize
+                )
             }
-            .padding(16)
-            Divider()
-            SystemJunkReviewContent(
-                files: files(for: target, in: result),
-                totalBytes: totalBytes(for: target, in: result),
-                totalSelectedSize: viewModel.totalSelectedSize,
-                canClean: !viewModel.selectedURLs.isEmpty,
-                fileIconCache: fileIconCache,
-                isSelected: viewModel.isSelected,
-                onToggleSelection: viewModel.toggleSelection,
-                onRescan: viewModel.scanAgain,
-                onClean: { Task { await viewModel.clean() } }
-            )
-        }
-    }
-
-    /// The files for a drill-down. `.all` is the full result set; a category is
-    /// served straight from the result's per-category grouping.
-    private func files(for target: ReviewTarget, in result: ScanResult) -> [ScannedFile] {
-        switch target {
-        case .all:
-            return result.items
-        case .category(let category):
-            return result.itemsByCategory[category] ?? []
-        }
-    }
-
-    /// Summed size for a drill-down, read from the result's precomputed totals
-    /// so the header never re-sums the files on render.
-    private func totalBytes(for target: ReviewTarget, in result: ScanResult) -> Int64 {
-        switch target {
-        case .all:
-            return result.totalSize
-        case .category(let category):
-            return result.sizeByCategory[category] ?? 0
-        }
+        )
     }
 
     private func completeState(bytesFreed: Int64) -> some View {
@@ -260,6 +258,19 @@ struct SystemJunkView: View {
         f.countStyle = .file
         return f
     }()
+}
+
+/// Holds the path → file lookup the Cleanup Manager's selection callbacks read.
+/// Built once on the manager's background `buildSections` pass (so nothing O(N)
+/// runs on the main thread) and read on the main actor afterward; the manager
+/// only renders interactive rows once that build has finished, so there is no
+/// race. Mirrors `SmartScanJunkReview`'s lookups holder.
+private final class CleanupReviewLookups: @unchecked Sendable {
+    /// Leaf file path → scanned file.
+    var filesByID: [String: ScannedFile] = [:]
+    /// Row id (folder or file) → the leaf file paths it covers, for aggregate
+    /// folder-row selection.
+    var pathsByID: [String: [String]] = [:]
 }
 
 // MARK: - Subviews

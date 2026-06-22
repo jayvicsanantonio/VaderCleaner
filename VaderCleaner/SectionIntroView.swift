@@ -14,10 +14,12 @@ struct SectionIntroView: View {
     let presentation: SectionPresentation
     let section: NavigationSection
 
-    /// Localized section title for display. A computed accessor so the
-    /// rendered heading tracks the UI language while the identifiers below
-    /// stay fixed regardless of locale.
-    var title: String { section.title }
+    /// Localized hero heading for display. Prefers the presentation's
+    /// `heroTitle` override (e.g. Cleanup's "Junk Cleanup") and falls back to
+    /// the sidebar `section.title`. A computed accessor so the rendered heading
+    /// tracks the UI language while the identifiers below stay fixed regardless
+    /// of locale.
+    var title: String { presentation.heroTitle ?? section.title }
 
     // MARK: Accessibility identifiers
 

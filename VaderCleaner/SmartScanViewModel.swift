@@ -957,7 +957,7 @@ extension SmartScanViewModel {
         return SmartScanViewModel(
             junkScanner: { [weak exclusions] onProgress in
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await SystemJunkScanner().scan(excluding: excluded, onProgress: onProgress)
+                return try await SystemJunkScanner.live().scan(excluding: excluded, onProgress: onProgress)
             },
             malwareInstalled: { detector.isInstalled() },
             // Best-effort: a missing signature database or a broken clamscan

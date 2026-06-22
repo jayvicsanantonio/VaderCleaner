@@ -44,7 +44,10 @@ struct SystemJunkDeleter {
         "/Library/",
         "/private/var/",
         "/System/",
-        "/Applications/"
+        "/Applications/",
+        // The Document Versions store at the data-volume root is owned by root;
+        // saved revisions inside it can only be removed by the privileged helper.
+        "/.DocumentRevisions-V100/"
     ]
 
     /// Substring that, when paired with `/Volumes/` rooting, marks per-volume

@@ -40,10 +40,42 @@ struct ContentView: View {
     /// system caches the answer so the second prompt is a no-op, but it's
     /// cleaner to issue exactly one.
     @State private var didRequestNotificationPermission = false
-    /// Fixed width of the navigation rail. Shared by the rail's own frame and
-    /// the Scan disc panel so the disc centers over the detail content area
-    /// (not the full window) without the two drifting apart.
-    private let railWidth: CGFloat = 240
+    /// Width of the navigation rail when it shows icons + labels (the intro /
+    /// landing layout).
+    private let expandedRailWidth: CGFloat = 240
+    /// Width of the rail when collapsed to icons only — narrow enough to read as
+    /// a glyph rail while still fitting the selection pill around each icon.
+    private let collapsedRailWidth: CGFloat = 76
+    /// Current rail width. Shared by the rail's own frame and the Scan disc
+    /// panel so the disc centers over the detail content area (not the full
+    /// window) without the two drifting apart. Collapses once the selected
+    /// section leaves its intro.
+    private var railWidth: CGFloat { isRailCollapsed ? collapsedRailWidth : expandedRailWidth }
+
+    /// The coarse scan phase of the section currently on screen, or `nil` for a
+    /// non-scannable section (Health Monitor) that has no scan flow.
+    private var activeScanPresentation: ScanPresentation? {
+        switch selectedSection ?? .smartScan {
+        case .smartScan:      return smartScanViewModel.scanPresentation
+        case .systemJunk:     return systemJunkViewModel.scanPresentation
+        case .largeOldFiles:  return largeOldFilesViewModel.scanPresentation
+        case .spaceLens:      return spaceLensViewModel.scanPresentation
+        case .privacy:        return privacyViewModel.scanPresentation
+        case .applications:   return applicationsViewModel.scanPresentation
+        case .optimization:   return optimizationViewModel.scanPresentation
+        case .malwareRemoval: return malwareViewModel.scanPresentation
+        case .healthMonitor:  return nil
+        }
+    }
+
+    /// The rail collapses to icons only once the selected section leaves its
+    /// intro — i.e. right after the user taps Scan — and re-expands when it
+    /// returns to the intro (Start Over). Non-scannable sections keep the
+    /// expanded rail.
+    private var isRailCollapsed: Bool {
+        guard let presentation = activeScanPresentation else { return false }
+        return presentation != .intro
+    }
     /// Owns the borderless child panel that hosts the floating Scan disc so it
     /// can straddle the window's bottom edge. Created with the scannable view
     /// models; attached once the host window resolves.
@@ -128,9 +160,13 @@ struct ContentView: View {
         HStack(spacing: 0) {
             NavigationRailView(
                 selectedSection: selectedSection,
-                onSelect: selectSection
+                onSelect: selectSection,
+                collapsed: isRailCollapsed
             )
             .frame(width: railWidth)
+            // Slide the rail between its expanded and icons-only widths when the
+            // selected section enters/leaves its scan.
+            .animation(.smooth(duration: 0.32), value: railWidth)
 
             // Hosts `.navigationTitle` / `.toolbar` for the detail screens
             // without reintroducing a split divider.
@@ -165,6 +201,20 @@ struct ContentView: View {
                 .animation(.smooth(duration: 1.2), value: selectedSection)
             }
         }
+        // Float the hovered collapsed-rail row's name beside it. Read at this
+        // level (not inside the rail) so the bubble draws over the detail pane
+        // and isn't clipped by the narrow rail or its ScrollView.
+        .overlayPreferenceValue(RailTooltipPreferenceKey.self) { tooltip in
+            GeometryReader { proxy in
+                if let tooltip {
+                    let rect = proxy[tooltip.bounds]
+                    RailIconTooltip(title: tooltip.title)
+                        .offset(x: rect.maxX + 8, y: rect.midY - RailIconTooltip.height / 2)
+                        .transition(.opacity)
+                }
+            }
+            .allowsHitTesting(false)
+        }
         // The floating Scan disc lives in its own borderless child panel
         // (`ScanDiscWindowController`) so it can straddle the window's bottom
         // edge — a plain overlay cannot, because a window clips its content.
@@ -182,6 +232,11 @@ struct ContentView: View {
         // matching section's disc.
         .onChange(of: selectedSection) { _, newValue in
             scanDiscController.section = newValue ?? .smartScan
+        }
+        // Keep the floating disc centered over the detail area as the rail
+        // collapses/expands — its placement is computed from the rail width.
+        .onChange(of: railWidth) { _, newWidth in
+            scanDiscController.setRailWidth(newWidth)
         }
         // Animates the rail's section-change motion — chiefly the selection
         // pill sliding between rows. The detail pane and the backdrop each
