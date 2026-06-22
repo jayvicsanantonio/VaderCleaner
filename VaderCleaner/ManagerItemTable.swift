@@ -119,7 +119,9 @@ struct ManagerItemTable: NSViewRepresentable {
             let id = NSUserInterfaceItemIdentifier("ManagerRow")
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? ManagerRowCellView)
                 ?? ManagerRowCellView(reuseIdentifier: id)
-            guard row < items.count else { return cell }
+            // A row queried past the data (mid-reload) renders nothing rather
+            // than a stray sparkle from a never-configured cell.
+            guard row < items.count else { cell.blank(); return cell }
             let item = items[row]
             cell.configure(
                 item: item,
@@ -303,6 +305,20 @@ final class ManagerRowCellView: NSTableCellView {
         }
 
         setSelected(selected, accent: accent)
+    }
+
+    /// Clears a recycled cell so a row requested past the data shows nothing.
+    func blank() {
+        checkbox.isHidden = true
+        iconView.image = nil
+        titleField.stringValue = ""
+        subtitleField.isHidden = true
+        sparkleView.isHidden = true
+        sizeField.isHidden = true
+        chevron.image = nil
+        chevron.alphaValue = 0
+        chevron.isEnabled = false
+        onChevron = nil
     }
 
     @objc private func chevronTapped() { onChevron?() }

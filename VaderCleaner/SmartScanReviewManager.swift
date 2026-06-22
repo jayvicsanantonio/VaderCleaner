@@ -418,7 +418,13 @@ struct SmartScanReviewManager: View {
                     onToggle: onToggle,
                     accent: accent,
                     rowHeight: 44,
-                    contentToken: "\(selectedCategoryID ?? "")|\(sort.rawValue)|\(search)|\(expandedIDs.sorted().joined(separator: ","))",
+                    // Key the table reload to the *actual* displayed rows, not
+                    // the inputs: `selectedCategoryID` changes a render before
+                    // `displayedItems` is recomputed, so an input-based token
+                    // would reload with the previous category's row count and
+                    // then skip the reload once the real rows arrive — leaving
+                    // stale, unconfigured cells.
+                    contentToken: "\(displayedItems.count)|\(displayedItems.first?.id ?? "")|\(displayedItems.last?.id ?? "")|\(sort.rawValue)|\(search)",
                     accessibilityPrefix: accessibilityPrefix,
                     forcesLightAppearance: lightSurface,
                     showsSparkle: showsSparkle,
@@ -601,13 +607,15 @@ private struct ManagerSurfaceModifier: ViewModifier {
             content
                 .environment(\.colorScheme, .light)
                 .background(Color.white)
-                // A big rounded card, inset so the window's green gradient stays
-                // visible around its edges.
+                // A big rounded card with an even margin on every side so the
+                // window's green gradient shows as a thin border around it.
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, 14)
+                .padding(14)
+                // Extend up under the title-bar safe area so the top margin is
+                // as thin as the sides instead of leaving the toolbar's tall
+                // green band above the card.
+                .ignoresSafeArea(.container, edges: .top)
         } else {
             content
         }
