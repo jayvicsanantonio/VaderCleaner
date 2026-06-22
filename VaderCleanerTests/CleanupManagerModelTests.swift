@@ -23,6 +23,17 @@ final class CleanupManagerModelTests: XCTestCase {
         XCTAssertEqual(CleanupManagerModel.groups.map(\.id), ["systemJunk", "mailAttachments", "trashBins"])
     }
 
+    /// Deep-link section lookup resolves the left-pane section that owns a
+    /// category — Xcode Junk / Document Versions live under System Junk.
+    func test_sectionID_containingCategory() {
+        XCTAssertEqual(CleanupManagerModel.sectionID(containing: .xcodeJunk), "systemJunk")
+        XCTAssertEqual(CleanupManagerModel.sectionID(containing: .documentVersions), "systemJunk")
+        XCTAssertEqual(CleanupManagerModel.sectionID(containing: .userCache), "systemJunk")
+        XCTAssertEqual(CleanupManagerModel.sectionID(containing: .trash), "trashBins")
+        XCTAssertEqual(CleanupManagerModel.sectionID(containing: .mailAttachments), "mailAttachments")
+        XCTAssertNil(CleanupManagerModel.sectionID(containing: .largeFile))
+    }
+
     // MARK: - Empty sections
 
     /// The standalone manager always lists the three sections, even when a

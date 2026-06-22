@@ -81,6 +81,15 @@ final class CleanupGroupTests: XCTestCase {
         XCTAssertEqual(CleanupGroup.allCases.first, .systemJunk)
     }
 
+    /// A card's Review deep-links to its manager sub-category; the System Junk
+    /// umbrella opens its section at the default first category (nil).
+    func test_managerCategory_deepLinkTargets() {
+        XCTAssertNil(CleanupGroup.systemJunk.managerCategory)
+        XCTAssertEqual(CleanupGroup.trashBins.managerCategory, .trash)
+        XCTAssertEqual(CleanupGroup.xcodeJunk.managerCategory, .xcodeJunk)
+        XCTAssertEqual(CleanupGroup.documentVersions.managerCategory, .documentVersions)
+    }
+
     // MARK: - Tile aggregation
 
     func test_tiles_aggregatesCategoriesIntoGroupsWithSummedBytes() {

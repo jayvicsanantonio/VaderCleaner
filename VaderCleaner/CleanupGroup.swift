@@ -44,6 +44,19 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
     /// heaviest, most general bucket — is promoted to the hero slot.
     var isHero: Bool { self == .systemJunk }
 
+    /// The Cleanup Manager category a card's "Review" should open to. The
+    /// single-category cards (Trash Bins, Xcode Junk, Document Versions) deep
+    /// link straight to that sub-category; System Junk is the umbrella, so it
+    /// opens its section at the default first category (`nil`).
+    var managerCategory: ScanCategory? {
+        switch self {
+        case .systemJunk:       return nil
+        case .trashBins:        return .trash
+        case .xcodeJunk:        return .xcodeJunk
+        case .documentVersions: return .documentVersions
+        }
+    }
+
     /// Whether this card offers a direct "Clean" action alongside "Review".
     /// System Junk and Trash Bins are safe to clean wholesale; Xcode Junk and
     /// Document Versions are review-only so the user inspects before removing.

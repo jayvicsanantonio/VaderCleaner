@@ -165,6 +165,11 @@ struct SmartScanReviewManager: View {
     /// When true each item row shows a decorative pink "smart suggestion"
     /// sparkle (non-interactive). Off for Smart Scan's managers.
     var showsSparkle: Bool = false
+    /// Section/category to pre-select when the manager opens, for deep linking
+    /// from a dashboard card's "Review". `nil` falls back to the first section
+    /// and that section's first category.
+    var initialSectionID: String? = nil
+    var initialCategoryID: String? = nil
     /// Optional secondary footer button shown left of the primary action.
     var secondaryActionTitle: String? = nil
     var onSecondaryAction: (() -> Void)? = nil
@@ -553,8 +558,19 @@ struct SmartScanReviewManager: View {
     // MARK: - Selection sync
 
     private func syncSelection() {
-        if selectedSectionID == nil { selectedSectionID = loadedSections.first?.id }
-        selectFirstCategory()
+        if selectedSectionID == nil {
+            // Deep-link target (from a dashboard card's Review) if it exists,
+            // else the first section.
+            let target = initialSectionID.flatMap { id in loadedSections.first { $0.id == id }?.id }
+            selectedSectionID = target ?? loadedSections.first?.id
+        }
+        // Honor a deep-link category when it lives in the selected section,
+        // otherwise fall back to that section's first category.
+        if let initialCategoryID, sortedCategories.contains(where: { $0.id == initialCategoryID }) {
+            selectedCategoryID = initialCategoryID
+        } else {
+            selectFirstCategory()
+        }
     }
 
     private func selectFirstCategory() {

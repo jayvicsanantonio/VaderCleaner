@@ -30,6 +30,12 @@ enum CleanupManagerModel {
         ),
     ]
 
+    /// The id of the left-pane section that contains `category`, for deep
+    /// linking a dashboard card's "Review" to the right place.
+    static func sectionID(containing category: ScanCategory) -> String? {
+        groups.first { $0.categories.contains(category) }?.id
+    }
+
     /// SF Symbol for each junk category's middle-pane row (the fallback when no
     /// badge artwork is available).
     nonisolated static func icon(for category: ScanCategory) -> String {

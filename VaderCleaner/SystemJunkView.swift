@@ -21,9 +21,12 @@ struct SystemJunkView: View {
 
     /// Whether the Cleanup Manager (the three-pane Review) is showing over the
     /// dashboard. Pure navigation state held on the view; reset to the dashboard
-    /// at the start of every scan. Both a card's "Review" and "Review All Junk"
-    /// open the same full manager.
+    /// at the start of every scan. A card's "Review" deep links to its
+    /// section/category; "Review All Junk" opens at the default first one.
     @State private var showingManager = false
+    /// Deep-link target for the manager when opened from a card's Review.
+    @State private var managerInitialSection: String?
+    @State private var managerInitialCategory: String?
 
     /// Path → file lookup the manager's selection callbacks read. Built off the
     /// main actor inside the manager's `buildSections` (so a huge scan never
@@ -115,11 +118,24 @@ struct SystemJunkView: View {
             SystemJunkDashboardView(
                 totalBytes: result.totalSize,
                 tiles: CleanupGroupTile.tiles(from: result),
-                onReview: { _ in showingManager = true },
+                onReview: { group in
+                    // Deep link: open the manager at this card's section and,
+                    // for single-category cards, its sub-category.
+                    let category = group.managerCategory
+                    managerInitialSection = category.flatMap(CleanupManagerModel.sectionID(containing:))
+                        ?? CleanupManagerModel.groups.first?.id
+                    managerInitialCategory = category?.rawValue
+                    showingManager = true
+                },
                 onClean: { group in
                     Task { await viewModel.clean(categories: Set(group.categories)) }
                 },
-                onReviewAll: { showingManager = true },
+                onReviewAll: {
+                    // The full manager, default first section/category.
+                    managerInitialSection = nil
+                    managerInitialCategory = nil
+                    showingManager = true
+                },
                 onStartOver: viewModel.scanAgain
             )
         }
@@ -196,6 +212,8 @@ struct SystemJunkView: View {
             accessibilityPrefix: "system-junk.review",
             lightSurface: true,
             showsSparkle: true,
+            initialSectionID: managerInitialSection,
+            initialCategoryID: managerInitialCategory,
             primaryActionTitle: String(
                 localized: "Clean Up",
                 comment: "Footer button on the Cleanup Manager that removes the selected junk."
