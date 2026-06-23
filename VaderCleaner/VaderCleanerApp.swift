@@ -26,9 +26,10 @@ struct VaderCleanerApp: App {
     @State private var menuBarViewModel: MenuBarViewModel
     @State private var preferences: PreferencesStore
     @State private var exclusions: ExclusionsStore
+    @State private var myClutterScanScope: MyClutterScanScopeStore
     @State private var smartScanSettings: SmartScanSettingsStore
     @State private var systemJunkViewModel: SystemJunkViewModel
-    @State private var largeOldFilesViewModel: LargeOldFilesViewModel
+    @State private var myClutterViewModel: MyClutterViewModel
     @State private var spaceLensViewModel: DiskScannerViewModel
     @State private var spaceLensViewMode: SpaceLensViewModeStore
     @State private var privacyViewModel: PrivacyViewModel
@@ -79,6 +80,11 @@ struct VaderCleanerApp: App {
         // same exclusions store and snapshot it per scan.
         let exclusions = ExclusionsStore()
         _exclusions = State(initialValue: exclusions)
+        // Which folder the My Clutter scan walks (home subtrees by default).
+        // Captured by `MyClutterViewModel.live` below, which snapshots it
+        // per scan so a just-picked folder takes effect on the next run.
+        let myClutterScanScope = MyClutterScanScopeStore()
+        _myClutterScanScope = State(initialValue: myClutterScanScope)
         // "Customize Smart Care" choices (which Smart Scan modules and System
         // Junk categories to include). Captured by `SmartScanViewModel.live`
         // below, which snapshots it per scan so a Settings toggle takes effect
@@ -88,8 +94,11 @@ struct VaderCleanerApp: App {
         _systemJunkViewModel = State(
             initialValue: SystemJunkViewModel.live(exclusions: exclusions)
         )
-        _largeOldFilesViewModel = State(
-            initialValue: LargeOldFilesViewModel.live(exclusions: exclusions)
+        _myClutterViewModel = State(
+            initialValue: MyClutterViewModel.live(
+                exclusions: exclusions,
+                scanScope: myClutterScanScope
+            )
         )
         _spaceLensViewModel = State(
             initialValue: DiskScannerViewModel.live(exclusions: exclusions)
@@ -219,7 +228,7 @@ struct VaderCleanerApp: App {
         Window("VaderCleaner", id: Self.mainWindowID) {
             ContentView(
                 systemJunkViewModel: systemJunkViewModel,
-                largeOldFilesViewModel: largeOldFilesViewModel,
+                myClutterViewModel: myClutterViewModel,
                 spaceLensViewModel: spaceLensViewModel,
                 spaceLensViewMode: spaceLensViewMode,
                 privacyViewModel: privacyViewModel,
@@ -235,6 +244,7 @@ struct VaderCleanerApp: App {
                 .environment(onboardingViewModel)
                 .environment(preferences)
                 .environment(exclusions)
+                .environment(myClutterScanScope)
                 .environment(smartScanSettings)
                 .environment(systemStats)
                 .environment(notificationMonitor)

@@ -225,11 +225,12 @@ final class FinalPolishUITests: XCTestCase {
         // Prefer a terminal state; allow a generous window for the walk.
         // One combined query so an early empty/failed state short-circuits
         // instead of blocking the full timeout waiting only for the dashboard.
-        // A successful scan now lands on the category dashboard (`large-old.dashboard`),
-        // which drills into the file list — so the dashboard is the results terminal.
+        // A successful scan now lands on the My Clutter recommendation grid
+        // (`myClutter.dashboard`); the kept empty/failed state screens still use
+        // the `large-old.*` identifiers.
         let terminal = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'large-old.dashboard', 'large-old.emptyTitle', 'large-old.errorMessage'}"
+                format: "identifier IN {'myClutter.dashboard', 'large-old.emptyTitle', 'large-old.errorMessage'}"
             ))
             .firstMatch
         if terminal.waitForExistence(timeout: 120) {
@@ -238,10 +239,10 @@ final class FinalPolishUITests: XCTestCase {
 
         // Still walking the home directory — the wiring is proven by the
         // in-progress scanning indicator having rendered.
-        let scanning = app.descendants(matching: .any)["large-old.scanning"]
+        let scanning = app.descendants(matching: .any)["myClutter.scanning"]
         XCTAssertTrue(
             scanning.exists,
-            "Expected Large & Old Files to reach the dashboard, empty, failed, or scanning state after a scan"
+            "Expected My Clutter to reach the dashboard, empty, failed, or scanning state after a scan"
         )
     }
 

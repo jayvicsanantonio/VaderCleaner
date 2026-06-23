@@ -12,7 +12,7 @@ struct ContentView: View {
     @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.scenePhase) private var scenePhase
     private let systemJunkViewModel: SystemJunkViewModel
-    private let largeOldFilesViewModel: LargeOldFilesViewModel
+    private let myClutterViewModel: MyClutterViewModel
     private let spaceLensViewModel: DiskScannerViewModel
     private let spaceLensViewMode: SpaceLensViewModeStore
     private let privacyViewModel: PrivacyViewModel
@@ -58,7 +58,7 @@ struct ContentView: View {
         switch selectedSection ?? .smartScan {
         case .smartScan:      return smartScanViewModel.scanPresentation
         case .systemJunk:     return systemJunkViewModel.scanPresentation
-        case .largeOldFiles:  return largeOldFilesViewModel.scanPresentation
+        case .largeOldFiles:  return myClutterViewModel.scanPresentation
         case .spaceLens:      return spaceLensViewModel.scanPresentation
         case .privacy:        return privacyViewModel.scanPresentation
         case .applications:   return applicationsViewModel.scanPresentation
@@ -82,7 +82,7 @@ struct ContentView: View {
     @State private var scanDiscController: ScanDiscWindowController
     init(
         systemJunkViewModel: SystemJunkViewModel,
-        largeOldFilesViewModel: LargeOldFilesViewModel,
+        myClutterViewModel: MyClutterViewModel,
         spaceLensViewModel: DiskScannerViewModel,
         spaceLensViewMode: SpaceLensViewModeStore,
         privacyViewModel: PrivacyViewModel,
@@ -95,7 +95,7 @@ struct ContentView: View {
         smartScanViewModel: SmartScanViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
-        self.largeOldFilesViewModel = largeOldFilesViewModel
+        self.myClutterViewModel = myClutterViewModel
         self.spaceLensViewModel = spaceLensViewModel
         self.spaceLensViewMode = spaceLensViewMode
         self.privacyViewModel = privacyViewModel
@@ -109,7 +109,7 @@ struct ContentView: View {
         _scanDiscController = State(initialValue: ScanDiscWindowController(
             smartScanViewModel: smartScanViewModel,
             systemJunkViewModel: systemJunkViewModel,
-            largeOldFilesViewModel: largeOldFilesViewModel,
+            myClutterViewModel: myClutterViewModel,
             spaceLensViewModel: spaceLensViewModel,
             optimizationViewModel: optimizationViewModel,
             malwareViewModel: malwareViewModel,
@@ -132,18 +132,17 @@ struct ContentView: View {
         //
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
-        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, largeOldFilesViewModel, malwareViewModel, applicationsViewModel, optimizationViewModel] result in
+        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, malwareViewModel, applicationsViewModel, optimizationViewModel] result in
             systemJunkViewModel.seed(with: result.junkResult)
             malwareViewModel.seed(
                 threats: result.threats,
                 clamAVAvailable: result.clamAVAvailable,
                 scannedAt: Date()
             )
-            // Smart Scan's My Clutter tile now scans for duplicates, not large &
-            // old files, so the standalone Large & Old Files section can't be
-            // seeded from the result — kick off its own scan instead, like the
-            // other sections Smart Scan doesn't produce data for.
-            if case .idle = largeOldFilesViewModel.phase { largeOldFilesViewModel.beginScan() }
+            // The My Clutter section runs four composite scans Smart Scan
+            // doesn't produce, so it can't be seeded from the result — kick off
+            // its own scan instead, like the other sections below.
+            if case .idle = myClutterViewModel.phase { myClutterViewModel.beginScan() }
             if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
             if case .idle = optimizationViewModel.phase { optimizationViewModel.beginScan() }
         }
@@ -375,8 +374,8 @@ struct ContentView: View {
                 SystemJunkView(viewModel: systemJunkViewModel)
             }
         case .largeOldFiles:
-            ScannableSectionContent(coordinator: largeOldFilesViewModel, section: section) {
-                LargeOldFilesView(viewModel: largeOldFilesViewModel)
+            ScannableSectionContent(coordinator: myClutterViewModel, section: section) {
+                MyClutterView(viewModel: myClutterViewModel)
             }
         case .spaceLens:
             ScannableSectionContent(coordinator: spaceLensViewModel, section: section) {
@@ -457,10 +456,14 @@ private extension AnyTransition {
     let stats = SystemStatsService(autostart: false)
     let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "preview")!)
     let exclusions = ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!)
+    let myClutterScanScope = MyClutterScanScopeStore(defaults: UserDefaults(suiteName: "preview")!)
     let notificationManager = NotificationManager()
     return ContentView(
         systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
-        largeOldFilesViewModel: LargeOldFilesViewModel.live(exclusions: exclusions),
+        myClutterViewModel: MyClutterViewModel.live(
+            exclusions: exclusions,
+            scanScope: myClutterScanScope
+        ),
         spaceLensViewModel: DiskScannerViewModel.live(exclusions: exclusions),
         spaceLensViewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!),
         privacyViewModel: PrivacyViewModel.live(),

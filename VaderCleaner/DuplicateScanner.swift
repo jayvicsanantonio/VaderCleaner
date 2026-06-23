@@ -12,16 +12,23 @@ import CryptoKit
 struct DuplicateScanner {
 
     private let fileScanner: FileScanning
-    private let downloadsURL: URL?
+    private let roots: [URL]
 
     /// `downloadsURL` is injectable so tests can point at a temp directory.
-    /// Production resolves the user's real Downloads folder.
+    /// Production resolves the user's real Downloads folder by default.
     init(
         fileScanner: FileScanning = FileScanner(),
         downloadsURL: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     ) {
         self.fileScanner = fileScanner
-        self.downloadsURL = downloadsURL
+        self.roots = downloadsURL.map { [$0] } ?? []
+    }
+
+    /// Walk an explicit set of roots (e.g. the curated user-content folders the
+    /// My Clutter section scans) rather than the user's Downloads folder.
+    init(fileScanner: FileScanning = FileScanner(), roots: [URL]) {
+        self.fileScanner = fileScanner
+        self.roots = roots
     }
 
     /// Walks Downloads and returns the duplicate groups, ordered by reclaimable
@@ -31,15 +38,15 @@ struct DuplicateScanner {
         excluding: [URL],
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> [DuplicateGroup] {
-        guard let downloadsURL else { return [] }
+        guard !roots.isEmpty else { return [] }
 
         // Collect every non-empty file once. The placeholder category is unused
         // — duplicates don't carry a `ScanCategory` meaning — so any value works.
         var bySize: [Int64: [ScannedFile]] = [:]
         try await fileScanner.scan(
-            roots: [ScanRoot(url: downloadsURL, category: .largeFile)],
+            roots: roots.map { ScanRoot(url: $0, category: .largeFile) },
             excluding: excluding,
-            options: FileScanOptions(packagesAsFiles: true),
+            options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
             batchSize: FileScanner.defaultBatchSize,
             onProgress: onProgress
         ) { batch in
@@ -50,11 +57,13 @@ struct DuplicateScanner {
         }
 
         // Only size collisions can be duplicates — hash just those to confirm.
+        // iCloud placeholders are skipped so confirming a duplicate never forces
+        // a slow on-demand download.
         var groups: [DuplicateGroup] = []
         for (_, candidates) in bySize where candidates.count > 1 {
             try Task.checkCancellation()
             var byHash: [String: [ScannedFile]] = [:]
-            for file in candidates {
+            for file in candidates where CloudFileAvailability.isLocallyAvailable(file.url) {
                 guard let hash = Self.sha256Hex(of: file.url) else { continue }
                 byHash[hash, default: []].append(file)
             }

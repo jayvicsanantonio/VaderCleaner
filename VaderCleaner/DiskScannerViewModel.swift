@@ -365,7 +365,7 @@ extension DiskScannerViewModel.Phase: Equatable {
 extension DiskScannerViewModel {
 
     /// Build a view-model wired to the real `DiskScanner`. Mirrors the
-    /// `LargeOldFilesViewModel.live(...)` pattern — the exclusions snapshot
+    /// `MyClutterViewModel.live(...)` pattern — the exclusions snapshot
     /// is captured per scan so a freshly-added Preferences exclusion takes
     /// effect on the very next scan.
     @MainActor

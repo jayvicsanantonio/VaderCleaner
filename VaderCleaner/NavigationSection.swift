@@ -20,7 +20,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         switch self {
         case .smartScan:       return String(localized: "Smart Scan")
         case .systemJunk:      return String(localized: "Cleanup")
-        case .largeOldFiles:   return String(localized: "Large & Old Files")
+        case .largeOldFiles:   return String(localized: "My Clutter")
         case .spaceLens:       return String(localized: "Space Lens")
         case .malwareRemoval:  return String(localized: "Malware Removal")
         case .optimization:    return String(localized: "Optimization")

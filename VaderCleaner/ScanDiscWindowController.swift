@@ -24,7 +24,7 @@ final class ScanDiscWindowController {
     // on `section` to drive the matching one.
     @ObservationIgnored let smartScanViewModel: SmartScanViewModel
     @ObservationIgnored let systemJunkViewModel: SystemJunkViewModel
-    @ObservationIgnored let largeOldFilesViewModel: LargeOldFilesViewModel
+    @ObservationIgnored let myClutterViewModel: MyClutterViewModel
     @ObservationIgnored let spaceLensViewModel: DiskScannerViewModel
     @ObservationIgnored let optimizationViewModel: OptimizationViewModel
     @ObservationIgnored let malwareViewModel: MalwareViewModel
@@ -52,7 +52,7 @@ final class ScanDiscWindowController {
     init(
         smartScanViewModel: SmartScanViewModel,
         systemJunkViewModel: SystemJunkViewModel,
-        largeOldFilesViewModel: LargeOldFilesViewModel,
+        myClutterViewModel: MyClutterViewModel,
         spaceLensViewModel: DiskScannerViewModel,
         optimizationViewModel: OptimizationViewModel,
         malwareViewModel: MalwareViewModel,
@@ -61,7 +61,7 @@ final class ScanDiscWindowController {
     ) {
         self.smartScanViewModel = smartScanViewModel
         self.systemJunkViewModel = systemJunkViewModel
-        self.largeOldFilesViewModel = largeOldFilesViewModel
+        self.myClutterViewModel = myClutterViewModel
         self.spaceLensViewModel = spaceLensViewModel
         self.optimizationViewModel = optimizationViewModel
         self.malwareViewModel = malwareViewModel

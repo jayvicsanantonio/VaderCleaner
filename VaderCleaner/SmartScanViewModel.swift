@@ -187,7 +187,7 @@ final class SmartScanViewModel {
     /// `NSWorkspace.open`. Non-throwing — open is fire-and-forget.
     typealias UpdateOpener = (URL) async -> Void
     /// Removes the given large-old file URLs and returns the set of URLs that
-    /// were actually removed. Mirrors `LargeOldFilesViewModel.Deleter`:
+    /// were actually removed. Mirrors `MyClutterViewModel`'s deleter:
     /// partial-success is the norm (a single locked file must not abort the
     /// batch), so the return is the success set, not a failure set.
     typealias LargeFileDeleter = ([URL]) async -> Set<URL>
@@ -1026,12 +1026,10 @@ extension SmartScanViewModel {
                     _ = NSWorkspace.shared.open(url)
                 }
             },
-            // Per-URL `FileManager.removeItem` loop. Duplicated from
-            // `LargeOldFilesViewModel.removeUserFiles` rather than promoting
-            // that private static so this slice doesn't touch unrelated
-            // code (CLAUDE.md rule). Failures are logged with hash-masked
-            // privacy and skipped; the surviving files would stay in the
-            // dashboard if Run is re-run.
+            // A standalone per-URL `FileManager.removeItem` loop, kept local so
+            // this slice doesn't touch unrelated code (CLAUDE.md rule). Failures
+            // are logged with hash-masked privacy and skipped; the surviving
+            // files would stay in the dashboard if Run is re-run.
             largeFileDeleter: { urls in
                 await Self.removeClutterFiles(at: urls, log: log)
             },

@@ -33,18 +33,29 @@ protocol UserFilesPathProviding {
 ///
 /// `~/Library` is intentionally included — it can hold multi-gigabyte caches
 /// or `Application Support` blobs left behind by uninstalled apps that the
-/// System Junk path provider doesn't touch. The user-confirmation alert in
-/// `LargeOldFilesView` mitigates accidental deletion of live app data.
+/// System Junk path provider doesn't touch. The My Clutter review moves files
+/// to the Trash (reversible) rather than deleting outright, mitigating
+/// accidental loss of live app data.
 struct DefaultUserFilesPathProvider: UserFilesPathProviding {
 
     private let homeDirectory: URL
 
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    /// When the user picks a specific folder in the My Clutter intro, that
+    /// folder is walked directly as the only root. `nil` keeps the default
+    /// behaviour of expanding the canonical home subtrees below.
+    private let explicitRoots: [URL]?
+
+    init(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        roots: [URL]? = nil
+    ) {
         self.homeDirectory = homeDirectory
+        self.explicitRoots = roots
     }
 
     func roots() -> [URL] {
-        ["Documents", "Downloads", "Desktop", "Movies", "Music", "Pictures", "Library"]
+        if let explicitRoots { return explicitRoots }
+        return ["Documents", "Downloads", "Desktop", "Movies", "Music", "Pictures", "Library"]
             .map { homeDirectory.appendingPathComponent($0, isDirectory: true) }
     }
 

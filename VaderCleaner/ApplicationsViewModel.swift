@@ -119,14 +119,14 @@ final class ApplicationsViewModel {
     /// Moves the given files to the Trash and returns the set of URLs actually
     /// recycled. Partial success is the norm (a locked file must not abort the
     /// batch), so the return is the success set — mirroring
-    /// `LargeOldFilesViewModel.Deleter`.
+    /// `MyClutterViewModel`'s deleter.
     typealias RecycleFiles = @Sendable ([URL]) async -> Set<URL>
 
     private(set) var phase: Phase = .idle
 
     /// Per-file gate for the Installation Files review screen, keyed by URL.
     /// Seeded *empty* — removal is destructive, so the user opts each installer
-    /// in explicitly, matching `LargeOldFilesViewModel`.
+    /// in explicitly, matching `MyClutterViewModel`.
     private(set) var installationFileSelection: Set<URL> = []
     /// True while a recycle batch is in flight, so the review screen can show a
     /// spinner and disable its Remove button.
