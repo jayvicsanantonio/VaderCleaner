@@ -35,7 +35,7 @@ struct ScanDiscHostView: View {
         case .systemJunk:
             overlay(controller.systemJunkViewModel, .systemJunk)
         case .largeOldFiles:
-            overlay(controller.largeOldFilesViewModel, .largeOldFiles)
+            overlay(controller.myClutterViewModel, .largeOldFiles)
         case .spaceLens:
             overlay(controller.spaceLensViewModel, .spaceLens)
         case .optimization:

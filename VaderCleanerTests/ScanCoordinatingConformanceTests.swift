@@ -248,76 +248,6 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
     }
 
-    // MARK: - LargeOldFilesViewModel
-    // Mapping: .idle→.intro; .scanning→.working; .results/.empty/.failed→.results.
-
-    func test_largeOldFiles_idleMapsToIntro() {
-        XCTAssertEqual(makeLargeOldFiles().scanPresentation, .intro)
-    }
-
-    func test_largeOldFiles_scanningMapsToWorking() async {
-        let gate = ScanGate()
-        let vm = makeLargeOldFiles(scanner: {
-            await gate.wait()
-            return []
-        })
-
-        let task = Task { await vm.scan() }
-        await yieldUntil({ vm.phase == .scanning }, ".scanning")
-        XCTAssertEqual(vm.scanPresentation, .working)
-
-        gate.open()
-        await task.value
-    }
-
-    func test_largeOldFiles_resultsMapsToResults() async {
-        let vm = makeLargeOldFiles(scanner: { [self.makeFile(name: "big", category: .largeFile)] })
-        await vm.scan()
-        if case .results = vm.phase {} else { XCTFail("expected .results, got \(vm.phase)") }
-        XCTAssertEqual(vm.scanPresentation, .results)
-    }
-
-    func test_largeOldFiles_emptyMapsToResults() async {
-        let vm = makeLargeOldFiles(scanner: { [] })
-        await vm.scan()
-        XCTAssertEqual(vm.phase, .empty)
-        XCTAssertEqual(vm.scanPresentation, .results)
-    }
-
-    func test_largeOldFiles_failedMapsToResults() async {
-        let vm = makeLargeOldFiles(scanner: { throw Boom() })
-        await vm.scan()
-        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
-        XCTAssertEqual(vm.scanPresentation, .results)
-    }
-
-    func test_largeOldFiles_beginScanLeavesIntro() async {
-        let vm = makeLargeOldFiles()
-        vm.beginScan()
-        await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
-        XCTAssertNotEqual(vm.scanPresentation, .intro)
-    }
-
-    func test_largeOldFiles_beginScanIgnoresReentrantCallWhileScanning() async {
-        let gate = ScanGate()
-        let counter = CallCounter()
-        let vm = makeLargeOldFiles(scanner: {
-            counter.bump()
-            await gate.wait()
-            return []
-        })
-
-        vm.beginScan()
-        await yieldUntil({ vm.phase == .scanning }, ".scanning")
-        vm.beginScan() // re-entrant while scanning: must be a no-op
-        await yieldUntil({ counter.count >= 1 }, "scanner invoked")
-        XCTAssertEqual(counter.count, 1)
-
-        gate.open()
-        await yieldUntil({ vm.phase != .scanning }, "scan settles")
-        XCTAssertEqual(counter.count, 1, "re-entrant beginScan must not start a second scan")
-    }
-
     // MARK: - DiskScannerViewModel (Space Lens)
     // Mapping: .idle→.intro; .scanning→.working; .ready/.error→.results.
 
@@ -707,13 +637,6 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         deleter: @escaping SystemJunkViewModel.Deleter = { _ in 0 }
     ) -> SystemJunkViewModel {
         SystemJunkViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
-    }
-
-    private func makeLargeOldFiles(
-        scanner: @escaping () async throws -> [ScannedFile] = { [] },
-        deleter: @escaping ([URL]) async -> Set<URL> = { Set($0) }
-    ) -> LargeOldFilesViewModel {
-        LargeOldFilesViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
     }
 
     private func makeMalware(

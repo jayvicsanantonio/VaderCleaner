@@ -260,6 +260,14 @@ struct SectionIntroView: View {
                     featureRow(feature, index: index)
                 }
             }
+
+            // My Clutter scans a folder the user chooses, so its intro carries
+            // a directory selector below the feature rows. Every other section
+            // scans fixed system locations and shows no picker.
+            if section == .largeOldFiles {
+                MyClutterFolderPicker(accent: presentation.accent)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: 380, alignment: .leading)
         // Combine the title + tagline + rows under the per-section id without

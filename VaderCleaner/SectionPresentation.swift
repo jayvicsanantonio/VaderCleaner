@@ -123,21 +123,25 @@ struct SectionPresentation {
                 accent: section.theme.accent,
                 heroTitle: nil,
                 tagline: String(
-                    localized: "Find big and forgotten files taking up space.",
-                    comment: "Large & Old Files intro tagline."
+                    localized: "Sort through your files and reduce the mess in just a few clicks.",
+                    comment: "My Clutter intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "doc.on.doc",
-                        title: String(localized: "Large Files", comment: "Large & Old Files feature row.")
+                        title: String(localized: "Large Files", comment: "My Clutter feature row.")
                     ),
                     SectionFeature(
-                        symbol: "clock.arrow.circlepath",
-                        title: String(localized: "Old Files", comment: "Large & Old Files feature row.")
+                        symbol: "doc.on.doc.fill",
+                        title: String(localized: "Duplicates", comment: "My Clutter feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "photo.on.rectangle.angled",
+                        title: String(localized: "Similar Images", comment: "My Clutter feature row.")
                     ),
                     SectionFeature(
                         symbol: "arrow.down.circle",
-                        title: String(localized: "Downloads", comment: "Large & Old Files feature row.")
+                        title: String(localized: "Downloads", comment: "My Clutter feature row.")
                     ),
                 ]
             )
