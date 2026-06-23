@@ -49,6 +49,12 @@ final class MyClutterViewModel {
     private(set) var selectedURLs: Set<URL> = []
     private(set) var totalSelectedSize: Int64 = 0
 
+    /// Bumped whenever the result *set* changes (scan completes, files
+    /// trashed) — never on a selection toggle. The manager keys its off-main
+    /// cache rebuild to this so it recomputes facets/groups only when the data
+    /// actually changes, not on every checkbox click.
+    private(set) var resultsVersion = 0
+
     /// Size of every reviewable file, so selection totals never re-walk the
     /// result arrays. Rebuilt when a scan completes.
     @ObservationIgnored private var sizeByURL: [URL: Int64] = [:]
@@ -96,6 +102,13 @@ final class MyClutterViewModel {
     /// The browser/app that contributed the most download bytes, for the card
     /// title (e.g. "Google Chrome"), or `nil` for a generic label.
     var dominantDownloadSource: String? { DownloadsScanner.dominantSource(of: downloads) }
+
+    /// The bundle id of the dominant download source, for its app icon on the
+    /// dashboard card.
+    var dominantDownloadBundleID: String? {
+        guard let name = dominantDownloadSource else { return nil }
+        return downloads.first { $0.sourceApp == name }?.sourceBundleID
+    }
 
     // MARK: - Selection
 
@@ -189,6 +202,18 @@ final class MyClutterViewModel {
         prune(deleted: actuallyDeleted)
     }
 
+    /// Trash only the selected files that fall within `scope` — the category
+    /// currently shown in the manager — leaving other categories' selections
+    /// intact. Keeps the manager's footer total and its Remove action scoped to
+    /// the category the user is reviewing.
+    func deleteSelected(in scope: Set<URL>) async {
+        let urls = Array(selectedURLs.intersection(scope))
+        guard !urls.isEmpty else { return }
+        let actuallyDeleted = await deleter(urls)
+        guard !actuallyDeleted.isEmpty else { return }
+        prune(deleted: actuallyDeleted)
+    }
+
     // MARK: - Internals
 
     private func resetResults() {
@@ -213,13 +238,12 @@ final class MyClutterViewModel {
         self.downloads = downloads
 
         rebuildSizeMap()
-        // Pre-select the redundant copies (duplicates + similar) so a copy is
-        // always kept, matching the reference's "smart" default. Large/old and
-        // downloads start unselected — the user decides.
-        let presets = (duplicateCopies + similarCopies).map(\.url)
-        selectedURLs = Set(presets)
-        totalSelectedSize = presets.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
+        // Nothing is selected by default — every Review / Review All Files opens
+        // with an empty selection so the user opts each item in deliberately.
+        selectedURLs = []
+        totalSelectedSize = 0
 
+        resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results
     }
 
@@ -247,6 +271,7 @@ final class MyClutterViewModel {
         rebuildSizeMap()
         selectedURLs.subtract(deleted)
         totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
+        resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results
     }
 

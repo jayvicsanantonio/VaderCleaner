@@ -16,21 +16,6 @@ final class DownloadsScannerTests: XCTestCase {
         )
     }
 
-    func test_friendlyNameMapsKnownAgents() {
-        XCTAssertEqual(DownloadsScanner.friendlyName(forAgent: "com.google.Chrome"), "Google Chrome")
-        XCTAssertEqual(DownloadsScanner.friendlyName(forAgent: "com.apple.Safari"), "Safari")
-        XCTAssertEqual(DownloadsScanner.friendlyName(forAgent: "org.mozilla.firefox"), "Firefox")
-        XCTAssertEqual(DownloadsScanner.friendlyName(forAgent: "com.microsoft.edgemac"), "Microsoft Edge")
-    }
-
-    func test_friendlyNamePassesThroughUnknownAgent() {
-        XCTAssertEqual(
-            DownloadsScanner.friendlyName(forAgent: "com.example.Thing"),
-            "com.example.Thing",
-            "An unrecognised agent should still attribute, returned as-is"
-        )
-    }
-
     func test_dominantSourceIsLargestByBytes() {
         let items = [
             DownloadItem(file: file("/d/a.dmg", size: 100), sourceApp: "Safari"),

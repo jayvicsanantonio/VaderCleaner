@@ -168,6 +168,7 @@ struct MyClutterDashboardView: View {
             fallbackSymbol: "doc.fill",
             identifier: "myClutter.card.largeOld",
             isEnabled: !viewModel.largeOldFiles.isEmpty,
+            showsThumbnailChrome: false,
             onReview: onReviewLargeOld
         )
     }
@@ -186,16 +187,11 @@ struct MyClutterDashboardView: View {
         )
     }
 
-    /// The downloading browser's real app icon (e.g. Google Chrome), shown in
-    /// the Downloads card corner. `nil` when the source is unknown or the app
-    /// isn't installed, so the card falls back to a file thumbnail.
+    /// The downloading app's real icon (e.g. Google Chrome), shown in the
+    /// Downloads card corner. `nil` when the source is unknown or the app isn't
+    /// installed, so the card falls back to a file thumbnail.
     private var downloadsSourceIcon: NSImage? {
-        guard
-            let source = viewModel.dominantDownloadSource,
-            let bundleID = DownloadsScanner.bundleIdentifier(forSource: source),
-            let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-        else { return nil }
-        return NSWorkspace.shared.icon(forFile: appURL.path)
+        AppIconLoader.image(bundleID: viewModel.dominantDownloadBundleID)
     }
 
     private var downloadsTitle: String {
@@ -237,6 +233,9 @@ struct MyClutterCard: View {
     /// When set (e.g. a browser's app icon for the Downloads card), shown in the
     /// corner instead of file thumbnails.
     var accessoryImage: NSImage? = nil
+    /// Whether thumbnails get the dark rounded backing + border + shadow. Off
+    /// for cards whose imagery already reads as a standalone icon (Large & Old).
+    var showsThumbnailChrome: Bool = true
     let onReview: () -> Void
 
     var body: some View {
@@ -346,17 +345,25 @@ struct MyClutterCard: View {
         }
     }
 
-    /// One framed thumbnail at the given side length.
+    /// One thumbnail at the given side length. The dark backing/border/shadow
+    /// is dropped when `showsThumbnailChrome` is false so the icon reads on its
+    /// own against the card.
+    @ViewBuilder
     private func thumbnail(_ url: URL, size: CGFloat) -> some View {
-        ClutterThumbnailView(url: url, fallbackSymbol: fallbackSymbol)
-            .frame(width: size, height: size)
-            .background(Color.black.opacity(0.2))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+        if showsThumbnailChrome {
+            ClutterThumbnailView(url: url, fallbackSymbol: fallbackSymbol)
+                .frame(width: size, height: size)
+                .background(Color.black.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+        } else {
+            ClutterThumbnailView(url: url, fallbackSymbol: fallbackSymbol, contentMode: .fit)
+                .frame(width: size, height: size)
+        }
     }
 }
 
@@ -368,6 +375,12 @@ struct MyClutterCard: View {
 struct ClutterThumbnailView: View {
     let url: URL
     let fallbackSymbol: String
+    /// Point size requested from Quick Look — small for card corners, large for
+    /// the manager's preview pane.
+    var pointSize: CGFloat = 92
+    /// How the loaded image fills its frame. Card thumbnails fill (cropped);
+    /// the preview pane fits (whole image visible).
+    var contentMode: ContentMode = .fill
     @State private var image: NSImage?
 
     var body: some View {
@@ -375,27 +388,27 @@ struct ClutterThumbnailView: View {
             if let image {
                 Image(nsImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 Image(systemName: fallbackSymbol)
                     .font(.system(size: 18))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task(id: url) {
-            image = await Self.thumbnail(for: url)
+            image = await Self.thumbnail(for: url, pointSize: pointSize)
         }
     }
 
     /// Generates a Quick Look thumbnail, falling back to the Finder icon.
     /// iCloud placeholders use the icon directly — asking Quick Look to render
     /// one would force a slow on-demand download.
-    private static func thumbnail(for url: URL) async -> NSImage? {
+    private static func thumbnail(for url: URL, pointSize: CGFloat) async -> NSImage? {
         guard CloudFileAvailability.isLocallyAvailable(url) else {
             return NSWorkspace.shared.icon(forFile: url.path)
         }
-        let size = CGSize(width: 92, height: 92)
+        let size = CGSize(width: pointSize, height: pointSize)
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
             size: size,

@@ -58,7 +58,7 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertEqual(vm.dominantDownloadSource, "Google Chrome")
     }
 
-    func test_scanPreselectsRedundantCopiesOnly() async {
+    func test_scanSelectsNothingByDefault() async {
         let dup = DuplicateGroup(files: [file("/a/orig.txt", size: 10), file("/a/copy.txt", size: 10)])
         let sim = SimilarImageGroup(files: [file("/p/a.jpg", size: 50), file("/p/b.jpg", size: 40)])
         let large = [file("/big/movie.mov", size: 1000)]
@@ -66,13 +66,11 @@ final class MyClutterViewModelTests: XCTestCase {
 
         await vm.scan()
 
-        // The duplicate copy and the similar copy are pre-selected; the kept
-        // originals and the large file are not.
-        XCTAssertTrue(vm.isSelected(URL(fileURLWithPath: "/a/copy.txt")))
-        XCTAssertTrue(vm.isSelected(URL(fileURLWithPath: "/p/b.jpg")))
-        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/a/orig.txt")))
-        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/big/movie.mov")))
-        XCTAssertEqual(vm.totalSelectedSize, 50, "10 (dup copy) + 40 (similar copy)")
+        // A scan leaves every item unselected — Review opens with a clean slate.
+        XCTAssertTrue(vm.selectedURLs.isEmpty)
+        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/a/copy.txt")))
+        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/p/b.jpg")))
+        XCTAssertEqual(vm.totalSelectedSize, 0)
     }
 
     func test_emptyWhenNothingFound() async {
@@ -105,7 +103,9 @@ final class MyClutterViewModelTests: XCTestCase {
         let vm = makeViewModel(duplicates: [dup], largeOld: large) { trashed = $0 }
 
         await vm.scan()
-        // Pre-selected: the duplicate copy. Also select the large file.
+        // Nothing is selected by default; select the duplicate copy and the
+        // large file explicitly.
+        vm.toggleSelection(url: URL(fileURLWithPath: "/a/copy.txt"))
         vm.toggleSelection(url: URL(fileURLWithPath: "/big/movie.mov"))
         XCTAssertEqual(vm.selectedURLs.count, 2)
 

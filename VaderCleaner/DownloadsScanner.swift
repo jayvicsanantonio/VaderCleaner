@@ -3,11 +3,20 @@
 
 import Foundation
 
-/// One downloaded file plus the friendly name of the app that fetched it
-/// (resolved from the quarantine xattr), or `nil` when the source is unknown.
+/// One downloaded file plus the app that fetched it, resolved from the
+/// quarantine xattr: `sourceApp` is the display name and `sourceBundleID` the
+/// bundle id used to load that app's icon. Both `nil` when the file carries no
+/// quarantine provenance.
 struct DownloadItem: Equatable, Hashable, Sendable {
     let file: ScannedFile
     let sourceApp: String?
+    let sourceBundleID: String?
+
+    init(file: ScannedFile, sourceApp: String?, sourceBundleID: String? = nil) {
+        self.file = file
+        self.sourceApp = sourceApp
+        self.sourceBundleID = sourceBundleID
+    }
 }
 
 /// Top-level entry point for the My Clutter "Downloads" card. Walks the user's
@@ -46,7 +55,8 @@ struct DownloadsScanner {
             onProgress: onProgress
         ) { batch in
             for file in batch where file.size > 0 {
-                items.append(DownloadItem(file: file, sourceApp: Self.sourceApp(of: file.url)))
+                let source = Self.source(of: file.url)
+                items.append(DownloadItem(file: file, sourceApp: source?.name, sourceBundleID: source?.bundleID))
             }
             try Task.checkCancellation()
         }
@@ -67,48 +77,18 @@ struct DownloadsScanner {
 
     // MARK: - Quarantine attribution
 
-    /// Reads `com.apple.quarantine` and maps the recorded agent to a friendly
-    /// app name. The xattr is a `;`-separated string whose third field is the
-    /// downloading agent (e.g. "com.google.Chrome", "com.apple.Safari",
-    /// "Firefox"). Returns `nil` when there's no quarantine record.
-    static func sourceApp(of url: URL) -> String? {
+    /// Reads `com.apple.quarantine` and resolves the recorded agent to a real
+    /// installed app (name + bundle id) via `DownloadSourceResolver`. The xattr
+    /// is a `;`-separated string whose third field is the downloading agent —
+    /// recorded as a bundle id, display name, or executable depending on the
+    /// app. Returns `nil` when there's no quarantine record.
+    static func source(of url: URL) -> (name: String, bundleID: String?)? {
         guard let raw = quarantineValue(for: url) else { return nil }
         let fields = raw.split(separator: ";", omittingEmptySubsequences: false)
         guard fields.count >= 3 else { return nil }
         let agent = String(fields[2]).trimmingCharacters(in: .whitespaces)
         guard !agent.isEmpty else { return nil }
-        return friendlyName(forAgent: agent)
-    }
-
-    /// The bundle identifier for a friendly source name, so the dashboard can
-    /// resolve the app's real icon. `nil` for sources without a known browser
-    /// bundle id (the card then falls back to a file thumbnail).
-    static func bundleIdentifier(forSource source: String) -> String? {
-        switch source {
-        case "Google Chrome": return "com.google.Chrome"
-        case "Safari": return "com.apple.Safari"
-        case "Firefox": return "org.mozilla.firefox"
-        case "Microsoft Edge": return "com.microsoft.edgemac"
-        case "Brave": return "com.brave.Browser"
-        case "Arc": return "company.thebrowser.Browser"
-        case "Opera": return "com.operasoftware.Opera"
-        default: return nil
-        }
-    }
-
-    /// Maps a quarantine agent identifier to a display name. Known bundle ids
-    /// get a polished label; anything else is returned as-is so an unrecognised
-    /// downloader still attributes correctly.
-    static func friendlyName(forAgent agent: String) -> String {
-        let lower = agent.lowercased()
-        if lower.contains("chrome") { return "Google Chrome" }
-        if lower.contains("safari") { return "Safari" }
-        if lower.contains("firefox") { return "Firefox" }
-        if lower.contains("edge") { return "Microsoft Edge" }
-        if lower.contains("brave") { return "Brave" }
-        if lower.contains("arc") { return "Arc" }
-        if lower.contains("opera") { return "Opera" }
-        return agent
+        return DownloadSourceResolver.resolve(agent: agent)
     }
 
     /// Returns the raw `com.apple.quarantine` xattr value for `url`, or `nil`
