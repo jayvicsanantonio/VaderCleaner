@@ -1,10 +1,10 @@
 // LoginItem.swift
-// Login-item model and SMAppService-backed manager for the Optimization feature's Login Items section.
+// Login-item model and SMAppService-backed manager for the Performance feature's Login Items section.
 
 import Foundation
 import ServiceManagement
 
-/// A single managed login item shown in the Optimization view.
+/// A single managed login item shown in the Performance view.
 struct LoginItem: Identifiable, Equatable, Sendable {
     let id: String
     let name: String

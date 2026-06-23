@@ -19,7 +19,7 @@ final class SectionIntroViewTests: XCTestCase {
         .largeOldFiles: "largeoldfiles",
         .spaceLens: "spacelens",
         .malwareRemoval: "malwareremoval",
-        .optimization: "optimization",
+        .performance: "performance",
         .privacy: "privacy",
         .applications: "applications",
     ]

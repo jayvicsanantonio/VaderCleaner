@@ -37,7 +37,7 @@ struct VaderCleanerApp: App {
     @State private var appUpdaterViewModel: AppUpdaterViewModel
     @State private var applicationsViewModel: ApplicationsViewModel
     @State private var extensionsManagerViewModel: ExtensionsManagerViewModel
-    @State private var optimizationViewModel: OptimizationViewModel
+    @State private var performanceViewModel: PerformanceViewModel
     @State private var malwareViewModel: MalwareViewModel
     @State private var smartScanViewModel: SmartScanViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
@@ -130,10 +130,10 @@ struct VaderCleanerApp: App {
         // service the Health Monitor consumes.
         let stats = SystemStatsService()
         _systemStats = State(initialValue: stats)
-        // Wired after `stats` so the Optimization RAM figures come from the
+        // Wired after `stats` so the Performance RAM figures come from the
         // same polling service the Health Monitor and menu bar consume.
-        _optimizationViewModel = State(
-            initialValue: OptimizationViewModel.live(systemStats: stats, preferences: prefs)
+        _performanceViewModel = State(
+            initialValue: PerformanceViewModel.live(systemStats: stats, preferences: prefs)
         )
         _menuBarViewModel = State(initialValue: MenuBarViewModel(service: stats))
         // One NotificationManager for the whole app. Its init registers
@@ -150,7 +150,7 @@ struct VaderCleanerApp: App {
                 preferences: prefs
             )
         )
-        // Smart Scan orchestrates the System Junk, Malware, and Optimization
+        // Smart Scan orchestrates the System Junk, Malware, and Performance
         // collaborators behind one flow. It captures the same exclusions store
         // the standalone junk scanner uses and snapshots it per scan, so an
         // exclusion added in Preferences takes effect on the next Smart Scan.
@@ -236,7 +236,7 @@ struct VaderCleanerApp: App {
                 appUpdaterViewModel: appUpdaterViewModel,
                 applicationsViewModel: applicationsViewModel,
                 extensionsManagerViewModel: extensionsManagerViewModel,
-                optimizationViewModel: optimizationViewModel,
+                performanceViewModel: performanceViewModel,
                 malwareViewModel: malwareViewModel,
                 smartScanViewModel: smartScanViewModel
             )

@@ -27,7 +27,7 @@ final class FinalPolishUITests: XCTestCase {
         "sidebar.malwareRemoval",
         "sidebar.privacy",
         "sidebar.applications",
-        "sidebar.optimization",
+        "sidebar.performance",
         "sidebar.healthMonitor",
     ]
 

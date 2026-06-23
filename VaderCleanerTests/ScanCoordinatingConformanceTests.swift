@@ -434,16 +434,16 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         XCTAssertNotEqual(vm.scanPresentation, .intro)
     }
 
-    // MARK: - OptimizationViewModel
+    // MARK: - PerformanceViewModel
     // Mapping: .idle→.intro; .loading→.working; .ready/.working/.failed→.results.
 
-    func test_optimization_idleMapsToIntro() {
-        XCTAssertEqual(makeOptimization().scanPresentation, .intro)
+    func test_performance_idleMapsToIntro() {
+        XCTAssertEqual(makePerformance().scanPresentation, .intro)
     }
 
-    func test_optimization_loadingMapsToWorking() async {
+    func test_performance_loadingMapsToWorking() async {
         let gate = ScanGate()
-        let vm = makeOptimization(loadLoginItems: {
+        let vm = makePerformance(loadLoginItems: {
             await gate.wait()
             return []
         })
@@ -456,8 +456,8 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         await task.value
     }
 
-    func test_optimization_readyMapsToResults() async {
-        let vm = makeOptimization()
+    func test_performance_readyMapsToResults() async {
+        let vm = makePerformance()
         await vm.refresh()
         XCTAssertEqual(vm.phase, .ready)
         XCTAssertEqual(vm.scanPresentation, .results)
@@ -467,9 +467,9 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     /// `ScanPresentation.results`, not `.working` — the name collision is the
     /// whole reason this case is pinned: the section's own detail UI stays on
     /// screen for action progress rather than reverting to the generic intro.
-    func test_optimization_workingPhaseMapsToResults() async {
+    func test_performance_workingPhaseMapsToResults() async {
         let gate = ScanGate()
-        let vm = makeOptimization(flushRAM: { await gate.wait() })
+        let vm = makePerformance(flushRAM: { await gate.wait() })
 
         let task = Task { await vm.flushRAM() }
         await yieldUntil({ vm.phase == .working }, "Phase.working")
@@ -479,24 +479,24 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         await task.value
     }
 
-    func test_optimization_failedMapsToResults() async {
-        let vm = makeOptimization(flushRAM: { throw Boom() })
+    func test_performance_failedMapsToResults() async {
+        let vm = makePerformance(flushRAM: { throw Boom() })
         await vm.flushRAM()
         if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)
     }
 
-    func test_optimization_beginScanLeavesIntro() async {
-        let vm = makeOptimization()
+    func test_performance_beginScanLeavesIntro() async {
+        let vm = makePerformance()
         vm.beginScan()
         await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
         XCTAssertNotEqual(vm.scanPresentation, .intro)
     }
 
-    func test_optimization_beginScanIgnoresReentrantCallWhileLoading() async {
+    func test_performance_beginScanIgnoresReentrantCallWhileLoading() async {
         let gate = ScanGate()
         let counter = CallCounter()
-        let vm = makeOptimization(loadLoginItems: {
+        let vm = makePerformance(loadLoginItems: {
             counter.bump()
             await gate.wait()
             return []
@@ -659,19 +659,19 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         )
     }
 
-    private func makeOptimization(
-        loadLoginItems: @escaping OptimizationViewModel.LoadLoginItems = { [] },
-        loadUserAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
-        loadSystemAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
-        readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
-        setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
-        disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
-        enableAgent: @escaping OptimizationViewModel.EnableAgent = { _ in },
-        removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
-        flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
-        runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" }
-    ) -> OptimizationViewModel {
-        OptimizationViewModel(
+    private func makePerformance(
+        loadLoginItems: @escaping PerformanceViewModel.LoadLoginItems = { [] },
+        loadUserAgents: @escaping PerformanceViewModel.LoadAgents = { [] },
+        loadSystemAgents: @escaping PerformanceViewModel.LoadAgents = { [] },
+        readMemory: @escaping PerformanceViewModel.ReadMemory = { .empty },
+        setLoginItemEnabled: @escaping PerformanceViewModel.SetLoginItemEnabled = { _, _ in },
+        disableAgent: @escaping PerformanceViewModel.DisableAgent = { _ in },
+        enableAgent: @escaping PerformanceViewModel.EnableAgent = { _ in },
+        removeAgent: @escaping PerformanceViewModel.RemoveAgent = { _ in },
+        flushRAM: @escaping PerformanceViewModel.FlushRAM = {},
+        runMaintenance: @escaping PerformanceViewModel.RunMaintenance = { "" }
+    ) -> PerformanceViewModel {
+        PerformanceViewModel(
             loadLoginItems: loadLoginItems,
             loadUserAgents: loadUserAgents,
             loadSystemAgents: loadSystemAgents,

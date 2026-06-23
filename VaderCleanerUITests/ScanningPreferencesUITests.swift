@@ -25,7 +25,7 @@ final class ScanningPreferencesUITests: XCTestCase {
         openPreferences()
         preferenceTab("Scanning").click()
 
-        for module in ["systemJunk", "malware", "optimization", "applications", "myClutter"] {
+        for module in ["systemJunk", "malware", "performance", "applications", "myClutter"] {
             let checkbox = control("scanning.module.\(module)")
             XCTAssertTrue(
                 checkbox.waitForExistence(timeout: 5),

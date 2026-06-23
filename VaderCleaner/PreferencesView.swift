@@ -160,7 +160,7 @@ private struct ScanningTab: View {
         case .smartCare:
             return [cleanupNode]
                 + [moduleNode(.malware, featureTitle: "Malware Removal", featureBadge: "scanBadgeMalware"),
-                   moduleNode(.optimization, featureTitle: "Maintenance Scripts", featureBadge: "scanBadgePerformance"),
+                   moduleNode(.performance, featureTitle: "Maintenance Scripts", featureBadge: "scanBadgePerformance"),
                    moduleNode(.applications, featureTitle: "App Updates", featureBadge: "scanBadgeApplications"),
                    moduleNode(.myClutter, featureTitle: "Large & Old Files", featureBadge: "scanBadgeMyClutter")]
         }
@@ -290,7 +290,7 @@ private struct ScanningTab: View {
         switch module {
         case .systemJunk: return "Cleanup"
         case .malware: return "Protection"
-        case .optimization: return "Performance"
+        case .performance: return "Performance"
         case .applications: return "Applications"
         case .myClutter: return "My Clutter"
         }
@@ -300,7 +300,7 @@ private struct ScanningTab: View {
         switch module {
         case .systemJunk: return "scanBadgeCleanup"
         case .malware: return "scanBadgeProtection"
-        case .optimization: return "scanBadgePerformance"
+        case .performance: return "scanBadgePerformance"
         case .applications: return "scanBadgeApplications"
         case .myClutter: return "scanBadgeMyClutter"
         }

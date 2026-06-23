@@ -1,9 +1,9 @@
 // PerformanceRecommendationEngine.swift
-// Turns a snapshot of system state into the curated recommendation cards shown on the Optimization dashboard (Free up RAM, maintenance tasks due, background items, local snapshots).
+// Turns a snapshot of system state into the curated recommendation cards shown on the Performance dashboard (Free up RAM, maintenance tasks due, background items, local snapshots).
 
 import Foundation
 
-/// A curated recommendation card surfaced on the Optimization dashboard.
+/// A curated recommendation card surfaced on the Performance dashboard.
 struct PerformanceRecommendation: Identifiable, Hashable {
 
     /// Each kind maps to one card and one primary action.
@@ -26,7 +26,7 @@ struct PerformanceRecommendation: Identifiable, Hashable {
     var id: String { kind.rawValue }
 }
 
-/// The system state the engine reasons over. Gathered by `OptimizationViewModel`
+/// The system state the engine reasons over. Gathered by `PerformanceViewModel`
 /// from the shared stats service, the launch-item/agent lists, the local
 /// snapshot count, and the maintenance run log.
 struct PerformanceSnapshot {

@@ -327,7 +327,7 @@ struct SmartScanResultsState: View {
                         HStack(spacing: 16) {
                             tileEntry(.systemJunk, index: 0)
                             tileEntry(.malware, index: 1)
-                            tileEntry(.optimization, index: 2)
+                            tileEntry(.performance, index: 2)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         HStack(spacing: 16) {
@@ -377,8 +377,8 @@ struct SmartScanResultsState: View {
                 systemJunkTile
             case .malware:
                 malwareTile
-            case .optimization:
-                optimizationTile
+            case .performance:
+                performanceTile
             case .applications:
                 applicationsTile
             case .myClutter:
@@ -422,9 +422,9 @@ struct SmartScanResultsState: View {
         case .malware:
             return ("malwareRemoval", NavigationSection.malwareRemoval.theme.accent,
                     String(localized: "Malware", comment: "Smart Scan card title for the Malware module."))
-        case .optimization:
-            return ("optimization", NavigationSection.optimization.theme.accent,
-                    String(localized: "Optimization", comment: "Smart Scan card title for the Optimization module."))
+        case .performance:
+            return ("performance", NavigationSection.performance.theme.accent,
+                    String(localized: "Performance", comment: "Smart Scan card title for the Performance module."))
         case .applications:
             return ("applications", NavigationSection.applications.theme.accent,
                     String(localized: "Applications", comment: "Smart Scan card title for the Applications module."))
@@ -533,17 +533,17 @@ struct SmartScanResultsState: View {
         }
     }
 
-    private var optimizationTile: some View {
+    private var performanceTile: some View {
         // Performance is always actionable — maintenance scripts run on
         // every macOS install — so this tile never collapses to a zero-work
         // variant. The login-item count is informational; Run's actual work
         // here is `MaintenanceScriptRunner`.
         SmartScanMetricCard(
-            assetName: "optimization",
-            tint: NavigationSection.optimization.theme.accent,
+            assetName: "performance",
+            tint: NavigationSection.performance.theme.accent,
             title: String(
                 localized: "Performance",
-                comment: "Smart Scan card title for the Optimization module."
+                comment: "Smart Scan card title for the Performance module."
             ),
             metric: String(
                 localized: "1 task",
@@ -553,10 +553,10 @@ struct SmartScanResultsState: View {
                 localized: "to run",
                 comment: "Caption under the Performance metric on the Smart Scan dashboard."
             ),
-            selection: tileBinding(.optimization),
-            checkboxIdentifier: "smartScan.toggleOptimization",
+            selection: tileBinding(.performance),
+            checkboxIdentifier: "smartScan.togglePerformance",
             reviewIdentifier: "smartScan.review",
-            onReview: { onRequestReview(.optimization) }
+            onReview: { onRequestReview(.performance) }
         )
     }
 
@@ -695,7 +695,7 @@ struct SmartScanDoneState: View {
             }
             // Maintenance scripts' result line goes below the headline so the
             // user can see what the privileged helper actually did, matching
-            // the standalone Optimization screen's output-log idiom.
+            // the standalone Performance screen's output-log idiom.
             if let maintenance = summary.maintenanceOutput {
                 Text(maintenance)
                     .font(.caption)
@@ -797,7 +797,7 @@ struct SmartScanDoneState: View {
             return String(localized: "System Junk", comment: "Smart Scan module name in the done-screen failure clause.")
         case .malware:
             return String(localized: "Protection", comment: "Smart Scan module name in the done-screen failure clause.")
-        case .optimization:
+        case .performance:
             return String(localized: "Performance", comment: "Smart Scan module name in the done-screen failure clause.")
         case .applications:
             return String(localized: "Applications", comment: "Smart Scan module name in the done-screen failure clause.")

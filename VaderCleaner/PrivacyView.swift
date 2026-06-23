@@ -23,7 +23,7 @@ struct PrivacyView: View {
     @State private var previewDetail: PreviewDetail = .dashboard
 
     /// Which catalog pane to show. Owned here (mirroring
-    /// `OptimizationView.catalogPane`) so a card's Review button can open the
+    /// `PerformanceView.catalogPane`) so a card's Review button can open the
     /// catalog on its matching category pane.
     @State private var catalogPane: PrivacyDataCatalogView.Pane = .category(.history)
 

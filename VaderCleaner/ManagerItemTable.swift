@@ -241,6 +241,11 @@ final class ManagerRowCellView: NSTableCellView {
     private let sparkleView = NSImageView()
     private let sizeField = NSTextField(labelWithString: "")
     private let chevron = NSButton()
+    /// Flexible gap between the text and the trailing column. It absorbs the
+    /// row's free space so the sparkle / size / chevron sit in a fixed right
+    /// column regardless of how wide each row's text is — without it the sparkle
+    /// floats just past the text and never lines up between rows.
+    private let trailingSpacer = NSView()
     private let textStack: NSStackView
     private let rowStack: NSStackView
     private var indentWidth: NSLayoutConstraint!
@@ -258,7 +263,7 @@ final class ManagerRowCellView: NSTableCellView {
 
     init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
         textStack = NSStackView(views: [titleField, subtitleField])
-        rowStack = NSStackView(views: [indentSpacer, checkbox, iconView, textStack, sparkleView, sizeField, chevron])
+        rowStack = NSStackView(views: [indentSpacer, checkbox, iconView, textStack, trailingSpacer, sparkleView, sizeField, chevron])
         super.init(frame: .zero)
         self.identifier = reuseIdentifier
         setup()
@@ -279,6 +284,12 @@ final class ManagerRowCellView: NSTableCellView {
         sparkleView.image = ManagerSymbolCache.image("sparkles", pointSize: 14)
         sparkleView.contentTintColor = .systemPink
         sparkleView.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Lowest hugging so the stack hands this view all the row's slack,
+        // parking the trailing column (sparkle / size / chevron) at a fixed
+        // right edge across every row.
+        trailingSpacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        trailingSpacer.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .horizontal)
 
         sizeField.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)
         sizeField.textColor = .secondaryLabelColor
@@ -350,7 +361,9 @@ final class ManagerRowCellView: NSTableCellView {
         onCheckbox = { onToggleSelection(selectionID) }
         if item.usesFileIcon {
             // The real Finder icon for the file/app, so rows read like Finder.
-            iconView.image = ManagerFileIconCache.icon(forPath: item.id)
+            // `iconPath` lets a row draw an icon from a path other than its
+            // selection `id` (e.g. a login item keyed by bundle id).
+            iconView.image = ManagerFileIconCache.icon(forPath: item.iconPath ?? item.id)
             iconView.contentTintColor = nil
         } else {
             iconView.image = ManagerSymbolCache.image(item.systemImage, pointSize: 16)

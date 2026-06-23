@@ -13,7 +13,7 @@ final class SectionPresentationTests: XCTestCase {
     /// `isScannable` or `SectionPresentation.for(_:)` fails loudly.
     private let scannableSections: Set<NavigationSection> = [
         .smartScan, .systemJunk, .largeOldFiles,
-        .spaceLens, .malwareRemoval, .optimization, .privacy,
+        .spaceLens, .malwareRemoval, .performance, .privacy,
         .applications,
     ]
 
@@ -31,7 +31,7 @@ final class SectionPresentationTests: XCTestCase {
     /// the RealityKit USDZ path. Currently every scannable section.
     private let sectionsWithImageHero: Set<NavigationSection> = [
         .smartScan, .systemJunk, .largeOldFiles, .spaceLens,
-        .malwareRemoval, .optimization, .applications, .privacy,
+        .malwareRemoval, .performance, .applications, .privacy,
     ]
 
     func test_isScannable_isTrueForExactlyTheEightScannableSections() {
@@ -69,7 +69,7 @@ final class SectionPresentationTests: XCTestCase {
 
     func test_smartScanFeatures_areTheThreeOrchestratedModulesInOrder() throws {
         let presentation = try XCTUnwrap(SectionPresentation.for(.smartScan))
-        let orchestrated: [NavigationSection] = [.systemJunk, .malwareRemoval, .optimization]
+        let orchestrated: [NavigationSection] = [.systemJunk, .malwareRemoval, .performance]
         XCTAssertEqual(
             presentation.features.map(\.title),
             orchestrated.map(\.title),

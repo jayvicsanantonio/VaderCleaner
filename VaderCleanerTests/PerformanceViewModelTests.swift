@@ -1,12 +1,12 @@
-// OptimizationViewModelTests.swift
-// Drives the OptimizationViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/remove — through injected fakes.
+// PerformanceViewModelTests.swift
+// Drives the PerformanceViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/remove — through injected fakes.
 
 import XCTest
 import Combine
 @testable import VaderCleaner
 
 @MainActor
-final class OptimizationViewModelTests: XCTestCase {
+final class PerformanceViewModelTests: XCTestCase {
 
     // MARK: - Initial state
 
@@ -345,7 +345,7 @@ final class OptimizationViewModelTests: XCTestCase {
     // MARK: - Launch-at-login cross-update (issue #65)
 
     /// An external change to the launch-at-login preference (the
-    /// Preferences toggle) must reload the Optimization login-items row
+    /// Preferences toggle) must reload the Performance login-items row
     /// so the two surfaces never disagree within a session.
     func test_externalLaunchAtLoginChange_reloadsLoginItems() async {
         let subject = PassthroughSubject<Void, Never>()
@@ -386,12 +386,12 @@ final class OptimizationViewModelTests: XCTestCase {
     }
 
     /// End-to-end with a real `PreferencesStore`: a Preferences-side
-    /// toggle reaches the Optimization row, an Optimization-side toggle
+    /// toggle reaches the Performance row, an Performance-side toggle
     /// writes back through `PreferencesStore`, and the SMAppService
     /// handler runs exactly once per change — no duplicated write path.
     /// Also pins the `@Published` willSet/didSet ordering: the row is
     /// reloaded *after* the handler has applied the new state.
-    func test_integration_optimizationAndPreferencesStayInSync() async {
+    func test_integration_performanceAndPreferencesStayInSync() async {
         let suiteName = "VaderCleanerTests.Issue65.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -418,23 +418,23 @@ final class OptimizationViewModelTests: XCTestCase {
                 [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled)]
             },
             setLoginItemEnabled: { enabled, _ in try prefs.setLaunchAtLogin(enabled) },
-            launchAtLoginChanges: OptimizationViewModel.launchAtLoginChangePublisher(for: prefs)
+            launchAtLoginChanges: PerformanceViewModel.launchAtLoginChangePublisher(for: prefs)
         )
         await vm.refresh()
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
 
-        // Preferences → Optimization.
+        // Preferences → Performance.
         prefs.launchAtLogin = true
         await waitUntil { vm.loginItems.first?.isEnabled == true }
         XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
         XCTAssertEqual(handlerCalls, 1, "exactly one SMAppService write via the single path")
 
-        // Optimization → Preferences.
+        // Performance → Preferences.
         await vm.setLoginItem(
             LoginItem(id: "host", name: "VaderCleaner", isEnabled: true),
             enabled: false
         )
-        XCTAssertFalse(prefs.launchAtLogin, "Optimization toggle writes through PreferencesStore")
+        XCTAssertFalse(prefs.launchAtLogin, "Performance toggle writes through PreferencesStore")
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
         XCTAssertEqual(handlerCalls, 2, "no duplicated write path")
     }
@@ -560,35 +560,103 @@ final class OptimizationViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .ready)
     }
 
+    // MARK: - Manager batch remove
+
+    /// The Performance Manager's footer "Remove" acts on a multi-selection: it
+    /// unregisters each selected login item and deletes each selected user
+    /// agent, then reloads so the panes reflect the new state.
+    func test_removeSelected_unregistersLoginItemsAndDeletesUserAgents() async {
+        var unregistered: [String] = []
+        var removedAgents: [String] = []
+        let host = LoginItem(id: "com.personal.VaderCleaner", name: "VaderCleaner", isEnabled: true)
+        let doomed = Self.agent(label: "com.user.doomed", domain: .user)
+        let keep = Self.agent(label: "com.user.keep", domain: .user)
+        var loginReloads = 0
+        let vm = makeViewModel(
+            loadLoginItems: {
+                loginReloads += 1
+                // After removal the host reads disabled (unregistered).
+                return [LoginItem(id: host.id, name: host.name, isEnabled: loginReloads == 1)]
+            },
+            loadUserAgents: { removedAgents.isEmpty ? [doomed, keep] : [keep] },
+            setLoginItemEnabled: { enabled, item in
+                if !enabled { unregistered.append(item.id) }
+            },
+            removeAgent: { removedAgents.append($0.label) }
+        )
+        await vm.refresh()
+
+        await vm.removeSelected(loginItemIDs: [host.id], agentIDs: [doomed.id])
+
+        XCTAssertEqual(unregistered, [host.id], "Selected login item should be unregistered")
+        XCTAssertEqual(removedAgents, ["com.user.doomed"], "Only the selected user agent is removed")
+        XCTAssertEqual(vm.userAgents.map(\.label), ["com.user.keep"], "Lists reload after removal")
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    /// System daemons are protected even if their id reaches the batch remove:
+    /// the view-model only deletes user agents, never the privileged domain.
+    func test_removeSelected_skipsSystemAgentsEvenWhenSelected() async {
+        var removeCalled = false
+        let systemDaemon = Self.agent(label: "com.apple.important", domain: .system)
+        let vm = makeViewModel(
+            loadSystemAgents: { [systemDaemon] },
+            removeAgent: { _ in removeCalled = true }
+        )
+        await vm.refresh()
+
+        await vm.removeSelected(loginItemIDs: [], agentIDs: [systemDaemon.id])
+
+        XCTAssertFalse(removeCalled, "System daemons must never be removed")
+        XCTAssertEqual(vm.systemAgents.map(\.label), ["com.apple.important"])
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    func test_removeSelected_failureTransitionsToFailed() async {
+        struct Boom: Error {}
+        let doomed = Self.agent(label: "com.user.doomed", domain: .user)
+        let vm = makeViewModel(
+            loadUserAgents: { [doomed] },
+            removeAgent: { _ in throw Boom() }
+        )
+        await vm.refresh()
+
+        await vm.removeSelected(loginItemIDs: [], agentIDs: [doomed.id])
+
+        guard case .failed = vm.phase else {
+            return XCTFail("Expected .failed, got \(vm.phase)")
+        }
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
-        loadLoginItems: @escaping OptimizationViewModel.LoadLoginItems = { [] },
-        loadUserAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
-        loadSystemAgents: @escaping OptimizationViewModel.LoadAgents = { [] },
-        readMemory: @escaping OptimizationViewModel.ReadMemory = { .empty },
-        setLoginItemEnabled: @escaping OptimizationViewModel.SetLoginItemEnabled = { _, _ in },
-        openLoginItemsSettings: @escaping OptimizationViewModel.OpenLoginItemsSettings = {},
-        disableAgent: @escaping OptimizationViewModel.DisableAgent = { _ in },
-        enableAgent: @escaping OptimizationViewModel.EnableAgent = { _ in },
-        removeAgent: @escaping OptimizationViewModel.RemoveAgent = { _ in },
-        flushRAM: @escaping OptimizationViewModel.FlushRAM = {},
-        runMaintenance: @escaping OptimizationViewModel.RunMaintenance = { "" },
-        flushDNS: @escaping OptimizationViewModel.RunTask = { "" },
-        reindexSpotlight: @escaping OptimizationViewModel.RunTask = { "" },
-        thinSnapshots: @escaping OptimizationViewModel.RunTask = { "" },
-        speedUpMail: @escaping OptimizationViewModel.RunTask = { "" },
-        readSnapshotCount: @escaping OptimizationViewModel.ReadSnapshotCount = { 0 },
+        loadLoginItems: @escaping PerformanceViewModel.LoadLoginItems = { [] },
+        loadUserAgents: @escaping PerformanceViewModel.LoadAgents = { [] },
+        loadSystemAgents: @escaping PerformanceViewModel.LoadAgents = { [] },
+        readMemory: @escaping PerformanceViewModel.ReadMemory = { .empty },
+        setLoginItemEnabled: @escaping PerformanceViewModel.SetLoginItemEnabled = { _, _ in },
+        openLoginItemsSettings: @escaping PerformanceViewModel.OpenLoginItemsSettings = {},
+        disableAgent: @escaping PerformanceViewModel.DisableAgent = { _ in },
+        enableAgent: @escaping PerformanceViewModel.EnableAgent = { _ in },
+        removeAgent: @escaping PerformanceViewModel.RemoveAgent = { _ in },
+        flushRAM: @escaping PerformanceViewModel.FlushRAM = {},
+        runMaintenance: @escaping PerformanceViewModel.RunMaintenance = { "" },
+        flushDNS: @escaping PerformanceViewModel.RunTask = { "" },
+        reindexSpotlight: @escaping PerformanceViewModel.RunTask = { "" },
+        thinSnapshots: @escaping PerformanceViewModel.RunTask = { "" },
+        speedUpMail: @escaping PerformanceViewModel.RunTask = { "" },
+        readSnapshotCount: @escaping PerformanceViewModel.ReadSnapshotCount = { 0 },
         runLog: MaintenanceRunLog? = nil,
         maintenanceScriptsAvailable: Bool = true,
         launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
-    ) -> OptimizationViewModel {
+    ) -> PerformanceViewModel {
         // Default to an isolated, empty UserDefaults suite so the run log never
         // touches `.standard` or leaks state between tests.
         let isolatedLog = runLog ?? MaintenanceRunLog(
-            defaults: UserDefaults(suiteName: "OptimizationViewModelTests.\(UUID().uuidString)")!
+            defaults: UserDefaults(suiteName: "PerformanceViewModelTests.\(UUID().uuidString)")!
         )
-        return OptimizationViewModel(
+        return PerformanceViewModel(
             loadLoginItems: loadLoginItems,
             loadUserAgents: loadUserAgents,
             loadSystemAgents: loadSystemAgents,

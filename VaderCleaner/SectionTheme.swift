@@ -63,7 +63,7 @@ extension NavigationSection {
                 backdropTop: Color(red: 0.12, green: 0.03, blue: 0.10),
                 backdropBottom: Color(red: 0.29, green: 0.06, blue: 0.25)
             )
-        case .optimization:
+        case .performance:
             // Keyed to the orange Performance bolt asset.
             return SectionTheme(
                 accent: Color(red: 0.90, green: 0.33, blue: 0.16),
@@ -111,7 +111,7 @@ extension NavigationSection {
         case .healthMonitor:
             return Color(red: 0.89, green: 0.39, blue: 0.78)
         case .smartScan, .systemJunk, .largeOldFiles, .spaceLens,
-             .malwareRemoval, .optimization, .privacy, .applications:
+             .malwareRemoval, .performance, .privacy, .applications:
             return theme.accent
         }
     }

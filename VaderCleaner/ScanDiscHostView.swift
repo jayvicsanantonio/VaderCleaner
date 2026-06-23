@@ -38,8 +38,8 @@ struct ScanDiscHostView: View {
             overlay(controller.myClutterViewModel, .largeOldFiles)
         case .spaceLens:
             overlay(controller.spaceLensViewModel, .spaceLens)
-        case .optimization:
-            overlay(controller.optimizationViewModel, .optimization)
+        case .performance:
+            overlay(controller.performanceViewModel, .performance)
         case .malwareRemoval:
             overlay(controller.malwareViewModel, .malwareRemoval)
         case .privacy:

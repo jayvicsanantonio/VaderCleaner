@@ -40,7 +40,7 @@ struct LaunchAgent: Identifiable, Equatable {
     }
 }
 
-/// Discovers and manages launchd jobs for the Optimization feature.
+/// Discovers and manages launchd jobs for the Performance feature.
 ///
 /// Collaborators (filesystem roots, `launchctl`, the loaded-label query, and
 /// the privileged helper) are injected so the manager is unit-testable

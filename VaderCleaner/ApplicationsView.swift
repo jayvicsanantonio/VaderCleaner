@@ -102,7 +102,7 @@ struct ApplicationsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .manage(let pane):
             // Full multi-pane manager (Uninstaller / Updater / Leftovers),
-            // styled like the Optimization "View All Tasks" catalog — it owns
+            // styled like the Performance "View All Tasks" catalog — it owns
             // its own header, so it is not wrapped in `detailScreen`. Opens on
             // `pane` so the Updates card can deep-link straight to the Updater.
             ApplicationsManagerView(
@@ -193,7 +193,7 @@ struct ApplicationsView: View {
     }
 
     /// Wraps a reused detail screen with a Back bar that returns to the grid.
-    /// Mirrors `OptimizationTaskCatalogView`'s header layout.
+    /// Mirrors `PerformanceTaskCatalogView`'s header layout.
     private func detailScreen<Content: View>(
         title: String,
         @ViewBuilder _ screen: () -> Content
@@ -231,7 +231,7 @@ struct ApplicationsView: View {
 }
 
 /// The "Applications Manager" reached from the dashboard's Manage card. Mirrors
-/// the Optimization "View All Tasks" catalog (`OptimizationTaskCatalogView`): a
+/// the Performance "View All Tasks" catalog (`PerformanceTaskCatalogView`): a
 /// header with a Back affordance and a centered title, a left sub-navigation,
 /// and a detail pane. The three panes reuse the existing Uninstaller, Updater,
 /// and Leftovers screens so all the management work lives in one place.

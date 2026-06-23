@@ -89,7 +89,7 @@ final class SmartScanViewModelTests: XCTestCase {
         }
         XCTAssertEqual(result.junkResult, junk)
         XCTAssertEqual(result.threats, [threat])
-        XCTAssertEqual(result.optimizationItems, [loginItem])
+        XCTAssertEqual(result.performanceItems, [loginItem])
         XCTAssertTrue(result.clamAVAvailable)
     }
 
@@ -128,7 +128,7 @@ final class SmartScanViewModelTests: XCTestCase {
         }
         XCTAssertEqual(result.junkResult.totalSize, 42)
         XCTAssertEqual(result.threats.count, 2)
-        XCTAssertEqual(result.optimizationItems.count, 1)
+        XCTAssertEqual(result.performanceItems.count, 1)
     }
 
     func test_scan_whenClamAVNotInstalled_skipsMalwareScanAndMarksUnavailable() async {
@@ -176,7 +176,7 @@ final class SmartScanViewModelTests: XCTestCase {
         }
         XCTAssertEqual(result.totalJunkBytes, 0)
         XCTAssertEqual(result.threats, [])
-        XCTAssertEqual(result.optimizationItems, [])
+        XCTAssertEqual(result.performanceItems, [])
     }
 
     func test_scan_populatesDuplicatesFromScanner() async {
@@ -262,7 +262,7 @@ final class SmartScanViewModelTests: XCTestCase {
     func test_scan_defaultsTileSelectionToModulesWithCleanableWork() async {
         // Junk has bytes, malware has a threat, updates has one entry,
         // duplicates has one group, login items has one — every module should
-        // default to checked. Optimization additionally is always actionable
+        // default to checked. Performance additionally is always actionable
         // (its DNS flush always has work), so it is also on.
         let vm = makeViewModel(
             junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) },
@@ -279,7 +279,7 @@ final class SmartScanViewModelTests: XCTestCase {
     }
 
     func test_scan_defaultsTileSelectionExcludesModulesWithoutWork() async {
-        // Junk has bytes, but every other module is empty. Optimization
+        // Junk has bytes, but every other module is empty. Performance
         // stays on because maintenance scripts are always actionable.
         let vm = makeViewModel(
             junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 100, category: .userCache)])) }
@@ -287,28 +287,28 @@ final class SmartScanViewModelTests: XCTestCase {
 
         await vm.scan()
 
-        XCTAssertEqual(vm.tileSelection, [.systemJunk, .optimization])
+        XCTAssertEqual(vm.tileSelection, [.systemJunk, .performance])
     }
 
-    func test_scan_defaultsTileSelectionEmptyExceptOptimizationWhenNothingFound() async {
+    func test_scan_defaultsTileSelectionEmptyExceptPerformanceWhenNothingFound() async {
         let vm = makeViewModel()
 
         await vm.scan()
 
-        XCTAssertEqual(vm.tileSelection, [.optimization])
+        XCTAssertEqual(vm.tileSelection, [.performance])
     }
 
     func test_toggleModule_addsThenRemovesFromSelection() async {
         let vm = makeViewModel()
         await vm.scan()
-        // Optimization is on by default.
-        XCTAssertTrue(vm.isModuleSelected(.optimization))
+        // Performance is on by default.
+        XCTAssertTrue(vm.isModuleSelected(.performance))
 
-        vm.toggleModule(.optimization)
-        XCTAssertFalse(vm.isModuleSelected(.optimization))
+        vm.toggleModule(.performance)
+        XCTAssertFalse(vm.isModuleSelected(.performance))
 
-        vm.toggleModule(.optimization)
-        XCTAssertTrue(vm.isModuleSelected(.optimization))
+        vm.toggleModule(.performance)
+        XCTAssertTrue(vm.isModuleSelected(.performance))
     }
 
     func test_reset_clearsTileSelection() async {
@@ -657,7 +657,7 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(cleanedFiles, [junkFile], "run() must hand the scanned junk files to the junk cleaner")
         XCTAssertEqual(removedThreats, [threat], "run() must hand the detected threats to the threat remover")
         XCTAssertTrue(disabledLoginItems.isEmpty,
-                      "run() must NOT auto-disable login items — Optimization wires the maintenance-script action, not login-item changes")
+                      "run() must NOT auto-disable login items — Performance wires the maintenance-script action, not login-item changes")
     }
 
     func test_run_reportsSummary() async {
@@ -670,10 +670,10 @@ final class SmartScanViewModelTests: XCTestCase {
             threatRemover: { _ in [] }
         )
         await vm.scan()
-        // Deselect Optimization so the summary line stays focused on the
-        // junk/malware result for this assertion — Optimization wiring is
+        // Deselect Performance so the summary line stays focused on the
+        // junk/malware result for this assertion — Performance wiring is
         // covered by its own tests below.
-        vm.toggleModule(.optimization)
+        vm.toggleModule(.performance)
 
         await vm.run()
 
@@ -699,7 +699,7 @@ final class SmartScanViewModelTests: XCTestCase {
             threatRemover: { _ in [second] }   // second could not be removed
         )
         await vm.scan()
-        vm.toggleModule(.optimization)
+        vm.toggleModule(.performance)
 
         await vm.run()
 
@@ -859,9 +859,9 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(summary.failedModules.isEmpty)
     }
 
-    // MARK: - Run: Optimization (maintenance scripts)
+    // MARK: - Run: Performance (maintenance scripts)
 
-    func test_run_runsMaintenanceWhenOptimizationSelected() async {
+    func test_run_runsMaintenanceWhenPerformanceSelected() async {
         var ranMaintenance = false
         let vm = makeViewModel(
             maintenanceRunner: {
@@ -870,7 +870,7 @@ final class SmartScanViewModelTests: XCTestCase {
             }
         )
         await vm.scan()
-        // Optimization defaults on with maintenance.
+        // Performance defaults on with maintenance.
 
         await vm.run()
 
@@ -881,7 +881,7 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(summary.maintenanceOutput, "ran")
     }
 
-    func test_run_skipsMaintenanceWhenOptimizationDeselected() async {
+    func test_run_skipsMaintenanceWhenPerformanceDeselected() async {
         var ranMaintenance = false
         let vm = makeViewModel(
             maintenanceRunner: {
@@ -890,7 +890,7 @@ final class SmartScanViewModelTests: XCTestCase {
             }
         )
         await vm.scan()
-        vm.toggleModule(.optimization)   // deselect
+        vm.toggleModule(.performance)   // deselect
 
         await vm.run()
 
@@ -917,7 +917,7 @@ final class SmartScanViewModelTests: XCTestCase {
         }
         XCTAssertEqual(summary.bytesFreed, 2_048, "Junk must still clean even when maintenance fails")
         XCTAssertNil(summary.maintenanceOutput)
-        XCTAssertTrue(summary.failedModules.contains(.optimization))
+        XCTAssertTrue(summary.failedModules.contains(.performance))
     }
 
     // MARK: - Run: Applications (open selected updates)
@@ -1051,10 +1051,10 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertFalse(vm.hasExecutableWork)
     }
 
-    func test_hasExecutableWork_trueAtResultsWithOptimizationOn() async {
+    func test_hasExecutableWork_trueAtResultsWithPerformanceOn() async {
         let vm = makeViewModel()
         await vm.scan()
-        // Optimization defaults on with always-actionable maintenance, so a
+        // Performance defaults on with always-actionable maintenance, so a
         // freshly-landed scan with zero other work still has executable work.
         XCTAssertTrue(vm.hasExecutableWork)
     }
@@ -1096,23 +1096,23 @@ final class SmartScanViewModelTests: XCTestCase {
 
     // MARK: - Maintenance-scripts availability (periodic removed in macOS 26)
 
-    func test_optimization_isActionableAndSelectedWhenMaintenanceAvailable() async {
+    func test_performance_isActionableAndSelectedWhenMaintenanceAvailable() async {
         let vm = makeViewModel(maintenanceScriptsAvailable: true)
         await vm.scan()
-        XCTAssertTrue(vm.isModuleSelected(.optimization), "Optimization seeds on when maintenance is available")
-        XCTAssertTrue(vm.willExecute(.optimization))
+        XCTAssertTrue(vm.isModuleSelected(.performance), "Performance seeds on when maintenance is available")
+        XCTAssertTrue(vm.willExecute(.performance))
     }
 
-    func test_optimization_stillActionableAndSelectedWhenMaintenanceUnavailable() async {
-        // Even without periodic (macOS 26), Optimization keeps its DNS-cache
+    func test_performance_stillActionableAndSelectedWhenMaintenanceUnavailable() async {
+        // Even without periodic (macOS 26), Performance keeps its DNS-cache
         // flush, so it must stay actionable and auto-selected — matching Smart
         // Care's Performance module (maintenance scripts + Flush DNS).
         let vm = makeViewModel(maintenanceScriptsAvailable: false)
         await vm.scan()
-        XCTAssertTrue(vm.isModuleSelected(.optimization),
-                      "Optimization auto-selects because the DNS flush always has work")
-        XCTAssertTrue(vm.willExecute(.optimization),
-                      "Optimization is actionable via the DNS flush even without periodic")
+        XCTAssertTrue(vm.isModuleSelected(.performance),
+                      "Performance auto-selects because the DNS flush always has work")
+        XCTAssertTrue(vm.willExecute(.performance),
+                      "Performance is actionable via the DNS flush even without periodic")
     }
 
     func test_run_skipsMaintenanceScriptsButFlushesDNSWhenScriptsUnavailable() async {
@@ -1124,7 +1124,7 @@ final class SmartScanViewModelTests: XCTestCase {
             maintenanceScriptsAvailable: false
         )
         await vm.scan()
-        XCTAssertTrue(vm.isModuleSelected(.optimization))
+        XCTAssertTrue(vm.isModuleSelected(.performance))
 
         await vm.run()
 
@@ -1132,7 +1132,7 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(ranDNS, "The DNS flush must still run — it needs no periodic")
     }
 
-    func test_run_flushesDNSAndRunsScriptsWhenOptimizationSelected() async {
+    func test_run_flushesDNSAndRunsScriptsWhenPerformanceSelected() async {
         var ranScripts = false
         var ranDNS = false
         let vm = makeViewModel(
@@ -1481,17 +1481,17 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.isModuleSelected(.myClutter), "An enabled module with work stays selected")
     }
 
-    func test_scan_disabledOptimizationIsNotAutoSelected() async {
-        // Optimization auto-selects whenever maintenance scripts exist; disabling
+    func test_scan_disabledPerformanceIsNotAutoSelected() async {
+        // Performance auto-selects whenever maintenance scripts exist; disabling
         // the module must override that so the tile never comes back checked.
         let vm = makeViewModel(
             maintenanceScriptsAvailable: true,
-            enabledModules: { Set(SmartScanModule.allCases).subtracting([.optimization]) }
+            enabledModules: { Set(SmartScanModule.allCases).subtracting([.performance]) }
         )
 
         await vm.scan()
 
-        XCTAssertFalse(vm.isModuleSelected(.optimization))
+        XCTAssertFalse(vm.isModuleSelected(.performance))
     }
 
     // MARK: - Customize Smart Care: System Junk category gating

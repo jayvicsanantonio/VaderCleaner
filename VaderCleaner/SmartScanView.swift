@@ -8,12 +8,12 @@ import SwiftUI
 /// and within `.results` either renders the dashboard or pushes one of the
 /// five tile-specific Review screens in place. The Review push is local
 /// state (not a nested NavigationStack) so it never collides with the outer
-/// section-slide transition in ContentView. The Optimization Review uses
-/// `onOpenOptimization` to jump to the standalone sidebar section.
+/// section-slide transition in ContentView. The Performance Review uses
+/// `onOpenPerformance` to jump to the standalone sidebar section.
 struct SmartScanView: View {
 
     private var viewModel: SmartScanViewModel
-    private let onOpenOptimization: () -> Void
+    private let onOpenPerformance: () -> Void
 
     /// The tile whose Review screen is currently up, or `nil` if the
     /// dashboard is visible. State is local because Review is a transient
@@ -22,10 +22,10 @@ struct SmartScanView: View {
 
     init(
         viewModel: SmartScanViewModel,
-        onOpenOptimization: @escaping () -> Void
+        onOpenPerformance: @escaping () -> Void
     ) {
         self.viewModel = viewModel
-        self.onOpenOptimization = onOpenOptimization
+        self.onOpenPerformance = onOpenPerformance
     }
 
     var body: some View {
@@ -129,11 +129,11 @@ struct SmartScanView: View {
                     result: result,
                     onBack: { self.review = nil }
                 )
-            case .optimization:
-                SmartScanOptimizationReview(
+            case .performance:
+                SmartScanPerformanceReview(
                     result: result,
                     onBack: { self.review = nil },
-                    onOpenOptimization: onOpenOptimization
+                    onOpenPerformance: onOpenPerformance
                 )
             case .applications:
                 SmartScanApplicationsReview(
@@ -194,7 +194,7 @@ struct SmartScanView: View {
     )
     return SmartScanView(
         viewModel: vm,
-        onOpenOptimization: {}
+        onOpenPerformance: {}
     )
         .environment(SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!))
         .frame(width: 900, height: 600)

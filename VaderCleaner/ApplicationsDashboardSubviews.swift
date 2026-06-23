@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The Applications landing surface after a scan: a headline count, a "Manage
 /// My Applications" affordance, and the summary cards in an adaptive grid —
-/// mirroring the Optimization dashboard's card layout.
+/// mirroring the Performance dashboard's card layout.
 struct ApplicationsDashboardView: View {
     let result: ApplicationsScanResult
     let onOpenManage: () -> Void
@@ -70,7 +70,7 @@ struct ApplicationsDashboardView: View {
 
     /// One dashboard card's content. Built as data so the layout can promote
     /// the first one to a tall hero and flow the rest through an adaptive grid
-    /// (mirroring the Optimization dashboard), rather than every card sharing
+    /// (mirroring the Performance dashboard), rather than every card sharing
     /// one fixed size.
     private struct CardSpec: Identifiable {
         let id: String
@@ -178,7 +178,7 @@ struct ApplicationsDashboardView: View {
 
     /// Shown when no cleanup category has findings — the curated grid would
     /// otherwise be empty. The header (count + Manage / Rescan) stays above.
-    /// Mirrors the Optimization dashboard's empty state.
+    /// Mirrors the Performance dashboard's empty state.
     private var allClear: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal.fill")
@@ -384,7 +384,7 @@ struct ApplicationsDashboardView: View {
 }
 
 /// A single Applications summary card. Uses the same glass surface and corner
-/// radius as the Optimization / Smart Scan dashboards so the app's card
+/// radius as the Performance / Smart Scan dashboards so the app's card
 /// surfaces stay consistent. Also reused by the Privacy dashboard's category
 /// cards for the same reason.
 struct ApplicationsCard: View {
@@ -396,7 +396,7 @@ struct ApplicationsCard: View {
     let icon: String
     let actionLabel: String
     let identifier: String
-    /// Hero cards render taller, matching the Optimization dashboard's hero /
+    /// Hero cards render taller, matching the Performance dashboard's hero /
     /// standard `minHeight` (260 / 150) so the two dashboards share one look.
     let isHero: Bool
     let action: () -> Void

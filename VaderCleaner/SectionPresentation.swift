@@ -79,8 +79,8 @@ struct SectionPresentation {
                         title: NavigationSection.malwareRemoval.title
                     ),
                     SectionFeature(
-                        symbol: NavigationSection.optimization.icon,
-                        title: NavigationSection.optimization.title
+                        symbol: NavigationSection.performance.icon,
+                        title: NavigationSection.performance.title
                     ),
                 ]
             )
@@ -195,34 +195,34 @@ struct SectionPresentation {
                     ),
                 ]
             )
-        case .optimization:
+        case .performance:
             return SectionPresentation(
                 heroSymbol: "gauge.with.needle",
-                heroAssetName: "optimization",
+                heroAssetName: "performance",
                 heroModelName: nil,
                 heroModelScale: 1.7,
                 accent: section.theme.accent,
                 heroTitle: nil,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
-                    comment: "Optimization intro tagline."
+                    comment: "Performance intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "power",
-                        title: String(localized: "Login Items", comment: "Optimization feature row.")
+                        title: String(localized: "Login Items", comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "gearshape",
-                        title: String(localized: "Launch Agents", comment: "Optimization feature row.")
+                        title: String(localized: "Launch Agents", comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "memorychip",
-                        title: String(localized: "Free Up RAM", comment: "Optimization feature row.")
+                        title: String(localized: "Free Up RAM", comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "wrench.and.screwdriver",
-                        title: String(localized: "Maintenance Scripts", comment: "Optimization feature row.")
+                        title: String(localized: "Maintenance Scripts", comment: "Performance feature row.")
                     ),
                 ]
             )

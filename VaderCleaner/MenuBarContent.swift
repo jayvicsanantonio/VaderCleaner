@@ -195,7 +195,7 @@ struct MenuBarContent: View {
             title: String(localized: "Memory"),
             primary: memoryLine,
             statusColor: swiftUIColor(for: menuBar.ramPressureColor),
-            action: (String(localized: "Free Up"), { openSection(.optimization) })
+            action: (String(localized: "Free Up"), { openSection(.performance) })
         )
     }
 

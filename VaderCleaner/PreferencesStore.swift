@@ -180,7 +180,7 @@ final class PreferencesStore {
     // MARK: - Side effects
 
     /// Throwing entry point for surfaces that present their own inline failure
-    /// (the Optimization view's Login Items row). Applies the launch-at-login
+    /// (the Performance view's Login Items row). Applies the launch-at-login
     /// change through the same handler the property setter uses — keeping
     /// `SMAppService` access in one place (issue #65) — but rethrows any failure
     /// to the caller instead of routing it to the global alert reporter, so the

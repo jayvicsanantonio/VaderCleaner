@@ -184,7 +184,7 @@ final class PreferencesStoreTests: XCTestCase {
 
         // Unlike the property setter — which routes failures to the global
         // alert reporter — this entry point rethrows so a caller with its own
-        // inline failure UI (the Optimization row) can surface the error
+        // inline failure UI (the Performance row) can surface the error
         // without double-reporting it.
         XCTAssertThrowsError(try sut.setLaunchAtLogin(!sut.launchAtLogin))
         XCTAssertTrue(reported.isEmpty)

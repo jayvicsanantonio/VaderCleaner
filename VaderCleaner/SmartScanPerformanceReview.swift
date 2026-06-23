@@ -1,34 +1,34 @@
-// SmartScanOptimizationReview.swift
-// Performance "Manager" for Smart Scan — the shared three-pane manager in read-only mode over the login items, with an "Open Optimization" jump-link in the footer.
+// SmartScanPerformanceReview.swift
+// Performance "Manager" for Smart Scan — the shared three-pane manager in read-only mode over the login items, with an "Open Performance" jump-link in the footer.
 
 import SwiftUI
 
-/// Performance / Optimization Review, rendered through the shared
+/// Performance / Performance Review, rendered through the shared
 /// `SmartScanReviewManager` in read-only mode. The actionable work — running
 /// the maintenance scripts — is the whole tile, not a per-item selection, so
 /// the login-item list is informational (no checkboxes). The footer's
-/// "Open Optimization" jump-link sends the user to the standalone screen.
-struct SmartScanOptimizationReview: View {
+/// "Open Performance" jump-link sends the user to the standalone screen.
+struct SmartScanPerformanceReview: View {
     let result: SmartScanResult
     let onBack: () -> Void
-    let onOpenOptimization: () -> Void
+    let onOpenPerformance: () -> Void
 
     var body: some View {
-        let items = result.optimizationItems
+        let items = result.performanceItems
         SmartScanReviewManager(
             title: String(
                 localized: "Performance Manager",
-                comment: "Title on the Smart Scan Optimization Review screen."
+                comment: "Title on the Smart Scan Performance Review screen."
             ),
             buildSections: { Self.buildSections(loginItems: items) },
             onBack: onBack,
-            accessibilityPrefix: "smartScan.review.optimization",
+            accessibilityPrefix: "smartScan.review.performance",
             showsSelection: false,
             secondaryActionTitle: String(
-                localized: "Open Optimization",
-                comment: "Button on the Smart Scan Performance Review that jumps to the standalone Optimization screen."
+                localized: "Open Performance",
+                comment: "Button on the Smart Scan Performance Review that jumps to the standalone Performance screen."
             ),
-            onSecondaryAction: onOpenOptimization
+            onSecondaryAction: onOpenPerformance
         )
     }
 
