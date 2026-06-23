@@ -44,7 +44,7 @@ struct NavigationRailView: View {
             // together so all eleven rows fit a default-height window without
             // scrolling.
             .padding(.top, 58)
-            .padding(.bottom, 12)
+            .padding(.bottom, 24)
         }
         // No scroll indicator: at a typical window height the eleven rows sit
         // statically with no visible scrolling. The ScrollView is retained so

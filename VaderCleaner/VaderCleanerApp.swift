@@ -257,7 +257,7 @@ struct VaderCleanerApp: App {
         // Open wide and tall enough for the side-by-side section intro (hero
         // beside the text) to show on first launch, with the vertically
         // centred cluster sitting clear of the floating Scan disc.
-        .defaultSize(width: 1200, height: 800)
+        .defaultSize(width: 1320, height: 680)
         .commands {
             // Replace SwiftUI's default "About VaderCleaner" item so the
             // panel carries our copyright credits instead of an empty one.

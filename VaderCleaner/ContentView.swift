@@ -242,9 +242,14 @@ struct ContentView: View {
         // animate their own transition with a matching curve.
         .animation(.smooth(duration: 0.42), value: selectedSection)
         // The side-by-side section intro needs a pane wide enough for the
-        // hero, the gap, and the text column; a 1000pt minimum keeps that
-        // fixed layout from clipping at the smallest allowed window width.
-        .frame(minWidth: 1000, minHeight: 600)
+        // hero, the gap, and the text column; the minimum keeps that fixed
+        // layout comfortable — not just un-clipped — at the smallest allowed
+        // window width.
+        // The minimum height is kept above the navigation rail's natural content
+        // height (top inset + nine rows + gaps + bottom inset) so the last rail
+        // icon always keeps a comfortable gap to the window's bottom edge, even
+        // at the smallest allowed size.
+        .frame(minWidth: 1140, minHeight: 640)
         // Per-section gradient backdrop, keyed to the selection and crossfaded
         // on change so moving between sections recolours the whole window. The
         // toolbar background is hidden so the floating glass toolbar items sit
