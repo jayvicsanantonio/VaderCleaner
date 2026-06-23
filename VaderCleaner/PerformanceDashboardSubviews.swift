@@ -32,28 +32,31 @@ struct PerformanceDashboardView: View {
     }
 
     private var hero: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             Image("performance")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(maxWidth: 200, maxHeight: 200)
+                .frame(maxWidth: 140, maxHeight: 140)
                 .accessibilityHidden(true)
+
             Text(String(
                 localized: "Apply curated recommendations\nor run performance tasks manually.",
                 comment: "Performance dashboard tagline."
             ))
-            .font(.title2.weight(.semibold))
+            .font(.title.weight(.semibold))
             .multilineTextAlignment(.center)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.white)
 
             Button(action: onViewAllTasks) {
                 Text(String(
                     localized: "View All Tasks",
                     comment: "Button that opens the full Performance Manager."
                 ))
+                .padding(.horizontal, 8)
             }
             .buttonStyle(.bordered)
+            .controlSize(.large)
             .accessibilityIdentifier("performance.viewAllTasks")
         }
     }
