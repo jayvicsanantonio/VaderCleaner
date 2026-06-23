@@ -125,6 +125,22 @@ struct SystemJunkView: View {
             // the Large & Old Files section.
             SystemJunkDashboardView(
                 totalBytes: result.totalSize,
+                tiles: CleanupGroupTile.tiles(from: result),
+                onReview: { group in
+                    // Pre-select this card's whole group so the right pane opens
+                    // all-checked and the selected total matches the card's size.
+                    viewModel.selectOnly(categories: Set(group.categories))
+                    // Deep link: open the manager at this card's section and the
+                    // sub-category the card maps to.
+                    let category = group.managerCategory
+                    managerInitialSection = category.flatMap(CleanupManagerModel.sectionID(containing:))
+                        ?? CleanupManagerModel.groups.first?.id
+                    managerInitialCategory = category?.rawValue
+                    showingManager = true
+                },
+                onClean: { group in
+                    Task { await viewModel.clean(categories: Set(group.categories)) }
+                },
                 onReviewAll: {
                     // The full manager, default first section/category.
                     managerInitialSection = nil
