@@ -62,6 +62,13 @@ struct MyClutterDashboardView: View {
 
     private var header: some View {
         VStack(spacing: 14) {
+            Image("largeOldFiles")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: 140, maxHeight: 140)
+                .accessibilityHidden(true)
+
             VStack(spacing: 4) {
                 Text(headlineLine)
                     .font(.title.weight(.semibold))
