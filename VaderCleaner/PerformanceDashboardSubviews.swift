@@ -781,7 +781,7 @@ struct PerformanceTaskRow: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.subheadline)
                             .foregroundStyle(.green)
-                            .transition(.scale.combined(with: .opacity))
+                            .transition(.opacity)
                             .accessibilityIdentifier("performance.task.done.\(task.kind.rawValue)")
                     }
                 }

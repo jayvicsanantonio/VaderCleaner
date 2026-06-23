@@ -330,7 +330,7 @@ struct SystemJunkEmptyPreviewState: View {
                     onRecheck: onRefreshAccess
                 )
                 .padding(.top, 8)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
