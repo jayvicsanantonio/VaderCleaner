@@ -90,15 +90,23 @@ struct ApplicationsView: View {
             // scroll view.
             ApplicationsDashboardView(
                 result: result,
+                iconCache: iconCache,
                 onOpenManage: { detail = .manage(.uninstaller) },
                 onOpenInstallationFiles: { detail = .installationFiles },
                 onOpenUnsupported: { detail = .unsupported },
                 onOpenUnused: { detail = .unused },
                 onOpenUpdates: { detail = .manage(.updater) },
                 onOpenLeftovers: { detail = .leftovers },
-                onRescan: { Task { await viewModel.scan() } }
+                onRemoveLeftovers: {
+                    viewModel.selectAllLeftovers()
+                    Task { await viewModel.deleteSelectedLeftovers() }
+                }
             )
-            .padding(24)
+            // Generous top and bottom insets so the section breathes above the
+            // hero and below the cards rather than running into the window edges.
+            .padding(.horizontal, 24)
+            .padding(.top, 44)
+            .padding(.bottom, 48)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .manage(let pane):
             // Full multi-pane manager (Uninstaller / Updater / Leftovers),
@@ -226,166 +234,6 @@ struct ApplicationsView: View {
             Divider()
             screen()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-}
-
-/// The "Applications Manager" reached from the dashboard's Manage card. Mirrors
-/// the Performance "View All Tasks" catalog (`PerformanceTaskCatalogView`): a
-/// header with a Back affordance and a centered title, a left sub-navigation,
-/// and a detail pane. The three panes reuse the existing Uninstaller, Updater,
-/// and Leftovers screens so all the management work lives in one place.
-struct ApplicationsManagerView: View {
-
-    private var viewModel: ApplicationsViewModel
-    private var uninstallerViewModel: AppUninstallerViewModel
-    private var updaterViewModel: AppUpdaterViewModel
-    private var extensionsManagerViewModel: ExtensionsManagerViewModel
-    private let result: ApplicationsScanResult
-    private var iconCache: AppIconCache
-    private let onBack: () -> Void
-
-    /// Which sub-section the manager is showing. Local state — it survives the
-    /// view's re-renders while the manager is open, and resets when the user
-    /// returns to the dashboard and comes back. Seeded from `initialPane` so a
-    /// caller can deep-link straight to a pane (e.g. the Updates card → Updater).
-    @State private var pane: Pane
-
-    enum Pane: Hashable {
-        case uninstaller
-        case updater
-        case extensions
-        case leftovers
-    }
-
-    init(
-        viewModel: ApplicationsViewModel,
-        uninstallerViewModel: AppUninstallerViewModel,
-        updaterViewModel: AppUpdaterViewModel,
-        extensionsManagerViewModel: ExtensionsManagerViewModel,
-        result: ApplicationsScanResult,
-        iconCache: AppIconCache,
-        initialPane: Pane = .uninstaller,
-        onBack: @escaping () -> Void
-    ) {
-        self.viewModel = viewModel
-        self.uninstallerViewModel = uninstallerViewModel
-        self.updaterViewModel = updaterViewModel
-        self.extensionsManagerViewModel = extensionsManagerViewModel
-        self.result = result
-        self.iconCache = iconCache
-        self._pane = State(initialValue: initialPane)
-        self.onBack = onBack
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            HStack(spacing: 0) {
-                subNavigation
-                    .frame(width: 220)
-                    .padding(16)
-                Divider()
-                detailPane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("applications.manager")
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        HStack {
-            Button(action: onBack) {
-                // HStack(Image, Text) rather than Label so the control surfaces
-                // reliably in XCUITest.
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                    Text(String(
-                        localized: "Back",
-                        comment: "Back button returning from the Applications Manager to the dashboard."
-                    ))
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("applications.backToDashboard")
-            Spacer()
-            Text(String(
-                localized: "Applications Manager",
-                comment: "Title of the Applications Manager catalog."
-            ))
-            .font(.headline)
-            Spacer()
-            // Balances the leading Back button so the title stays centred.
-            Color.clear.frame(width: 44, height: 1)
-        }
-        .padding(16)
-    }
-
-    // MARK: Sub-navigation
-
-    private var subNavigation: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            navItem(.uninstaller,
-                    String(localized: "Uninstaller", comment: "Applications Manager sub-nav item."),
-                    "applications.manager.nav.uninstaller")
-            navItem(.updater,
-                    String(localized: "Updater", comment: "Applications Manager sub-nav item."),
-                    "applications.manager.nav.updater")
-            navItem(.extensions,
-                    String(localized: "Extensions", comment: "Applications Manager sub-nav item."),
-                    "applications.manager.nav.extensions")
-            navItem(.leftovers,
-                    String(localized: "Leftovers", comment: "Applications Manager sub-nav item."),
-                    "applications.manager.nav.leftovers")
-            Spacer()
-        }
-    }
-
-    private func navItem(_ target: Pane, _ title: String, _ identifier: String) -> some View {
-        Button {
-            pane = target
-        } label: {
-            Text(title)
-                .font(.body.weight(pane == target ? .semibold : .regular))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    pane == target ? Color.primary.opacity(0.10) : .clear,
-                    in: .rect(cornerRadius: 8)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier)
-    }
-
-    // MARK: Detail pane
-
-    @ViewBuilder
-    private var detailPane: some View {
-        switch pane {
-        case .uninstaller:
-            AppUninstallerView(viewModel: uninstallerViewModel, iconCache: iconCache)
-        case .updater:
-            AppUpdaterView(viewModel: updaterViewModel)
-        case .extensions:
-            ExtensionsManagerView(viewModel: extensionsManagerViewModel)
-        case .leftovers:
-            AppLeftoversReviewView(
-                groups: result.leftovers,
-                isSelected: viewModel.isLeftoverSelected,
-                onToggle: viewModel.toggleLeftover,
-                onSelectAll: viewModel.selectAllLeftovers,
-                onClear: viewModel.clearLeftoverSelection,
-                isRemoving: viewModel.isRemovingLeftovers,
-                canRemove: viewModel.canRemoveLeftovers,
-                onRemove: { Task { await viewModel.deleteSelectedLeftovers() } }
-            )
         }
     }
 }

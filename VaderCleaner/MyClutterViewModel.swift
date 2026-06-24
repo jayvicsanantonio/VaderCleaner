@@ -143,12 +143,6 @@ final class MyClutterViewModel {
         }
     }
 
-    /// Bytes currently selected within a specific set of URLs — for a review
-    /// category's running badge.
-    func selectedBytes(in urls: [URL]) -> Int64 {
-        urls.reduce(Int64(0)) { $0 + (selectedURLs.contains($1) ? (sizeByURL[$1] ?? 0) : 0) }
-    }
-
     // MARK: - Scan
 
     /// Run all four scans concurrently and land in `.results`, `.empty`, or

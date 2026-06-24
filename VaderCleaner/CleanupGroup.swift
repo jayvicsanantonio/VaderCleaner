@@ -40,10 +40,6 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
         allCases.first { $0.categories.contains(category) }
     }
 
-    /// The lead card, rendered larger than the rest. Only System Junk — the
-    /// heaviest, most general bucket — is promoted to the hero slot.
-    var isHero: Bool { self == .systemJunk }
-
     /// The Cleanup Manager category a card's "Review" should open to. The
     /// single-category cards (Trash Bins, Xcode Junk, Document Versions) deep
     /// link straight to that sub-category. System Junk opens to User Caches —

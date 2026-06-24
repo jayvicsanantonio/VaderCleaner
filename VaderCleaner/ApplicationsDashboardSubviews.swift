@@ -10,16 +10,23 @@ import SwiftUI
 /// mirroring the Performance dashboard's card layout.
 struct ApplicationsDashboardView: View {
     let result: ApplicationsScanResult
+    var iconCache: AppIconCache
     let onOpenManage: () -> Void
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
     let onOpenUnused: () -> Void
     let onOpenUpdates: () -> Void
     let onOpenLeftovers: () -> Void
-    let onRescan: () -> Void
+    /// One-click removal for the App Leftovers card's Remove button — selects
+    /// every leftover group and moves it to the Trash.
+    let onRemoveLeftovers: () -> Void
+
+    /// Total on-disk size of the unused apps, summed off-main for the Unused
+    /// card's "they use N of space" detail. `nil` until the walk returns.
+    @State private var unusedTotalBytes: Int64?
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
             header
             Group {
                 if result.recommendations.isEmpty {
@@ -28,87 +35,109 @@ struct ApplicationsDashboardView: View {
                     cardLayout
                 }
             }
+            // The grid stays flexible (it absorbs any height squeeze) so the
+            // hero keeps its standard size instead of being compressed.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("applications.dashboard")
-    }
-
-    private var header: some View {
-        VStack(spacing: 12) {
-            Text(installedCountText)
-                .font(.title2.weight(.semibold))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("applications.installedCount")
-            Text(recommendationCountText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            HStack(spacing: 12) {
-                Button(action: onOpenManage) {
-                    Text(String(
-                        localized: "Manage My Applications",
-                        comment: "Button that opens the full installed-apps management (uninstaller) list."
-                    ))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("applications.manageMyApplications")
-
-                Button(action: onRescan) {
-                    Text(String(
-                        localized: "Re-scan",
-                        comment: "Button that re-runs the Applications scan."
-                    ))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("applications.rescan")
-            }
+        .task(id: result.unusedApps.map(\.id)) {
+            // Preload the unused apps' icons for the Unused card's icon cluster
+            // and sum their on-disk sizes off-main for its detail line.
+            let urls = result.unusedApps.map { $0.app.bundleURL }
+            await iconCache.preloadIcons(for: urls)
+            unusedTotalBytes = await Task.detached(priority: .utility) {
+                let fileManager = FileManager.default
+                return urls.reduce(Int64(0)) { $0 + DefaultAppDiscovery.bundleSize(at: $1, fileManager: fileManager) }
+            }.value
         }
     }
 
-    /// One dashboard card's content. Built as data so the layout can promote
-    /// the first one to a tall hero and flow the rest through an adaptive grid
-    /// (mirroring the Performance dashboard), rather than every card sharing
-    /// one fixed size.
+    private var header: some View {
+        VStack(spacing: 14) {
+            Image("applications")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: 140, maxHeight: 140)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 4) {
+                Text(installedCountText)
+                    .font(.title.weight(.semibold))
+                    .accessibilityIdentifier("applications.installedCount")
+                Text(String(
+                    localized: "Use quick recommendations or manage them by hand.",
+                    comment: "Applications dashboard subheadline beneath the installed-app count."
+                ))
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.white)
+
+            Button(action: onOpenManage) {
+                Text(String(
+                    localized: "Manage My Applications",
+                    comment: "Button that opens the full installed-apps management (uninstaller) list."
+                ))
+                .padding(.horizontal, 8)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityIdentifier("applications.manageMyApplications")
+        }
+    }
+
+    /// One dashboard card's content, built as data so the layout can render the
+    /// lead recommendation as a tall left card and stack the rest in a right
+    /// column — matching the reference dashboard.
     private struct CardSpec: Identifiable {
         let id: String
         let title: String
-        /// A short, emphasized magnitude — reclaimable size for space
-        /// categories, item count for app/update categories — surfaced as the
-        /// card's headline number above its supporting detail.
-        let metric: String
         let detail: String
-        let icon: String
-        let actionLabel: String
-        let action: () -> Void
+        let icon: ApplicationsCardIcon
+        let primaryLabel: String
+        let primaryAction: () -> Void
+        /// Optional second action, rendered as a bordered button to the left of
+        /// the prominent primary (the App Leftovers card's Review).
+        var secondaryLabel: String? = nil
+        var secondaryAction: (() -> Void)? = nil
     }
 
     private var reviewLabel: String {
         String(localized: "Review", comment: "Applications card action that opens a review list.")
     }
 
+    private var removeLabel: String {
+        String(localized: "Remove", comment: "Applications card action that removes the finding directly.")
+    }
+
     private func spec(for recommendation: ApplicationsScanResult.Recommendation) -> CardSpec {
         switch recommendation {
         case .unsupported:
-            return CardSpec(id: "applications.card.unsupported", title: unsupportedTitle, metric: unsupportedMetric,
-                            detail: unsupportedDetail, icon: "exclamationmark.triangle",
-                            actionLabel: reviewLabel, action: onOpenUnsupported)
+            return CardSpec(id: "applications.card.unsupported", title: unsupportedTitle,
+                            detail: unsupportedDetail, icon: .symbol("exclamationmark.triangle.fill"),
+                            primaryLabel: reviewLabel, primaryAction: onOpenUnsupported)
         case .unused:
-            return CardSpec(id: "applications.card.unused", title: unusedTitle, metric: unusedMetric,
-                            detail: unusedDetail, icon: "moon.zzz", actionLabel: reviewLabel, action: onOpenUnused)
+            return CardSpec(id: "applications.card.unused", title: unusedTitle,
+                            detail: unusedDetail,
+                            icon: .appIcons(Array(result.unusedApps.prefix(3).map { $0.app.bundleURL })),
+                            primaryLabel: reviewLabel, primaryAction: onOpenUnused)
         case .updates:
-            return CardSpec(id: "applications.card.updates", title: updatesTitle, metric: updatesMetric,
-                            detail: updatesDetail, icon: "arrow.down.circle", actionLabel: updateLabel,
-                            action: onOpenUpdates)
+            return CardSpec(id: "applications.card.updates", title: updatesTitle,
+                            detail: updatesDetail, icon: .symbol("arrow.down.circle.fill"),
+                            primaryLabel: updateLabel, primaryAction: onOpenUpdates)
         case .leftovers:
-            return CardSpec(id: "applications.card.leftovers", title: leftoversTitle, metric: leftoversMetric,
-                            detail: leftoversDetail, icon: "trash", actionLabel: reviewLabel, action: onOpenLeftovers)
+            // Review (bordered) + Remove (prominent), matching the reference card.
+            return CardSpec(id: "applications.card.leftovers", title: leftoversTitle,
+                            detail: leftoversDetail, icon: .asset("appLeftovers"),
+                            primaryLabel: removeLabel, primaryAction: onRemoveLeftovers,
+                            secondaryLabel: reviewLabel, secondaryAction: onOpenLeftovers)
         case .installationFiles:
             return CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
-                            metric: installationFilesMetric, detail: installationFilesDetail, icon: "shippingbox",
-                            actionLabel: reviewLabel, action: onOpenInstallationFiles)
+                            detail: installationFilesDetail, icon: .asset("installerDmg"),
+                            primaryLabel: reviewLabel, primaryAction: onOpenInstallationFiles)
         }
     }
 
@@ -117,62 +146,80 @@ struct ApplicationsDashboardView: View {
         result.recommendations.map(spec(for:))
     }
 
-    /// Applications' own layout: the top recommendation is a full-width hero
-    /// row, and the rest sit in rows of two beneath it. The hero and every row
-    /// take an *equal* share of the pane height (one flat stack of equal-height
-    /// rows), so the hero isn't a tall, near-empty banner and the rows below get
-    /// the room they need. Bounded so the dashboard fills the pane without
-    /// scrolling.
+    /// The reference layout: the lead recommendation is a tall card on the left,
+    /// and the remaining findings sit in a right-hand column packed into rows of
+    /// two (an odd count leads with a single full-width row), mirroring the My
+    /// Clutter dashboard. Capping the right column at rows of two keeps the grid
+    /// bounded so it fills the pane without overflowing, however many findings
+    /// there are. With a single finding the card fills the whole pane.
     @ViewBuilder
     private var cardLayout: some View {
-        if recommendationSpecs.count <= 1 {
-            if let hero = recommendationSpecs.first {
-                card(hero, isHero: true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let specs = recommendationSpecs
+        if specs.count <= 1 {
+            if let only = specs.first {
+                card(only).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
             GlassEffectContainer(spacing: 16) {
-                VStack(spacing: 16) {
-                    // `isHero: false` so the top card uses the same minimum
-                    // height as the rows below — otherwise the taller hero
-                    // minimum makes it permanently bigger than the other rows
-                    // even though they all want to divide the height equally.
-                    // It still reads as the lead card by spanning the full width.
-                    card(recommendationSpecs[0], isHero: false)
+                HStack(alignment: .top, spacing: 16) {
+                    card(specs[0])
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    ForEach(Array(rows(of: Array(recommendationSpecs.dropFirst())).enumerated()), id: \.offset) { _, row in
-                        HStack(spacing: 16) {
-                            ForEach(row) { spec in
-                                card(spec, isHero: false)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        }
-                        .frame(maxHeight: .infinity)
-                    }
+                    rightColumn(Array(specs.dropFirst()))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    /// Chunks the non-hero specs into rows of at most two so the cards beneath
-    /// the hero read as a balanced two-up grid.
-    private func rows(of specs: [CardSpec]) -> [[CardSpec]] {
-        stride(from: 0, to: specs.count, by: 2).map {
-            Array(specs[$0..<min($0 + 2, specs.count)])
+    /// The right-hand findings, packed into rows of at most two so the column
+    /// never grows taller than the pane.
+    private func rightColumn(_ specs: [CardSpec]) -> some View {
+        VStack(spacing: 16) {
+            ForEach(rows(of: specs)) { row in
+                HStack(spacing: 16) {
+                    ForEach(row.specs) { spec in
+                        card(spec).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
-    private func card(_ spec: CardSpec, isHero: Bool) -> some View {
-        ApplicationsCard(
+    /// One row of right-column cards.
+    private struct CardRow: Identifiable {
+        let id: Int
+        let specs: [CardSpec]
+    }
+
+    /// Chunks the right-column specs into rows of two. An odd count leads with a
+    /// single full-width row (matching My Clutter's "one then a pair" shape).
+    private func rows(of specs: [CardSpec]) -> [CardRow] {
+        var rows: [CardRow] = []
+        var remaining = specs
+        if remaining.count % 2 == 1 {
+            rows.append(CardRow(id: 0, specs: [remaining.removeFirst()]))
+        }
+        while !remaining.isEmpty {
+            let chunk = Array(remaining.prefix(2))
+            remaining.removeFirst(chunk.count)
+            rows.append(CardRow(id: rows.count, specs: chunk))
+        }
+        return rows
+    }
+
+    private func card(_ spec: CardSpec) -> some View {
+        ApplicationsDashboardCard(
             title: spec.title,
-            metric: spec.metric,
             detail: spec.detail,
             icon: spec.icon,
-            actionLabel: spec.actionLabel,
+            primaryLabel: spec.primaryLabel,
+            primaryAction: spec.primaryAction,
+            secondaryLabel: spec.secondaryLabel,
+            secondaryAction: spec.secondaryAction,
             identifier: spec.id,
-            isHero: isHero,
-            action: spec.action
+            iconCache: iconCache
         )
     }
 
@@ -213,23 +260,8 @@ struct ApplicationsDashboardView: View {
         return String.localizedStringWithFormat(format, Int64(result.installedCount))
     }
 
-    private var recommendationCountText: String {
-        let format = String(
-            localized: "%lld recommendations to review.",
-            comment: "Applications dashboard subtitle; %lld is the number of cleanup recommendations."
-        )
-        return String.localizedStringWithFormat(format, Int64(result.recommendations.count))
-    }
-
     private var updateLabel: String {
         String(localized: "Update", comment: "Applications Updates card action that opens the Updater pane.")
-    }
-
-    /// Localized "N apps" count, used as the metric on the app categories
-    /// (unused / unsupported) where there is no on-disk size to show.
-    private func appCountText(_ count: Int) -> String {
-        let format = String(localized: "%lld apps", comment: "Applications card metric; %lld is an app count.")
-        return String.localizedStringWithFormat(format, Int64(count))
     }
 
     private var installationFilesTitle: String {
@@ -239,14 +271,11 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Installation Files card title when none are found."
             )
         }
-        return String(
-            localized: "Installation Files",
-            comment: "Applications Installation Files card title."
+        let format = String(
+            localized: "%@ of Installation Files Found",
+            comment: "Applications Installation Files card title; %@ is the reclaimable size."
         )
-    }
-
-    private var installationFilesMetric: String {
-        smartScanByteFormatter.string(fromByteCount: result.installationFilesTotalBytes)
+        return String.localizedStringWithFormat(format, smartScanByteFormatter.string(fromByteCount: result.installationFilesTotalBytes))
     }
 
     private var installationFilesDetail: String {
@@ -257,7 +286,7 @@ struct ApplicationsDashboardView: View {
             )
         }
         return String(
-            localized: "Leftover disk images and installers in your Downloads and Desktop. They're safe to remove once an app is installed.",
+            localized: "DMGs and installers you no longer need.",
             comment: "Applications Installation Files card detail when some are found."
         )
     }
@@ -269,13 +298,12 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Unused card title when none are found."
             )
         }
-        return String(
-            localized: "Unused Applications",
-            comment: "Applications Unused card title."
+        let format = String(
+            localized: "%lld Unused Applications Found",
+            comment: "Applications Unused card title; %lld is the unused-app count."
         )
+        return String.localizedStringWithFormat(format, Int64(result.unusedAppsCount))
     }
-
-    private var unusedMetric: String { appCountText(result.unusedAppsCount) }
 
     private var unusedDetail: String {
         if result.unusedAppsCount == 0 {
@@ -284,9 +312,16 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Unused card detail when none are found."
             )
         }
+        if let bytes = unusedTotalBytes {
+            let format = String(
+                localized: "You may not need these apps, but they use %@ of space in total.",
+                comment: "Applications Unused card detail; %@ is the total on-disk size of the unused apps."
+            )
+            return String.localizedStringWithFormat(format, smartScanByteFormatter.string(fromByteCount: bytes))
+        }
         return String(
-            localized: "These apps haven't been opened in over 60 days. Remove the ones you no longer need.",
-            comment: "Applications Unused card detail when some are found."
+            localized: "You may not need these apps. Remove the ones you no longer use.",
+            comment: "Applications Unused card detail shown before the total size has been measured."
         )
     }
 
@@ -297,16 +332,9 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Updates card title when none are found."
             )
         }
-        return String(
-            localized: "Updates Available",
-            comment: "Applications Updates card title."
-        )
-    }
-
-    private var updatesMetric: String {
         let format = String(
-            localized: "%lld updates",
-            comment: "Applications Updates card metric; %lld is the available-update count."
+            localized: "%lld Updates Available",
+            comment: "Applications Updates card title; %lld is the available-update count."
         )
         return String.localizedStringWithFormat(format, Int64(result.updatesCount))
     }
@@ -331,14 +359,11 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Leftovers card title when none are found."
             )
         }
-        return String(
-            localized: "App Leftovers",
-            comment: "Applications Leftovers card title."
+        let format = String(
+            localized: "%@ of App Leftovers Found",
+            comment: "Applications Leftovers card title; %@ is the reclaimable size."
         )
-    }
-
-    private var leftoversMetric: String {
-        smartScanByteFormatter.string(fromByteCount: result.leftoversTotalBytes)
+        return String.localizedStringWithFormat(format, smartScanByteFormatter.string(fromByteCount: result.leftoversTotalBytes))
     }
 
     private var leftoversDetail: String {
@@ -349,7 +374,7 @@ struct ApplicationsDashboardView: View {
             )
         }
         return String(
-            localized: "Support files left behind by apps you've removed.",
+            localized: "Bits left behind by apps you've uninstalled.",
             comment: "Applications Leftovers card detail when some are found."
         )
     }
@@ -361,13 +386,12 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Unsupported card title when none are found."
             )
         }
-        return String(
-            localized: "Unsupported Applications",
-            comment: "Applications Unsupported card title."
+        let format = String(
+            localized: "%lld Unsupported Applications Found",
+            comment: "Applications Unsupported card title; %lld is the unsupported-app count."
         )
+        return String.localizedStringWithFormat(format, Int64(result.unsupportedAppsCount))
     }
-
-    private var unsupportedMetric: String { appCountText(result.unsupportedAppsCount) }
 
     private var unsupportedDetail: String {
         if result.unsupportedAppsCount == 0 {
@@ -431,6 +455,105 @@ struct ApplicationsCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: isHero ? 260 : 150, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+}
+
+// MARK: - Dashboard card (Applications)
+
+/// How an Applications dashboard card illustrates its finding: a generated
+/// raster tile (App Leftovers / installer DMG), a tinted SF Symbol, or a
+/// cluster of the real app icons (the Unused card).
+enum ApplicationsCardIcon {
+    case asset(String)
+    case symbol(String)
+    case appIcons([URL])
+}
+
+/// A single Applications dashboard card in the reference layout: a title and
+/// detail at the top with a top-right illustration, and a bottom action row.
+/// The Unused card additionally shows a cluster of real app icons at the
+/// bottom-left; the App Leftovers card shows a bordered Review plus a prominent
+/// Remove. Distinct from `ApplicationsCard` (still used by the Privacy
+/// dashboard) so that surface is left unchanged.
+struct ApplicationsDashboardCard: View {
+    let title: String
+    let detail: String
+    let icon: ApplicationsCardIcon
+    let primaryLabel: String
+    let primaryAction: () -> Void
+    let secondaryLabel: String?
+    let secondaryAction: (() -> Void)?
+    let identifier: String
+    var iconCache: AppIconCache
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.title3.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(detail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                topRightIcon.frame(width: 52, height: 52)
+            }
+            // The Unused card fills its body with a centred cluster of the real
+            // app icons; the others just push the action row to the bottom.
+            if case .appIcons(let urls) = icon, !urls.isEmpty {
+                Spacer(minLength: 12)
+                appIconCluster(urls).frame(maxWidth: .infinity)
+                Spacer(minLength: 12)
+            } else {
+                Spacer(minLength: 8)
+            }
+            HStack(spacing: 10) {
+                Spacer()
+                if let secondaryLabel, let secondaryAction {
+                    Button(secondaryLabel, action: secondaryAction)
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier(identifier + ".secondary")
+                }
+                Button(primaryLabel, action: primaryAction)
+                    .buttonStyle(.vaderProminent)
+                    .accessibilityIdentifier(identifier)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var topRightIcon: some View {
+        switch icon {
+        case .asset(let name):
+            Image(name).resizable().aspectRatio(contentMode: .fit)
+        case .symbol(let name):
+            Image(systemName: name)
+                .resizable().aspectRatio(contentMode: .fit)
+                .foregroundStyle(.tint)
+                .padding(4)
+        case .appIcons:
+            // The Unused card illustrates with the icon cluster at the bottom.
+            EmptyView()
+        }
+    }
+
+    /// Overlapping real app icons for the Unused card, centred to fill the tall
+    /// card body.
+    private func appIconCluster(_ urls: [URL]) -> some View {
+        HStack(spacing: -16) {
+            ForEach(urls, id: \.self) { url in
+                Image(nsImage: iconCache.icon(for: url))
+                    .resizable()
+                    .frame(width: 64, height: 64)
+                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+            }
+        }
     }
 }
 
