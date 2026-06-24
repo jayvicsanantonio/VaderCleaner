@@ -1,5 +1,5 @@
 // SmartScanViewModel.swift
-// State machine behind the Smart Scan feature view — orchestrates the System Junk, Malware, and Optimization sub-modules into one concurrent scan, aggregates their results, and drives a single junk+threats clean pass.
+// State machine behind the Smart Scan feature view — orchestrates the System Junk, Malware, and Performance sub-modules into one concurrent scan, aggregates their results, and drives a single junk+threats clean pass.
 
 import AppKit
 import Foundation
@@ -18,7 +18,7 @@ import os.log
 enum SmartScanModule: String, Hashable, CaseIterable {
     case systemJunk
     case malware
-    case optimization
+    case performance
     case applications
     case myClutter
 }
@@ -46,7 +46,7 @@ enum SmartScanStage: Hashable {
 struct SmartScanResult: Equatable {
     let junkResult: ScanResult
     let threats: [MalwareThreat]
-    let optimizationItems: [LoginItem]
+    let performanceItems: [LoginItem]
     /// Duplicate-file groups surfaced by the duplicate sub-scan, fronting the
     /// "My Clutter" tile on the dashboard (matching Smart Care, which finds
     /// duplicate files in Downloads). Empty when the scan found nothing — or, in
@@ -82,7 +82,7 @@ struct SmartScanSummary: Equatable {
     /// requested *and* not returned as failures by the remover).
     let threatsRemoved: Int
     /// The Maintenance script runner's result line on success, `nil` if
-    /// Optimization was deselected or the runner threw.
+    /// Performance was deselected or the runner threw.
     let maintenanceOutput: String?
     /// How many app-update URLs Run opened via the App Updater opener.
     let updatesOpened: Int
@@ -157,7 +157,7 @@ final class SmartScanViewModel {
     /// count so Smart Scan can show the malware sub-scan advancing after the
     /// file-walk tally plateaus.
     typealias MalwareScanner = (@escaping @Sendable (Int) -> Void) async -> [MalwareThreat]
-    /// Login-item loader, mirroring `OptimizationViewModel.LoadLoginItems`.
+    /// Login-item loader, mirroring `PerformanceViewModel.LoadLoginItems`.
     typealias LoginItemsLoader = () async -> [LoginItem]
     /// Duplicate-file scan source, fronting the My Clutter tile. Non-throwing
     /// and best-effort: a partly-blocked filesystem walk must not fail the whole
@@ -179,7 +179,7 @@ final class SmartScanViewModel {
     /// full success), mirroring `MalwareViewModel.RemoveThreats`.
     typealias ThreatRemover = ([MalwareThreat]) async -> [MalwareThreat]
     /// Privileged maintenance-script runner, mirroring
-    /// `OptimizationViewModel.RunMaintenance` — returns a result line on
+    /// `PerformanceViewModel.RunMaintenance` — returns a result line on
     /// success and throws on a dropped helper connection or a script failure.
     typealias MaintenanceRunner = () async throws -> String
     /// Opens an App Updater update URL (App Store or Sparkle), mirroring the
@@ -320,15 +320,15 @@ final class SmartScanViewModel {
     @ObservationIgnored private let threatRemover: ThreatRemover
     @ObservationIgnored private let maintenanceRunner: MaintenanceRunner
     /// Flushes the system DNS cache via the privileged helper. Part of the
-    /// Performance/Optimization module alongside the maintenance scripts,
+    /// Performance/Performance module alongside the maintenance scripts,
     /// matching Smart Care (which runs maintenance scripts *and* Flush DNS).
     /// Needs no `periodic`, so it runs even on macOS 26 where the scripts are
-    /// gone — which is why Optimization always has Run work.
+    /// gone — which is why Performance always has Run work.
     @ObservationIgnored private let dnsFlusher: MaintenanceRunner
     @ObservationIgnored private let updateOpener: UpdateOpener
     @ObservationIgnored private let largeFileDeleter: LargeFileDeleter
     /// Whether `/usr/sbin/periodic` exists — false on macOS 26+, where Apple
-    /// removed it. When false the Optimization tile's maintenance-scripts action
+    /// removed it. When false the Performance tile's maintenance-scripts action
     /// has nothing to run, so it is not auto-selected and Run skips it.
     @ObservationIgnored private let maintenanceScriptsAvailable: Bool
 
@@ -484,7 +484,7 @@ final class SmartScanViewModel {
             clamAVAvailable: clamAVAvailable && mods.contains(.malware),
             onProgress: onMalwareProgress
         )
-        async let login = mods.contains(.optimization) ? loginItemsLoader() : []
+        async let login = mods.contains(.performance) ? loginItemsLoader() : []
         async let large = mods.contains(.myClutter) ? duplicatesScanner(onClutterProgress) : []
         async let updates = mods.contains(.applications) ? updatesChecker(onUpdatesProgress) : []
 
@@ -512,13 +512,13 @@ final class SmartScanViewModel {
             let result = SmartScanResult(
                 junkResult: junkResult,
                 threats: foundThreats,
-                optimizationItems: loginItems,
+                performanceItems: loginItems,
                 duplicateGroups: duplicates,
                 availableUpdates: foundUpdates,
                 clamAVAvailable: clamAVAvailable
             )
             // Intersect with the enabled modules so a module the user excluded
-            // never comes back auto-selected — notably Optimization, which
+            // never comes back auto-selected — notably Performance, which
             // otherwise always auto-selects (its DNS flush always has work).
             tileSelection = Self.defaultTileSelection(for: result).intersection(mods)
             junkFileSelection = Set(result.junkResult.items.map(\.url))
@@ -636,14 +636,14 @@ final class SmartScanViewModel {
         // the scripts (periodic was removed in macOS 26, so running it would only
         // surface "The file 'periodic' doesn't exist."); the DNS flush needs no
         // periodic, so it always runs when the tile is selected.
-        if tileSelection.contains(.optimization) {
+        if tileSelection.contains(.performance) {
             var lines: [String] = []
             if maintenanceScriptsAvailable {
                 do {
                     lines.append(try await maintenanceRunner())
                 } catch {
                     log.error("Smart Scan maintenance failed: \(String(describing: error), privacy: .public)")
-                    failedModules.insert(.optimization)
+                    failedModules.insert(.performance)
                 }
             }
             do {
@@ -651,7 +651,7 @@ final class SmartScanViewModel {
                 if !dnsLine.isEmpty { lines.append(dnsLine) }
             } catch {
                 log.error("Smart Scan DNS flush failed: \(String(describing: error), privacy: .public)")
-                failedModules.insert(.optimization)
+                failedModules.insert(.performance)
             }
             if !lines.isEmpty { maintenanceOutput = lines.joined(separator: "\n") }
         }
@@ -840,7 +840,7 @@ final class SmartScanViewModel {
 
     /// Whether the given module would actually produce work if Run were
     /// pressed right now. The tile must be selected, *and* its sub-selection
-    /// must filter down to at least one item. Optimization always produces work
+    /// must filter down to at least one item. Performance always produces work
     /// because its DNS-cache flush needs no `periodic` (the maintenance scripts
     /// are an extra task that's skipped where `periodic` is gone in macOS 26).
     ///
@@ -860,9 +860,9 @@ final class SmartScanViewModel {
             return result.threats.contains {
                 threatSelection.contains($0.filePath)
             }
-        case .optimization:
+        case .performance:
             // The DNS-cache flush always has work (no `periodic` dependency),
-            // so Optimization is actionable on every macOS — even where the
+            // so Performance is actionable on every macOS — even where the
             // maintenance scripts are gone.
             return true
         case .applications:
@@ -887,14 +887,14 @@ final class SmartScanViewModel {
     var maintenanceScriptsSupported: Bool { maintenanceScriptsAvailable }
 
     /// Default tile-selection seed for a freshly-landed `.results` payload.
-    /// A module starts checked iff it has actionable work for Run. Optimization
+    /// A module starts checked iff it has actionable work for Run. Performance
     /// always starts on because its DNS-cache flush always has work (the
     /// maintenance scripts are an extra, gated at Run time). The user can still
     /// deselect any tile on the dashboard.
     private static func defaultTileSelection(
         for result: SmartScanResult
     ) -> Set<SmartScanModule> {
-        var selection: Set<SmartScanModule> = [.optimization]
+        var selection: Set<SmartScanModule> = [.performance]
         if result.totalJunkBytes > 0 { selection.insert(.systemJunk) }
         if !result.threats.isEmpty { selection.insert(.malware) }
         if !result.availableUpdates.isEmpty { selection.insert(.applications) }
@@ -1010,12 +1010,12 @@ extension SmartScanViewModel {
             updatesChecker: { onProgress in await Self.fetchAvailableUpdates(log: log, onProgress: onProgress) },
             junkCleaner: { try await SystemJunkDeleter().delete($0) },
             threatRemover: { await remover.remove($0) },
-            // Wires identical to `OptimizationViewModel.live` so Smart Scan's
+            // Wires identical to `PerformanceViewModel.live` so Smart Scan's
             // Performance tile runs the same maintenance scripts the
-            // standalone Optimization screen does.
+            // standalone Performance screen does.
             maintenanceRunner: { try await MaintenanceScriptRunner().run() },
             // Flush the DNS cache through the same privileged helper task the
-            // standalone Optimization screen uses, matching Smart Care's
+            // standalone Performance screen uses, matching Smart Care's
             // Performance module (maintenance scripts + Flush DNS).
             dnsFlusher: { try await DNSCacheFlusher().run() },
             // Open every selected update URL via `NSWorkspace.open`. Mirrors

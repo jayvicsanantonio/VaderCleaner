@@ -59,7 +59,7 @@ targets:
     postBuildScripts:
       # Ad-hoc signs the embedded helper and the app so SMAppService can register
       # the privileged helper on local, unsigned development builds (the
-      # Optimization actions need it). Runs last — after the helper is embedded
+      # Performance actions need it). Runs last — after the helper is embedded
       # and ClamAV is staged — and no-ops when a real Developer ID identity is
       # configured, so release signing is untouched. alwaysOutOfDate so it
       # re-signs on every build.

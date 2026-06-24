@@ -1,5 +1,5 @@
-// OptimizationViewModel.swift
-// State machine behind the Optimization view — loads login items + launch agents + RAM, and drives RAM flush, maintenance scripts, login-item toggle, and agent disable/remove through injected collaborators.
+// PerformanceViewModel.swift
+// State machine behind the Performance view — loads login items + launch agents + RAM, and drives RAM flush, maintenance scripts, login-item toggle, and agent disable/remove through injected collaborators.
 
 import Combine
 import Foundation
@@ -7,13 +7,13 @@ import Observation
 import ServiceManagement
 import os.log
 
-/// Drives the Optimization feature view. Collaborators are injected as
+/// Drives the Performance feature view. Collaborators are injected as
 /// closures so unit tests can exercise every transition without touching
 /// real login-item / launchd / privileged-helper state. Production wiring
-/// lives in `OptimizationViewModel.live()`.
+/// lives in `PerformanceViewModel.live()`.
 @MainActor
 @Observable
-final class OptimizationViewModel {
+final class PerformanceViewModel {
 
     /// Discrete phases the view binds to. `working` covers any one-shot
     /// action (flush, maintenance, toggle, disable, remove); `failed` carries
@@ -116,7 +116,7 @@ final class OptimizationViewModel {
     @ObservationIgnored private let maintenanceScriptsAvailable: Bool
 
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                                                 category: "OptimizationViewModel")
+                                                 category: "PerformanceViewModel")
 
     /// Monotonic token so a stale load resolving after a newer `refresh()`
     /// can't clobber fresh state — same pattern as the other feature
@@ -481,6 +481,39 @@ final class OptimizationViewModel {
         }
     }
 
+    /// Removes a multi-selection from the Performance Manager's footer
+    /// "Remove": each selected login item is unregistered (the host app's only
+    /// truthful "remove" via `SMAppService`) and each selected *user* agent's
+    /// plist is deleted. System daemons are protected — they live in launchd's
+    /// privileged domain, so a selected `.system` id is ignored here even though
+    /// the UI already withholds the checkbox from them. On success the panes are
+    /// reloaded once so they reflect the new state; any failure surfaces
+    /// `.failed` and leaves the lists for a retry.
+    func removeSelected(loginItemIDs: Set<String>, agentIDs: Set<String>) async {
+        phase = .working
+        do {
+            for item in loginItems where loginItemIDs.contains(item.id) {
+                try await setLoginItemEnabled(false, item)
+            }
+            // Only user agents are removable; system daemons are never touched.
+            for agent in userAgents where agentIDs.contains(agent.id) {
+                try await removeAgent(agent)
+            }
+            async let login = loadLoginItems()
+            async let user = loadUserAgents()
+            async let system = loadSystemAgents()
+            let (loadedLogin, loadedUser, loadedSystem) = await (login, user, system)
+            loginItems = loadedLogin
+            userAgents = loadedUser
+            systemAgents = loadedSystem
+            rebuildRecommendations()
+            phase = .ready
+        } catch {
+            log.error("Batch remove failed: \(error.localizedDescription, privacy: .public)")
+            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
+        }
+    }
+
     /// Returns the VM to `.ready` after a `.failed` phase so the user can
     /// retry without re-running discovery.
     func dismissResult() {
@@ -497,18 +530,18 @@ final class OptimizationViewModel {
 
 // MARK: - Production wiring
 
-extension OptimizationViewModel {
+extension PerformanceViewModel {
 
     /// Builds a view-model wired to the real login-item / launch-agent /
     /// RAM / maintenance collaborators. Discovery runs off the main actor so
     /// the filesystem walk and `launchctl list` don't block the UI. RAM
     /// figures are read from the shared `SystemStatsService` so the
-    /// Optimization view and the Health Monitor never disagree.
+    /// Performance view and the Health Monitor never disagree.
     @MainActor
     static func live(
         systemStats: SystemStatsService,
         preferences: PreferencesStore
-    ) -> OptimizationViewModel {
+    ) -> PerformanceViewModel {
         let loginManager = LoginItemsManager.live()
         let agentManager = LaunchAgentManager()
         let ram = RAMManager()
@@ -519,7 +552,7 @@ extension OptimizationViewModel {
         let mail = MailReindexer()
         let snapshotCounter = LocalSnapshotCounter()
 
-        return OptimizationViewModel(
+        return PerformanceViewModel(
             loadLoginItems: { loginManager.items() },
             loadUserAgents: {
                 await Task.detached(priority: .userInitiated) {
@@ -599,7 +632,7 @@ extension OptimizationViewModel {
     /// `withObservationTracking`'s `onChange` fires exactly once per
     /// registration, so the closure that wants a continuous stream must
     /// re-register itself after every emission. Exposed `internal` so the
-    /// integration test in `OptimizationViewModelTests` can wire up the
+    /// integration test in `PerformanceViewModelTests` can wire up the
     /// same bridge `live()` builds and pin the willSet/didSet ordering.
     @MainActor
     static func launchAtLoginChangePublisher(
@@ -623,10 +656,10 @@ extension OptimizationViewModel {
 
 // MARK: - ScanCoordinating
 
-extension OptimizationViewModel: ScanCoordinating {
+extension PerformanceViewModel: ScanCoordinating {
 
     /// Projects the rich `Phase` onto the three coarse phases ContentView
-    /// switches on. Optimization has no idle-triggered scan — `.ready` is the
+    /// switches on. Performance has no idle-triggered scan — `.ready` is the
     /// loaded review surface and `.working`/`.failed` are action outcomes —
     /// so all three collapse to `.results`, the section's own detail UI.
     var scanPresentation: ScanPresentation {
@@ -641,7 +674,7 @@ extension OptimizationViewModel: ScanCoordinating {
     }
 
     func beginScan() {
-        // Semantic stretch: Optimization has no scan. "Scan" here means
+        // Semantic stretch: Performance has no scan. "Scan" here means
         // "load" — the same `refresh()` the view runs on appear, which
         // populates login items / agents / memory and drives
         // `.idle → .loading → .ready`.

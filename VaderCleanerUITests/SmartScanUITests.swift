@@ -161,7 +161,7 @@ final class SmartScanUITests: XCTestCase {
 
     /// Per CleanMyMac Smart Care parity, the results dashboard renders one
     /// tile per orchestrated sub-module — five tiles total: System Junk
-    /// (Cleanup), Protection (Malware), Performance (Optimization),
+    /// (Cleanup), Protection (Malware), Performance (Performance),
     /// Applications (App Updater), My Clutter (Large & Old Files). Every
     /// scan lands all five, even zero-work ones, so the count is fixed.
     func test_resultsDashboard_showsFiveTiles() throws {
@@ -174,9 +174,9 @@ final class SmartScanUITests: XCTestCase {
         // Performance is always actionable (maintenance scripts always
         // available), so its checkbox is the most reliable anchor for "this
         // is the Smart Care 5-tile dashboard, not the old 3-tile one".
-        let optimizationCheckbox = app.descendants(matching: .any)["smartScan.toggleOptimization"]
+        let performanceCheckbox = app.descendants(matching: .any)["smartScan.togglePerformance"]
         XCTAssertTrue(
-            optimizationCheckbox.waitForExistence(timeout: 2),
+            performanceCheckbox.waitForExistence(timeout: 2),
             "Expected the Performance tile's checkbox on the dashboard"
         )
     }
@@ -201,17 +201,17 @@ final class SmartScanUITests: XCTestCase {
     /// execute anything reads as a no-op trap.
     func test_resultsDashboard_deselectingAllTilesHidesRun() throws {
         try runScanToResultsDashboard()
-        let optimizationCheckbox = app.descendants(matching: .any)["smartScan.toggleOptimization"]
-        guard optimizationCheckbox.waitForExistence(timeout: 5) else {
+        let performanceCheckbox = app.descendants(matching: .any)["smartScan.togglePerformance"]
+        guard performanceCheckbox.waitForExistence(timeout: 5) else {
             throw XCTSkip("Performance checkbox never appeared — dashboard didn't fully land.")
         }
-        // Optimization is the only checkbox guaranteed to appear (the others
+        // Performance is the only checkbox guaranteed to appear (the others
         // depend on per-module work being found). Deselecting it should
         // remove the Run disc when no other tile has executable work — i.e.
         // when junk is empty AND no threats AND no updates AND no clutter
         // selected. On most test hosts the first three are empty (FDA off,
         // ClamAV absent), and largeFileSelection defaults empty.
-        optimizationCheckbox.click()
+        performanceCheckbox.click()
 
         // Give the dashboard a moment to re-evaluate `hasExecutableWork`.
         Thread.sleep(forTimeInterval: 0.5)
@@ -270,7 +270,7 @@ final class SmartScanUITests: XCTestCase {
     /// its tile is always actionable. Tapping Review opens the Performance
     /// Manager; tapping Back returns to the dashboard with selection
     /// preserved.
-    func test_review_optimizationPushesAndBackReturnsToDashboard() throws {
+    func test_review_performancePushesAndBackReturnsToDashboard() throws {
         try runScanToResultsDashboard()
         let reviewButton = app.descendants(matching: .any)["smartScan.review"]
         guard reviewButton.waitForExistence(timeout: 5) else {
@@ -278,9 +278,9 @@ final class SmartScanUITests: XCTestCase {
         }
         reviewButton.click()
 
-        let optimizationReview = app.descendants(matching: .any)["smartScan.review.optimization"]
+        let performanceReview = app.descendants(matching: .any)["smartScan.review.performance"]
         XCTAssertTrue(
-            optimizationReview.waitForExistence(timeout: 5),
+            performanceReview.waitForExistence(timeout: 5),
             "Tapping Review on the Performance tile must push the Performance Manager"
         )
         // The Back identifier is on a SwiftUI `Button`, so query the
@@ -302,7 +302,7 @@ final class SmartScanUITests: XCTestCase {
         )
         // Performance is still selected — Back doesn't reset selection.
         XCTAssertTrue(
-            app.descendants(matching: .any)["smartScan.toggleOptimization"].exists,
+            app.descendants(matching: .any)["smartScan.togglePerformance"].exists,
             "Tile selection must be preserved after a Review round trip"
         )
     }

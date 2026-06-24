@@ -154,7 +154,7 @@ struct LargeOldFilesEmptyState: View {
                     onRecheck: onRefreshAccess
                 )
                 .padding(.top, 8)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             }
         }
         .padding()

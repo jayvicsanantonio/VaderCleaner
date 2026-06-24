@@ -1,11 +1,11 @@
 // MaintenanceTask.swift
-// Catalog of the performance maintenance tasks the Optimization section can run, with display metadata for the "View All Tasks" list and the recommendation cards.
+// Catalog of the performance maintenance tasks the Performance section can run, with display metadata for the "View All Tasks" list and the recommendation cards.
 
 import Foundation
 
 /// One entry in the maintenance-task catalog. Pure display + classification
 /// metadata; the actual work is performed by the matching runner wired into
-/// `OptimizationViewModel`. Availability that depends on live system state
+/// `PerformanceViewModel`. Availability that depends on live system state
 /// (e.g. whether local snapshots exist) is decided by the recommendation
 /// engine, not baked in here — the catalog list itself is fixed.
 struct MaintenanceTask: Identifiable, Hashable {

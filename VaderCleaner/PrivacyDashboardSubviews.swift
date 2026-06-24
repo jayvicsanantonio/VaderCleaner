@@ -26,7 +26,7 @@ struct PrivacyDashboardView: View {
 
     /// At most this many cards render on the dashboard — the rest of the
     /// findings stay reachable through the "View All Data" catalog. Matches
-    /// the Optimization dashboard's curated-recommendations feel.
+    /// the Performance dashboard's curated-recommendations feel.
     private static let maxCards = 4
 
     /// Fixed width of the right-hand hero column so it keeps a stable shape while
@@ -353,7 +353,7 @@ struct PrivacyCoupledRow: View {
 // MARK: - Data catalog
 
 /// The catalog reached from "View All Data" and from every card's Review
-/// button, modelled on Optimization's Performance Manager: a back affordance,
+/// button, modelled on Performance's Performance Manager: a back affordance,
 /// a left sub-navigation (one item per data category, plus System), a detail
 /// pane listing each detected browser's data for that category as a
 /// multi-select checklist, and a pinned Clear bar with the running selection
@@ -557,7 +557,7 @@ struct PrivacyDataCatalogView: View {
     /// Pinned under the detail pane on every catalog pane — the selection is
     /// global across panes, so the total and the destructive Clear travel
     /// with the catalog rather than living on one pane. Mirrors the
-    /// Optimization catalog's Run bar.
+    /// Performance catalog's Run bar.
     private var clearBar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {

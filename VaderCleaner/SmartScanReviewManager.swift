@@ -41,6 +41,11 @@ struct ManagerItem: Identifiable, Hashable, Sendable {
     /// document rows look like Finder. Other managers leave this off and keep
     /// their tinted SF Symbol.
     var usesFileIcon: Bool = false
+    /// Filesystem path the Finder icon is drawn from when `usesFileIcon` is set
+    /// and the row's selection `id` is *not* itself a path (e.g. a login item
+    /// keyed by bundle id, or a launch agent whose app bundle differs from its
+    /// plist). `nil` falls back to `id`.
+    var iconPath: String? = nil
     /// Immediate children revealed when this row is expanded (one level only).
     /// Empty for leaf rows and for managers that don't show a tree.
     var children: [ManagerItem] = []
@@ -672,71 +677,5 @@ struct SmartScanReviewManager: View {
             return String(localized: "All", comment: "Bulk-select trigger when everything in the category is selected.")
         }
         return String(localized: "Some", comment: "Bulk-select trigger when part of the category is selected.")
-    }
-}
-
-/// A selectable section/category row with the section-accent selection pill and
-/// a quieter hover fill. Its own view with local hover `@State`, so moving the
-/// pointer between rows re-renders only the rows involved — never the whole
-/// manager (whose body recomputes per-category sizes and the item table).
-private struct NavRow<Content: View>: View {
-    let selected: Bool
-    let action: () -> Void
-    let content: Content
-    @Environment(\.sectionAccent) private var accent
-    @State private var hovered = false
-
-    init(selected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
-        self.selected = selected
-        self.action = action
-        self.content = content()
-    }
-
-    var body: some View {
-        Button(action: action) {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? accent.opacity(0.22) : (hovered ? accent.opacity(0.08) : .clear))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-    }
-}
-
-/// Applies the white, light-mode surface for the standalone Cleanup Manager.
-/// A no-op when `light` is false so Smart Scan's managers keep inheriting the
-/// section's dark gradient. The `colorScheme` override flips the SwiftUI chrome
-/// to dark-on-light; the AppKit item table is switched separately via
-/// `ManagerItemTable.forcesLightAppearance`.
-private struct ManagerSurfaceModifier: ViewModifier {
-    let light: Bool
-
-    func body(content: Content) -> some View {
-        if light {
-            content
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-                // A big rounded card with an even margin on every side so the
-                // window's green gradient shows as a thin border around it.
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-                .padding(14)
-                // Extend up under the title-bar safe area so the top margin is
-                // as thin as the sides instead of leaving the toolbar's tall
-                // green band above the card.
-                .ignoresSafeArea(.container, edges: .top)
-        } else {
-            content
-        }
     }
 }

@@ -33,7 +33,7 @@ final class NavigationSectionTests: XCTestCase {
             .malwareRemoval: "sidebar.malwareRemoval",
             .privacy: "sidebar.privacy",
             .applications: "sidebar.applications",
-            .optimization: "sidebar.optimization",
+            .performance: "sidebar.performance",
             .healthMonitor: "sidebar.healthMonitor",
         ]
         for section in NavigationSection.allCases {
@@ -59,7 +59,7 @@ final class NavigationSectionTests: XCTestCase {
             .malwareRemoval: "section.malwareRemoval.scan",
             .privacy: "section.privacy.scan",
             .applications: "section.applications.scan",
-            .optimization: "section.optimization.scan",
+            .performance: "section.performance.scan",
             .healthMonitor: "section.healthMonitor.scan",
         ]
         for section in NavigationSection.allCases {
@@ -86,7 +86,7 @@ final class NavigationSectionTests: XCTestCase {
             .largeOldFiles: true,    // walks ~/Library
             .spaceLens: true,        // home directory walk
             .malwareRemoval: true,   // ClamAV scan
-            .optimization: false,    // launchctl / login items / RAM
+            .performance: false,    // launchctl / login items / RAM
             .privacy: true,          // Safari data lives in TCC-protected paths
             .applications: false,    // app discovery + update checks; no FDA-gated paths
             .healthMonitor: false,

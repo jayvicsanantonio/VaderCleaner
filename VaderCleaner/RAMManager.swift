@@ -1,5 +1,5 @@
 // RAMManager.swift
-// Bridges the privileged flushInactiveMemory XPC call (which runs /usr/sbin/purge) to async/throwing for the Optimization feature.
+// Bridges the privileged flushInactiveMemory XPC call (which runs /usr/sbin/purge) to async/throwing for the Performance feature.
 
 import Foundation
 import os.log

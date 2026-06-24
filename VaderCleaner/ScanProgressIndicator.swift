@@ -247,7 +247,7 @@ enum ScanPhrases {
                 "Pacing out the territory…", "Sketching the layout…",
                 "Following every branch…",
             ]
-        case .optimization, .applications, .healthMonitor:
+        case .performance, .applications, .healthMonitor:
             return generic
         }
     }

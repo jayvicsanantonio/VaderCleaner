@@ -81,9 +81,18 @@ struct SystemJunkDashboardView: View {
         .padding(.top, 16)
     }
 
-    /// The white total-junk headline with the "Review All Junk" action beneath.
+    /// The section hero, the white total-junk headline, and the "Review All
+    /// Junk" action beneath — mirroring the Performance dashboard's hero, sized
+    /// so the bento grid still has room below.
     private var header: some View {
         VStack(spacing: 14) {
+            Image("systemJunk")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: 140, maxHeight: 140)
+                .accessibilityHidden(true)
+
             Text(headline)
                 .font(.title.weight(.semibold))
                 .multilineTextAlignment(.center)

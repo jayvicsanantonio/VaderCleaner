@@ -13,7 +13,7 @@ import CoreImage
 
 // Section enum case name -> its colour hero imageset name (same string here).
 let sections = ["smartScan", "systemJunk", "largeOldFiles", "spaceLens",
-                "malwareRemoval", "optimization", "privacy", "applications"]
+                "malwareRemoval", "performance", "privacy", "applications"]
 
 let assets = "VaderCleaner/Assets.xcassets"
 let ctx = CIContext()

@@ -224,8 +224,9 @@ struct SystemJunkView: View {
         .environment(\.sectionAccent, Self.managerAccent)
     }
 
-    /// Magenta accent for the Cleanup Manager card.
-    private static let managerAccent = Color(red: 0.81, green: 0.10, blue: 0.55)
+    /// Magenta accent for the Cleanup Manager card, shared with the other
+    /// standalone Manager cards.
+    private static let managerAccent = ManagerChrome.accent
 
     private func completeState(bytesFreed: Int64) -> some View {
         VStack(spacing: 16) {
@@ -329,7 +330,7 @@ struct SystemJunkEmptyPreviewState: View {
                     onRecheck: onRefreshAccess
                 )
                 .padding(.top, 8)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

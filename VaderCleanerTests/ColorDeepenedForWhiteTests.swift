@@ -48,7 +48,7 @@ final class ColorDeepenedForWhiteTests: XCTestCase {
     func test_darkAccents_passThroughUnchanged() {
         let darkSections: [NavigationSection] = [
             .smartScan, .spaceLens, .malwareRemoval,
-            .optimization, .privacy, .applications, .healthMonitor,
+            .performance, .privacy, .applications, .healthMonitor,
         ]
         for section in darkSections {
             let accent = section.theme.accent

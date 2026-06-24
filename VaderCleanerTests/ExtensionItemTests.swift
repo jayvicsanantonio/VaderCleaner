@@ -61,7 +61,7 @@ final class ExtensionItemTests: XCTestCase {
     // MARK: - ExtensionType
 
     /// All five categories the Extensions Manager surfaces must be present.
-    /// Login items / launch agents are owned by the Optimization section, so
+    /// Login items / launch agents are owned by the Performance section, so
     /// they are intentionally absent here.
     func test_extensionType_hasAllFiveCases() {
         XCTAssertEqual(ExtensionType.allCases.count, 5)

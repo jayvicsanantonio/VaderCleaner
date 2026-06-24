@@ -9,7 +9,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case largeOldFiles
     case spaceLens
     case malwareRemoval
-    case optimization
+    case performance
     case privacy
     case applications
     case healthMonitor
@@ -23,7 +23,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return String(localized: "My Clutter")
         case .spaceLens:       return String(localized: "Space Lens")
         case .malwareRemoval:  return String(localized: "Malware Removal")
-        case .optimization:    return String(localized: "Optimization")
+        case .performance:    return String(localized: "Performance")
         case .privacy:         return String(localized: "Privacy")
         case .applications:    return String(localized: "Applications")
         case .healthMonitor:   return String(localized: "Health Monitor")
@@ -41,7 +41,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return "sidebar.largeOldFiles"
         case .spaceLens:       return "sidebar.spaceLens"
         case .malwareRemoval:  return "sidebar.malwareRemoval"
-        case .optimization:    return "sidebar.optimization"
+        case .performance:    return "sidebar.performance"
         case .privacy:         return "sidebar.privacy"
         case .applications:    return "sidebar.applications"
         case .healthMonitor:   return "sidebar.healthMonitor"
@@ -68,7 +68,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return "doc.text.magnifyingglass"
         case .spaceLens:       return "square.split.2x2"
         case .malwareRemoval:  return "shield.lefthalf.filled"
-        case .optimization:    return "gauge.with.needle"
+        case .performance:    return "gauge.with.needle"
         case .privacy:         return "lock.shield"
         case .applications:    return "square.grid.2x2"
         case .healthMonitor:   return "heart.text.square"
@@ -88,7 +88,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .largeOldFiles:   return "largeOldFilesMono"
         case .spaceLens:       return "spaceLensMono"
         case .malwareRemoval:  return "malwareRemovalMono"
-        case .optimization:    return "optimizationMono"
+        case .performance:    return "performanceMono"
         case .privacy:         return "privacyMono"
         case .applications:    return "applicationsMono"
         case .healthMonitor:   return "healthMonitorMono"
@@ -103,7 +103,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var isScannable: Bool {
         switch self {
         case .smartScan, .systemJunk, .largeOldFiles,
-             .spaceLens, .malwareRemoval, .optimization, .privacy,
+             .spaceLens, .malwareRemoval, .performance, .privacy,
              .applications:
             return true
         case .healthMonitor:
@@ -113,7 +113,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
 
     /// Whether this section's scan reads paths that are gated by Full Disk
     /// Access. Drives whether the intro screen shows the inline FDA reminder
-    /// card — sections that don't touch FDA-protected paths (Optimization, the
+    /// card — sections that don't touch FDA-protected paths (Performance, the
     /// management screens) intentionally never warn so the prompt is reserved
     /// for cases where missing the permission really would yield empty or
     /// incomplete results. Exhaustive switch so a future section is a
@@ -123,7 +123,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .smartScan, .systemJunk, .largeOldFiles,
              .spaceLens, .malwareRemoval, .privacy:
             return true
-        case .optimization,
+        case .performance,
              .applications, .healthMonitor:
             return false
         }

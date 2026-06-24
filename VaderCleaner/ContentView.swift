@@ -20,7 +20,7 @@ struct ContentView: View {
     private let appUpdaterViewModel: AppUpdaterViewModel
     private let applicationsViewModel: ApplicationsViewModel
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
-    private let optimizationViewModel: OptimizationViewModel
+    private let performanceViewModel: PerformanceViewModel
     private let malwareViewModel: MalwareViewModel
     private let smartScanViewModel: SmartScanViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
@@ -62,7 +62,7 @@ struct ContentView: View {
         case .spaceLens:      return spaceLensViewModel.scanPresentation
         case .privacy:        return privacyViewModel.scanPresentation
         case .applications:   return applicationsViewModel.scanPresentation
-        case .optimization:   return optimizationViewModel.scanPresentation
+        case .performance:   return performanceViewModel.scanPresentation
         case .malwareRemoval: return malwareViewModel.scanPresentation
         case .healthMonitor:  return nil
         }
@@ -90,7 +90,7 @@ struct ContentView: View {
         appUpdaterViewModel: AppUpdaterViewModel,
         applicationsViewModel: ApplicationsViewModel,
         extensionsManagerViewModel: ExtensionsManagerViewModel,
-        optimizationViewModel: OptimizationViewModel,
+        performanceViewModel: PerformanceViewModel,
         malwareViewModel: MalwareViewModel,
         smartScanViewModel: SmartScanViewModel
     ) {
@@ -103,7 +103,7 @@ struct ContentView: View {
         self.appUpdaterViewModel = appUpdaterViewModel
         self.applicationsViewModel = applicationsViewModel
         self.extensionsManagerViewModel = extensionsManagerViewModel
-        self.optimizationViewModel = optimizationViewModel
+        self.performanceViewModel = performanceViewModel
         self.malwareViewModel = malwareViewModel
         self.smartScanViewModel = smartScanViewModel
         _scanDiscController = State(initialValue: ScanDiscWindowController(
@@ -111,7 +111,7 @@ struct ContentView: View {
             systemJunkViewModel: systemJunkViewModel,
             myClutterViewModel: myClutterViewModel,
             spaceLensViewModel: spaceLensViewModel,
-            optimizationViewModel: optimizationViewModel,
+            performanceViewModel: performanceViewModel,
             malwareViewModel: malwareViewModel,
             privacyViewModel: privacyViewModel,
             applicationsViewModel: applicationsViewModel
@@ -123,7 +123,7 @@ struct ContentView: View {
         // scanners Smart Scan already used, so they're seeded with the results
         // directly — instant, no extra work.
         //
-        // Applications and Optimization need heavier, multi-step scans that
+        // Applications and Performance need heavier, multi-step scans that
         // Smart Scan does not perform (full app analysis: updates, unused,
         // unsupported, leftovers, installers; and launch agents / RAM /
         // snapshots). Rather than show partial data, kick off each section's own
@@ -132,7 +132,7 @@ struct ContentView: View {
         //
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
-        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, malwareViewModel, applicationsViewModel, optimizationViewModel] result in
+        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, malwareViewModel, applicationsViewModel, performanceViewModel] result in
             systemJunkViewModel.seed(with: result.junkResult)
             malwareViewModel.seed(
                 threats: result.threats,
@@ -144,7 +144,7 @@ struct ContentView: View {
             // its own scan instead, like the other sections below.
             if case .idle = myClutterViewModel.phase { myClutterViewModel.beginScan() }
             if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
-            if case .idle = optimizationViewModel.phase { optimizationViewModel.beginScan() }
+            if case .idle = performanceViewModel.phase { performanceViewModel.beginScan() }
         }
     }
 
@@ -366,10 +366,10 @@ struct ContentView: View {
                     viewModel: smartScanViewModel,
                     // Review buttons inside the Smart Scan dashboard now
                     // push their own in-place manager screens; only the
-                    // Optimization Review's "Open Optimization" link still
+                    // Performance Review's "Open Performance" link still
                     // hops to the standalone section. The other two
                     // selectSection calls disappear with the inline push.
-                    onOpenOptimization: { selectSection(.optimization) }
+                    onOpenPerformance: { selectSection(.performance) }
                 )
             }
         case .healthMonitor:
@@ -399,9 +399,9 @@ struct ContentView: View {
                     extensionsManagerViewModel: extensionsManagerViewModel
                 )
             }
-        case .optimization:
-            ScannableSectionContent(coordinator: optimizationViewModel, section: section) {
-                OptimizationView(viewModel: optimizationViewModel)
+        case .performance:
+            ScannableSectionContent(coordinator: performanceViewModel, section: section) {
+                PerformanceView(viewModel: performanceViewModel)
             }
         case .malwareRemoval:
             ScannableSectionContent(coordinator: malwareViewModel, section: section) {
@@ -476,7 +476,7 @@ private extension AnyTransition {
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         applicationsViewModel: ApplicationsViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
-        optimizationViewModel: OptimizationViewModel.live(systemStats: stats, preferences: prefs),
+        performanceViewModel: PerformanceViewModel.live(systemStats: stats, preferences: prefs),
         malwareViewModel: MalwareViewModel.live(
             dispatcher: notificationManager,
             preferences: prefs

@@ -26,7 +26,7 @@ final class ScanDiscWindowController {
     @ObservationIgnored let systemJunkViewModel: SystemJunkViewModel
     @ObservationIgnored let myClutterViewModel: MyClutterViewModel
     @ObservationIgnored let spaceLensViewModel: DiskScannerViewModel
-    @ObservationIgnored let optimizationViewModel: OptimizationViewModel
+    @ObservationIgnored let performanceViewModel: PerformanceViewModel
     @ObservationIgnored let malwareViewModel: MalwareViewModel
     @ObservationIgnored let privacyViewModel: PrivacyViewModel
     @ObservationIgnored let applicationsViewModel: ApplicationsViewModel
@@ -54,7 +54,7 @@ final class ScanDiscWindowController {
         systemJunkViewModel: SystemJunkViewModel,
         myClutterViewModel: MyClutterViewModel,
         spaceLensViewModel: DiskScannerViewModel,
-        optimizationViewModel: OptimizationViewModel,
+        performanceViewModel: PerformanceViewModel,
         malwareViewModel: MalwareViewModel,
         privacyViewModel: PrivacyViewModel,
         applicationsViewModel: ApplicationsViewModel
@@ -63,7 +63,7 @@ final class ScanDiscWindowController {
         self.systemJunkViewModel = systemJunkViewModel
         self.myClutterViewModel = myClutterViewModel
         self.spaceLensViewModel = spaceLensViewModel
-        self.optimizationViewModel = optimizationViewModel
+        self.performanceViewModel = performanceViewModel
         self.malwareViewModel = malwareViewModel
         self.privacyViewModel = privacyViewModel
         self.applicationsViewModel = applicationsViewModel
