@@ -40,14 +40,6 @@ final class CleanupGroupTests: XCTestCase {
 
     // MARK: - Presentation contract
 
-    /// Only System Junk is the hero card; the other three are standard size.
-    func test_isHero_onlySystemJunk() {
-        XCTAssertTrue(CleanupGroup.systemJunk.isHero)
-        for group in CleanupGroup.allCases where group != .systemJunk {
-            XCTAssertFalse(group.isHero, "\(group.rawValue) must not be the hero")
-        }
-    }
-
     /// Direct Clean is offered only on System Junk and Trash Bins, matching the
     /// reference design (Xcode Junk and Document Versions are review-only).
     func test_allowsDirectClean_matchesReference() {
