@@ -72,6 +72,12 @@ final class AppUninstallerViewModel {
     var includesSystemApps: Bool = false
     var searchQuery: String = ""
 
+    /// Apps checked for the Applications Manager's batch uninstall, keyed by
+    /// `AppInfo.ID`. Separate from `selectedAppID` (which drives the single-app
+    /// associated-files inspector behind each row's chevron) so the multi-select
+    /// list and the detail inspector don't fight over one selection.
+    private(set) var uninstallSelection: Set<AppInfo.ID> = []
+
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let findFiles: FindFiles
     @ObservationIgnored private let measureSize: MeasureSize
@@ -331,6 +337,97 @@ final class AppUninstallerViewModel {
     /// discovery scan.
     func dismissResult() {
         phase = .ready
+    }
+
+    // MARK: - Multi-select (Applications Manager)
+
+    /// Whether `id` is checked for the batch uninstall.
+    func isInUninstallSelection(_ id: AppInfo.ID) -> Bool {
+        uninstallSelection.contains(id)
+    }
+
+    /// Toggle one app's checkbox in the batch-uninstall selection.
+    func toggleUninstallSelection(_ id: AppInfo.ID) {
+        if uninstallSelection.contains(id) {
+            uninstallSelection.remove(id)
+        } else {
+            uninstallSelection.insert(id)
+        }
+    }
+
+    /// Check exactly the supplied apps (e.g. the rows currently in view after a
+    /// facet filter). Single write so SwiftUI observes one publish.
+    func selectAllForUninstall(_ ids: [AppInfo.ID]) {
+        uninstallSelection = Set(ids)
+    }
+
+    /// Uncheck everything — single-write counterpart to `selectAllForUninstall`.
+    func clearUninstallSelection() {
+        uninstallSelection = []
+    }
+
+    /// Whether the footer's Uninstall action should be enabled: something is
+    /// checked and no batch is already running.
+    var canUninstallSelection: Bool {
+        guard !uninstallSelection.isEmpty else { return false }
+        if case .uninstalling = phase { return false }
+        return true
+    }
+
+    /// Batch-uninstall every checked app: for each, find its associated files
+    /// and recycle the bundle plus those files, reusing the same primitives as
+    /// the single-app `uninstall()`. Best-effort — a per-app failure leaves that
+    /// app in the list (and selected, so the user can retry) while the rest are
+    /// removed. Lands in `.complete` when at least one app was removed, or
+    /// `.failed` when every selected app failed. A no-op when nothing is
+    /// selected or a batch is already running.
+    func uninstallSelected() async {
+        let targets = apps.filter { uninstallSelection.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        if case .uninstalling = phase { return }
+
+        phase = .uninstalling
+        var totalBytesFreed: Int64 = 0
+        var anyPermanentRemoval = false
+        var removedIDs: Set<AppInfo.ID> = []
+        var lastError: Error?
+
+        for app in targets {
+            let associatedURLs = await findFiles(app.bundleID).map { $0.url }
+            do {
+                let outcome = try await recycle(app.bundleURL, associatedURLs)
+                totalBytesFreed += outcome.bytesFreed
+                anyPermanentRemoval = anyPermanentRemoval || outcome.bundlePermanentlyRemoved
+                removedIDs.insert(app.id)
+            } catch {
+                // Privacy: errors may include user-specific paths.
+                log.error("Batch uninstall of \(app.bundleID, privacy: .public) failed: \(String(describing: error), privacy: .private)")
+                lastError = error
+            }
+        }
+
+        apps.removeAll { removedIDs.contains($0.id) }
+        uninstallSelection.subtract(removedIDs)
+        for id in removedIDs {
+            associatedFilesCache.removeValue(forKey: id)
+            bundleSizeCache.removeValue(forKey: id)
+        }
+        // If the inspector was showing a now-removed app, collapse it.
+        if let selected = selectedAppID, removedIDs.contains(selected) {
+            selectedAppID = nil
+            associatedFiles = []
+            selectedAppBundleSize = nil
+        }
+
+        if removedIDs.isEmpty, let lastError {
+            phase = .failed(
+                stage: .uninstalling,
+                message: HelperConnectionError.userFacingMessage(for: lastError),
+                helperConnectionIssue: HelperConnectionError.isConnectionFailure(lastError)
+            )
+        } else {
+            phase = .complete(bytesFreed: totalBytesFreed, permanentRemoval: anyPermanentRemoval)
+        }
     }
 
     // MARK: - Generations

@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "appLeftovers.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

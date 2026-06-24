@@ -139,15 +139,16 @@ final class ApplicationsUITests: XCTestCase {
                           "Expected sub-nav item \(navID)")
         }
 
-        // Switch to the Updater pane — the reused updater screen renders.
+        // Switch to the Updater pane — either the manager's "everything is in
+        // order" empty state (no updates) or the checkbox list of updates.
         app.buttons["applications.manager.nav.updater"].click()
         let updaterState = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'appUpdater.loading', 'appUpdater.upToDate', 'appUpdater.check', 'appUpdater.errorMessage'}"
+                format: "identifier IN {'applications.manager.updater.empty', 'applications.manager.updater.list'}"
             ))
             .firstMatch
         XCTAssertTrue(updaterState.waitForExistence(timeout: 30),
-                      "Expected the Updater pane to render the reused App Updater screen")
+                      "Expected the Updater pane to render its empty state or the updates list")
 
         let back = app.buttons["applications.backToDashboard"]
         XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
@@ -175,16 +176,15 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the Extensions sub-nav item")
         extensionsNav.click()
 
-        // The reused Extensions Manager screen reaches a display state:
-        // scanning, the empty state, or a populated list (which carries the
-        // Refresh control).
+        // The Extensions pane reaches a display state: the empty state or the
+        // checkbox list of discovered extensions.
         let extensionsState = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'extensions.loading', 'extensions.empty', 'extensions.refresh'}"
+                format: "identifier IN {'applications.manager.extensions.empty', 'applications.manager.extensions.list'}"
             ))
             .firstMatch
         XCTAssertTrue(extensionsState.waitForExistence(timeout: 30),
-                      "Expected the Extensions Manager screen to render")
+                      "Expected the Extensions pane to render")
 
         let back = app.buttons["applications.backToDashboard"]
         XCTAssertTrue(back.waitForExistence(timeout: 5), "Expected a Back control")
@@ -215,11 +215,11 @@ final class ApplicationsUITests: XCTestCase {
 
         updatesCard.click()
 
-        // The deep-link lands on the reused App Updater screen inside the
-        // Manager, in one of its display states.
+        // The deep-link lands on the Manager's Updater pane, in one of its
+        // display states (empty state or the checkbox list of updates).
         let updaterState = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier IN {'appUpdater.loading', 'appUpdater.upToDate', 'appUpdater.check', 'appUpdater.errorMessage'}"
+                format: "identifier IN {'applications.manager.updater.empty', 'applications.manager.updater.list'}"
             ))
             .firstMatch
         XCTAssertTrue(updaterState.waitForExistence(timeout: 30),
@@ -232,6 +232,52 @@ final class ApplicationsUITests: XCTestCase {
             app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
             "Expected Back to return to the dashboard grid"
         )
+    }
+
+    /// The Uninstaller pane renders the app list, the search + Sort by controls,
+    /// and a footer that starts with nothing selected. This drives display
+    /// state only — it never presses the destructive Uninstall button.
+    func test_applications_uninstallerPaneRendersListAndFooter() throws {
+        dismissOnboardingIfNeeded()
+        openApplicationsAndScan()
+
+        let manage = app.buttons["applications.manageMyApplications"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 90),
+                      "Expected the Manage My Applications button after the scan")
+        manage.click()
+
+        // The Uninstaller pane is the default; its list and footer appear.
+        XCTAssertTrue(app.descendants(matching: .any)["applications.manager.uninstaller.list"].waitForExistence(timeout: 30),
+                      "Expected the uninstaller app list")
+        XCTAssertTrue(app.descendants(matching: .any)["applications.manager.summary"].waitForExistence(timeout: 5),
+                      "Expected the footer selection summary")
+        XCTAssertTrue(app.descendants(matching: .any)["applications.manager.sort"].waitForExistence(timeout: 5),
+                      "Expected the Sort by control")
+
+        // The Uninstall action exists and is disabled until something is checked.
+        let uninstall = app.buttons["applications.manager.uninstall"]
+        XCTAssertTrue(uninstall.waitForExistence(timeout: 5), "Expected the Uninstall footer action")
+        XCTAssertFalse(uninstall.isEnabled, "Uninstall must be disabled with nothing selected")
+    }
+
+    /// The Leftovers pane renders its Installers / Leftover Files sections and a
+    /// Remove footer action (disabled until something is selected).
+    func test_applications_leftoversPaneRenders() throws {
+        dismissOnboardingIfNeeded()
+        openApplicationsAndScan()
+
+        let manage = app.buttons["applications.manageMyApplications"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 90),
+                      "Expected the Manage My Applications button after the scan")
+        manage.click()
+
+        let leftoversNav = app.buttons["applications.manager.nav.leftovers"]
+        XCTAssertTrue(leftoversNav.waitForExistence(timeout: 10), "Expected the Leftovers nav item")
+        leftoversNav.click()
+
+        let remove = app.buttons["applications.manager.remove"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 10), "Expected the Remove footer action")
+        XCTAssertFalse(remove.isEnabled, "Remove must be disabled with nothing selected")
     }
 
     // MARK: - Helpers
