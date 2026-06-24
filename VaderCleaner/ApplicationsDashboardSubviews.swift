@@ -20,7 +20,6 @@ struct ApplicationsDashboardView: View {
     /// One-click removal for the App Leftovers card's Remove button — selects
     /// every leftover group and moves it to the Trash.
     let onRemoveLeftovers: () -> Void
-    let onRescan: () -> Void
 
     /// Total on-disk size of the unused apps, summed off-main for the Unused
     /// card's "they use N of space" detail. `nil` until the walk returns.

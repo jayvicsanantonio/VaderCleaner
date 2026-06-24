@@ -79,7 +79,6 @@ struct ApplicationsManagerView: View {
     // `MyClutterManagerView.rebuildCaches()`.
     @State private var sizes: [AppInfo.ID: Int64] = [:]
     @State private var lastOpened: [AppInfo.ID: Date] = [:]
-    @State private var isLoadingMetrics = false
 
     init(
         viewModel: ApplicationsViewModel,
@@ -991,7 +990,6 @@ struct ApplicationsManagerView: View {
     private func rebuildMetrics() async {
         let apps = uninstallerViewModel.apps
         guard !apps.isEmpty else { sizes = [:]; lastOpened = [:]; return }
-        isLoadingMetrics = true
         let computed = await Task.detached(priority: .utility) { () -> (sizes: [AppInfo.ID: Int64], dates: [AppInfo.ID: Date]) in
             var sizes: [AppInfo.ID: Int64] = [:]
             var dates: [AppInfo.ID: Date] = [:]
@@ -1004,7 +1002,6 @@ struct ApplicationsManagerView: View {
         }.value
         sizes = computed.sizes
         lastOpened = computed.dates
-        isLoadingMetrics = false
     }
 
     // MARK: - Formatting

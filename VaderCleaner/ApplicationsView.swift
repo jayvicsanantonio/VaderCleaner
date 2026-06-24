@@ -100,8 +100,7 @@ struct ApplicationsView: View {
                 onRemoveLeftovers: {
                     viewModel.selectAllLeftovers()
                     Task { await viewModel.deleteSelectedLeftovers() }
-                },
-                onRescan: { Task { await viewModel.scan() } }
+                }
             )
             // Generous top and bottom insets so the section breathes above the
             // hero and below the cards rather than running into the window edges.
