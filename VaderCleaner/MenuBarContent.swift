@@ -529,6 +529,10 @@ private struct MenuTile: View {
     return MenuBarContent()
         .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
         .environment(ConnectedDevicesMonitor(autoRefresh: false))
-        .environment(MalwareViewModel.live(dispatcher: NotificationManager(), preferences: prefs))
+        .environment(MalwareViewModel.live(
+            dispatcher: NotificationManager(),
+            preferences: prefs,
+            settings: ProtectionSettingsStore(defaults: UserDefaults(suiteName: "menu-preview")!)
+        ))
         .environment(MenuRouter())
 }

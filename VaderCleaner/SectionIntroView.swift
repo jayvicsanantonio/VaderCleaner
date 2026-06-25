@@ -268,6 +268,13 @@ struct SectionIntroView: View {
                 MyClutterFolderPicker(accent: presentation.accent)
                     .padding(.top, 4)
             }
+
+            // Protection exposes its scan options and mode in Settings; the
+            // Configure Scan button routes there directly.
+            if section == .malwareRemoval {
+                ConfigureScanButton(accent: presentation.accent)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: 380, alignment: .leading)
         // Combine the title + tagline + rows under the per-section id without
@@ -305,5 +312,28 @@ struct SectionIntroView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(featureAccessibilityIdentifier(at: index))
+    }
+}
+
+/// "Configure Scan" affordance on the Protection intro. Selects the Protection
+/// tab and opens the Settings window so the user lands directly on the scan
+/// options and scan-mode controls.
+private struct ConfigureScanButton: View {
+    let accent: Color
+
+    @Environment(\.openSettings) private var openSettings
+    @Environment(SettingsRouter.self) private var router
+
+    var body: some View {
+        Button {
+            router.selectedTab = .protectionScan
+            openSettings()
+        } label: {
+            Label("Configure Scan", systemImage: "slider.horizontal.3")
+                .font(.system(size: 14, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .tint(accent)
+        .accessibilityIdentifier("section.intro.configureScan")
     }
 }

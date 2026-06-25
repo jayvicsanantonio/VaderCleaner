@@ -351,7 +351,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         let vm = makeMalware(
             checkInstalled: { true },
             databaseLastUpdated: { Date() },
-            scan: { _ in
+            scan: { _, _ in
                 await gate.wait()
                 return []
             }
@@ -370,7 +370,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     func test_malware_removingMapsToWorking() async {
         let gate = ScanGate()
         let vm = makeMalware(
-            scan: { _ in [self.threat] },
+            scan: { _, _ in [self.threat] },
             removeThreats: { _ in
                 await gate.wait()
                 return [] // no failures ⇒ .done
@@ -387,8 +387,8 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_malware_needsInstallMapsToResults() async {
-        // Maps to `.results` (not `.intro`) on purpose: MalwareView renders
-        // its own ClamAV install onboarding for this state.
+        // Maps to `.results` (not `.intro`) on purpose: ProtectionDashboardView
+        // renders its own ClamAV install onboarding for this state.
         let vm = makeMalware(checkInstalled: { false })
         await vm.scan()
         XCTAssertEqual(vm.phase, .needsInstall)
@@ -396,21 +396,21 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_malware_resultsMapsToResults() async {
-        let vm = makeMalware(scan: { _ in [self.threat] })
+        let vm = makeMalware(scan: { _, _ in [self.threat] })
         await vm.scan()
         if case .results = vm.phase {} else { XCTFail("expected .results, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)
     }
 
     func test_malware_cleanMapsToResults() async {
-        let vm = makeMalware(scan: { _ in [] })
+        let vm = makeMalware(scan: { _, _ in [] })
         await vm.scan()
         XCTAssertEqual(vm.phase, .clean)
         XCTAssertEqual(vm.scanPresentation, .results)
     }
 
     func test_malware_doneMapsToResults() async {
-        let vm = makeMalware(scan: { _ in [self.threat] }, removeThreats: { _ in [] })
+        let vm = makeMalware(scan: { _, _ in [self.threat] }, removeThreats: { _ in [] })
         await vm.scan()
         await vm.removeThreats()
         if case .done = vm.phase {} else { XCTFail("expected .done, got \(vm.phase)") }
@@ -420,7 +420,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     func test_malware_failedMapsToResults() async {
         let vm = makeMalware(
             databaseLastUpdated: { Date() },
-            scan: { _ in throw Boom() }
+            scan: { _, _ in throw Boom() }
         )
         await vm.scan()
         if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
@@ -643,7 +643,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         checkInstalled: @escaping MalwareViewModel.CheckInstalled = { true },
         databaseLastUpdated: @escaping MalwareViewModel.DatabaseLastUpdated = { Date() },
         updateDatabase: @escaping MalwareViewModel.UpdateDatabase = { _ in },
-        scan: @escaping MalwareViewModel.Scan = { _ in [] },
+        scan: @escaping MalwareViewModel.Scan = { _, _ in [] },
         removeThreats: @escaping MalwareViewModel.RemoveThreats = { _ in [] },
         notify: @escaping MalwareViewModel.Notify = { _ in },
         shouldNotify: @escaping MalwareViewModel.ShouldNotify = { true }

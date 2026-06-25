@@ -22,7 +22,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .systemJunk:      return String(localized: "Cleanup")
         case .largeOldFiles:   return String(localized: "My Clutter")
         case .spaceLens:       return String(localized: "Space Lens")
-        case .malwareRemoval:  return String(localized: "Malware Removal")
+        case .malwareRemoval:  return String(localized: "Protection")
         case .performance:    return String(localized: "Performance")
         case .privacy:         return String(localized: "Privacy")
         case .applications:    return String(localized: "Applications")

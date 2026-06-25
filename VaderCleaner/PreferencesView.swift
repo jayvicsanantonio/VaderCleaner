@@ -14,22 +14,34 @@ import AppKit
 /// notifications) are wired in later prompts.
 struct PreferencesView: View {
 
+    @Environment(SettingsRouter.self) private var router
+
     var body: some View {
-        TabView {
+        @Bindable var router = router
+        TabView(selection: $router.selectedTab) {
             ScanningTab()
                 .tabItem { Label("Scanning", systemImage: "magnifyingglass") }
+                .tag(SettingsTab.scanning)
+
+            ProtectionTab()
+                .tabItem { Label("Protection", systemImage: "hand.raised") }
+                .tag(SettingsTab.protectionScan)
 
             NotificationsTab()
                 .tabItem { Label("Notifications", systemImage: "bell.badge") }
+                .tag(SettingsTab.notifications)
 
             ExclusionsTab()
                 .tabItem { Label("Exclusions", systemImage: "minus.circle") }
+                .tag(SettingsTab.exclusions)
 
             StartupTab()
                 .tabItem { Label("Startup", systemImage: "power") }
+                .tag(SettingsTab.startup)
 
             MenuBarTab()
                 .tabItem { Label("Menu Bar", systemImage: "menubar.rectangle") }
+                .tag(SettingsTab.menuBar)
         }
         // Fixed width so all tabs share the same window size and the window
         // doesn't jump as the user switches tabs. The width accommodates the
@@ -481,6 +493,56 @@ private struct NativeTriStateCheckbox: NSViewRepresentable {
     }
 }
 
+// MARK: - Protection tab
+
+/// Scan options and scan-mode configuration for the Protection section,
+/// mirroring the reference design. Bound to `ProtectionSettingsStore`; the
+/// Malware view-model reads these at scan time so a change takes effect on the
+/// next scan. The Configure Scan button on the Protection intro opens Settings
+/// straight to this tab.
+private struct ProtectionTab: View {
+
+    @Environment(ProtectionSettingsStore.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+        Form {
+            Section("Scan options") {
+                Toggle("Scan email attachments", isOn: $settings.scanEmailAttachments)
+                    .accessibilityIdentifier("protection.scanEmailAttachments")
+                Toggle("Scan archives", isOn: $settings.scanArchives)
+                    .accessibilityIdentifier("protection.scanArchives")
+                HStack(spacing: 6) {
+                    Toggle("Exclude downloaded iCloud files", isOn: $settings.excludeDownloadedICloudFiles)
+                        .accessibilityIdentifier("protection.excludeDownloadedICloudFiles")
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .help("Skips iCloud Drive files already downloaded to this Mac. Apple scans the canonical copies in iCloud, so excluding them speeds up scans.")
+                }
+            }
+
+            Section("Scan mode") {
+                Picker("Scan mode:", selection: $settings.scanMode) {
+                    ForEach(ScanMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .accessibilityIdentifier("protection.scanMode")
+
+                LabeledContent("Speed", value: settings.scanMode.speed)
+                LabeledContent("Depth", value: settings.scanMode.depth)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Purpose")
+                        .foregroundStyle(.secondary)
+                    Text(settings.scanMode.purpose)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
 // MARK: - Notifications tab
 
 private struct NotificationsTab: View {
@@ -639,4 +701,6 @@ private struct MenuBarTab: View {
         .environment(PreferencesStore())
         .environment(ExclusionsStore())
         .environment(SmartScanSettingsStore())
+        .environment(ProtectionSettingsStore())
+        .environment(SettingsRouter())
 }

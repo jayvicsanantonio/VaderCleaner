@@ -28,6 +28,7 @@ struct VaderCleanerApp: App {
     @State private var exclusions: ExclusionsStore
     @State private var myClutterScanScope: MyClutterScanScopeStore
     @State private var smartScanSettings: SmartScanSettingsStore
+    @State private var protectionSettings: ProtectionSettingsStore
     @State private var systemJunkViewModel: SystemJunkViewModel
     @State private var myClutterViewModel: MyClutterViewModel
     @State private var spaceLensViewModel: DiskScannerViewModel
@@ -39,6 +40,7 @@ struct VaderCleanerApp: App {
     @State private var extensionsManagerViewModel: ExtensionsManagerViewModel
     @State private var performanceViewModel: PerformanceViewModel
     @State private var malwareViewModel: MalwareViewModel
+    @State private var protectionDashboardViewModel: ProtectionDashboardViewModel
     @State private var smartScanViewModel: SmartScanViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
     // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
@@ -55,6 +57,9 @@ struct VaderCleanerApp: App {
     // App-scope router so the menu bar panel can deep-link into a main-window
     // section (and optionally start its scan). Shared by both scenes.
     @State private var menuRouter = MenuRouter()
+    // App-scope so the Configure Scan button in the main window can select the
+    // Protection tab before opening the Settings scene. Shared by both scenes.
+    @State private var settingsRouter = SettingsRouter()
     // App-scope: subscribes to `systemStats` and pushes notifications via
     // `NotificationManager`. Held here so the Combine subscriptions live as
     // long as the app and so the per-kind cooldown table survives across
@@ -91,6 +96,11 @@ struct VaderCleanerApp: App {
         // on the next run.
         let smartScanSettings = SmartScanSettingsStore()
         _smartScanSettings = State(initialValue: smartScanSettings)
+        // Protection scan options and mode. Captured by `MalwareViewModel.live`
+        // below, which reads it per scan so a Settings → Protection change
+        // takes effect on the next scan.
+        let protectionSettings = ProtectionSettingsStore()
+        _protectionSettings = State(initialValue: protectionSettings)
         _systemJunkViewModel = State(
             initialValue: SystemJunkViewModel.live(exclusions: exclusions)
         )
@@ -112,7 +122,8 @@ struct VaderCleanerApp: App {
             .environment["UITEST_DEFAULTS_SUITE"]
             .flatMap { UserDefaults(suiteName: $0) } ?? .standard
         _spaceLensViewMode = State(initialValue: SpaceLensViewModeStore(defaults: viewModeDefaults))
-        _privacyViewModel = State(initialValue: PrivacyViewModel.live())
+        let privacy = PrivacyViewModel.live()
+        _privacyViewModel = State(initialValue: privacy)
         _appUninstallerViewModel = State(
             initialValue: AppUninstallerViewModel.live(exclusions: exclusions)
         )
@@ -144,10 +155,21 @@ struct VaderCleanerApp: App {
         // Wired after `stats` so manual malware scans surface a detection
         // banner through the same dispatcher the threshold monitor uses, and
         // honour the same `notifyMalwareFound` preference.
-        _malwareViewModel = State(
-            initialValue: MalwareViewModel.live(
-                dispatcher: notificationManager,
-                preferences: prefs
+        let malware = MalwareViewModel.live(
+            dispatcher: notificationManager,
+            preferences: prefs,
+            settings: protectionSettings
+        )
+        _malwareViewModel = State(initialValue: malware)
+        // The Protection dashboard runs the malware scan and the privacy
+        // preview together, surfacing each as a tile when ready. It reuses the
+        // shared malware + privacy view-models so "Manage Privacy Items" lands
+        // on the same results in the standalone Privacy section.
+        _protectionDashboardViewModel = State(
+            initialValue: ProtectionDashboardViewModel(
+                malware: malware,
+                privacy: privacy,
+                protectionPrivacy: ProtectionPrivacyModel.live()
             )
         )
         // Smart Scan orchestrates the System Junk, Malware, and Performance
@@ -238,6 +260,7 @@ struct VaderCleanerApp: App {
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 performanceViewModel: performanceViewModel,
                 malwareViewModel: malwareViewModel,
+                protectionDashboardViewModel: protectionDashboardViewModel,
                 smartScanViewModel: smartScanViewModel
             )
                 .environment(appState)
@@ -246,6 +269,8 @@ struct VaderCleanerApp: App {
                 .environment(exclusions)
                 .environment(myClutterScanScope)
                 .environment(smartScanSettings)
+                .environment(protectionSettings)
+                .environment(settingsRouter)
                 .environment(systemStats)
                 .environment(notificationMonitor)
                 .environment(menuRouter)
@@ -276,6 +301,8 @@ struct VaderCleanerApp: App {
                 .environment(preferences)
                 .environment(exclusions)
                 .environment(smartScanSettings)
+                .environment(protectionSettings)
+                .environment(settingsRouter)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user

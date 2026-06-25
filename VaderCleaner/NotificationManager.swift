@@ -184,7 +184,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     static func makeMalwareDetectedContent(threatName: String) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = "Malware Detected"
-        content.body = "VaderCleaner found \(threatName). Open the Malware Removal section to review."
+        content.body = "VaderCleaner found \(threatName). Open the Protection section to review."
         content.sound = .default
         return content
     }
