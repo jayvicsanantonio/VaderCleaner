@@ -177,21 +177,21 @@ struct SectionPresentation {
                 accent: section.theme.accent,
                 heroTitle: nil,
                 tagline: String(
-                    localized: "Check your Mac for threats and vulnerabilities.",
-                    comment: "Malware Removal intro tagline."
+                    localized: "Check your Mac for all kind of threats and vulnerabilities.",
+                    comment: "Protection intro tagline."
                 ),
                 features: [
                     SectionFeature(
-                        symbol: "ladybug",
-                        title: String(localized: "Malware Scan", comment: "Malware Removal feature row.")
+                        symbol: "allergens",
+                        title: String(localized: "Malware Removal", comment: "Protection feature row.")
                     ),
                     SectionFeature(
-                        symbol: "cylinder",
-                        title: String(localized: "Virus Definitions", comment: "Malware Removal feature row.")
+                        symbol: "checkmark.shield.fill",
+                        title: String(localized: "Privacy Check", comment: "Protection feature row.")
                     ),
                     SectionFeature(
-                        symbol: "xmark.shield",
-                        title: String(localized: "Quarantine", comment: "Malware Removal feature row.")
+                        symbol: "lock.fill",
+                        title: String(localized: "Application Permissions", comment: "Protection feature row.")
                     ),
                 ]
             )

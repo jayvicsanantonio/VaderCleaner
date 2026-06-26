@@ -22,6 +22,7 @@ struct ContentView: View {
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
     private let performanceViewModel: PerformanceViewModel
     private let malwareViewModel: MalwareViewModel
+    private let protectionDashboardViewModel: ProtectionDashboardViewModel
     private let smartScanViewModel: SmartScanViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
     /// Which way the detail pane's slide-and-fade transition should travel for
@@ -63,7 +64,7 @@ struct ContentView: View {
         case .privacy:        return privacyViewModel.scanPresentation
         case .applications:   return applicationsViewModel.scanPresentation
         case .performance:   return performanceViewModel.scanPresentation
-        case .malwareRemoval: return malwareViewModel.scanPresentation
+        case .malwareRemoval: return protectionDashboardViewModel.scanPresentation
         case .healthMonitor:  return nil
         }
     }
@@ -92,6 +93,7 @@ struct ContentView: View {
         extensionsManagerViewModel: ExtensionsManagerViewModel,
         performanceViewModel: PerformanceViewModel,
         malwareViewModel: MalwareViewModel,
+        protectionDashboardViewModel: ProtectionDashboardViewModel,
         smartScanViewModel: SmartScanViewModel
     ) {
         self.systemJunkViewModel = systemJunkViewModel
@@ -105,6 +107,7 @@ struct ContentView: View {
         self.extensionsManagerViewModel = extensionsManagerViewModel
         self.performanceViewModel = performanceViewModel
         self.malwareViewModel = malwareViewModel
+        self.protectionDashboardViewModel = protectionDashboardViewModel
         self.smartScanViewModel = smartScanViewModel
         _scanDiscController = State(initialValue: ScanDiscWindowController(
             smartScanViewModel: smartScanViewModel,
@@ -112,7 +115,7 @@ struct ContentView: View {
             myClutterViewModel: myClutterViewModel,
             spaceLensViewModel: spaceLensViewModel,
             performanceViewModel: performanceViewModel,
-            malwareViewModel: malwareViewModel,
+            protectionViewModel: protectionDashboardViewModel,
             privacyViewModel: privacyViewModel,
             applicationsViewModel: applicationsViewModel
         ))
@@ -404,8 +407,8 @@ struct ContentView: View {
                 PerformanceView(viewModel: performanceViewModel)
             }
         case .malwareRemoval:
-            ScannableSectionContent(coordinator: malwareViewModel, section: section) {
-                MalwareView(viewModel: malwareViewModel)
+            ScannableSectionContent(coordinator: protectionDashboardViewModel, section: section) {
+                ProtectionDashboardView(viewModel: protectionDashboardViewModel)
             }
         }
     }
@@ -463,6 +466,12 @@ private extension AnyTransition {
     let exclusions = ExclusionsStore(defaults: UserDefaults(suiteName: "preview")!)
     let myClutterScanScope = MyClutterScanScopeStore(defaults: UserDefaults(suiteName: "preview")!)
     let notificationManager = NotificationManager()
+    let privacy = PrivacyViewModel.live()
+    let malware = MalwareViewModel.live(
+        dispatcher: notificationManager,
+        preferences: prefs,
+        settings: ProtectionSettingsStore(defaults: UserDefaults(suiteName: "preview")!)
+    )
     return ContentView(
         systemJunkViewModel: SystemJunkViewModel.live(exclusions: exclusions),
         myClutterViewModel: MyClutterViewModel.live(
@@ -471,15 +480,17 @@ private extension AnyTransition {
         ),
         spaceLensViewModel: DiskScannerViewModel.live(exclusions: exclusions),
         spaceLensViewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!),
-        privacyViewModel: PrivacyViewModel.live(),
+        privacyViewModel: privacy,
         appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         applicationsViewModel: ApplicationsViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
         performanceViewModel: PerformanceViewModel.live(systemStats: stats, preferences: prefs),
-        malwareViewModel: MalwareViewModel.live(
-            dispatcher: notificationManager,
-            preferences: prefs
+        malwareViewModel: malware,
+        protectionDashboardViewModel: ProtectionDashboardViewModel(
+            malware: malware,
+            privacy: privacy,
+            protectionPrivacy: ProtectionPrivacyModel.live()
         ),
         smartScanViewModel: SmartScanViewModel.live(
             exclusions: exclusions,

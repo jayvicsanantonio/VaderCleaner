@@ -68,6 +68,49 @@ final class ClamAVScannerTests: XCTestCase {
         )
     }
 
+    func test_scan_defaultOptionsAddNoScanContentFlags() async throws {
+        // The default ScanOptions mirrors clamscan's own defaults (mail and
+        // archives inspected), so a default-constructed value must add no
+        // `--scan-*` flags — keeping the base argument list minimal.
+        var capturedArguments: [String]?
+        let scanner = makeScanner(installed: true,
+                                  databaseDirectory: nil,
+                                  excludedDirectories: []) { _, arguments, _ in
+            capturedArguments = arguments
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(capturedArguments, ["--recursive", "--no-summary", "/Users/x"])
+    }
+
+    func test_scan_appendsDisableFlagsWhenScanContentOptionsAreOff() async throws {
+        // Turning the Protection content options off must emit explicit
+        // `--scan-mail=no` / `--scan-archive=no` ahead of the scan paths.
+        var capturedArguments: [String]?
+        let scanner = makeScanner(installed: true,
+                                  databaseDirectory: nil,
+                                  excludedDirectories: []) { _, arguments, _ in
+            capturedArguments = arguments
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            options: ClamAVScanner.ScanOptions(scanMail: false, scanArchives: false),
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(
+            capturedArguments,
+            ["--recursive", "--no-summary", "--scan-mail=no", "--scan-archive=no", "/Users/x"]
+        )
+    }
+
     func test_scan_throttlesProgressCallbackToConfiguredInterval() async throws {
         // The runner closure is invoked once per output line by
         // ProcessLineStreamer. On a clean machine that's millions of

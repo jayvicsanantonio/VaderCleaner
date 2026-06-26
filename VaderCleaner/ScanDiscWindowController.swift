@@ -27,7 +27,7 @@ final class ScanDiscWindowController {
     @ObservationIgnored let myClutterViewModel: MyClutterViewModel
     @ObservationIgnored let spaceLensViewModel: DiskScannerViewModel
     @ObservationIgnored let performanceViewModel: PerformanceViewModel
-    @ObservationIgnored let malwareViewModel: MalwareViewModel
+    @ObservationIgnored let protectionViewModel: ProtectionDashboardViewModel
     @ObservationIgnored let privacyViewModel: PrivacyViewModel
     @ObservationIgnored let applicationsViewModel: ApplicationsViewModel
 
@@ -55,7 +55,7 @@ final class ScanDiscWindowController {
         myClutterViewModel: MyClutterViewModel,
         spaceLensViewModel: DiskScannerViewModel,
         performanceViewModel: PerformanceViewModel,
-        malwareViewModel: MalwareViewModel,
+        protectionViewModel: ProtectionDashboardViewModel,
         privacyViewModel: PrivacyViewModel,
         applicationsViewModel: ApplicationsViewModel
     ) {
@@ -64,7 +64,7 @@ final class ScanDiscWindowController {
         self.myClutterViewModel = myClutterViewModel
         self.spaceLensViewModel = spaceLensViewModel
         self.performanceViewModel = performanceViewModel
-        self.malwareViewModel = malwareViewModel
+        self.protectionViewModel = protectionViewModel
         self.privacyViewModel = privacyViewModel
         self.applicationsViewModel = applicationsViewModel
     }

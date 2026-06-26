@@ -13,6 +13,15 @@ import os.log
 /// and accumulated for parsing once the scan completes.
 struct ClamAVScanner {
 
+    /// Which content types clamscan inspects. Both default to `true` to match
+    /// clamscan's own defaults, so a default-constructed value adds no flags —
+    /// the scanner only emits an explicit `--scan-mail=no` / `--scan-archive=no`
+    /// when the user has turned an option off in Protection settings.
+    struct ScanOptions {
+        var scanMail = true
+        var scanArchives = true
+    }
+
     /// Runs `executable arguments`, invoking `onLine` per stdout line, and
     /// returns the process exit code.
     typealias ScanRunner = (
@@ -126,6 +135,7 @@ struct ClamAVScanner {
     /// (a hard error) or an unreachable binary throws.
     func scan(
         paths: [URL],
+        options: ScanOptions = ScanOptions(),
         progress: @escaping (String) -> Void
     ) async throws -> [MalwareThreat] {
         guard let binary = detector.path() else {
@@ -156,6 +166,15 @@ struct ClamAVScanner {
         // `ClamAVOutputParser.parseLine` already filters down to the
         // ` FOUND` suffix, so non-infection lines never become threats.
         arguments.append(contentsOf: ["--recursive", "--no-summary"])
+        // clamscan inspects mail and archives by default, so only emit the
+        // disabling flags when the user has turned an option off — keeping the
+        // default argument list (and its tests) unchanged.
+        if !options.scanMail {
+            arguments.append("--scan-mail=no")
+        }
+        if !options.scanArchives {
+            arguments.append("--scan-archive=no")
+        }
         arguments.append(contentsOf: paths.map(\.path))
 
         let collector = ThreatCollector()

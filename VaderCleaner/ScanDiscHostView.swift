@@ -41,7 +41,7 @@ struct ScanDiscHostView: View {
         case .performance:
             overlay(controller.performanceViewModel, .performance)
         case .malwareRemoval:
-            overlay(controller.malwareViewModel, .malwareRemoval)
+            overlay(controller.protectionViewModel, .malwareRemoval)
         case .privacy:
             overlay(controller.privacyViewModel, .privacy)
         case .applications:

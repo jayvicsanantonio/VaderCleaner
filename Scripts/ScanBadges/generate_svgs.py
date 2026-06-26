@@ -149,6 +149,70 @@ EMBLEMS = {
       <rect x="100" y="84" width="40" height="60" rx="4" fill="{dark}"/>
       <circle cx="120" cy="156" r="6" fill="{dark}"/>
     """,
+    # --- Protection Manager privacy categories ---
+    "autofill": """
+      <rect x="80" y="78" width="80" height="84" rx="11" fill="#ffffff"/>
+      <g stroke="{dark}" stroke-width="7" stroke-linecap="round">
+        <line x1="94" y1="100" x2="146" y2="100"/>
+        <line x1="94" y1="118" x2="146" y2="118"/>
+        <line x1="94" y1="136" x2="128" y2="136"/>
+      </g>
+    """,
+    "browsingHistory": """
+      <path d="M120 72 a46 46 0 1 1 -42 26" fill="none" stroke="#ffffff"
+            stroke-width="11" stroke-linecap="round"/>
+      <path d="M74 86 l6 26 24 -10 z" fill="#ffffff"/>
+      <g stroke="#ffffff" stroke-width="9" stroke-linecap="round">
+        <line x1="120" y1="118" x2="120" y2="96"/>
+        <line x1="120" y1="118" x2="139" y2="129"/>
+      </g>
+    """,
+    "cookies": """
+      <circle cx="120" cy="118" r="45" fill="#ffffff"/>
+      <g fill="{dark}">
+        <circle cx="106" cy="103" r="7"/>
+        <circle cx="135" cy="110" r="6"/>
+        <circle cx="116" cy="135" r="6"/>
+        <circle cx="139" cy="133" r="5"/>
+        <circle cx="100" cy="126" r="4"/>
+      </g>
+    """,
+    "downloadsHistory": """
+      <g stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <line x1="120" y1="76" x2="120" y2="132"/>
+        <path d="M98 110 L120 134 L142 110"/>
+      </g>
+      <rect x="84" y="150" width="72" height="13" rx="6" fill="#ffffff"/>
+    """,
+    "savedPasswords": """
+      <circle cx="104" cy="104" r="23" fill="#ffffff"/>
+      <circle cx="104" cy="104" r="9" fill="{dark}"/>
+      <g stroke="#ffffff" stroke-width="12" stroke-linecap="round">
+        <line x1="118" y1="118" x2="152" y2="152"/>
+        <line x1="142" y1="142" x2="152" y2="132"/>
+        <line x1="132" y1="152" x2="142" y2="162"/>
+      </g>
+    """,
+    "searchQueries": """
+      <g fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round">
+        <circle cx="110" cy="108" r="30"/>
+        <line x1="133" y1="131" x2="156" y2="154"/>
+      </g>
+    """,
+    "cachedFiles": """
+      <g fill="#ffffff">
+        <ellipse cx="120" cy="86" rx="40" ry="14"/>
+        <path d="M80 86 v44 a40 14 0 0 0 80 0 v-44 a40 14 0 0 1 -80 0 z"/>
+      </g>
+      <path d="M80 108 a40 14 0 0 0 80 0" fill="none" stroke="{dark}" stroke-width="5"/>
+    """,
+    "tabs": """
+      <g fill="#ffffff">
+        <rect x="78" y="92" width="84" height="64" rx="10"/>
+        <rect x="86" y="78" width="36" height="20" rx="7"/>
+      </g>
+      <line x1="78" y1="110" x2="162" y2="110" stroke="{dark}" stroke-width="5"/>
+    """,
 }
 
 # badge name -> color key
@@ -169,6 +233,14 @@ BADGES = {
     "logs": "green",
     "languageFiles": "green",
     "iosBackups": "green",
+    "autofill": "pink",
+    "browsingHistory": "pink",
+    "cookies": "pink",
+    "downloadsHistory": "pink",
+    "savedPasswords": "pink",
+    "searchQueries": "pink",
+    "cachedFiles": "pink",
+    "tabs": "pink",
 }
 
 # badge name -> body shape. Defaults to the glossy round orb; a few badges use a
