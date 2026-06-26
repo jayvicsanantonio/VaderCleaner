@@ -15,7 +15,6 @@ struct ContentView: View {
     private let myClutterViewModel: MyClutterViewModel
     private let spaceLensViewModel: DiskScannerViewModel
     private let spaceLensViewMode: SpaceLensViewModeStore
-    private let privacyViewModel: PrivacyViewModel
     private let appUninstallerViewModel: AppUninstallerViewModel
     private let appUpdaterViewModel: AppUpdaterViewModel
     private let applicationsViewModel: ApplicationsViewModel
@@ -61,7 +60,6 @@ struct ContentView: View {
         case .systemJunk:     return systemJunkViewModel.scanPresentation
         case .largeOldFiles:  return myClutterViewModel.scanPresentation
         case .spaceLens:      return spaceLensViewModel.scanPresentation
-        case .privacy:        return privacyViewModel.scanPresentation
         case .applications:   return applicationsViewModel.scanPresentation
         case .performance:   return performanceViewModel.scanPresentation
         case .malwareRemoval: return protectionDashboardViewModel.scanPresentation
@@ -86,7 +84,6 @@ struct ContentView: View {
         myClutterViewModel: MyClutterViewModel,
         spaceLensViewModel: DiskScannerViewModel,
         spaceLensViewMode: SpaceLensViewModeStore,
-        privacyViewModel: PrivacyViewModel,
         appUninstallerViewModel: AppUninstallerViewModel,
         appUpdaterViewModel: AppUpdaterViewModel,
         applicationsViewModel: ApplicationsViewModel,
@@ -100,7 +97,6 @@ struct ContentView: View {
         self.myClutterViewModel = myClutterViewModel
         self.spaceLensViewModel = spaceLensViewModel
         self.spaceLensViewMode = spaceLensViewMode
-        self.privacyViewModel = privacyViewModel
         self.appUninstallerViewModel = appUninstallerViewModel
         self.appUpdaterViewModel = appUpdaterViewModel
         self.applicationsViewModel = applicationsViewModel
@@ -116,7 +112,6 @@ struct ContentView: View {
             spaceLensViewModel: spaceLensViewModel,
             performanceViewModel: performanceViewModel,
             protectionViewModel: protectionDashboardViewModel,
-            privacyViewModel: privacyViewModel,
             applicationsViewModel: applicationsViewModel
         ))
         // When a Smart Scan completes, populate every standalone section so the
@@ -389,10 +384,6 @@ struct ContentView: View {
             ScannableSectionContent(coordinator: spaceLensViewModel, section: section) {
                 SpaceLensView(viewModel: spaceLensViewModel, viewMode: spaceLensViewMode)
             }
-        case .privacy:
-            ScannableSectionContent(coordinator: privacyViewModel, section: section) {
-                PrivacyView(viewModel: privacyViewModel)
-            }
         case .applications:
             ScannableSectionContent(coordinator: applicationsViewModel, section: section) {
                 ApplicationsView(
@@ -480,7 +471,6 @@ private extension AnyTransition {
         ),
         spaceLensViewModel: DiskScannerViewModel.live(exclusions: exclusions),
         spaceLensViewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!),
-        privacyViewModel: privacy,
         appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         applicationsViewModel: ApplicationsViewModel.live(),

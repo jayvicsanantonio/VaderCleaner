@@ -70,13 +70,6 @@ extension NavigationSection {
                 backdropTop: Color(red: 0.12, green: 0.05, blue: 0.03),
                 backdropBottom: Color(red: 0.29, green: 0.11, blue: 0.06)
             )
-        case .privacy:
-            // Keyed to the azure Cloud Storage asset.
-            return SectionTheme(
-                accent: Color(red: 0.14, green: 0.51, blue: 0.90),
-                backdropTop: Color(red: 0.03, green: 0.08, blue: 0.12),
-                backdropBottom: Color(red: 0.06, green: 0.17, blue: 0.29)
-            )
         case .applications:
             // Keyed to the blue Applications hexagon asset, but a brighter,
             // less-saturated blue: the accent doubles as the control tint, so it
@@ -111,7 +104,7 @@ extension NavigationSection {
         case .healthMonitor:
             return Color(red: 0.89, green: 0.39, blue: 0.78)
         case .smartScan, .systemJunk, .largeOldFiles, .spaceLens,
-             .malwareRemoval, .performance, .privacy, .applications:
+             .malwareRemoval, .performance, .applications:
             return theme.accent
         }
     }

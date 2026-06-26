@@ -33,7 +33,6 @@ struct VaderCleanerApp: App {
     @State private var myClutterViewModel: MyClutterViewModel
     @State private var spaceLensViewModel: DiskScannerViewModel
     @State private var spaceLensViewMode: SpaceLensViewModeStore
-    @State private var privacyViewModel: PrivacyViewModel
     @State private var appUninstallerViewModel: AppUninstallerViewModel
     @State private var appUpdaterViewModel: AppUpdaterViewModel
     @State private var applicationsViewModel: ApplicationsViewModel
@@ -122,8 +121,10 @@ struct VaderCleanerApp: App {
             .environment["UITEST_DEFAULTS_SUITE"]
             .flatMap { UserDefaults(suiteName: $0) } ?? .standard
         _spaceLensViewMode = State(initialValue: SpaceLensViewModeStore(defaults: viewModeDefaults))
+        // The Protection dashboard owns the only live PrivacyViewModel now that
+        // the standalone Privacy section is gone — it drives the dashboard's
+        // browser + Recent Items tiles and the Protection Manager.
         let privacy = PrivacyViewModel.live()
-        _privacyViewModel = State(initialValue: privacy)
         _appUninstallerViewModel = State(
             initialValue: AppUninstallerViewModel.live(exclusions: exclusions)
         )
@@ -253,7 +254,6 @@ struct VaderCleanerApp: App {
                 myClutterViewModel: myClutterViewModel,
                 spaceLensViewModel: spaceLensViewModel,
                 spaceLensViewMode: spaceLensViewMode,
-                privacyViewModel: privacyViewModel,
                 appUninstallerViewModel: appUninstallerViewModel,
                 appUpdaterViewModel: appUpdaterViewModel,
                 applicationsViewModel: applicationsViewModel,

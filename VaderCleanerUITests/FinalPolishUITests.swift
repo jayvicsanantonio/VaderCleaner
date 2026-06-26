@@ -25,7 +25,6 @@ final class FinalPolishUITests: XCTestCase {
         "sidebar.largeOldFiles",
         "sidebar.spaceLens",
         "sidebar.malwareRemoval",
-        "sidebar.privacy",
         "sidebar.applications",
         "sidebar.performance",
         "sidebar.healthMonitor",
@@ -44,8 +43,8 @@ final class FinalPolishUITests: XCTestCase {
 
     // MARK: - Sidebar
 
-    /// Launch → every one of the nine sections is present in the sidebar.
-    func test_launch_sidebarShowsAllNineSections() throws {
+    /// Launch → every one of the eight sections is present in the sidebar.
+    func test_launch_sidebarShowsAllEightSections() throws {
         dismissOnboardingIfNeeded()
 
         for identifier in sectionIdentifiers {
@@ -86,16 +85,16 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertTrue(anchor.waitForExistence(timeout: 5),
                       "Expected Smart Scan row in sidebar")
 
-        let privacyRow = app.buttons["sidebar.privacy"].firstMatch
-        XCTAssertTrue(privacyRow.waitForExistence(timeout: 5),
-                      "Expected Privacy row in sidebar")
-        privacyRow.click()
+        let junkRow = app.buttons["sidebar.systemJunk"].firstMatch
+        XCTAssertTrue(junkRow.waitForExistence(timeout: 5),
+                      "Expected Cleanup row in sidebar")
+        junkRow.click()
         // Wait until the clicked row reports selection before measuring. The
         // anchor row exists regardless of selection, so waiting on it would
         // return immediately and could sample Y mid-transition; the
         // `.isSelected` trait only flips once the navigation has taken
         // effect and the rail re-rendered.
-        waitUntilSelected(privacyRow)
+        waitUntilSelected(junkRow)
         let yIntroDetail = anchor.frame.origin.y
 
         let healthRow = app.buttons["sidebar.healthMonitor"].firstMatch
@@ -108,7 +107,7 @@ final class FinalPolishUITests: XCTestCase {
         XCTAssertEqual(
             yIntroDetail, yGridDetail, accuracy: 1.0,
             "Sidebar rows must not shift vertically when the detail screen "
-            + "changes (was \(yIntroDetail) on Privacy, "
+            + "changes (was \(yIntroDetail) on Cleanup, "
             + "\(yGridDetail) on Health Monitor)"
         )
     }

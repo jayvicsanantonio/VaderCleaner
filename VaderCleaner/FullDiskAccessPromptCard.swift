@@ -20,8 +20,8 @@ import AppKit
 struct FullDiskAccessPromptCard: View {
 
     /// Section-aware tint applied to the lock symbol and the primary button.
-    /// Defaults to crimson so existing call sites (PrivacyView) stay on the
-    /// Vader palette without a code change.
+    /// Defaults to crimson so call sites that don't pass a section accent stay
+    /// on the Vader palette without a code change.
     var accent: Color = .vaderCrimson
     let onRecheck: () -> Void
 

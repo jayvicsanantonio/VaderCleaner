@@ -226,37 +226,6 @@ struct SectionPresentation {
                     ),
                 ]
             )
-        case .privacy:
-            return SectionPresentation(
-                heroSymbol: "lock.shield",
-                heroAssetName: "privacy",
-                heroModelName: nil,
-                heroModelScale: 1.7,
-                accent: section.theme.accent,
-                heroTitle: nil,
-                tagline: String(
-                    localized: "Clear browsing history, cookies, and caches across your browsers.",
-                    comment: "Privacy intro tagline."
-                ),
-                features: [
-                    SectionFeature(
-                        symbol: "clock.arrow.circlepath",
-                        title: String(localized: "Browsing History", comment: "Privacy feature row.")
-                    ),
-                    SectionFeature(
-                        symbol: "arrow.down.circle",
-                        title: String(localized: "Downloads", comment: "Privacy feature row.")
-                    ),
-                    SectionFeature(
-                        symbol: "internaldrive",
-                        title: String(localized: "Cookies & Cache", comment: "Privacy feature row.")
-                    ),
-                    SectionFeature(
-                        symbol: "doc.text",
-                        title: String(localized: "Recent Items", comment: "Privacy feature row.")
-                    ),
-                ]
-            )
         case .applications:
             // Launchpad-style 2x2 app-tile grid hero; the feature rows preview
             // the cards the post-scan grid surfaces.

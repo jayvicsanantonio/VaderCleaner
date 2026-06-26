@@ -214,17 +214,6 @@ enum ScanPhrases {
                 "Flushing out the hoarders…", "Peeking into dusty corners…",
                 "Counting the calories on disk…",
             ]
-        case .privacy:
-            return [
-                "Retracing your footsteps…", "Clearing the breadcrumbs…",
-                "Combing the history…", "Tidying the cookie jar…",
-                "Wiping the fingerprints…", "Shredding the paper trail…",
-                "Sweeping away the cookies…", "Covering your tracks…",
-                "Erasing the footprints…", "Checking who's been watching…",
-                "Closing the curtains…", "Clearing the recent trail…",
-                "Drawing the blinds…", "Tucking away the receipts…",
-                "Going incognito…",
-            ]
         case .malwareRemoval:
             return [
                 "Sniffing out bad actors…", "Checking every nook…",
