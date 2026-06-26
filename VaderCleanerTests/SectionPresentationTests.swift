@@ -8,12 +8,12 @@ import SwiftUI
 
 final class SectionPresentationTests: XCTestCase {
 
-    /// The eight sections that drive a scan/load and therefore get the unified
+    /// The seven sections that drive a scan/load and therefore get the unified
     /// intro screen + floating Scan button. Pinned here so a drift in
     /// `isScannable` or `SectionPresentation.for(_:)` fails loudly.
     private let scannableSections: Set<NavigationSection> = [
         .smartScan, .systemJunk, .largeOldFiles,
-        .spaceLens, .malwareRemoval, .performance, .privacy,
+        .spaceLens, .malwareRemoval, .performance,
         .applications,
     ]
 
@@ -31,10 +31,10 @@ final class SectionPresentationTests: XCTestCase {
     /// the RealityKit USDZ path. Currently every scannable section.
     private let sectionsWithImageHero: Set<NavigationSection> = [
         .smartScan, .systemJunk, .largeOldFiles, .spaceLens,
-        .malwareRemoval, .performance, .applications, .privacy,
+        .malwareRemoval, .performance, .applications,
     ]
 
-    func test_isScannable_isTrueForExactlyTheEightScannableSections() {
+    func test_isScannable_isTrueForExactlyTheSevenScannableSections() {
         for section in NavigationSection.allCases {
             let expected = scannableSections.contains(section)
             XCTAssertEqual(
@@ -45,9 +45,9 @@ final class SectionPresentationTests: XCTestCase {
         }
     }
 
-    func test_isScannable_countIsExactlyEight() {
+    func test_isScannable_countIsExactlySeven() {
         let count = NavigationSection.allCases.filter(\.isScannable).count
-        XCTAssertEqual(count, 8, "Exactly eight sections must be scannable")
+        XCTAssertEqual(count, 7, "Exactly seven sections must be scannable")
     }
 
     func test_presentationFor_isNonNilForScannableAndNilOtherwise() {

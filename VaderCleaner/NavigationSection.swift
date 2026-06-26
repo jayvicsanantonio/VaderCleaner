@@ -10,7 +10,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case spaceLens
     case malwareRemoval
     case performance
-    case privacy
     case applications
     case healthMonitor
 
@@ -24,7 +23,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .spaceLens:       return String(localized: "Space Lens")
         case .malwareRemoval:  return String(localized: "Protection")
         case .performance:    return String(localized: "Performance")
-        case .privacy:         return String(localized: "Privacy")
         case .applications:    return String(localized: "Applications")
         case .healthMonitor:   return String(localized: "Health Monitor")
         }
@@ -42,7 +40,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .spaceLens:       return "sidebar.spaceLens"
         case .malwareRemoval:  return "sidebar.malwareRemoval"
         case .performance:    return "sidebar.performance"
-        case .privacy:         return "sidebar.privacy"
         case .applications:    return "sidebar.applications"
         case .healthMonitor:   return "sidebar.healthMonitor"
         }
@@ -69,7 +66,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .spaceLens:       return "square.split.2x2"
         case .malwareRemoval:  return "shield.lefthalf.filled"
         case .performance:    return "gauge.with.needle"
-        case .privacy:         return "lock.shield"
         case .applications:    return "square.grid.2x2"
         case .healthMonitor:   return "heart.text.square"
         }
@@ -89,7 +85,6 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
         case .spaceLens:       return "spaceLensMono"
         case .malwareRemoval:  return "malwareRemovalMono"
         case .performance:    return "performanceMono"
-        case .privacy:         return "privacyMono"
         case .applications:    return "applicationsMono"
         case .healthMonitor:   return "healthMonitorMono"
         }
@@ -103,7 +98,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var isScannable: Bool {
         switch self {
         case .smartScan, .systemJunk, .largeOldFiles,
-             .spaceLens, .malwareRemoval, .performance, .privacy,
+             .spaceLens, .malwareRemoval, .performance,
              .applications:
             return true
         case .healthMonitor:
@@ -121,7 +116,7 @@ enum NavigationSection: CaseIterable, Hashable, Identifiable {
     var requiresFullDiskAccess: Bool {
         switch self {
         case .smartScan, .systemJunk, .largeOldFiles,
-             .spaceLens, .malwareRemoval, .privacy:
+             .spaceLens, .malwareRemoval:
             return true
         case .performance,
              .applications, .healthMonitor:

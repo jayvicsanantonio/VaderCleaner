@@ -20,7 +20,6 @@ final class SectionIntroViewTests: XCTestCase {
         .spaceLens: "spacelens",
         .malwareRemoval: "malwareremoval",
         .performance: "performance",
-        .privacy: "privacy",
         .applications: "applications",
     ]
 

@@ -44,11 +44,11 @@ final class ColorDeepenedForWhiteTests: XCTestCase {
     }
 
     /// Every accent already dark enough for white must be returned identical, so
-    /// the seven non-bright sections stay pixel-for-pixel unchanged.
+    /// the six non-bright sections stay pixel-for-pixel unchanged.
     func test_darkAccents_passThroughUnchanged() {
         let darkSections: [NavigationSection] = [
             .smartScan, .spaceLens, .malwareRemoval,
-            .performance, .privacy, .applications, .healthMonitor,
+            .performance, .applications, .healthMonitor,
         ]
         for section in darkSections {
             let accent = section.theme.accent

@@ -28,7 +28,6 @@ final class ScanDiscWindowController {
     @ObservationIgnored let spaceLensViewModel: DiskScannerViewModel
     @ObservationIgnored let performanceViewModel: PerformanceViewModel
     @ObservationIgnored let protectionViewModel: ProtectionDashboardViewModel
-    @ObservationIgnored let privacyViewModel: PrivacyViewModel
     @ObservationIgnored let applicationsViewModel: ApplicationsViewModel
 
     /// Diameter of the disc itself — the single shared constant the disc, this
@@ -56,7 +55,6 @@ final class ScanDiscWindowController {
         spaceLensViewModel: DiskScannerViewModel,
         performanceViewModel: PerformanceViewModel,
         protectionViewModel: ProtectionDashboardViewModel,
-        privacyViewModel: PrivacyViewModel,
         applicationsViewModel: ApplicationsViewModel
     ) {
         self.smartScanViewModel = smartScanViewModel
@@ -65,7 +63,6 @@ final class ScanDiscWindowController {
         self.spaceLensViewModel = spaceLensViewModel
         self.performanceViewModel = performanceViewModel
         self.protectionViewModel = protectionViewModel
-        self.privacyViewModel = privacyViewModel
         self.applicationsViewModel = applicationsViewModel
     }
 

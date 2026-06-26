@@ -25,8 +25,8 @@ struct ProtectionDashboardView: View {
     @State private var pendingPrivacyRemoval: PrivacyRemoval?
     @State private var removedPrivacyTiles: Set<String> = []
 
-    /// Browser icons + resolved bundle URLs for the manager's rows, loaded the
-    /// same way `PrivacyView` does.
+    /// Browser icons + resolved bundle URLs for the manager's rows, warmed
+    /// through the shared `AppIconCache`.
     @State private var iconCache = AppIconCache()
     @State private var browserBundleURLs: [Browser: URL] = [:]
 
@@ -55,7 +55,7 @@ struct ProtectionDashboardView: View {
             if privacy.phase == .idle { privacy.beginScan() }
         }
         // Resolve each detected browser's bundle URL + warm the icon cache for
-        // the manager's rows, the same way PrivacyView does.
+        // the manager's rows.
         .task(id: privacy.detectedBrowsers) { await loadBrowserIcons() }
     }
 

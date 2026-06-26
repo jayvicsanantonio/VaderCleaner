@@ -84,7 +84,6 @@
 		3759AFDF2D0E46B1B1921F42 /* RAMManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78BB283D2312DE0FFBF3C04D /* RAMManagerTests.swift */; };
 		37E2425A63454881A4FA4481 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13A5713F5928025F9FE34A43 /* main.swift */; };
 		381B0722743E849AE519579F /* AppUpdaterViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42925F5D185AFC988AD68E43 /* AppUpdaterViewModelTests.swift */; };
-		382B47D59D79102AC6DFDEC0 /* PrivacyUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3913693728FE2B649B6A308F /* PrivacyUITests.swift */; };
 		390C48318F77FFB4378A7CBF /* MalwareViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9A2FDFC86DCAD4AF412E6E /* MalwareViewSubviews.swift */; };
 		3953A87FF8EF36CDB485809F /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5EE2C8752F5E1308B4FDF0 /* AppStateTests.swift */; };
 		3953FD2FDE6C5D300EE97BED /* SystemJunkDashboardSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2605C9D00F82838A6A9D11A3 /* SystemJunkDashboardSubviews.swift */; };
@@ -138,7 +137,6 @@
 		57C68CCCE577CE52AC3F0DE2 /* LanguageFileLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE0B536A27CFB7B30895829 /* LanguageFileLocatorTests.swift */; };
 		5B37ECDBF03FBACFBE099816 /* MenuRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */; };
 		5B5767BC82C24D92B50032FE /* MalwareOnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E177C5757BB8E0E39F5A0DE1 /* MalwareOnboardingViewModel.swift */; };
-		5C240506F97A777E37CA25B2 /* PrivacyViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67388E0F949FBDE5ECC7A8E6 /* PrivacyViewSubviews.swift */; };
 		5CA2A4BED5346B2FD4ADE096 /* MachOHeaderReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E49583606C1454E9F0AF2C /* MachOHeaderReaderTests.swift */; };
 		5D4E73D91B421D5814972B09 /* AppVendor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ABAC3D4E20AD9AB7265338D /* AppVendor.swift */; };
 		5DF68FC234F70DA478496658 /* SystemStatsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B72F3BD5C48C77AE99F8D4E /* SystemStatsServiceTests.swift */; };
@@ -173,7 +171,6 @@
 		710F2D2D1D68AEDE1A9462CD /* MalwareViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A9C2E47C91B66B79030BE7 /* MalwareViewModelTests.swift */; };
 		725D1A78CA0593CC3E1267AB /* ClamAVOutputParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EA3955C85E769BBC3C895 /* ClamAVOutputParserTests.swift */; };
 		730791446114BB6991798518 /* FileIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6090134A72001DE6262436F3 /* FileIconCache.swift */; };
-		7402B73FF79A2F6838E71784 /* PrivacyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C751F5671E4A4657944A7DFC /* PrivacyView.swift */; };
 		7482CE5200C0E7C18DED2C63 /* SpaceLensPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3950DBE6E02BD50A6833C60E /* SpaceLensPalette.swift */; };
 		753D0372717545D89CC0A6C6 /* ConnectedDevicesMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 218E411D3045401D9A955CE7 /* ConnectedDevicesMonitor.swift */; };
 		75D6F67D3F8C742940CD9CD8 /* SpaceLensPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79D7BEEA4BEA21693232C5B1 /* SpaceLensPaletteTests.swift */; };
@@ -299,7 +296,6 @@
 		DD5F39D758411A6EF532AFCF /* DuplicateScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6905C9F8A3E8D66DF59D568F /* DuplicateScanner.swift */; };
 		DD92247860ECAD88096590A9 /* DefaultSystemPathProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC956EC0DA96B13BC471FE24 /* DefaultSystemPathProviderTests.swift */; };
 		DE57DC92B2179CB856E0D558 /* ScanProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3BFBAF09EA79BE34F2ABCF /* ScanProgressIndicator.swift */; };
-		DFEDB8DF51CD2BA1732D3897 /* PrivacyDashboardSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867EACDA1946DCE20BAD163A /* PrivacyDashboardSubviews.swift */; };
 		E0420FF267A637AD7F530407 /* ExtensionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B8D75FB7A02DE3D470F0C4 /* ExtensionDiscovery.swift */; };
 		E1C1836BF10F1ED0E0B23E95 /* ManagerItemTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963EE90AA293C3991962768D /* ManagerItemTable.swift */; };
 		E2B25912B9BA5745454E137F /* SystemJunkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0A3D2497CF28388945BB57 /* SystemJunkUITests.swift */; };
@@ -470,7 +466,6 @@
 		3796DD772CDFBB89B773ED8F /* ScanCoordinatingConformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinatingConformanceTests.swift; sourceTree = "<group>"; };
 		382745ACB652CA50CA393BD5 /* UnusedAppScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnusedAppScannerTests.swift; sourceTree = "<group>"; };
 		3901B166DF68C6F1333D5103 /* DatabaseUpdaterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseUpdaterTests.swift; sourceTree = "<group>"; };
-		3913693728FE2B649B6A308F /* PrivacyUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyUITests.swift; sourceTree = "<group>"; };
 		3950DBE6E02BD50A6833C60E /* SpaceLensPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensPalette.swift; sourceTree = "<group>"; };
 		3962EE8953C511312F780F55 /* SmartScanReviewHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanReviewHeader.swift; sourceTree = "<group>"; };
 		3A89B9E06E1B08BFF9C46D41 /* DiskScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskScannerTests.swift; sourceTree = "<group>"; };
@@ -533,7 +528,6 @@
 		63BB7206FA1E88D8D440C77B /* ExtensionsManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionsManagerViewModel.swift; sourceTree = "<group>"; };
 		65311CF9EE5FEA6F23FF3552 /* AppStoreUpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreUpdateChecker.swift; sourceTree = "<group>"; };
 		6734EE11A5B3607B3D58EEA0 /* FileScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileScannerTests.swift; sourceTree = "<group>"; };
-		67388E0F949FBDE5ECC7A8E6 /* PrivacyViewSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyViewSubviews.swift; sourceTree = "<group>"; };
 		673CA7922445475111927C0B /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		68B3B6F431DB972DC6427E55 /* AppUpdaterViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdaterViewModel.swift; sourceTree = "<group>"; };
 		6905C9F8A3E8D66DF59D568F /* DuplicateScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateScanner.swift; sourceTree = "<group>"; };
@@ -568,7 +562,6 @@
 		811E341D8E122FCF1C9CF68C /* HelperProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProtocolTests.swift; sourceTree = "<group>"; };
 		8277A67975EF073283C98450 /* LargeOldFilesScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeOldFilesScanner.swift; sourceTree = "<group>"; };
 		82FFEBA3FB7EB4DCAC300B14 /* LocalSnapshotCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSnapshotCounter.swift; sourceTree = "<group>"; };
-		867EACDA1946DCE20BAD163A /* PrivacyDashboardSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyDashboardSubviews.swift; sourceTree = "<group>"; };
 		869E8D8A460A998AA0E6B854 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		882E6C32BC5FC5028D921546 /* MalwareOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingView.swift; sourceTree = "<group>"; };
 		88A38D3CACCA30ED5C202225 /* FloatingScanOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingScanOverlay.swift; sourceTree = "<group>"; };
@@ -652,7 +645,6 @@
 		C5BE6E53E0A4ABB39A7B8B0C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C5FD7F60311101E723D73E11 /* ApplicationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationsUITests.swift; sourceTree = "<group>"; };
 		C6387590A274A5888D9BF28D /* SunburstLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunburstLayoutTests.swift; sourceTree = "<group>"; };
-		C751F5671E4A4657944A7DFC /* PrivacyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyView.swift; sourceTree = "<group>"; };
 		C7CD16572ECF164A186523BD /* ExclusionsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExclusionsStoreTests.swift; sourceTree = "<group>"; };
 		C8565FBD4555B1398F2752F8 /* CleanupManagerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupManagerModelTests.swift; sourceTree = "<group>"; };
 		C889492FDFBDFBFC410FF577 /* DuplicateScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateScannerTests.swift; sourceTree = "<group>"; };
@@ -770,7 +762,6 @@
 				E01C8CB7BE63B3851A6E8503 /* FinalPolishUITests.swift */,
 				A1B0ABA8AA490286024757B9 /* MalwareUITests.swift */,
 				1675ADBCF352BE496572E655 /* PerformanceUITests.swift */,
-				3913693728FE2B649B6A308F /* PrivacyUITests.swift */,
 				193D790F046085F3D309FF8C /* ScanningPreferencesUITests.swift */,
 				8B18E28D449EF4D5FB1D6E0B /* SmartScanUITests.swift */,
 				0FB23D6F3B48857BDEB6DF3A /* SpaceLensUITests.swift */,
@@ -900,11 +891,8 @@
 				E0A3E48892F238EEC77DA6E5 /* PreferencesStore.swift */,
 				5FD6A6FB847C87B47474C7A3 /* PreferencesView.swift */,
 				0A3BF28B70DA58E43E441AFF /* PrivacyCategory.swift */,
-				867EACDA1946DCE20BAD163A /* PrivacyDashboardSubviews.swift */,
 				072BF227B87C8D965EAD3204 /* PrivacyPermissionChecker.swift */,
-				C751F5671E4A4657944A7DFC /* PrivacyView.swift */,
 				90614D3C12BCADA72B736230 /* PrivacyViewModel.swift */,
-				67388E0F949FBDE5ECC7A8E6 /* PrivacyViewSubviews.swift */,
 				7174CD853A7D947268E17C33 /* ProcessLineStreamer.swift */,
 				4F4C43FBCF5B117B218E3A5F /* ProtectionDashboardSubviews.swift */,
 				D747E37C520E51FA10D0A08F /* ProtectionDashboardView.swift */,
@@ -1494,7 +1482,6 @@
 				1C8625B436085E36B99B5342 /* FinalPolishUITests.swift in Sources */,
 				82DB89EC1E0EAFD90FB6018D /* MalwareUITests.swift in Sources */,
 				CEBC297EB683F3AAE3EA841E /* PerformanceUITests.swift in Sources */,
-				382B47D59D79102AC6DFDEC0 /* PrivacyUITests.swift in Sources */,
 				0839BF8CC096B1771BFF313C /* ScanningPreferencesUITests.swift in Sources */,
 				2D5B0C45DB5F5EA679AF4131 /* SmartScanUITests.swift in Sources */,
 				26F0CFE53A3BAD72AFF2BB30 /* SpaceLensUITests.swift in Sources */,
@@ -1623,11 +1610,8 @@
 				FF87A6FAB563AF43345061BB /* PreferencesStore.swift in Sources */,
 				CF68F2891382E3F3D4CA5474 /* PreferencesView.swift in Sources */,
 				3A0AAEEE22026F9D96D875B2 /* PrivacyCategory.swift in Sources */,
-				DFEDB8DF51CD2BA1732D3897 /* PrivacyDashboardSubviews.swift in Sources */,
 				F0838C9B10FFB6AD75523D0A /* PrivacyPermissionChecker.swift in Sources */,
-				7402B73FF79A2F6838E71784 /* PrivacyView.swift in Sources */,
 				63E11AAE557DC8A87BE21374 /* PrivacyViewModel.swift in Sources */,
-				5C240506F97A777E37CA25B2 /* PrivacyViewSubviews.swift in Sources */,
 				196F1CEAC86015854C7772D7 /* ProcessLineStreamer.swift in Sources */,
 				516A5B2D445E5E62807A8E2A /* ProtectionDashboardSubviews.swift in Sources */,
 				00AB02C5DDD417AF1CED4DD9 /* ProtectionDashboardView.swift in Sources */,
