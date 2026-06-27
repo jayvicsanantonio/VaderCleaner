@@ -281,8 +281,72 @@ struct MyClutterManagerView: View {
 
     // MARK: - Right pane
 
+    private var rightPaneHeader: (title: String, description: String)? {
+        switch category {
+        case .largeOld:
+            switch largeOldFacet {
+            case .all:
+                return (
+                    String(localized: "All Files", comment: "Large & Old right pane title."),
+                    String(localized: "All large and old files detected on your Mac.", comment: "Large & Old right pane description.")
+                )
+            case .selected:
+                return (
+                    String(localized: "Selected", comment: "Large & Old right pane title."),
+                    String(localized: "Files you have marked for removal.", comment: "Large & Old right pane description.")
+                )
+            case .kind(let kind):
+                let desc: String
+                switch kind {
+                case .archives:
+                    desc = String(localized: "Compressed archives, disk images, and packages.", comment: "Archives right pane description.")
+                case .videos:
+                    desc = String(localized: "Video files taking up space on your Mac.", comment: "Videos right pane description.")
+                case .other:
+                    desc = String(localized: "Large or old files that are not videos or archives.", comment: "Other right pane description.")
+                }
+                return (kind.title, desc)
+            case .size(let bucket):
+                let desc: String
+                switch bucket {
+                case .huge:
+                    desc = String(localized: "Files larger than 5 GB.", comment: "Huge right pane description.")
+                case .average:
+                    desc = String(localized: "Files between 1 GB and 5 GB.", comment: "Average right pane description.")
+                case .small:
+                    desc = String(localized: "Files under 1 GB.", comment: "Small right pane description.")
+                }
+                return (bucket.title, desc)
+            }
+        case .duplicates:
+            let id = selectedGroupID ?? viewModel.duplicateGroups.first?.id
+            let title = viewModel.duplicateGroups.first(where: { $0.id == id })?.original.url.lastPathComponent
+                ?? String(localized: "Duplicates", comment: "Duplicates right pane fallback title.")
+            return (title, String(localized: "Identical copies stored in different places.", comment: "Duplicates right pane description."))
+        case .similar:
+            let id = selectedGroupID ?? viewModel.similarGroups.first?.id
+            let title = viewModel.similarGroups.first(where: { $0.id == id })?.original.url.lastPathComponent
+                ?? String(localized: "Similar Images", comment: "Similar right pane fallback title.")
+            return (title, String(localized: "Similar images you can compare — keep the best, remove the rest.", comment: "Similar right pane description."))
+        case .downloads:
+            let source = selectedBrowser ?? downloadCache.first?.source
+            let title = source ?? String(localized: "Downloads", comment: "Downloads right pane fallback title.")
+            return (title, String(localized: "Files downloaded from the web. Remove one-time downloads to save space.", comment: "Downloads right pane description."))
+        }
+    }
+
     @ViewBuilder
     private var rightPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let h = rightPaneHeader {
+                paneHeader(title: h.title, description: h.description)
+            }
+            rightPaneContent
+        }
+    }
+
+    @ViewBuilder
+    private var rightPaneContent: some View {
         switch category {
         case .largeOld:
             if isLoadingCache { loadingPane } else { fileList(display(largeOldBase)) }
