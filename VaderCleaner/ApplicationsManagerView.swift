@@ -403,6 +403,71 @@ struct ApplicationsManagerView: View {
 
     // MARK: - Right pane
 
+    private var uninstallerRightPaneTitle: String {
+        switch uninstallerFacet {
+        case .all:              return String(localized: "All Applications", comment: "Uninstaller right pane title.")
+        case .unused:           return String(localized: "Unused", comment: "Uninstaller right pane title.")
+        case .suspicious:       return String(localized: "Suspicious", comment: "Uninstaller right pane title.")
+        case .selected:         return String(localized: "Selected", comment: "Uninstaller right pane title.")
+        case .store(true):      return String(localized: "App Store", comment: "Uninstaller right pane title.")
+        case .store(false):     return String(localized: "Other", comment: "Uninstaller right pane title.")
+        case .vendor(let v):    return v.title
+        }
+    }
+
+    private var uninstallerRightPaneDescription: String {
+        switch uninstallerFacet {
+        case .all:              return String(localized: "Every app installed on this Mac.", comment: "Uninstaller right pane description.")
+        case .unused:           return String(localized: "Apps you haven't opened recently.", comment: "Uninstaller right pane description.")
+        case .suspicious:       return String(localized: "Apps flagged as potentially unwanted.", comment: "Uninstaller right pane description.")
+        case .selected:         return String(localized: "Apps you've marked for removal.", comment: "Uninstaller right pane description.")
+        case .store(true):      return String(localized: "Apps installed from the Mac App Store.", comment: "Uninstaller right pane description.")
+        case .store(false):     return String(localized: "Apps installed outside the Mac App Store.", comment: "Uninstaller right pane description.")
+        case .vendor(let v):    return String(localized: "Apps from \(v.title).", comment: "Uninstaller right pane description for a vendor.")
+        }
+    }
+
+    private var updaterRightPaneTitle: String {
+        switch updaterFacet {
+        case .all:              return String(localized: "All Updates", comment: "Updater right pane title.")
+        case .selected:         return String(localized: "Selected", comment: "Updater right pane title.")
+        case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
+        case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
+        }
+    }
+
+    private var updaterRightPaneDescription: String {
+        switch updaterFacet {
+        case .all:              return String(localized: "Apps with new versions available.", comment: "Updater right pane description.")
+        case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
+        case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
+        case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
+        }
+    }
+
+    private var extensionsRightPaneTitle: String {
+        switch extensionsFacet {
+        case .all:              return String(localized: "All Extensions", comment: "Extensions right pane title.")
+        case .selected:         return String(localized: "Selected", comment: "Extensions right pane title.")
+        case .type(let t):      return localizedExtensionType(t)
+        }
+    }
+
+    private var extensionsRightPaneDescription: String {
+        switch extensionsFacet {
+        case .all:              return String(localized: "Every extension and plug-in installed on this Mac.", comment: "Extensions right pane description.")
+        case .selected:         return String(localized: "Extensions you've chosen to remove.", comment: "Extensions right pane description.")
+        case .type(let t):
+            switch t {
+            case .safariExtension:  return String(localized: "Extensions installed in Safari.", comment: "Safari extensions right pane description.")
+            case .chromeExtension:  return String(localized: "Extensions installed in Google Chrome.", comment: "Chrome extensions right pane description.")
+            case .firefoxExtension: return String(localized: "Extensions installed in Firefox.", comment: "Firefox extensions right pane description.")
+            case .mailPlugin:       return String(localized: "Plug-ins installed in the Mail app.", comment: "Mail plugins right pane description.")
+            case .internetPlugin:   return String(localized: "Legacy plug-ins used by web browsers.", comment: "Browser plug-ins right pane description.")
+            }
+        }
+    }
+
     @ViewBuilder
     private var rightPane: some View {
         switch pane {
@@ -412,12 +477,21 @@ struct ApplicationsManagerView: View {
             } else if uninstallerViewModel.apps.isEmpty, uninstallerViewModel.phase == .loading {
                 loadingPane
             } else {
-                uninstallerList
+                VStack(alignment: .leading, spacing: 0) {
+                    paneHeader(title: uninstallerRightPaneTitle, description: uninstallerRightPaneDescription)
+                    uninstallerList
+                }
             }
         case .updater:
-            updaterPane
+            VStack(alignment: .leading, spacing: 0) {
+                paneHeader(title: updaterRightPaneTitle, description: updaterRightPaneDescription)
+                updaterPane
+            }
         case .extensions:
-            extensionsPane
+            VStack(alignment: .leading, spacing: 0) {
+                paneHeader(title: extensionsRightPaneTitle, description: extensionsRightPaneDescription)
+                extensionsPane
+            }
         case .leftovers:
             leftoverList
         }
