@@ -123,18 +123,9 @@ struct ProtectionDashboardView: View {
         MalwareProgressState(
             label: String(localized: "Looking for threats…",
                           comment: "Protection loading-screen label while scans run."),
-            detail: malwareProgressLine,
             identifier: "protection.loading",
-            countDetail: ScanProgressFormatting.filesScanned(malware.scannedItemCount),
-            phrases: ScanPhrases.scanning(for: .malwareRemoval),
-            onCancel: { viewModel.startOver() }
+            phrases: ScanPhrases.scanning(for: .malwareRemoval)
         )
-    }
-
-    /// The current clamscan progress line, if the malware scan is streaming.
-    private var malwareProgressLine: String? {
-        if case .scanning(let progress) = malware.phase { return progress }
-        return nil
     }
 
     /// Resolves each detected browser's `.app` bundle URL via Launch Services
