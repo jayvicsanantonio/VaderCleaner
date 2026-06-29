@@ -269,6 +269,14 @@ struct SectionIntroView: View {
                     .padding(.top, 4)
             }
 
+            // Space Lens scans a whole volume; its intro carries a volume
+            // selector so the user can map any mounted drive, not just the boot
+            // volume.
+            if section == .spaceLens {
+                SpaceLensVolumePicker(accent: presentation.accent)
+                    .padding(.top, 4)
+            }
+
             // Protection exposes its scan options and mode in Settings; the
             // Configure Scan button routes there directly.
             if section == .malwareRemoval {

@@ -51,8 +51,13 @@ struct SpaceLensBubbleView: View {
                 case .active(let location):
                     let id = circles.first { hit($0, location) }?.id
                     if hoveredID != id { hoveredID = id }
+                    // Mirror the hover into the shared highlight so the matching
+                    // list row lights up too.
+                    let nodeID = id.flatMap { itemsByID[$0]?.node?.id }
+                    if viewModel.highlightedNodeID != nodeID { viewModel.highlightedNodeID = nodeID }
                 case .ended:
                     if hoveredID != nil { hoveredID = nil }
+                    if viewModel.highlightedNodeID != nil { viewModel.highlightedNodeID = nil }
                 }
             }
             .overlay { hoverCard(circles: circles, itemsByID: itemsByID, bounds: geometry.size) }
@@ -72,6 +77,8 @@ struct SpaceLensBubbleView: View {
     @ViewBuilder
     private func bubble(item: SpaceLensDisplayItem, circle: PackedCircle<AnyHashable>) -> some View {
         let isHovered = hoveredID == circle.id
+        // Focus highlight from either the bubble or its list row.
+        let isHighlighted = item.node.map { viewModel.highlightedNodeID == $0.id } ?? false
         let isSelected = item.node.map { viewModel.selection.isSelected($0) } ?? false
         let isSelectable = item.node.map { !SpaceLensProtection.isProtected(url: $0.url, isDirectory: $0.isDirectory) } ?? false
         // A checkbox appears on hover (or when already selected) for selectable
@@ -88,17 +95,17 @@ struct SpaceLensBubbleView: View {
 
         ZStack {
             Circle()
-                .fill(bubbleFill(isSelected: isSelected, isHovered: isHovered, radius: circle.radius))
+                .fill(bubbleFill(isSelected: isSelected, isHovered: isHighlighted, radius: circle.radius))
                 .overlay(
                     Circle().strokeBorder(
                         isSelected ? Self.accent.opacity(0.85)
-                            : Color.white.opacity(isHovered ? 0.7 : 0.28),
-                        lineWidth: isSelected ? 2 : (isHovered ? 2 : 1)
+                            : (isHighlighted ? Self.accent.opacity(0.9) : Color.white.opacity(0.28)),
+                        lineWidth: (isSelected || isHighlighted) ? 2 : 1
                     )
                 )
                 .shadow(color: isSelected ? Self.accent.opacity(0.5)
-                            : (isHovered ? Color.white.opacity(0.22) : .clear),
-                        radius: isSelected ? 22 : (isHovered ? 14 : 0))
+                            : (isHighlighted ? Self.accent.opacity(0.45) : .clear),
+                        radius: isSelected ? 22 : (isHighlighted ? 16 : 0))
 
             VStack(spacing: 6) {
                 bubbleIcon(item: item, size: iconSize)

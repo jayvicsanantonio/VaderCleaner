@@ -154,17 +154,21 @@ struct SectionPresentation {
                 accent: section.theme.accent,
                 heroTitle: nil,
                 tagline: String(
-                    localized: "See what's using your storage with an interactive map.",
+                    localized: "Visualize what's taking up the most disk space and clean up your storage quickly.",
                     comment: "Space Lens intro tagline."
                 ),
                 features: [
                     SectionFeature(
-                        symbol: "chart.pie",
-                        title: String(localized: "Disk Usage Map", comment: "Space Lens feature row.")
+                        symbol: "map",
+                        title: String(localized: "Visual Storage Map", comment: "Space Lens feature row.")
+                    ),
+                    SectionFeature(
+                        symbol: "doc.text.magnifyingglass",
+                        title: String(localized: "Hidden Files Uncovered", comment: "Space Lens feature row.")
                     ),
                     SectionFeature(
                         symbol: "folder",
-                        title: String(localized: "Drill Into Folders", comment: "Space Lens feature row.")
+                        title: String(localized: "Large Folders Overview", comment: "Space Lens feature row.")
                     ),
                 ]
             )

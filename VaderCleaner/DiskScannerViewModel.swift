@@ -78,6 +78,18 @@ final class DiskScannerViewModel {
     /// Whether the "Review files before removal" sheet is showing.
     var reviewActive = false
 
+    /// The item the pointer is currently over, shared by the list and the
+    /// bubble chart so hovering a row rings its bubble and vice versa. This is
+    /// the focus highlight — distinct from `selection`, which marks items for
+    /// removal.
+    var highlightedNodeID: DiskNode.ID?
+
+    /// The volume the next scan walks, chosen in the intro's volume picker.
+    /// Defaults to the boot volume so Space Lens opens at "Macintosh HD" the way
+    /// a disk-usage map is expected to read; `beginScan()` reads this as the
+    /// scan root and the footer gauge reports this volume's capacity.
+    var selectedVolumeURL: URL = DiskScannerViewModel.volumeRootURL
+
     var canGoBack: Bool { !navigationPath.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
 
@@ -219,7 +231,7 @@ final class DiskScannerViewModel {
         selection.deselect(targets.filter { movedIDs.contains($0.id) })
         forwardStack.removeAll()
         phase = .ready(prunedRoot)
-        volumeUsage = volumeUsageProvider()
+        volumeUsage = volumeUsageProvider(selectedVolumeURL)
         reviewActive = false
     }
 
@@ -281,7 +293,7 @@ final class DiskScannerViewModel {
 
     @ObservationIgnored private let scanner: Scanner
     @ObservationIgnored private let trash: TrashSink
-    @ObservationIgnored private let volumeUsageProvider: () -> SpaceLensVolumeUsage
+    @ObservationIgnored private let volumeUsageProvider: (URL) -> SpaceLensVolumeUsage
     @ObservationIgnored private let log = Logger(
         subsystem: "com.personal.VaderCleaner",
         category: "DiskScannerViewModel"
@@ -290,7 +302,7 @@ final class DiskScannerViewModel {
     init(
         scanner: @escaping Scanner,
         trash: @escaping TrashSink = DiskScannerViewModel.recycle,
-        volumeUsageProvider: @escaping () -> SpaceLensVolumeUsage = SpaceLensVolumeUsage.current
+        volumeUsageProvider: @escaping (URL) -> SpaceLensVolumeUsage = SpaceLensVolumeUsage.current
     ) {
         self.scanner = scanner
         self.trash = trash
@@ -425,7 +437,7 @@ final class DiskScannerViewModel {
                 guard self.scanGeneration == myGeneration else { return }
                 self.selection.clear()
                 self.phase = .ready(node)
-                self.volumeUsage = self.volumeUsageProvider()
+                self.volumeUsage = self.volumeUsageProvider(root)
             } catch is CancellationError {
                 // A cancellation is a clean dismissal — the user (or a
                 // fresh scan) chose to stop the in-flight walk.
@@ -522,12 +534,12 @@ extension DiskScannerViewModel: ScanCoordinating {
     }
 
     func beginScan() {
-        // Space Lens scans the whole boot volume so the explorer starts at
-        // "Macintosh HD" and the breadcrumb matches the volume tree, the way
-        // a disk-usage map is expected to read.
-        Task { await startScan(root: Self.volumeRootURL) }
+        // Space Lens scans the volume chosen in the intro picker (the boot
+        // volume by default), so the explorer starts at that volume's root and
+        // the breadcrumb matches its tree, the way a disk-usage map reads.
+        Task { await startScan(root: selectedVolumeURL) }
     }
 
-    /// The boot volume's mount point — the Space Lens scan root.
+    /// The boot volume's mount point — the default Space Lens scan root.
     static let volumeRootURL = URL(fileURLWithPath: "/")
 }
