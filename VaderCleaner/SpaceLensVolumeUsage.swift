@@ -51,16 +51,15 @@ struct SpaceLensVolumeUsage: Equatable {
         return formatter
     }()
 
-    /// Reads the live boot-volume capacity. Mirrors
-    /// `SystemStatsService.readDiskStats` — `/` is the boot volume on every
-    /// macOS configuration we support. Falls back to zeroes (an empty gauge)
-    /// rather than throwing when the attributes can't be read.
-    static func current() -> SpaceLensVolumeUsage {
-        let root = URL(fileURLWithPath: "/")
-        let name = (try? root.resourceValues(forKeys: [.volumeNameKey]))?.volumeName
-            ?? "Macintosh HD"
+    /// Reads the live capacity of the volume mounted at `volumeURL` (the boot
+    /// volume `/` by default). Mirrors `SystemStatsService.readDiskStats`. Falls
+    /// back to zeroes (an empty gauge) rather than throwing when the attributes
+    /// can't be read.
+    static func current(for volumeURL: URL = URL(fileURLWithPath: "/")) -> SpaceLensVolumeUsage {
+        let resolvedName = (try? volumeURL.resourceValues(forKeys: [.volumeNameKey]))?.volumeName
+        let name = resolvedName ?? (volumeURL.path == "/" ? "Macintosh HD" : volumeURL.lastPathComponent)
 
-        guard let attrs = try? FileManager.default.attributesOfFileSystem(forPath: "/") else {
+        guard let attrs = try? FileManager.default.attributesOfFileSystem(forPath: volumeURL.path) else {
             return SpaceLensVolumeUsage(volumeName: name, usedBytes: 0, totalBytes: 0)
         }
         let total = (attrs[.systemSize] as? NSNumber)?.int64Value ?? 0

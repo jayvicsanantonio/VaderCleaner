@@ -37,6 +37,34 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .ready(synthetic))
     }
 
+    /// `beginScan()` must walk the volume chosen in the intro picker, not a
+    /// hardcoded boot volume — so changing `selectedVolumeURL` changes the
+    /// scan root the scanner receives.
+    func test_beginScan_usesSelectedVolumeAsScanRoot() async {
+        let recorder = RootRecorder()
+        let node = DiskNode(
+            url: URL(fileURLWithPath: "/Volumes/External"),
+            name: "External", size: 0, isDirectory: true, children: []
+        )
+        let vm = DiskScannerViewModel(
+            scanner: { root, _ in await recorder.record(root); return node },
+            volumeUsageProvider: { _ in SpaceLensVolumeUsage(volumeName: "External", usedBytes: 0, totalBytes: 0) }
+        )
+
+        vm.selectedVolumeURL = URL(fileURLWithPath: "/Volumes/External")
+        vm.beginScan()
+
+        // beginScan() kicks off an internal Task; let it run to the scanner.
+        var recorded: URL?
+        for _ in 0..<200 {
+            recorded = await recorder.value
+            if recorded != nil { break }
+            await Task.yield()
+        }
+
+        XCTAssertEqual(recorded?.path, "/Volumes/External")
+    }
+
     // MARK: - Failure path
 
     /// An error thrown by the injected scanner must surface as `.error`
@@ -386,7 +414,7 @@ final class DiskScannerViewModelTests: XCTestCase {
         let vm = DiskScannerViewModel(
             scanner: { _, _ in root },
             trash: { urls in await trashed.record(urls); return Set(urls) },
-            volumeUsageProvider: { SpaceLensVolumeUsage(volumeName: "T", usedBytes: 1, totalBytes: 10) }
+            volumeUsageProvider: { _ in SpaceLensVolumeUsage(volumeName: "T", usedBytes: 1, totalBytes: 10) }
         )
         await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
         vm.selection.toggle(drop)
@@ -425,6 +453,13 @@ final class DiskScannerViewModelTests: XCTestCase {
     private actor Trashed {
         private(set) var urls: [URL] = []
         func record(_ newURLs: [URL]) { urls.append(contentsOf: newURLs) }
+    }
+
+    /// Captures the root URL the injected scanner is invoked with, so a test
+    /// can assert which volume `beginScan()` walked.
+    private actor RootRecorder {
+        private(set) var value: URL?
+        func record(_ url: URL) { if value == nil { value = url } }
     }
 
     /// Clicking a breadcrumb crumb truncates the path so the named node

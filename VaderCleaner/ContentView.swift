@@ -381,6 +381,8 @@ struct ContentView: View {
             ScannableSectionContent(coordinator: spaceLensViewModel, section: section) {
                 SpaceLensView(viewModel: spaceLensViewModel)
             }
+            // The intro's volume picker reads the scan root from the view model.
+            .environment(spaceLensViewModel)
         case .applications:
             ScannableSectionContent(coordinator: applicationsViewModel, section: section) {
                 ApplicationsView(

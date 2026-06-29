@@ -101,24 +101,45 @@ struct SpaceLensView: View {
         // selection, which are local to the subviews.
         let items = SpaceLensChildren.displayed(for: current)
         return ZStack {
-            VStack(spacing: 0) {
-                startOverBar
-                breadcrumbBar(current: current)
-                HStack(spacing: 20) {
-                    SpaceLensListPanel(viewModel: viewModel, node: current, items: items, iconCache: iconCache)
-                        .frame(width: 360)
-                    bubbleArea(current: current, items: items)
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
-                .padding(.bottom, 8)
-                SpaceLensBottomBar(viewModel: viewModel)
-            }
+            // The explorer and the review overlay swap with the same
+            // slide-and-fade the left-nav sections use: opening Review sends
+            // the explorer up and out through the top, then the review window
+            // follows up from the bottom into place, so the explorer is never
+            // left sitting behind the window. Closing reverses through the
+            // same upward motion.
             if viewModel.reviewActive {
                 reviewOverlay(root: root)
+                    .transition(.spaceLensReview)
+            } else {
+                explorer(current: current, items: items)
+                    .transition(.spaceLensReview)
             }
         }
+        // Span the full sequential transition (exit + entry delay + entry
+        // ≈ 1.1s) so the delayed insertion isn't cancelled and snapped into
+        // place — matching the detail pane's section transaction.
+        .animation(.smooth(duration: 1.2), value: viewModel.reviewActive)
         .task(id: current.id) { await preloadIcons(items: items, current: current) }
+    }
+
+    /// The explorer screen: breadcrumb bar, the left list beside the bubble
+    /// chart, and the bottom volume/selection bar. Slides up and out when the
+    /// review overlay takes over.
+    private func explorer(current: DiskNode, items: [SpaceLensDisplayItem]) -> some View {
+        VStack(spacing: 0) {
+            startOverBar
+            breadcrumbBar(current: current)
+            HStack(spacing: 20) {
+                SpaceLensListPanel(viewModel: viewModel, node: current, items: items, iconCache: iconCache)
+                    .frame(width: 360)
+                bubbleArea(current: current, items: items)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
+            SpaceLensBottomBar(viewModel: viewModel)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Pre-load the real icons for the current folder, its displayed children,
@@ -171,12 +192,16 @@ struct SpaceLensView: View {
 
     private func reviewOverlay(root: DiskNode) -> some View {
         ZStack {
-            Color.black.opacity(0.45)
+            // The explorer is swapped out beneath, so the window sits on the
+            // section backdrop with nothing behind it. A near-transparent
+            // catcher keeps the tap-outside-to-dismiss affordance without
+            // dimming the backdrop.
+            Color.black.opacity(0.001)
                 .ignoresSafeArea()
                 .onTapGesture { viewModel.reviewActive = false }
             SpaceLensReviewSheet(viewModel: viewModel, root: root, iconCache: iconCache)
         }
-        .transition(.opacity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Breadcrumb bar
@@ -263,6 +288,26 @@ struct SpaceLensView: View {
     }
 }
 
+private extension AnyTransition {
+    /// Slide-and-fade swap between the explorer and the review window, matching
+    /// the detail pane's upward section transition: the outgoing screen exits
+    /// through the top while the incoming screen follows up from the bottom.
+    /// The two halves run sequentially — the insertion is delayed until the
+    /// removal has cleared — so only one screen is on the way through at a time.
+    static var spaceLensReview: AnyTransition {
+        let exitDuration: Double = 0.55
+        let entryDuration: Double = 0.55
+        return .asymmetric(
+            insertion: .move(edge: .bottom)
+                .combined(with: .opacity)
+                .animation(.smooth(duration: entryDuration).delay(exitDuration)),
+            removal: .move(edge: .top)
+                .combined(with: .opacity)
+                .animation(.smooth(duration: exitDuration))
+        )
+    }
+}
+
 #Preview("Ready") {
     let child = DiskNode(url: URL(fileURLWithPath: "/Users/me/Movies"), name: "Movies",
                          size: 257_000_000_000, isDirectory: true, children: [], itemCount: 1200)
@@ -272,7 +317,7 @@ struct SpaceLensView: View {
                         size: 367_000_000_000, isDirectory: true, children: [child, docs], itemCount: 2000)
     let vm = DiskScannerViewModel(
         scanner: { _, _ in root },
-        volumeUsageProvider: { SpaceLensVolumeUsage(volumeName: "Macintosh HD", usedBytes: 1_300_000_000_000, totalBytes: 2_000_000_000_000) }
+        volumeUsageProvider: { _ in SpaceLensVolumeUsage(volumeName: "Macintosh HD", usedBytes: 1_300_000_000_000, totalBytes: 2_000_000_000_000) }
     )
     return SpaceLensView(viewModel: vm)
         .frame(width: 1000, height: 640)
