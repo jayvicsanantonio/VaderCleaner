@@ -276,14 +276,20 @@ final class MenuBarViewModel {
         }
     }
 
+    /// Allocated once: `RelativeDateTimeFormatter` carries per-instance state, so
+    /// reusing one avoids rebuilding it on each Protection-card refresh.
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
     /// "Last scan 3 days ago" / "No scans yet" detail for the Protection card.
     static func lastScanString(_ date: Date?) -> String {
         guard let date else {
             return String(localized: "No scans yet", comment: "Protection card detail when no scan has run.")
         }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        let relative = formatter.localizedString(for: date, relativeTo: Date())
+        let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
         let format = String(localized: "Last scan %@", comment: "Protection card detail; %@ is a relative date.")
         return String(format: format, relative)
     }

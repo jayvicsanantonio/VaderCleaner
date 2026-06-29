@@ -25,31 +25,11 @@ struct ApplicationsManagerView: View {
         case leftovers
     }
 
-    /// Which sub-list the Leftovers pane shows in its right column.
-    private enum LeftoverSection: Hashable {
-        case installers
-        case leftoverFiles
-    }
-
     /// The reference Manager uses a magenta accent on a white surface, the same
     /// one the My Clutter / Cleanup Managers adopt — independent of the
     /// Applications section's own hue.
-    private static let accent = ManagerChrome.accent
-    private static let selectionFill = Color(red: 0.45, green: 0.30, blue: 0.85).opacity(0.14)
-
-    /// Middle-pane facet for the Updater pane.
-    private enum UpdaterFacet: Hashable {
-        case all
-        case selected
-        case store(isAppStore: Bool)
-    }
-
-    /// Middle-pane facet for the Extensions pane.
-    private enum ExtensionsFacet: Hashable {
-        case all
-        case selected
-        case type(ExtensionType)
-    }
+    private static let accent = ApplicationsManagerChrome.accent
+    private static let selectionFill = ApplicationsManagerChrome.selectionFill
 
     @State private var pane: Pane
     @State private var search = ""
@@ -70,15 +50,18 @@ struct ApplicationsManagerView: View {
     @State private var inspectingAppID: AppInfo.ID?
     /// Confirmation for the footer's batch uninstall (the checkbox selection).
     @State private var showUninstallConfirmation = false
-    /// Confirmation for the single app open in the chevron detail.
-    @State private var showSingleUninstallConfirmation = false
 
-    // Off-main metrics for the uninstaller list: per-app size and last-opened
-    // date. Rebuilt when the app list changes — the size walk is the expensive
-    // pass discovery deliberately skips, so it runs detached, like
-    // `MyClutterManagerView.rebuildCaches()`.
-    @State private var sizes: [AppInfo.ID: Int64] = [:]
-    @State private var lastOpened: [AppInfo.ID: Date] = [:]
+    // The filtered, sorted uninstaller list, memoized so a checkbox toggle
+    // re-renders the rows without re-running the O(n log n) filter + sort over
+    // every app. Recomputed only when an input that actually changes the list
+    // changes — facet, search, sort, the app roster, the measured metrics, and
+    // (only under the Selected facet) the selection.
+    @State private var displayedApps: [AppInfo] = []
+    // The Updater and Extensions lists, memoized for the same reason: their
+    // filter (and the Extensions sort) ran on every render, so toggling a row's
+    // checkbox re-filtered the whole list. Recomputed only on their real inputs.
+    @State private var displayedUpdates: [UpdateInfo] = []
+    @State private var displayedExtensions: [ExtensionItem] = []
 
     init(
         viewModel: ApplicationsViewModel,
@@ -107,9 +90,7 @@ struct ApplicationsManagerView: View {
             HStack(spacing: 0) {
                 navigationPane.frame(width: 220)
                 Divider().opacity(0.4)
-                middlePane.frame(width: 320)
-                Divider().opacity(0.4)
-                rightPane.frame(maxWidth: .infinity)
+                paneContent
             }
             Divider().opacity(0.4)
             footer
@@ -133,7 +114,7 @@ struct ApplicationsManagerView: View {
         .task {
             if extensionsManagerViewModel.phase == .idle { await extensionsManagerViewModel.refresh() }
         }
-        .task(id: uninstallerViewModel.apps.map(\.id)) { await rebuildMetrics() }
+        .task(id: uninstallerViewModel.apps.map(\.id)) { await uninstallerViewModel.loadListMetrics() }
         .alert(uninstallConfirmationTitle, isPresented: $showUninstallConfirmation) {
             Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
             Button(String(localized: "Uninstall", comment: "Confirm batch uninstall."), role: .destructive) {
@@ -141,14 +122,6 @@ struct ApplicationsManagerView: View {
             }
         } message: {
             Text(uninstallConfirmationMessage)
-        }
-        .alert(singleUninstallConfirmationTitle, isPresented: $showSingleUninstallConfirmation) {
-            Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
-            Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive) {
-                Task { await uninstallerViewModel.uninstall() }
-            }
-        } message: {
-            Text(singleUninstallConfirmationMessage)
         }
     }
 
@@ -221,615 +194,48 @@ struct ApplicationsManagerView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    // MARK: - Middle pane
+    // MARK: - Pane content
 
+    /// The center of the manager: the active pane's facet column and right pane.
+    /// Each pane is its own subview, so a checkbox toggle re-renders only that
+    /// pane rather than the whole manager.
     @ViewBuilder
-    private var middlePane: some View {
+    private var paneContent: some View {
         switch pane {
         case .uninstaller:
-            VStack(alignment: .leading, spacing: 0) {
-                paneHeader(
-                    title: String(localized: "Uninstaller", comment: "Uninstaller pane title."),
-                    description: String(localized: "Correctly remove entire applications with all of the related files.", comment: "Uninstaller pane description.")
-                )
-                ScrollView { uninstallerFacets.padding(8) }
-            }
-        case .leftovers:
-            VStack(alignment: .leading, spacing: 0) {
-                paneHeader(
-                    title: String(localized: "Leftovers", comment: "Leftovers pane title."),
-                    description: String(localized: "If you manually remove an application file, all of its related items remain on your system. VaderCleaner locates and removes these leftovers even if the main app is already gone.", comment: "Leftovers pane description.")
-                )
-                ScrollView { leftoverSections.padding(8) }
-            }
+            UninstallerPaneView(
+                uninstallerViewModel: uninstallerViewModel,
+                result: result,
+                iconCache: iconCache,
+                search: search,
+                sort: sort,
+                facet: $uninstallerFacet,
+                inspectingAppID: $inspectingAppID,
+                displayedApps: $displayedApps
+            )
         case .updater:
-            VStack(alignment: .leading, spacing: 0) {
-                paneHeader(
-                    title: String(localized: "Updater", comment: "Updater pane title."),
-                    description: String(localized: "Keep your apps current with the latest fixes and features.", comment: "Updater pane description.")
-                )
-                ScrollView { updaterFacets.padding(8) }
-            }
+            UpdaterPaneView(
+                updaterViewModel: updaterViewModel,
+                iconCache: iconCache,
+                search: search,
+                facet: $updaterFacet,
+                selection: $updateSelection,
+                displayed: $displayedUpdates
+            )
         case .extensions:
-            VStack(alignment: .leading, spacing: 0) {
-                paneHeader(
-                    title: String(localized: "Extensions", comment: "Extensions pane title."),
-                    description: String(localized: "Manage the add-ons and plug-ins installed into your browsers and apps.", comment: "Extensions pane description.")
-                )
-                ScrollView { extensionsFacets.padding(8) }
-            }
-        }
-    }
-
-    private var uninstallerFacets: some View {
-        let apps = uninstallerViewModel.apps
-        let stores = ApplicationsManagerModel.storeCounts(apps: apps)
-        let vendors = ApplicationsManagerModel.vendorCounts(apps: apps)
-        return VStack(spacing: 4) {
-            facetRow(.all, String(localized: "All Applications", comment: "Uninstaller facet."), apps.count)
-            facetRow(.unused, String(localized: "Unused", comment: "Uninstaller facet."), unusedIDs.count)
-            facetRow(.suspicious, String(localized: "Suspicious", comment: "Uninstaller facet."), 0)
-            facetRow(.selected, String(localized: "Selected", comment: "Uninstaller facet."), uninstallerViewModel.uninstallSelection.count)
-
-            facetSectionHeader(String(localized: "Stores", comment: "Uninstaller facet group header."))
-            facetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Uninstaller store facet."), stores.appStore)
-            facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Uninstaller store facet."), stores.other)
-
-            if !vendors.isEmpty {
-                facetSectionHeader(String(localized: "Vendors", comment: "Uninstaller facet group header."))
-                ForEach(vendors, id: \.vendor) { entry in
-                    facetRow(.vendor(entry.vendor), entry.vendor.title, entry.count)
-                }
-            }
-        }
-    }
-
-    private func facetRow(_ facet: AppManagerFacet, _ label: String, _ count: Int) -> some View {
-        selectableRow(selected: uninstallerFacet == facet) {
-            uninstallerFacet = facet
-            inspectingAppID = nil
-        } content: {
-            HStack {
-                Text(label).font(.body.weight(.medium))
-                Spacer()
-                Text("\(count)").font(.callout).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var leftoverSections: some View {
-        VStack(spacing: 4) {
-            leftoverRow(.installers,
-                        Image("installerDmg"),
-                        String(localized: "Installers", comment: "Leftovers section."),
-                        result.installationFilesTotalBytes)
-            leftoverRow(.leftoverFiles,
-                        Image(systemName: "puzzlepiece.extension.fill"),
-                        String(localized: "Leftover Files", comment: "Leftovers section."),
-                        result.leftoversTotalBytes)
-        }
-    }
-
-    private func leftoverRow(_ section: LeftoverSection, _ icon: Image, _ label: String, _ bytes: Int64) -> some View {
-        selectableRow(selected: leftoverSection == section) {
-            leftoverSection = section
-        } content: {
-            HStack(spacing: 12) {
-                icon.resizable().aspectRatio(contentMode: .fit).frame(width: 32, height: 32)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label).font(.body.weight(.medium))
-                    Text(byteText(bytes)).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-        }
-    }
-
-    private func facetSectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 2)
-    }
-
-    // MARK: Updater middle pane
-
-    private var updaterFacets: some View {
-        let updates = updaterViewModel.availableUpdates
-        let appStore = updates.filter { $0.source == .appStore }.count
-        return VStack(spacing: 4) {
-            updaterFacetRow(.all, String(localized: "All Updates", comment: "Updater facet."), updates.count)
-            updaterFacetRow(.selected, String(localized: "Selected", comment: "Updater facet."), updateSelection.count)
-
-            facetSectionHeader(String(localized: "Stores", comment: "Updater facet group header."))
-            updaterFacetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Updater store facet."), appStore)
-            updaterFacetRow(.store(isAppStore: false), String(localized: "Other", comment: "Updater store facet."), updates.count - appStore)
-        }
-    }
-
-    private func updaterFacetRow(_ facet: UpdaterFacet, _ label: String, _ count: Int) -> some View {
-        selectableRow(selected: updaterFacet == facet) {
-            updaterFacet = facet
-        } content: {
-            HStack {
-                Text(label).font(.body.weight(.medium))
-                Spacer()
-                Text("\(count)").font(.callout).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    // MARK: Extensions middle pane
-
-    private var extensionsFacets: some View {
-        let grouped = extensionsManagerViewModel.groupedByType
-        return VStack(spacing: 4) {
-            extensionsFacetRow(.all, String(localized: "All Extensions", comment: "Extensions facet."), extensionsManagerViewModel.items.count)
-            extensionsFacetRow(.selected, String(localized: "Selected", comment: "Extensions facet."), extensionSelection.count)
-
-            if !grouped.isEmpty {
-                facetSectionHeader(String(localized: "Categories", comment: "Extensions facet group header."))
-                ForEach(grouped, id: \.0) { type, entries in
-                    extensionsFacetRow(.type(type), localizedExtensionType(type), entries.count)
-                }
-            }
-        }
-    }
-
-    private func extensionsFacetRow(_ facet: ExtensionsFacet, _ label: String, _ count: Int) -> some View {
-        selectableRow(selected: extensionsFacet == facet) {
-            extensionsFacet = facet
-        } content: {
-            HStack {
-                Text(label).font(.body.weight(.medium))
-                Spacer()
-                Text("\(count)").font(.callout).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func localizedExtensionType(_ type: ExtensionType) -> String {
-        switch type {
-        case .safariExtension:  return String(localized: "Safari Extensions", comment: "Extension category.")
-        case .chromeExtension:  return String(localized: "Chrome Extensions", comment: "Extension category.")
-        case .firefoxExtension: return String(localized: "Firefox Extensions", comment: "Extension category.")
-        case .mailPlugin:       return String(localized: "Mail Plugins", comment: "Extension category.")
-        case .internetPlugin:   return String(localized: "Browser Plug-ins", comment: "Extension category.")
-        }
-    }
-
-    // MARK: - Right pane
-
-    private var uninstallerRightPaneTitle: String {
-        switch uninstallerFacet {
-        case .all:              return String(localized: "All Applications", comment: "Uninstaller right pane title.")
-        case .unused:           return String(localized: "Unused", comment: "Uninstaller right pane title.")
-        case .suspicious:       return String(localized: "Suspicious", comment: "Uninstaller right pane title.")
-        case .selected:         return String(localized: "Selected", comment: "Uninstaller right pane title.")
-        case .store(true):      return String(localized: "App Store", comment: "Uninstaller right pane title.")
-        case .store(false):     return String(localized: "Other", comment: "Uninstaller right pane title.")
-        case .vendor(let v):    return v.title
-        }
-    }
-
-    private var uninstallerRightPaneDescription: String {
-        switch uninstallerFacet {
-        case .all:              return String(localized: "Every app installed on this Mac.", comment: "Uninstaller right pane description.")
-        case .unused:           return String(localized: "Apps you haven't opened recently.", comment: "Uninstaller right pane description.")
-        case .suspicious:       return String(localized: "Apps flagged as potentially unwanted.", comment: "Uninstaller right pane description.")
-        case .selected:         return String(localized: "Apps you've marked for removal.", comment: "Uninstaller right pane description.")
-        case .store(true):      return String(localized: "Apps installed from the Mac App Store.", comment: "Uninstaller right pane description.")
-        case .store(false):     return String(localized: "Apps installed outside the Mac App Store.", comment: "Uninstaller right pane description.")
-        case .vendor(let v):    return String(localized: "Apps from \(v.title).", comment: "Uninstaller right pane description for a vendor.")
-        }
-    }
-
-    private var updaterRightPaneTitle: String {
-        switch updaterFacet {
-        case .all:              return String(localized: "All Updates", comment: "Updater right pane title.")
-        case .selected:         return String(localized: "Selected", comment: "Updater right pane title.")
-        case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
-        case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
-        }
-    }
-
-    private var updaterRightPaneDescription: String {
-        switch updaterFacet {
-        case .all:              return String(localized: "Apps with new versions available.", comment: "Updater right pane description.")
-        case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
-        case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
-        case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
-        }
-    }
-
-    private var extensionsRightPaneTitle: String {
-        switch extensionsFacet {
-        case .all:              return String(localized: "All Extensions", comment: "Extensions right pane title.")
-        case .selected:         return String(localized: "Selected", comment: "Extensions right pane title.")
-        case .type(let t):      return localizedExtensionType(t)
-        }
-    }
-
-    private var extensionsRightPaneDescription: String {
-        switch extensionsFacet {
-        case .all:              return String(localized: "Every extension and plug-in installed on this Mac.", comment: "Extensions right pane description.")
-        case .selected:         return String(localized: "Extensions you've chosen to remove.", comment: "Extensions right pane description.")
-        case .type(let t):
-            switch t {
-            case .safariExtension:  return String(localized: "Extensions installed in Safari.", comment: "Safari extensions right pane description.")
-            case .chromeExtension:  return String(localized: "Extensions installed in Google Chrome.", comment: "Chrome extensions right pane description.")
-            case .firefoxExtension: return String(localized: "Extensions installed in Firefox.", comment: "Firefox extensions right pane description.")
-            case .mailPlugin:       return String(localized: "Plug-ins installed in the Mail app.", comment: "Mail plugins right pane description.")
-            case .internetPlugin:   return String(localized: "Legacy plug-ins used by web browsers.", comment: "Browser plug-ins right pane description.")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var rightPane: some View {
-        switch pane {
-        case .uninstaller:
-            if let id = inspectingAppID {
-                appDetail(id)
-            } else if uninstallerViewModel.apps.isEmpty, uninstallerViewModel.phase == .loading {
-                loadingPane
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    paneHeader(title: uninstallerRightPaneTitle, description: uninstallerRightPaneDescription)
-                    uninstallerList
-                }
-            }
-        case .updater:
-            VStack(alignment: .leading, spacing: 0) {
-                paneHeader(title: updaterRightPaneTitle, description: updaterRightPaneDescription)
-                updaterPane
-            }
-        case .extensions:
-            VStack(alignment: .leading, spacing: 0) {
-                paneHeader(title: extensionsRightPaneTitle, description: extensionsRightPaneDescription)
-                extensionsPane
-            }
+            ExtensionsPaneView(
+                extensionsManagerViewModel: extensionsManagerViewModel,
+                search: search,
+                facet: $extensionsFacet,
+                selection: $extensionSelection,
+                displayed: $displayedExtensions
+            )
         case .leftovers:
-            leftoverList
-        }
-    }
-
-    private var displayedApps: [AppInfo] {
-        let filtered = ApplicationsManagerModel.filter(
-            uninstallerViewModel.apps,
-            facet: uninstallerFacet,
-            search: search,
-            unusedIDs: unusedIDs,
-            selectedIDs: uninstallerViewModel.uninstallSelection
-        )
-        return ApplicationsManagerModel.sort(filtered, by: sort, sizes: sizes, dates: lastOpened)
-    }
-
-    private var uninstallerList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(displayedApps) { app in
-                    appRow(app)
-                    Divider().opacity(0.3)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .accessibilityIdentifier("applications.manager.uninstaller.list")
-    }
-
-    private func appRow(_ app: AppInfo) -> some View {
-        HStack(spacing: 12) {
-            checkbox(selected: uninstallerViewModel.isInUninstallSelection(app.id)) {
-                uninstallerViewModel.toggleUninstallSelection(app.id)
-            }
-            Image(nsImage: iconCache.icon(for: app.bundleURL))
-                .resizable().frame(width: 32, height: 32)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(app.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                if let version = app.version {
-                    Text(version).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 8)
-            // Decorative AI sparkle, matching the reference rows.
-            Image(systemName: "sparkles")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.pink)
-            Text(dateText(lastOpened[app.id]))
-                .font(.callout).foregroundStyle(.secondary).frame(width: 96, alignment: .trailing)
-            Text(sizeText(sizes[app.id]))
-                .font(.callout.weight(.semibold)).frame(width: 72, alignment: .trailing)
-            Button {
-                inspectingAppID = app.id
-                uninstallerViewModel.select(app.id)
-            } label: {
-                Image(systemName: "chevron.right").foregroundStyle(.tint)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("applications.manager.uninstaller.detail.\(app.bundleID)")
-        }
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("applications.manager.uninstaller.row.\(app.bundleID)")
-    }
-
-    private func appDetail(_ id: AppInfo.ID) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button {
-                    inspectingAppID = nil
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(String(localized: "All Applications", comment: "Back to the full uninstaller list."))
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("applications.manager.uninstaller.detail.back")
-                Spacer()
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            Divider().opacity(0.4)
-            AppUninstallerDetailPane(
-                app: uninstallerViewModel.selectedApp,
-                bundleSize: uninstallerViewModel.selectedAppBundleSize,
-                isLoadingAssociatedFiles: uninstallerViewModel.isLoadingAssociatedFiles,
-                groupedFiles: uninstallerViewModel.associatedFilesByCategory,
-                totalReclaimableSize: uninstallerViewModel.totalReclaimableSize,
-                canUninstall: uninstallerViewModel.canUninstallSelectedApp,
-                onUninstall: { showSingleUninstallConfirmation = true },
-                iconCache: iconCache
+            LeftoversPaneView(
+                viewModel: viewModel,
+                result: result,
+                section: $leftoverSection
             )
-        }
-        .onChange(of: uninstallerViewModel.apps.map(\.id)) { _, ids in
-            // The app was uninstalled from the detail — return to the list.
-            if let id = inspectingAppID, !ids.contains(id) { inspectingAppID = nil }
-        }
-    }
-
-    // MARK: Updater right pane
-
-    private var displayedUpdates: [UpdateInfo] {
-        updaterViewModel.availableUpdates.filter { info in
-            let matchesFacet: Bool
-            switch updaterFacet {
-            case .all:                    matchesFacet = true
-            case .selected:               matchesFacet = updateSelection.contains(info.id)
-            case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
-            }
-            guard matchesFacet else { return false }
-            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty || info.appName.localizedCaseInsensitiveContains(trimmed)
-        }
-    }
-
-    @ViewBuilder
-    private var updaterPane: some View {
-        if updaterViewModel.availableUpdates.isEmpty {
-            emptyState(
-                icon: "arrow.down.circle",
-                title: String(localized: "Updater", comment: "Updater empty-state title."),
-                detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Updater empty-state detail.")
-            )
-            .accessibilityIdentifier("applications.manager.updater.empty")
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(displayedUpdates) { info in
-                        updateRow(info)
-                        Divider().opacity(0.3)
-                    }
-                }
-                .padding(.horizontal, 16).padding(.vertical, 8)
-            }
-            .accessibilityIdentifier("applications.manager.updater.list")
-        }
-    }
-
-    private func updateRow(_ info: UpdateInfo) -> some View {
-        HStack(spacing: 12) {
-            checkbox(selected: updateSelection.contains(info.id)) {
-                toggle(&updateSelection, info.id)
-            }
-            Image(nsImage: iconCache.icon(for: info.bundleURL))
-                .resizable().frame(width: 32, height: 32)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(info.appName).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                Text(versionTransition(info)).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            Text(info.source == .appStore
-                 ? String(localized: "App Store", comment: "Update source label.")
-                 : String(localized: "Web", comment: "Update source label."))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("applications.manager.updater.row.\(info.bundleID)")
-    }
-
-    private func versionTransition(_ info: UpdateInfo) -> String {
-        let format = String(localized: "%1$@ → %2$@", comment: "Update row version change; installed → latest.")
-        return String.localizedStringWithFormat(format, info.installedVersion, info.latestVersion)
-    }
-
-    // MARK: Extensions right pane
-
-    private var displayedExtensions: [ExtensionItem] {
-        let items = extensionsManagerViewModel.items.filter { item in
-            let matchesFacet: Bool
-            switch extensionsFacet {
-            case .all:              matchesFacet = true
-            case .selected:         matchesFacet = extensionSelection.contains(item.id)
-            case .type(let type):   matchesFacet = item.type == type
-            }
-            guard matchesFacet else { return false }
-            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty || item.name.localizedCaseInsensitiveContains(trimmed)
-        }
-        return items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    @ViewBuilder
-    private var extensionsPane: some View {
-        if extensionsManagerViewModel.items.isEmpty {
-            emptyState(
-                icon: "puzzlepiece.extension",
-                title: String(localized: "Extensions", comment: "Extensions empty-state title."),
-                detail: String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
-            )
-            .accessibilityIdentifier("applications.manager.extensions.empty")
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(displayedExtensions) { item in
-                        extensionRow(item)
-                        Divider().opacity(0.3)
-                    }
-                }
-                .padding(.horizontal, 16).padding(.vertical, 8)
-            }
-            .accessibilityIdentifier("applications.manager.extensions.list")
-        }
-    }
-
-    private func extensionRow(_ item: ExtensionItem) -> some View {
-        HStack(spacing: 12) {
-            checkbox(selected: extensionSelection.contains(item.id)) {
-                toggle(&extensionSelection, item.id)
-            }
-            Image(systemName: extensionSymbol(item.type))
-                .font(.system(size: 18))
-                .foregroundStyle(.tint)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                Text(localizedExtensionType(item.type)).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            Text(byteText(item.size)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("applications.manager.extensions.row.\(item.id.path)")
-    }
-
-    private func extensionSymbol(_ type: ExtensionType) -> String {
-        switch type {
-        case .safariExtension:  return "safari"
-        case .chromeExtension:  return "globe"
-        case .firefoxExtension: return "globe"
-        case .mailPlugin:       return "envelope"
-        case .internetPlugin:   return "puzzlepiece.extension"
-        }
-    }
-
-    /// Toggles `id` in a selection set in place.
-    private func toggle<ID: Hashable>(_ set: inout Set<ID>, _ id: ID) {
-        if set.contains(id) { set.remove(id) } else { set.insert(id) }
-    }
-
-    @ViewBuilder
-    private var leftoverList: some View {
-        switch leftoverSection {
-        case .installers:
-            leftoverFileList(
-                title: String(localized: "Unused DMG Files", comment: "Installers list title."),
-                description: String(localized: "Save space by removing unneeded DMGs or other installation files of applications.", comment: "Installers list description."),
-                rows: result.installationFiles.map { file in
-                    LeftoverDisplayRow(id: file.url.path, name: file.name, bytes: file.sizeBytes,
-                                       selected: viewModel.isInstallationFileSelected(file),
-                                       toggle: { viewModel.toggleInstallationFile(file) })
-                },
-                onSelectNone: viewModel.clearInstallationFileSelection,
-                onSelectAll: viewModel.selectAllInstallationFiles,
-                usesDiskIcon: true
-            )
-        case .leftoverFiles:
-            leftoverFileList(
-                title: String(localized: "Leftover Files", comment: "Leftover files list title."),
-                description: String(localized: "Support files left behind by apps you've removed.", comment: "Leftover files list description."),
-                rows: result.leftovers.map { group in
-                    LeftoverDisplayRow(id: group.bundleID, name: group.displayName, bytes: group.totalBytes,
-                                       selected: viewModel.isLeftoverSelected(group),
-                                       toggle: { viewModel.toggleLeftover(group) })
-                },
-                onSelectNone: viewModel.clearLeftoverSelection,
-                onSelectAll: viewModel.selectAllLeftovers,
-                usesDiskIcon: false
-            )
-        }
-    }
-
-    /// One row's display data for the Leftovers lists, with its own toggle so a
-    /// single renderer serves both installers and leftover groups.
-    private struct LeftoverDisplayRow: Identifiable {
-        let id: String
-        let name: String
-        let bytes: Int64
-        let selected: Bool
-        let toggle: () -> Void
-    }
-
-    private func leftoverFileList(
-        title: String,
-        description: String,
-        rows: [LeftoverDisplayRow],
-        onSelectNone: @escaping () -> Void,
-        onSelectAll: @escaping () -> Void,
-        usesDiskIcon: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.title3.weight(.semibold))
-                Text(description).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
-                    Menu {
-                        Button(String(localized: "All", comment: "Select all.")) { onSelectAll() }
-                        Button(String(localized: "None", comment: "Deselect all.")) { onSelectNone() }
-                    } label: {
-                        Text(rows.contains(where: \.selected)
-                             ? String(localized: "Some", comment: "Some selected.")
-                             : String(localized: "None", comment: "None selected."))
-                        .foregroundStyle(.tint)
-                    }
-                    .menuStyle(.borderlessButton).fixedSize()
-                }
-                .padding(.top, 4)
-            }
-            .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
-            if rows.isEmpty {
-                emptyState(icon: "checkmark.seal.fill",
-                           title: String(localized: "Nothing to remove", comment: "Empty leftovers list."),
-                           detail: String(localized: "There are no items in this area.", comment: "Empty leftovers detail."))
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(rows) { row in
-                            HStack(spacing: 12) {
-                                checkbox(selected: row.selected, action: row.toggle)
-                                if usesDiskIcon {
-                                    Image("installerDmg").resizable().aspectRatio(contentMode: .fit).frame(width: 28, height: 28)
-                                } else {
-                                    Image(systemName: "folder.badge.minus").font(.system(size: 18)).foregroundStyle(.secondary).frame(width: 28)
-                                }
-                                Text(row.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 8)
-                                Text(byteText(row.bytes)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                            .onTapGesture { row.toggle() }
-                            Divider().opacity(0.3)
-                        }
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                }
-            }
         }
     }
 
@@ -930,71 +336,22 @@ struct ApplicationsManagerView: View {
 
     // MARK: - Shared pieces
 
-    private func paneHeader(title: String, description: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.title3.weight(.semibold))
-            Text(description).font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
-    }
-
     private func selectableRow<Content: View>(
         selected: Bool,
         action: @escaping () -> Void,
-        @ViewBuilder content: () -> Content
+        @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        Button(action: action) {
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? Self.selectionFill : .clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func checkbox(selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: selected ? "checkmark.square.fill" : "square")
-                .font(.system(size: 18))
-                .foregroundStyle(selected ? Self.accent : Color.secondary)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var loadingPane: some View {
-        VStack { Spacer(); ProgressView().controlSize(.large); Spacer() }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityIdentifier("applications.manager.loading")
-    }
-
-    private func emptyState(icon: String, title: String, detail: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 44)).foregroundStyle(.tint.opacity(0.7))
-            Text(title).font(.title2.weight(.semibold))
-            Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ApplicationsManagerSelectableRow(selected: selected, action: action, content: content)
     }
 
     // MARK: - Derived values
-
-    /// `AppInfo.ID` (bundle-URL path) of every app the scan flagged as unused.
-    private var unusedIDs: Set<AppInfo.ID> {
-        Set(result.unusedApps.map { $0.app.id })
-    }
 
     private var uninstallSummary: String {
         let selection = uninstallerViewModel.uninstallSelection
         guard !selection.isEmpty else {
             return String(localized: "No Applications Selected", comment: "Uninstaller footer, nothing selected.")
         }
-        let bytes = selection.reduce(Int64(0)) { $0 + (sizes[$1] ?? 0) }
+        let bytes = selection.reduce(Int64(0)) { $0 + (uninstallerViewModel.listSizes[$1] ?? 0) }
         let count = String.localizedStringWithFormat(
             String(localized: "%lld Applications Selected", comment: "Uninstaller footer selected count."),
             Int64(selection.count)
@@ -1047,6 +404,261 @@ struct ApplicationsManagerView: View {
         String(localized: "The selected applications and their associated files will be moved to the Trash. You can restore them until you empty it.", comment: "Batch uninstall confirmation message.")
     }
 
+    // MARK: - Formatting
+
+    private func byteText(_ bytes: Int64) -> String {
+        ApplicationsManagerChrome.byteText(bytes)
+    }
+}
+
+// MARK: - Uninstaller pane
+
+/// The Uninstaller pane — the facet column plus the app list (or an app's
+/// associated-files detail). Extracted from `ApplicationsManagerView` so a
+/// checkbox toggle re-renders only this pane, not the whole manager. `facet`,
+/// the drill-in, and the memoized list are owned by the parent (via bindings) so
+/// they persist across pane switches; the batch metrics preload stays on the
+/// parent, this pane just reads the resulting caches.
+private struct UninstallerPaneView: View {
+    let uninstallerViewModel: AppUninstallerViewModel
+    let result: ApplicationsScanResult
+    let iconCache: AppIconCache
+    let search: String
+    let sort: AppManagerSort
+    @Binding var facet: AppManagerFacet
+    @Binding var inspectingAppID: AppInfo.ID?
+    @Binding var displayedApps: [AppInfo]
+
+    /// Confirmation for the single app open in the chevron detail.
+    @State private var showSingleUninstallConfirmation = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            middleColumn.frame(width: 320)
+            Divider().opacity(0.4)
+            rightColumn.frame(maxWidth: .infinity)
+        }
+        .alert(singleUninstallConfirmationTitle, isPresented: $showSingleUninstallConfirmation) {
+            Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
+            Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive) {
+                Task { await uninstallerViewModel.uninstall() }
+            }
+        } message: {
+            Text(singleUninstallConfirmationMessage)
+        }
+    }
+
+    // MARK: Middle (facets)
+
+    private var middleColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ApplicationsManagerPaneHeader(
+                title: String(localized: "Uninstaller", comment: "Uninstaller pane title."),
+                description: String(localized: "Correctly remove entire applications with all of the related files.", comment: "Uninstaller pane description.")
+            )
+            ScrollView { facets.padding(8) }
+        }
+    }
+
+    private var facets: some View {
+        let apps = uninstallerViewModel.apps
+        let stores = ApplicationsManagerModel.storeCounts(apps: apps)
+        let vendors = ApplicationsManagerModel.vendorCounts(apps: apps)
+        return VStack(spacing: 4) {
+            facetRow(.all, String(localized: "All Applications", comment: "Uninstaller facet."), apps.count)
+            facetRow(.unused, String(localized: "Unused", comment: "Uninstaller facet."), unusedIDs.count)
+            facetRow(.suspicious, String(localized: "Suspicious", comment: "Uninstaller facet."), 0)
+            facetRow(.selected, String(localized: "Selected", comment: "Uninstaller facet."), uninstallerViewModel.uninstallSelection.count)
+
+            ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Uninstaller facet group header."))
+            facetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Uninstaller store facet."), stores.appStore)
+            facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Uninstaller store facet."), stores.other)
+
+            if !vendors.isEmpty {
+                ApplicationsManagerFacetSectionHeader(title: String(localized: "Vendors", comment: "Uninstaller facet group header."))
+                ForEach(vendors, id: \.vendor) { entry in
+                    facetRow(.vendor(entry.vendor), entry.vendor.title, entry.count)
+                }
+            }
+        }
+    }
+
+    private func facetRow(_ target: AppManagerFacet, _ label: String, _ count: Int) -> some View {
+        ApplicationsManagerSelectableRow(selected: facet == target) {
+            facet = target
+            inspectingAppID = nil
+        } content: {
+            HStack {
+                Text(label).font(.body.weight(.medium))
+                Spacer()
+                Text("\(count)").font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// `AppInfo.ID` (bundle-URL path) of every app the scan flagged as unused.
+    private var unusedIDs: Set<AppInfo.ID> {
+        Set(result.unusedApps.map { $0.app.id })
+    }
+
+    private var rightPaneTitle: String {
+        switch facet {
+        case .all:              return String(localized: "All Applications", comment: "Uninstaller right pane title.")
+        case .unused:           return String(localized: "Unused", comment: "Uninstaller right pane title.")
+        case .suspicious:       return String(localized: "Suspicious", comment: "Uninstaller right pane title.")
+        case .selected:         return String(localized: "Selected", comment: "Uninstaller right pane title.")
+        case .store(true):      return String(localized: "App Store", comment: "Uninstaller right pane title.")
+        case .store(false):     return String(localized: "Other", comment: "Uninstaller right pane title.")
+        case .vendor(let v):    return v.title
+        }
+    }
+
+    private var rightPaneDescription: String {
+        switch facet {
+        case .all:              return String(localized: "Every app installed on this Mac.", comment: "Uninstaller right pane description.")
+        case .unused:           return String(localized: "Apps you haven't opened recently.", comment: "Uninstaller right pane description.")
+        case .suspicious:       return String(localized: "Apps flagged as potentially unwanted.", comment: "Uninstaller right pane description.")
+        case .selected:         return String(localized: "Apps you've marked for removal.", comment: "Uninstaller right pane description.")
+        case .store(true):      return String(localized: "Apps installed from the Mac App Store.", comment: "Uninstaller right pane description.")
+        case .store(false):     return String(localized: "Apps installed outside the Mac App Store.", comment: "Uninstaller right pane description.")
+        case .vendor(let v):    return String(localized: "Apps from \(v.title).", comment: "Uninstaller right pane description for a vendor.")
+        }
+    }
+
+    // MARK: Right (list / detail)
+
+    @ViewBuilder
+    private var rightColumn: some View {
+        if let id = inspectingAppID {
+            appDetail(id)
+        } else if uninstallerViewModel.apps.isEmpty, uninstallerViewModel.phase == .loading {
+            ApplicationsManagerLoadingPane()
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+                list
+            }
+        }
+    }
+
+    /// Recomputes the memoized `displayedApps`. Called from the list's
+    /// `onAppear` and the `onChange` hooks below — never from `body` — so the
+    /// filter + sort runs only when an input that changes the list changes, not
+    /// on every re-render (e.g. a checkbox toggle, which only needs the tapped
+    /// row to redraw).
+    private func recompute() {
+        let filtered = ApplicationsManagerModel.filter(
+            uninstallerViewModel.apps,
+            facet: facet,
+            search: search,
+            unusedIDs: unusedIDs,
+            selectedIDs: uninstallerViewModel.uninstallSelection
+        )
+        displayedApps = ApplicationsManagerModel.sort(
+            filtered,
+            by: sort,
+            sizes: uninstallerViewModel.listSizes,
+            dates: uninstallerViewModel.listLastOpened
+        )
+    }
+
+    private var list: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(displayedApps) { app in
+                    appRow(app)
+                    Divider().opacity(0.3)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .onAppear { recompute() }
+        .onChange(of: facet) { _, _ in recompute() }
+        .onChange(of: search) { _, _ in recompute() }
+        .onChange(of: sort) { _, _ in recompute() }
+        .onChange(of: uninstallerViewModel.apps.map(\.id)) { _, _ in recompute() }
+        // The measured metrics land asynchronously; recompute the order once
+        // when they do so a size/date sort settles to its final arrangement.
+        .onChange(of: uninstallerViewModel.listMetricsRevision) { _, _ in recompute() }
+        // Selection only changes the visible list under the Selected facet;
+        // under every other facet a toggle leaves the list untouched, so the
+        // expensive recompute is skipped.
+        .onChange(of: uninstallerViewModel.uninstallSelection) { _, _ in
+            if facet == .selected { recompute() }
+        }
+        .accessibilityIdentifier("applications.manager.uninstaller.list")
+    }
+
+    private func appRow(_ app: AppInfo) -> some View {
+        HStack(spacing: 12) {
+            ApplicationsManagerCheckbox(selected: uninstallerViewModel.isInUninstallSelection(app.id)) {
+                uninstallerViewModel.toggleUninstallSelection(app.id)
+            }
+            Image(nsImage: iconCache.icon(for: app.bundleURL))
+                .resizable().frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(app.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                if let version = app.version {
+                    Text(version).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            // Decorative AI sparkle, matching the reference rows.
+            Image(systemName: "sparkles")
+                .font(.system(size: 13))
+                .foregroundStyle(Color.pink)
+            Text(dateText(uninstallerViewModel.listLastOpened[app.id]))
+                .font(.callout).foregroundStyle(.secondary).frame(width: 96, alignment: .trailing)
+            Text(sizeText(uninstallerViewModel.listSizes[app.id]))
+                .font(.callout.weight(.semibold)).frame(width: 72, alignment: .trailing)
+            Button {
+                inspectingAppID = app.id
+                uninstallerViewModel.select(app.id)
+            } label: {
+                Image(systemName: "chevron.right").foregroundStyle(.tint)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("applications.manager.uninstaller.detail.\(app.bundleID)")
+        }
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("applications.manager.uninstaller.row.\(app.bundleID)")
+    }
+
+    private func appDetail(_ id: AppInfo.ID) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    inspectingAppID = nil
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text(String(localized: "All Applications", comment: "Back to the full uninstaller list."))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("applications.manager.uninstaller.detail.back")
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            Divider().opacity(0.4)
+            AppUninstallerDetailPane(
+                app: uninstallerViewModel.selectedApp,
+                bundleSize: uninstallerViewModel.selectedAppBundleSize,
+                isLoadingAssociatedFiles: uninstallerViewModel.isLoadingAssociatedFiles,
+                groupedFiles: uninstallerViewModel.associatedFilesByCategory,
+                totalReclaimableSize: uninstallerViewModel.totalReclaimableSize,
+                canUninstall: uninstallerViewModel.canUninstallSelectedApp,
+                onUninstall: { showSingleUninstallConfirmation = true },
+                iconCache: iconCache
+            )
+        }
+        .onChange(of: uninstallerViewModel.apps.map(\.id)) { _, ids in
+            // The app was uninstalled from the detail — return to the list.
+            if let id = inspectingAppID, !ids.contains(id) { inspectingAppID = nil }
+        }
+    }
+
     private var singleUninstallConfirmationTitle: String {
         guard let app = uninstallerViewModel.selectedApp else {
             return String(localized: "Move this app and its data to Trash?", comment: "Single uninstall confirmation title fallback.")
@@ -1057,31 +669,6 @@ struct ApplicationsManagerView: View {
 
     private var singleUninstallConfirmationMessage: String {
         String(localized: "The application and its associated files will be moved to the Trash. You can restore them until you empty it.", comment: "Single uninstall confirmation message.")
-    }
-
-    // MARK: - Metrics
-
-    private func rebuildMetrics() async {
-        let apps = uninstallerViewModel.apps
-        guard !apps.isEmpty else { sizes = [:]; lastOpened = [:]; return }
-        let computed = await Task.detached(priority: .utility) { () -> (sizes: [AppInfo.ID: Int64], dates: [AppInfo.ID: Date]) in
-            var sizes: [AppInfo.ID: Int64] = [:]
-            var dates: [AppInfo.ID: Date] = [:]
-            let fileManager = FileManager.default
-            for app in apps {
-                sizes[app.id] = DefaultAppDiscovery.bundleSize(at: app.bundleURL, fileManager: fileManager)
-                dates[app.id] = DefaultUnusedAppScanner.spotlightLastUsedDate(app)
-            }
-            return (sizes, dates)
-        }.value
-        sizes = computed.sizes
-        lastOpened = computed.dates
-    }
-
-    // MARK: - Formatting
-
-    private func byteText(_ bytes: Int64) -> String {
-        smartScanByteFormatter.string(fromByteCount: bytes)
     }
 
     private func sizeText(_ bytes: Int64?) -> String {
@@ -1100,4 +687,633 @@ struct ApplicationsManagerView: View {
         formatter.timeStyle = .none
         return formatter
     }()
+}
+
+// MARK: - Leftovers pane
+
+/// Which sub-list the Leftovers pane shows in its right column.
+private enum LeftoverSection: Hashable {
+    case installers
+    case leftoverFiles
+}
+
+/// The Leftovers pane — the Installers / Leftover Files section column plus the
+/// matching file list. Extracted from `ApplicationsManagerView`; the section
+/// selection stays on the parent (the footer's Remove action reads it too) and
+/// is passed in as a binding.
+private struct LeftoversPaneView: View {
+    let viewModel: ApplicationsViewModel
+    let result: ApplicationsScanResult
+    @Binding var section: LeftoverSection
+
+    var body: some View {
+        HStack(spacing: 0) {
+            middleColumn.frame(width: 320)
+            Divider().opacity(0.4)
+            rightColumn.frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: Middle (sections)
+
+    private var middleColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ApplicationsManagerPaneHeader(
+                title: String(localized: "Leftovers", comment: "Leftovers pane title."),
+                description: String(localized: "If you manually remove an application file, all of its related items remain on your system. VaderCleaner locates and removes these leftovers even if the main app is already gone.", comment: "Leftovers pane description.")
+            )
+            ScrollView { sections.padding(8) }
+        }
+    }
+
+    private var sections: some View {
+        VStack(spacing: 4) {
+            sectionRow(.installers,
+                       Image("installerDmg"),
+                       String(localized: "Installers", comment: "Leftovers section."),
+                       result.installationFilesTotalBytes)
+            sectionRow(.leftoverFiles,
+                       Image(systemName: "puzzlepiece.extension.fill"),
+                       String(localized: "Leftover Files", comment: "Leftovers section."),
+                       result.leftoversTotalBytes)
+        }
+    }
+
+    private func sectionRow(_ target: LeftoverSection, _ icon: Image, _ label: String, _ bytes: Int64) -> some View {
+        ApplicationsManagerSelectableRow(selected: section == target) {
+            section = target
+        } content: {
+            HStack(spacing: 12) {
+                icon.resizable().aspectRatio(contentMode: .fit).frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label).font(.body.weight(.medium))
+                    Text(ApplicationsManagerChrome.byteText(bytes)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: Right (file list)
+
+    @ViewBuilder
+    private var rightColumn: some View {
+        switch section {
+        case .installers:
+            fileList(
+                title: String(localized: "Unused DMG Files", comment: "Installers list title."),
+                description: String(localized: "Save space by removing unneeded DMGs or other installation files of applications.", comment: "Installers list description."),
+                rows: result.installationFiles.map { file in
+                    DisplayRow(id: file.url.path, name: file.name, bytes: file.sizeBytes,
+                               selected: viewModel.isInstallationFileSelected(file),
+                               toggle: { viewModel.toggleInstallationFile(file) })
+                },
+                onSelectNone: viewModel.clearInstallationFileSelection,
+                onSelectAll: viewModel.selectAllInstallationFiles,
+                usesDiskIcon: true
+            )
+        case .leftoverFiles:
+            fileList(
+                title: String(localized: "Leftover Files", comment: "Leftover files list title."),
+                description: String(localized: "Support files left behind by apps you've removed.", comment: "Leftover files list description."),
+                rows: result.leftovers.map { group in
+                    DisplayRow(id: group.bundleID, name: group.displayName, bytes: group.totalBytes,
+                               selected: viewModel.isLeftoverSelected(group),
+                               toggle: { viewModel.toggleLeftover(group) })
+                },
+                onSelectNone: viewModel.clearLeftoverSelection,
+                onSelectAll: viewModel.selectAllLeftovers,
+                usesDiskIcon: false
+            )
+        }
+    }
+
+    /// One row's display data for the Leftovers lists, with its own toggle so a
+    /// single renderer serves both installers and leftover groups.
+    private struct DisplayRow: Identifiable {
+        let id: String
+        let name: String
+        let bytes: Int64
+        let selected: Bool
+        let toggle: () -> Void
+    }
+
+    private func fileList(
+        title: String,
+        description: String,
+        rows: [DisplayRow],
+        onSelectNone: @escaping () -> Void,
+        onSelectAll: @escaping () -> Void,
+        usesDiskIcon: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.title3.weight(.semibold))
+                Text(description).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
+                    Menu {
+                        Button(String(localized: "All", comment: "Select all.")) { onSelectAll() }
+                        Button(String(localized: "None", comment: "Deselect all.")) { onSelectNone() }
+                    } label: {
+                        Text(rows.contains(where: \.selected)
+                             ? String(localized: "Some", comment: "Some selected.")
+                             : String(localized: "None", comment: "None selected."))
+                        .foregroundStyle(.tint)
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                }
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
+            if rows.isEmpty {
+                ApplicationsManagerEmptyState(
+                    icon: "checkmark.seal.fill",
+                    title: String(localized: "Nothing to remove", comment: "Empty leftovers list."),
+                    detail: String(localized: "There are no items in this area.", comment: "Empty leftovers detail.")
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows) { row in
+                            HStack(spacing: 12) {
+                                ApplicationsManagerCheckbox(selected: row.selected, action: row.toggle)
+                                if usesDiskIcon {
+                                    Image("installerDmg").resizable().aspectRatio(contentMode: .fit).frame(width: 28, height: 28)
+                                } else {
+                                    Image(systemName: "folder.badge.minus").font(.system(size: 18)).foregroundStyle(.secondary).frame(width: 28)
+                                }
+                                Text(row.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 8)
+                                Text(ApplicationsManagerChrome.byteText(row.bytes)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                            .onTapGesture { row.toggle() }
+                            Divider().opacity(0.3)
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Updater pane
+
+/// Middle-pane facet for the Updater pane.
+private enum UpdaterFacet: Hashable {
+    case all
+    case selected
+    case store(isAppStore: Bool)
+}
+
+/// The Updater pane — the facet column plus the available-updates list.
+/// Extracted from `ApplicationsManagerView`; the facet, selection, and memoized
+/// list are owned by the parent (the footer's Update action reads the selection)
+/// and passed in as bindings.
+private struct UpdaterPaneView: View {
+    let updaterViewModel: AppUpdaterViewModel
+    let iconCache: AppIconCache
+    let search: String
+    @Binding var facet: UpdaterFacet
+    @Binding var selection: Set<UpdateInfo.ID>
+    @Binding var displayed: [UpdateInfo]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            middleColumn.frame(width: 320)
+            Divider().opacity(0.4)
+            rightColumn.frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: Middle (facets)
+
+    private var middleColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ApplicationsManagerPaneHeader(
+                title: String(localized: "Updater", comment: "Updater pane title."),
+                description: String(localized: "Keep your apps current with the latest fixes and features.", comment: "Updater pane description.")
+            )
+            ScrollView { facets.padding(8) }
+        }
+    }
+
+    private var facets: some View {
+        let updates = updaterViewModel.availableUpdates
+        let appStore = updates.filter { $0.source == .appStore }.count
+        return VStack(spacing: 4) {
+            facetRow(.all, String(localized: "All Updates", comment: "Updater facet."), updates.count)
+            facetRow(.selected, String(localized: "Selected", comment: "Updater facet."), selection.count)
+
+            ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Updater facet group header."))
+            facetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Updater store facet."), appStore)
+            facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Updater store facet."), updates.count - appStore)
+        }
+    }
+
+    private func facetRow(_ target: UpdaterFacet, _ label: String, _ count: Int) -> some View {
+        ApplicationsManagerSelectableRow(selected: facet == target) {
+            facet = target
+        } content: {
+            HStack {
+                Text(label).font(.body.weight(.medium))
+                Spacer()
+                Text("\(count)").font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var rightPaneTitle: String {
+        switch facet {
+        case .all:              return String(localized: "All Updates", comment: "Updater right pane title.")
+        case .selected:         return String(localized: "Selected", comment: "Updater right pane title.")
+        case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
+        case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
+        }
+    }
+
+    private var rightPaneDescription: String {
+        switch facet {
+        case .all:              return String(localized: "Apps with new versions available.", comment: "Updater right pane description.")
+        case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
+        case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
+        case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
+        }
+    }
+
+    // MARK: Right (list)
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+            list
+        }
+    }
+
+    private func recompute() {
+        displayed = updaterViewModel.availableUpdates.filter { info in
+            let matchesFacet: Bool
+            switch facet {
+            case .all:                    matchesFacet = true
+            case .selected:               matchesFacet = selection.contains(info.id)
+            case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
+            }
+            guard matchesFacet else { return false }
+            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty || info.appName.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if updaterViewModel.availableUpdates.isEmpty {
+            ApplicationsManagerEmptyState(
+                icon: "arrow.down.circle",
+                title: String(localized: "Updater", comment: "Updater empty-state title."),
+                detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Updater empty-state detail.")
+            )
+            .accessibilityIdentifier("applications.manager.updater.empty")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(displayed) { info in
+                        row(info)
+                        Divider().opacity(0.3)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+            }
+            .onAppear { recompute() }
+            .onChange(of: facet) { _, _ in recompute() }
+            .onChange(of: search) { _, _ in recompute() }
+            .onChange(of: updaterViewModel.availableUpdates.map(\.id)) { _, _ in recompute() }
+            // The selection only changes the visible list under the Selected facet.
+            .onChange(of: selection) { _, _ in
+                if facet == .selected { recompute() }
+            }
+            .accessibilityIdentifier("applications.manager.updater.list")
+        }
+    }
+
+    private func row(_ info: UpdateInfo) -> some View {
+        HStack(spacing: 12) {
+            ApplicationsManagerCheckbox(selected: selection.contains(info.id)) {
+                if selection.contains(info.id) { selection.remove(info.id) } else { selection.insert(info.id) }
+            }
+            Image(nsImage: iconCache.icon(for: info.bundleURL))
+                .resizable().frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(info.appName).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Text(versionTransition(info)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(info.source == .appStore
+                 ? String(localized: "App Store", comment: "Update source label.")
+                 : String(localized: "Web", comment: "Update source label."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("applications.manager.updater.row.\(info.bundleID)")
+    }
+
+    private func versionTransition(_ info: UpdateInfo) -> String {
+        let format = String(localized: "%1$@ → %2$@", comment: "Update row version change; installed → latest.")
+        return String.localizedStringWithFormat(format, info.installedVersion, info.latestVersion)
+    }
+}
+
+// MARK: - Extensions pane
+
+/// Middle-pane facet for the Extensions pane.
+private enum ExtensionsFacet: Hashable {
+    case all
+    case selected
+    case type(ExtensionType)
+}
+
+/// The Extensions pane — the facet column plus the extensions/plug-ins list.
+/// Extracted from `ApplicationsManagerView`; the facet, selection, and memoized
+/// list are owned by the parent (the footer's Remove action reads the selection)
+/// and passed in as bindings.
+private struct ExtensionsPaneView: View {
+    let extensionsManagerViewModel: ExtensionsManagerViewModel
+    let search: String
+    @Binding var facet: ExtensionsFacet
+    @Binding var selection: Set<ExtensionItem.ID>
+    @Binding var displayed: [ExtensionItem]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            middleColumn.frame(width: 320)
+            Divider().opacity(0.4)
+            rightColumn.frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: Middle (facets)
+
+    private var middleColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ApplicationsManagerPaneHeader(
+                title: String(localized: "Extensions", comment: "Extensions pane title."),
+                description: String(localized: "Manage the add-ons and plug-ins installed into your browsers and apps.", comment: "Extensions pane description.")
+            )
+            ScrollView { facets.padding(8) }
+        }
+    }
+
+    private var facets: some View {
+        let grouped = extensionsManagerViewModel.groupedByType
+        return VStack(spacing: 4) {
+            facetRow(.all, String(localized: "All Extensions", comment: "Extensions facet."), extensionsManagerViewModel.items.count)
+            facetRow(.selected, String(localized: "Selected", comment: "Extensions facet."), selection.count)
+
+            if !grouped.isEmpty {
+                ApplicationsManagerFacetSectionHeader(title: String(localized: "Categories", comment: "Extensions facet group header."))
+                ForEach(grouped, id: \.0) { type, entries in
+                    facetRow(.type(type), localizedExtensionType(type), entries.count)
+                }
+            }
+        }
+    }
+
+    private func facetRow(_ target: ExtensionsFacet, _ label: String, _ count: Int) -> some View {
+        ApplicationsManagerSelectableRow(selected: facet == target) {
+            facet = target
+        } content: {
+            HStack {
+                Text(label).font(.body.weight(.medium))
+                Spacer()
+                Text("\(count)").font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func localizedExtensionType(_ type: ExtensionType) -> String {
+        switch type {
+        case .safariExtension:  return String(localized: "Safari Extensions", comment: "Extension category.")
+        case .chromeExtension:  return String(localized: "Chrome Extensions", comment: "Extension category.")
+        case .firefoxExtension: return String(localized: "Firefox Extensions", comment: "Extension category.")
+        case .mailPlugin:       return String(localized: "Mail Plugins", comment: "Extension category.")
+        case .internetPlugin:   return String(localized: "Browser Plug-ins", comment: "Extension category.")
+        }
+    }
+
+    private var rightPaneTitle: String {
+        switch facet {
+        case .all:              return String(localized: "All Extensions", comment: "Extensions right pane title.")
+        case .selected:         return String(localized: "Selected", comment: "Extensions right pane title.")
+        case .type(let t):      return localizedExtensionType(t)
+        }
+    }
+
+    private var rightPaneDescription: String {
+        switch facet {
+        case .all:              return String(localized: "Every extension and plug-in installed on this Mac.", comment: "Extensions right pane description.")
+        case .selected:         return String(localized: "Extensions you've chosen to remove.", comment: "Extensions right pane description.")
+        case .type(let t):
+            switch t {
+            case .safariExtension:  return String(localized: "Extensions installed in Safari.", comment: "Safari extensions right pane description.")
+            case .chromeExtension:  return String(localized: "Extensions installed in Google Chrome.", comment: "Chrome extensions right pane description.")
+            case .firefoxExtension: return String(localized: "Extensions installed in Firefox.", comment: "Firefox extensions right pane description.")
+            case .mailPlugin:       return String(localized: "Plug-ins installed in the Mail app.", comment: "Mail plugins right pane description.")
+            case .internetPlugin:   return String(localized: "Legacy plug-ins used by web browsers.", comment: "Browser plug-ins right pane description.")
+            }
+        }
+    }
+
+    // MARK: Right (list)
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+            list
+        }
+    }
+
+    private func recompute() {
+        let items = extensionsManagerViewModel.items.filter { item in
+            let matchesFacet: Bool
+            switch facet {
+            case .all:              matchesFacet = true
+            case .selected:         matchesFacet = selection.contains(item.id)
+            case .type(let type):   matchesFacet = item.type == type
+            }
+            guard matchesFacet else { return false }
+            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty || item.name.localizedCaseInsensitiveContains(trimmed)
+        }
+        displayed = items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if extensionsManagerViewModel.items.isEmpty {
+            ApplicationsManagerEmptyState(
+                icon: "puzzlepiece.extension",
+                title: String(localized: "Extensions", comment: "Extensions empty-state title."),
+                detail: String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
+            )
+            .accessibilityIdentifier("applications.manager.extensions.empty")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(displayed) { item in
+                        row(item)
+                        Divider().opacity(0.3)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+            }
+            .onAppear { recompute() }
+            .onChange(of: facet) { _, _ in recompute() }
+            .onChange(of: search) { _, _ in recompute() }
+            .onChange(of: extensionsManagerViewModel.items.map(\.id)) { _, _ in recompute() }
+            // The selection only changes the visible list under the Selected facet.
+            .onChange(of: selection) { _, _ in
+                if facet == .selected { recompute() }
+            }
+            .accessibilityIdentifier("applications.manager.extensions.list")
+        }
+    }
+
+    private func row(_ item: ExtensionItem) -> some View {
+        HStack(spacing: 12) {
+            ApplicationsManagerCheckbox(selected: selection.contains(item.id)) {
+                if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
+            }
+            Image(systemName: symbol(item.type))
+                .font(.system(size: 18))
+                .foregroundStyle(.tint)
+                .frame(width: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Text(localizedExtensionType(item.type)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(ApplicationsManagerChrome.byteText(item.size)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("applications.manager.extensions.row.\(item.id.path)")
+    }
+
+    private func symbol(_ type: ExtensionType) -> String {
+        switch type {
+        case .safariExtension:  return "safari"
+        case .chromeExtension:  return "globe"
+        case .firefoxExtension: return "globe"
+        case .mailPlugin:       return "envelope"
+        case .internetPlugin:   return "puzzlepiece.extension"
+        }
+    }
+}
+
+// MARK: - Shared chrome
+
+/// Constants and helpers shared by the Applications Manager and its pane
+/// subviews. The accent is the standalone Manager magenta; the selection fill is
+/// this manager's own quieter purple pill (distinct from `NavRow`'s accent fill).
+enum ApplicationsManagerChrome {
+    static let accent = ManagerChrome.accent
+    static let selectionFill = Color(red: 0.45, green: 0.30, blue: 0.85).opacity(0.14)
+
+    static func byteText(_ bytes: Int64) -> String {
+        smartScanByteFormatter.string(fromByteCount: bytes)
+    }
+}
+
+/// A pane's title + description block, above its facet list or item list.
+struct ApplicationsManagerPaneHeader: View {
+    let title: String
+    let description: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.title3.weight(.semibold))
+            Text(description).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
+    }
+}
+
+/// A nav / facet / section row with the manager's selection pill.
+struct ApplicationsManagerSelectableRow<Content: View>: View {
+    let selected: Bool
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Button(action: action) {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selected ? ApplicationsManagerChrome.selectionFill : .clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A row checkbox tinted with the manager accent when selected.
+struct ApplicationsManagerCheckbox: View {
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: selected ? "checkmark.square.fill" : "square")
+                .font(.system(size: 18))
+                .foregroundStyle(selected ? ApplicationsManagerChrome.accent : Color.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A quiet group header inside a facet column ("Stores", "Vendors", …).
+struct ApplicationsManagerFacetSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 2)
+    }
+}
+
+/// Centered icon + title + detail empty state for a pane with no items.
+struct ApplicationsManagerEmptyState: View {
+    let icon: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 44)).foregroundStyle(.tint.opacity(0.7))
+            Text(title).font(.title2.weight(.semibold))
+            Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The right pane's loading spinner while the app list is still discovering.
+struct ApplicationsManagerLoadingPane: View {
+    var body: some View {
+        VStack { Spacer(); ProgressView().controlSize(.large); Spacer() }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("applications.manager.loading")
+    }
 }

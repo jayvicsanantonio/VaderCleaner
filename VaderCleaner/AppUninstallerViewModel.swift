@@ -51,6 +51,11 @@ final class AppUninstallerViewModel {
     typealias Discover     = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
     typealias FindFiles    = @Sendable (_ bundleID: String) async -> [AssociatedFile]
     typealias MeasureSize  = @Sendable (_ bundleURL: URL) async -> Int64
+    /// Batch metrics walk for the Applications Manager's uninstaller list:
+    /// returns each app's bundle size and Spotlight last-opened date. Batched
+    /// (rather than reusing per-app `MeasureSize`) so the whole list is measured
+    /// in one background pass — the size walk over many bundles is expensive.
+    typealias MeasureListMetrics = @Sendable (_ apps: [AppInfo]) async -> (sizes: [AppInfo.ID: Int64], dates: [AppInfo.ID: Date])
     /// Recycler contract: takes the `.app` bundle URL and the associated
     /// file URLs separately so the production implementation can verify
     /// the bundle itself was moved (and not just the user-writable
@@ -78,9 +83,28 @@ final class AppUninstallerViewModel {
     /// list and the detail inspector don't fight over one selection.
     private(set) var uninstallSelection: Set<AppInfo.ID> = []
 
+    /// Session-scoped per-app size and last-opened caches the Applications
+    /// Manager's uninstaller list sorts and renders by. Populated once by
+    /// `loadListMetrics()` and retained for the session so reopening the manager
+    /// reuses them instead of re-walking the disk. Observable so the list
+    /// re-renders when the measured values land.
+    private(set) var listSizes: [AppInfo.ID: Int64] = [:]
+    private(set) var listLastOpened: [AppInfo.ID: Date] = [:]
+    /// Apps that have completed a metrics pass, tracked separately from the
+    /// value caches because a `nil` last-opened date is a valid result (Spotlight
+    /// has no record) — inferring "measured" from the dictionaries would re-walk
+    /// those apps forever.
+    @ObservationIgnored private var measuredListMetricApps: Set<AppInfo.ID> = []
+    /// Bumped after every batch of freshly-measured metrics so the manager's
+    /// memoized list recomputes its order once the values arrive. The dictionary
+    /// updates above already re-render the rows; this gives the order a single
+    /// cheap change to observe rather than diffing the dictionaries.
+    private(set) var listMetricsRevision: Int = 0
+
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let findFiles: FindFiles
     @ObservationIgnored private let measureSize: MeasureSize
+    @ObservationIgnored private let measureListMetrics: MeasureListMetrics
     @ObservationIgnored private let recycle: Recycle
     @ObservationIgnored private let reinstallHelperService: ReinstallHelper
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
@@ -104,12 +128,14 @@ final class AppUninstallerViewModel {
         discover: @escaping Discover,
         findFiles: @escaping FindFiles,
         measureSize: @escaping MeasureSize = { _ in 0 },
+        measureListMetrics: @escaping MeasureListMetrics = { _ in ([:], [:]) },
         recycle: @escaping Recycle,
         reinstallHelper: @escaping ReinstallHelper = {}
     ) {
         self.discover = discover
         self.findFiles = findFiles
         self.measureSize = measureSize
+        self.measureListMetrics = measureListMetrics
         self.recycle = recycle
         self.reinstallHelperService = reinstallHelper
     }
@@ -199,6 +225,23 @@ final class AppUninstallerViewModel {
     /// list reflects the new filter immediately.
     func reloadApps() async {
         await loadApps()
+    }
+
+    /// Measures size and last-opened date for every app not already in the
+    /// `listSizes` / `listLastOpened` caches, then merges the results.
+    /// Idempotent: apps measured earlier in the session are skipped, so the
+    /// expensive disk walk runs once per app and reopening the manager reuses
+    /// the cache. A no-op when nothing is pending — the revision only bumps when
+    /// new metrics actually land.
+    func loadListMetrics() async {
+        let pending = apps.filter { !measuredListMetricApps.contains($0.id) }
+        guard !pending.isEmpty else { return }
+        let measured = await measureListMetrics(pending)
+        // Merge rather than replace so apps already measured keep their values.
+        listSizes.merge(measured.sizes) { _, new in new }
+        listLastOpened.merge(measured.dates) { _, new in new }
+        for app in pending { measuredListMetricApps.insert(app.id) }
+        listMetricsRevision &+= 1
     }
 
     /// Select an app by ID. Drives an async associated-files lookup AND
@@ -469,6 +512,21 @@ extension AppUninstallerViewModel {
             },
             measureSize: { url in
                 await discovery.bundleSize(at: url)
+            },
+            measureListMetrics: { apps in
+                // One background pass over the whole list: the bundle-size walk
+                // is the expensive measurement discovery deliberately skips, so
+                // it runs detached off the main actor.
+                await Task.detached(priority: .utility) {
+                    var sizes: [AppInfo.ID: Int64] = [:]
+                    var dates: [AppInfo.ID: Date] = [:]
+                    let fileManager = FileManager.default
+                    for app in apps {
+                        sizes[app.id] = DefaultAppDiscovery.bundleSize(at: app.bundleURL, fileManager: fileManager)
+                        dates[app.id] = DefaultUnusedAppScanner.spotlightLastUsedDate(app)
+                    }
+                    return (sizes, dates)
+                }.value
             },
             recycle: { bundleURL, associatedURLs in
                 try await Self.recycleViaWorkspace(

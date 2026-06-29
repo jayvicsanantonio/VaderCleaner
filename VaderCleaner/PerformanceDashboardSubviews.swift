@@ -169,26 +169,33 @@ struct PerformanceSummaryCard: View {
 struct AppIconCluster: View {
     let bundleIDs: [String]
 
-    private var icons: [NSImage] {
-        bundleIDs.prefix(3).compactMap { id in
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
-                .map { NSWorkspace.shared.icon(forFile: $0.path) }
-        }
-    }
+    // Resolved once per `bundleIDs` rather than on every render: the lookup does
+    // a synchronous LaunchServices query per id, and this cluster sits on the
+    // Performance dashboard whose live stats re-render the parent frequently.
+    @State private var icons: [NSImage] = []
 
     var body: some View {
-        let resolved = icons
-        if resolved.isEmpty {
-            TaskIconBadge(symbol: "person.crop.circle.badge.checkmark", tint: Color(red: 0.55, green: 0.45, blue: 0.95))
-        } else {
-            HStack(spacing: -12) {
-                ForEach(Array(resolved.enumerated()), id: \.offset) { _, icon in
-                    Image(nsImage: icon)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: 40, height: 40)
+        Group {
+            if icons.isEmpty {
+                TaskIconBadge(symbol: "person.crop.circle.badge.checkmark", tint: Color(red: 0.55, green: 0.45, blue: 0.95))
+            } else {
+                HStack(spacing: -12) {
+                    ForEach(Array(icons.enumerated()), id: \.offset) { _, icon in
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: 40, height: 40)
+                    }
                 }
             }
+        }
+        .task(id: bundleIDs) { resolveIcons() }
+    }
+
+    private func resolveIcons() {
+        icons = bundleIDs.prefix(3).compactMap { id in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+                .map { NSWorkspace.shared.icon(forFile: $0.path) }
         }
     }
 }
@@ -243,6 +250,13 @@ struct PerformanceTaskCatalogView: View {
     @State private var sort: ManagerSort = .name
     @State private var confirmRemove = false
 
+    // The Login Items and Background Items rows, mapped once from the inputs and
+    // memoized. The login mapping does a synchronous LaunchServices lookup per
+    // item, so rebuilding it on every render — e.g. each checkbox toggle — was a
+    // real cost; recompute only when the underlying items change.
+    @State private var loginManagerItems: [ManagerItem] = []
+    @State private var agentManagerItems: [ManagerItem] = []
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -261,6 +275,15 @@ struct PerformanceTaskCatalogView: View {
         .tint(ManagerChrome.accent)
         .environment(\.sectionAccent, ManagerChrome.accent)
         .accessibilityIdentifier("performance.catalog")
+        // Build the row models once, and again only when the inputs change, so
+        // the per-item LaunchServices lookup never runs during an ordinary
+        // re-render such as a checkbox toggle.
+        .onAppear {
+            recomputeLoginManagerItems()
+            recomputeAgentManagerItems()
+        }
+        .onChange(of: loginItems) { _, _ in recomputeLoginManagerItems() }
+        .onChange(of: userAgents) { _, _ in recomputeAgentManagerItems() }
         .alert(
             String(localized: "Remove the selected items?", comment: "Title of the Performance Manager remove confirmation."),
             isPresented: $confirmRemove
@@ -571,8 +594,8 @@ struct PerformanceTaskCatalogView: View {
 
     // MARK: - Item models
 
-    private var loginManagerItems: [ManagerItem] {
-        loginItems.map { item in
+    private func recomputeLoginManagerItems() {
+        loginManagerItems = loginItems.map { item in
             let iconPath = NSWorkspace.shared.urlForApplication(withBundleIdentifier: item.id)?.path
             return ManagerItem(
                 id: item.id,
@@ -588,8 +611,8 @@ struct PerformanceTaskCatalogView: View {
         }
     }
 
-    private var agentManagerItems: [ManagerItem] {
-        userAgents.map { agent in
+    private func recomputeAgentManagerItems() {
+        agentManagerItems = userAgents.map { agent in
             ManagerItem(
                 id: agent.id,
                 title: agent.label,
