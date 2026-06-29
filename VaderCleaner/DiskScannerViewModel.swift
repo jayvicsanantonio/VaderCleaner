@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import AppKit
 import os.log
 
 /// Drives the Space Lens detail view. Holds the discrete `Phase` the view
@@ -24,6 +25,11 @@ final class DiskScannerViewModel {
     /// failure path). The progress callback is invoked with a running
     /// file count.
     typealias Scanner = (URL, @escaping (Int) -> Void) async throws -> DiskNode
+
+    /// Removal sink: moves the given URLs to the Trash and returns the subset
+    /// actually moved. Injected so tests can assert what was asked to be removed
+    /// without touching the real Trash; production uses `NSWorkspace.recycle`.
+    typealias TrashSink = ([URL]) async -> Set<URL>
 
     /// Discrete phases the view binds to. Manual `Equatable` because
     /// `DiskNode` is a class without `Equatable` conformance — the synth
@@ -55,6 +61,25 @@ final class DiskScannerViewModel {
     /// / `navigateUp()` methods land in Prompt 17 alongside the UI that
     /// invokes them.
     var navigationPath: [DiskNode] = []
+
+    /// Nodes popped by the back button, available to the forward button —
+    /// browser-style history for the breadcrumb's `<` / `>` controls. Cleared
+    /// whenever the user navigates somewhere new (drill-down or breadcrumb
+    /// jump), because the old forward trail no longer applies.
+    private(set) var forwardStack: [DiskNode] = []
+
+    /// Removal selection, shared by the list, the bubbles, and the bottom bar.
+    let selection = SpaceLensSelection()
+
+    /// Boot-volume capacity for the bottom-bar gauge. Refreshed when a scan
+    /// completes and after a removal frees space.
+    private(set) var volumeUsage = SpaceLensVolumeUsage(volumeName: "", usedBytes: 0, totalBytes: 0)
+
+    /// Whether the "Review files before removal" sheet is showing.
+    var reviewActive = false
+
+    var canGoBack: Bool { !navigationPath.isEmpty }
+    var canGoForward: Bool { !forwardStack.isEmpty }
 
     /// Convenience accessor used by the upcoming view binding so the
     /// treemap doesn't have to pattern-match on `phase` to find the root.
@@ -102,6 +127,22 @@ final class DiskScannerViewModel {
             return
         }
         navigationPath.append(contentsOf: chain)
+        // Drilling somewhere new invalidates any forward history.
+        forwardStack.removeAll()
+    }
+
+    /// Back button: pop the current node and remember it for the forward
+    /// button. No-op at root.
+    func goBack() {
+        guard let popped = navigationPath.popLast() else { return }
+        forwardStack.append(popped)
+    }
+
+    /// Forward button: re-enter the last node the back button popped. No-op when
+    /// the forward history is empty.
+    func goForward() {
+        guard let next = forwardStack.popLast() else { return }
+        navigationPath.append(next)
     }
 
     /// The chain of nodes from `ancestor`'s matching child down to `target`
@@ -136,6 +177,7 @@ final class DiskScannerViewModel {
     /// single hook.
     func navigateToRoot() {
         navigationPath = []
+        forwardStack.removeAll()
     }
 
     /// Truncate `navigationPath` so `node` becomes the new tail. Powers
@@ -150,6 +192,49 @@ final class DiskScannerViewModel {
     func navigate(to node: DiskNode) {
         guard let index = navigationPath.firstIndex(where: { $0 === node }) else { return }
         navigationPath = Array(navigationPath.prefix(through: index))
+        forwardStack.removeAll()
+    }
+
+    // MARK: - Removal
+
+    /// Move the current selection to the Trash, prune the survivors back into
+    /// the tree, and refresh the volume gauge — all without re-walking the disk.
+    ///
+    /// Only nodes the sink reports as *actually* moved are pruned, so a locked
+    /// or failed file stays visible and selected. The breadcrumb path is remapped
+    /// onto the pruned tree by id; a crumb whose folder was removed truncates the
+    /// path at that point.
+    func removeSelected() async {
+        guard let root else { return }
+        let targets = selection.selectedNodes()
+        guard !targets.isEmpty else { return }
+
+        let moved = await trash(targets.map(\.url))
+        guard self.root === root else { return } // a rescan landed meanwhile
+        let movedIDs = Set(targets.filter { moved.contains($0.url) }.map(\.id))
+        guard !movedIDs.isEmpty else { reviewActive = false; return }
+
+        let prunedRoot = root.removing(movedIDs)
+        navigationPath = Self.remap(navigationPath, onto: prunedRoot)
+        selection.deselect(targets.filter { movedIDs.contains($0.id) })
+        forwardStack.removeAll()
+        phase = .ready(prunedRoot)
+        volumeUsage = volumeUsageProvider()
+        reviewActive = false
+    }
+
+    /// Rebuild a breadcrumb path against a freshly-pruned tree by following the
+    /// old path's ids down from the new root, stopping at the first node that no
+    /// longer exists (its folder was removed).
+    private static func remap(_ oldPath: [DiskNode], onto newRoot: DiskNode) -> [DiskNode] {
+        var result: [DiskNode] = []
+        var current = newRoot
+        for crumb in oldPath {
+            guard let match = current.children.first(where: { $0.id == crumb.id }) else { break }
+            result.append(match)
+            current = match
+        }
+        return result
     }
 
     /// Width of one progress-update bucket, as a fraction of the estimate. A
@@ -195,13 +280,33 @@ final class DiskScannerViewModel {
     @ObservationIgnored private var currentScanTask: Task<Void, Never>?
 
     @ObservationIgnored private let scanner: Scanner
+    @ObservationIgnored private let trash: TrashSink
+    @ObservationIgnored private let volumeUsageProvider: () -> SpaceLensVolumeUsage
     @ObservationIgnored private let log = Logger(
         subsystem: "com.personal.VaderCleaner",
         category: "DiskScannerViewModel"
     )
 
-    init(scanner: @escaping Scanner) {
+    init(
+        scanner: @escaping Scanner,
+        trash: @escaping TrashSink = DiskScannerViewModel.recycle,
+        volumeUsageProvider: @escaping () -> SpaceLensVolumeUsage = SpaceLensVolumeUsage.current
+    ) {
         self.scanner = scanner
+        self.trash = trash
+        self.volumeUsageProvider = volumeUsageProvider
+    }
+
+    /// Default removal sink — moves `urls` to the Trash via
+    /// `NSWorkspace.recycle`, returning the set actually moved. Mirrors
+    /// `MyClutterViewModel`'s deletion path; failures are skipped so one locked
+    /// file never aborts the batch.
+    nonisolated static func recycle(_ urls: [URL]) async -> Set<URL> {
+        await withCheckedContinuation { continuation in
+            NSWorkspace.shared.recycle(urls) { newURLs, _ in
+                continuation.resume(returning: Set(newURLs.keys))
+            }
+        }
     }
 
     /// Cancel any in-flight walk if the view-model is torn down while a
@@ -224,6 +329,21 @@ final class DiskScannerViewModel {
             scannedItemCount = 0
             phase = .idle
         }
+    }
+
+    /// Return Space Lens to its intro ("Start Over"): cancel any in-flight walk,
+    /// drop the scanned tree, selection, navigation, and review state so the
+    /// unified flow shows the Scan landing again.
+    func reset() {
+        currentScanTask?.cancel()
+        currentScanTask = nil
+        scanGeneration += 1
+        navigationPath = []
+        forwardStack = []
+        selection.clear()
+        reviewActive = false
+        scannedItemCount = 0
+        phase = .idle
     }
 
     /// Run the injected scanner against `root`. Transitions to `.scanning`
@@ -303,7 +423,9 @@ final class DiskScannerViewModel {
                 // that resumes after a newer one has started doesn't
                 // clobber the newer scan's `.scanning` / `.ready` state.
                 guard self.scanGeneration == myGeneration else { return }
+                self.selection.clear()
                 self.phase = .ready(node)
+                self.volumeUsage = self.volumeUsageProvider()
             } catch is CancellationError {
                 // A cancellation is a clean dismissal — the user (or a
                 // fresh scan) chose to stop the in-flight walk.
@@ -400,8 +522,12 @@ extension DiskScannerViewModel: ScanCoordinating {
     }
 
     func beginScan() {
-        // Space Lens needs a root URL its peers don't; the user's home
-        // directory is the default Space Lens root for the unified flow.
-        Task { await startScan(root: FileManager.default.homeDirectoryForCurrentUser) }
+        // Space Lens scans the whole boot volume so the explorer starts at
+        // "Macintosh HD" and the breadcrumb matches the volume tree, the way
+        // a disk-usage map is expected to read.
+        Task { await startScan(root: Self.volumeRootURL) }
     }
+
+    /// The boot volume's mount point — the Space Lens scan root.
+    static let volumeRootURL = URL(fileURLWithPath: "/")
 }

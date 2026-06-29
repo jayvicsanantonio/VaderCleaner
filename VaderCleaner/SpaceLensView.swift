@@ -1,54 +1,49 @@
 // SpaceLensView.swift
-// Top-level Space Lens detail view — drives the idle/scanning/ready/empty/error states from DiskScannerViewModel, hosts the breadcrumb plus TreemapView, and runs the home-directory scan on first appearance.
+// Top-level Space Lens detail view — drives the scanning/ready/error states, and in the ready state composes the breadcrumb bar, the left selection list, the bubble chart, the bottom volume/selection bar, and the review-before-removal overlay.
 
 import SwiftUI
+import AppKit
 
-/// Detail view for the Space Lens sidebar section. Owns nothing of its
-/// own — every piece of state lives on `DiskScannerViewModel`. Each
-/// `Phase` maps to a dedicated subview (idle → not rendered, ContentView
-/// shows the unified intro instead, scanning → progress bar, ready →
-/// breadcrumb + treemap + footer, error → message + try again). The
-/// empty case is implicit: a `.ready`
-/// node whose subtree has no displayable children renders the empty
-/// placeholder inside the same layout, so the breadcrumb stays in
-/// reach for navigating back up.
+/// Detail view for the Space Lens section. Owns no scan state — everything lives
+/// on `DiskScannerViewModel`. The unified flow shows the Scan landing while the
+/// coordinator reports `.intro`; this view renders the non-intro phases:
+/// `.scanning` (progress), `.ready` (the explorer), and `.error`.
 ///
-/// The first-launch scan targets the user's home directory per the
-/// product plan (plan.md line 961). A volume / drive picker lands later
-/// once Privacy and App Uninstaller settle. Until then a "Re-scan"
-/// button lets the user re-run the same root after deleting files
-/// elsewhere in the app.
+/// The ready layout mirrors the reference design: a breadcrumb bar with
+/// back / forward / Start Over controls, a left list panel beside the packed
+/// bubble chart, and a pinned bottom bar with the volume gauge and the
+/// Review and Remove action. Selecting items and confirming in the review
+/// overlay moves them to the Trash.
 struct SpaceLensView: View {
 
     private var viewModel: DiskScannerViewModel
-    private var viewMode: SpaceLensViewModeStore
 
-    init(viewModel: DiskScannerViewModel, viewMode: SpaceLensViewModeStore) {
+    /// Real Finder icons for the volume, folders, apps, and files shown in the
+    /// list and bubbles — so System, Applications, Library, the user's home, etc.
+    /// render with their actual macOS icons rather than generic glyphs.
+    @State private var iconCache = AppIconCache(
+        placeholderIcon: NSWorkspace.shared.icon(for: .folder)
+    )
+
+    init(viewModel: DiskScannerViewModel) {
         self.viewModel = viewModel
-        self.viewMode = viewMode
     }
 
     var body: some View {
         Group {
             switch viewModel.phase {
             case .idle:
-                // Unreachable: ContentView shows the unified SectionIntroView
-                // while the coordinator reports `.intro` (which `.idle` maps
-                // to), so the detail view is never built in this phase. The
-                // arm stays only to keep the switch exhaustive over `Phase`.
-                // `idleState` itself is retained — the `.ready` branch below
-                // still falls back to it defensively when `currentNode` is nil.
+                // Unreachable: ScannableSectionContent shows the intro while the
+                // coordinator reports `.intro` (which `.idle` maps to), so the
+                // detail view isn't built in this phase. Kept for exhaustiveness.
                 EmptyView()
             case .scanning:
                 scanningState
             case .ready:
-                if let current = viewModel.currentNode {
-                    readyState(current: current)
+                if let current = viewModel.currentNode, let root = viewModel.root {
+                    readyState(current: current, root: root)
                 } else {
-                    // Defensive: `.ready` should always supply a node, but
-                    // if `currentNode` somehow returns nil (programming
-                    // error), render the idle CTA so the user can recover.
-                    idleState
+                    EmptyView()
                 }
             case .error(let message):
                 errorState(message: message)
@@ -56,50 +51,10 @@ struct SpaceLensView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(NavigationSection.spaceLens.title)
-        // `.onAppear` rather than `.task` so the scan isn't tied to the
-        // view's task lifetime — `DiskScannerViewModel` is owned above
-        // this detail view so the scanned tree survives a sidebar peek, and
-        // a `.task`-driven scan would be cancelled the moment the user
-        // navigated away (the VM's cancellation handler forwards
-        // structured cancellation into the in-flight walk). Spawning the
-        // scan from an unstructured `Task` inside `onAppear` lets the
-        // walk run to completion even while the user browses other
-        // sections; `phase`-guarded so re-entering an already-loaded
-        // tree doesn't restart the scan.
-        .onAppear {
-            guard case .idle = viewModel.phase else { return }
-            Task { await runScan() }
-        }
     }
 
-    // MARK: - States
+    // MARK: - Scanning / error
 
-    private var idleState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: NavigationSection.spaceLens.icon)
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-            Text("Space Lens")
-                .font(.title2.weight(.semibold))
-            Text("Visualize disk usage in your home folder. Scan to see which folders take up the most space.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
-            Button("Scan") {
-                Task { await runScan() }
-            }
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("space-lens.scan")
-        }
-        .padding()
-    }
-
-    // The disk total is unknowable mid-walk, so Space Lens shows the same
-    // open-ended spinner + live walked-count the other scans use (Large &
-    // Old Files, System Junk) rather than a percentage bar that would
-    // misreport completion on a volume larger than the estimate.
     private var scanningState: some View {
         VStack(spacing: 16) {
             ScanProgressIndicator()
@@ -112,99 +67,6 @@ struct SpaceLensView: View {
         .padding()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.scanning")
-    }
-
-    private func readyState(current: DiskNode) -> some View {
-        VStack(spacing: 0) {
-            topBar(current: current)
-            Divider()
-            treemapOrEmpty(current: current)
-            Divider()
-            footer(current: current)
-        }
-    }
-
-    /// The control row above the visualization: the breadcrumb on the leading
-    /// edge (taking the flexible width) and the treemap/sunburst toggle pinned
-    /// trailing. Lives above the `Divider` so it stays in reach in both the
-    /// populated and empty states.
-    private func topBar(current: DiskNode) -> some View {
-        HStack(spacing: 8) {
-            breadcrumb(current: current)
-            viewModeToggle
-                .padding(.trailing, 12)
-        }
-    }
-
-    /// Treemap / sunburst switch. Two distinct bordered buttons (rather than a
-    /// segmented `Picker`) so each carries a stable accessibility identifier
-    /// the UI test can tap directly; the active mode is tinted with the accent
-    /// color and marked selected for VoiceOver.
-    private var viewModeToggle: some View {
-        HStack(spacing: 4) {
-            ForEach(SpaceLensViewMode.allCases, id: \.self) { mode in
-                modeButton(mode)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("space-lens.viewMode")
-    }
-
-    private func modeButton(_ mode: SpaceLensViewMode) -> some View {
-        let isSelected = viewMode.mode == mode
-        return Button {
-            viewMode.mode = mode
-        } label: {
-            Image(systemName: mode.symbolName)
-                .frame(width: 18, height: 18)
-        }
-        .buttonStyle(.bordered)
-        .tint(isSelected ? Color.accentColor : Color.secondary)
-        .help(mode.displayName)
-        .accessibilityIdentifier("space-lens.viewMode.\(mode.rawValue)")
-        .accessibilityLabel(mode.displayName)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-    }
-
-    /// Empty placeholder shown when the current node has no displayable
-    /// children. Takes the treemap's slot inside `readyState` rather than
-    /// the whole detail surface so the breadcrumb stays available — the
-    /// user can still navigate back up.
-    private func treemapOrEmpty(current: DiskNode) -> some View {
-        Group {
-            if hasDisplayableChildren(current) {
-                switch viewMode.mode {
-                case .treemap:
-                    TreemapView(viewModel: viewModel, node: current)
-                case .sunburst:
-                    SunburstView(viewModel: viewModel, node: current)
-                }
-            } else {
-                emptyTreemapPlaceholder
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Inset the visualization so it reads a touch smaller than the pane,
-        // with breathing room around the treemap edges and the sunburst's
-        // outer ring rather than running flush to the dividers.
-        .padding(Self.visualizationInset)
-    }
-
-    /// Padding around the treemap / sunburst inside the detail pane.
-    private static let visualizationInset: CGFloat = 32
-
-    private var emptyTreemapPlaceholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tray")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text("This folder appears to be empty")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("space-lens.empty")
     }
 
     private func errorState(message: String) -> some View {
@@ -220,137 +82,199 @@ struct SpaceLensView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
                 .accessibilityIdentifier("space-lens.errorMessage")
-            Button("Try Again") {
-                Task { await runScan() }
-            }
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("space-lens.tryAgain")
+            Button("Try Again") { viewModel.beginScan() }
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("space-lens.tryAgain")
         }
         .padding()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("space-lens.error")
     }
 
-    // MARK: - Breadcrumb + footer
+    // MARK: - Ready
 
-    /// Renders `[root] + viewModel.navigationPath` as clickable chevrons.
-    /// The trailing crumb is the current node and is not interactive
-    /// (clicking it would be a no-op). Earlier crumbs route through
-    /// `viewModel.navigate(to:)` which truncates the path in one call.
+    private func readyState(current: DiskNode, root: DiskNode) -> some View {
+        // Compute the display rows once per render here (not in each subview's
+        // body), so the child sort isn't re-run on every hover. This body only
+        // re-renders on navigation / phase / review changes — not on hover or
+        // selection, which are local to the subviews.
+        let items = SpaceLensChildren.displayed(for: current)
+        return ZStack {
+            VStack(spacing: 0) {
+                startOverBar
+                breadcrumbBar(current: current)
+                HStack(spacing: 20) {
+                    SpaceLensListPanel(viewModel: viewModel, node: current, items: items, iconCache: iconCache)
+                        .frame(width: 360)
+                    bubbleArea(current: current, items: items)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+                SpaceLensBottomBar(viewModel: viewModel)
+            }
+            if viewModel.reviewActive {
+                reviewOverlay(root: root)
+            }
+        }
+        .task(id: current.id) { await preloadIcons(items: items, current: current) }
+    }
+
+    /// Pre-load the real icons for the current folder, its displayed children,
+    /// and the aggregated "Other items" tail, so rows and bubbles render their
+    /// Finder icons without a synchronous `NSWorkspace` call inside `body`.
+    private func preloadIcons(items: [SpaceLensDisplayItem], current: DiskNode) async {
+        var urls = [current.url]
+        urls += items.compactMap { $0.node?.url }
+        urls += items.flatMap { $0.aggregatedChildren.map(\.url) }
+        await iconCache.preloadIcons(for: urls)
+    }
+
+    /// Top-left "Start Over" control, mirroring the other section dashboards.
+    private var startOverBar: some View {
+        HStack {
+            Button(action: { viewModel.reset() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.counterclockwise")
+                    Text("Start Over")
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("space-lens.startOver")
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 4)
+    }
+
+    @ViewBuilder
+    private func bubbleArea(current: DiskNode, items: [SpaceLensDisplayItem]) -> some View {
+        if current.children.contains(where: { $0.size > 0 }) {
+            SpaceLensBubbleView(viewModel: viewModel, node: current, items: items, iconCache: iconCache)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "tray")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.secondary)
+                Text("This folder appears to be empty")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("space-lens.empty")
+        }
+    }
+
+    private func reviewOverlay(root: DiskNode) -> some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture { viewModel.reviewActive = false }
+            SpaceLensReviewSheet(viewModel: viewModel, root: root, iconCache: iconCache)
+        }
+        .transition(.opacity)
+    }
+
+    // MARK: - Breadcrumb bar
+
+    private func breadcrumbBar(current: DiskNode) -> some View {
+        HStack(spacing: 8) {
+            // Back / forward on the leading edge.
+            navButton(system: "chevron.left", enabled: viewModel.canGoBack) { viewModel.goBack() }
+                .accessibilityIdentifier("space-lens.back")
+            navButton(system: "chevron.right", enabled: viewModel.canGoForward) { viewModel.goForward() }
+                .accessibilityIdentifier("space-lens.forward")
+
+            // Crumbs centered between flexible spacers, with a trailing spacer
+            // balancing the nav buttons so they sit centered in the whole bar
+            // and never overlap the controls.
+            Spacer(minLength: 12)
+            breadcrumb(current: current)
+                .layoutPriority(1)
+            Spacer(minLength: 12)
+            Color.clear.frame(width: Self.navControlsWidth, height: 1)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+    }
+
+    /// Combined width of the two nav buttons, reserved on the trailing side so
+    /// the centered breadcrumb is balanced against them.
+    private static let navControlsWidth: CGFloat = 64
+
+    private func navButton(system: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.body.weight(.semibold))
+                .frame(width: 28, height: 26)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!enabled)
+    }
+
     @ViewBuilder
     private func breadcrumb(current: DiskNode) -> some View {
-        // Build the crumb sequence from `[root, ...path]`. Avoid using
-        // `currentNode` here because the root crumb has special handling
-        // (clicking it pops back to root regardless of how deep we are).
         if let root = viewModel.root {
             let crumbs: [DiskNode] = [root] + viewModel.navigationPath
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(Array(crumbs.enumerated()), id: \.element.id) { index, crumb in
-                        breadcrumbCrumb(
-                            crumb: crumb,
-                            isCurrent: crumb === current,
-                            isRoot: index == 0,
-                            tapIndex: index
-                        )
-                        if index < crumbs.count - 1 {
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+            HStack(spacing: 6) {
+                ForEach(Array(crumbs.enumerated()), id: \.element.id) { index, crumb in
+                    breadcrumbCrumb(
+                        crumb: crumb,
+                        isCurrent: crumb === current,
+                        isRoot: index == 0,
+                        tapIndex: index
+                    )
+                    if index < crumbs.count - 1 {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
     @ViewBuilder
-    private func breadcrumbCrumb(
-        crumb: DiskNode,
-        isCurrent: Bool,
-        isRoot: Bool,
-        tapIndex: Int
-    ) -> some View {
+    private func breadcrumbCrumb(crumb: DiskNode, isCurrent: Bool, isRoot: Bool, tapIndex: Int) -> some View {
         Button {
-            // The root crumb empties the path; intermediate crumbs
-            // truncate via `navigate(to:)`. Both end with the named
-            // crumb at `currentNode`, but the root-special case routes
-            // through `navigateToRoot()` so the VM owns the "jump to
-            // root" semantics instead of the view mutating
-            // `navigationPath` directly.
-            if isRoot {
-                viewModel.navigateToRoot()
-            } else {
-                viewModel.navigate(to: crumb)
-            }
+            if isRoot { viewModel.navigateToRoot() } else { viewModel.navigate(to: crumb) }
         } label: {
-            Text(crumb.name)
-                .font(.callout.weight(isCurrent ? .semibold : .regular))
-                .foregroundStyle(isCurrent ? Color.primary : Color.secondary)
-                .lineLimit(1)
+            HStack(spacing: 5) {
+                Image(nsImage: iconCache.icon(for: crumb.url))
+                    .resizable()
+                    .frame(width: 18, height: 18)
+                Text(crumb.name)
+                    .font(.callout.weight(isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+            }
         }
         .buttonStyle(.plain)
         .disabled(isCurrent)
         .accessibilityIdentifier("space-lens.breadcrumb.\(tapIndex)")
     }
-
-    private func footer(current: DiskNode) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Total")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(current.formattedSize)
-                    .font(.title3.weight(.semibold))
-                    .accessibilityIdentifier("space-lens.totalSize")
-            }
-            Spacer()
-            Button("Re-scan") {
-                Task { await runScan() }
-            }
-            .accessibilityIdentifier("space-lens.rescan")
-        }
-        .padding(16)
-    }
-
-    // MARK: - Helpers
-
-    private func hasDisplayableChildren(_ node: DiskNode) -> Bool {
-        node.children.contains { $0.size > 0 }
-    }
-
-    /// Kick off a scan rooted at the home directory. The user's home is
-    /// the right default — Space Lens is "where on this volume are *my*
-    /// files" 95% of the time, and scanning the whole volume root would
-    /// stall for minutes on `/System` content the user cannot manage.
-    private func runScan() async {
-        await viewModel.startScan(root: Self.homeDirectoryURL)
-    }
-
-    /// Resolve the home directory once at module load so the runtime
-    /// never re-derives it. `URL(fileURLWithPath:)` against
-    /// `NSHomeDirectory()` returns the same path the rest of the app
-    /// (Large & Old Files, etc.) uses for user-file scans.
-    private static let homeDirectoryURL: URL = {
-        URL(fileURLWithPath: NSHomeDirectory())
-    }()
 }
 
-#Preview("Idle") {
-    SpaceLensView(
-        viewModel: DiskScannerViewModel(scanner: { _, _ in
-            DiskNode(
-                url: URL(fileURLWithPath: "/"),
-                name: "/",
-                size: 0,
-                isDirectory: true,
-                children: []
-            )
-        }),
-        viewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!)
+#Preview("Ready") {
+    let child = DiskNode(url: URL(fileURLWithPath: "/Users/me/Movies"), name: "Movies",
+                         size: 257_000_000_000, isDirectory: true, children: [], itemCount: 1200)
+    let docs = DiskNode(url: URL(fileURLWithPath: "/Users/me/Documents"), name: "Documents",
+                        size: 110_000_000_000, isDirectory: true, children: [], itemCount: 800)
+    let root = DiskNode(url: URL(fileURLWithPath: "/"), name: "Macintosh HD",
+                        size: 367_000_000_000, isDirectory: true, children: [child, docs], itemCount: 2000)
+    let vm = DiskScannerViewModel(
+        scanner: { _, _ in root },
+        volumeUsageProvider: { SpaceLensVolumeUsage(volumeName: "Macintosh HD", usedBytes: 1_300_000_000_000, totalBytes: 2_000_000_000_000) }
     )
-    .frame(width: 800, height: 520)
+    return SpaceLensView(viewModel: vm)
+        .frame(width: 1000, height: 640)
+        .task { await vm.startScan(root: URL(fileURLWithPath: "/")) }
 }

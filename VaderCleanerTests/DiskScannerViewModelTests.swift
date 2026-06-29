@@ -341,6 +341,92 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertTrue(vm.navigationPath.isEmpty)
     }
 
+    // MARK: - Back / forward history
+
+    /// `goBack` pops the path and `goForward` re-enters it — the breadcrumb's
+    /// `<` / `>` controls. Drilling somewhere new clears the forward trail.
+    func test_goBackAndForward_walkHistory() async {
+        let child = DiskNode(url: URL(fileURLWithPath: "/tmp/root/dir"), name: "dir",
+                             size: 10, isDirectory: true, children: [])
+        let root = DiskNode(url: URL(fileURLWithPath: "/tmp/root"), name: "root",
+                            size: 10, isDirectory: true, children: [child], itemCount: 1)
+        let vm = DiskScannerViewModel(scanner: { _, _ in root })
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+
+        vm.drillDown(into: child)
+        XCTAssertTrue(vm.currentNode === child)
+        XCTAssertFalse(vm.canGoForward)
+
+        vm.goBack()
+        XCTAssertTrue(vm.currentNode === root)
+        XCTAssertTrue(vm.canGoForward)
+
+        vm.goForward()
+        XCTAssertTrue(vm.currentNode === child)
+
+        // Drilling somewhere new wipes the forward history.
+        vm.goBack()
+        vm.drillDown(into: child)
+        XCTAssertFalse(vm.canGoForward)
+    }
+
+    // MARK: - Removal
+
+    /// `removeSelected` trashes the selected nodes' URLs and prunes them from
+    /// the displayed tree, clearing the selection and the review flag.
+    func test_removeSelected_trashesSelectionAndPrunesTree() async {
+        let keep = DiskNode(url: URL(fileURLWithPath: "/tmp/root/keep"), name: "keep",
+                            size: 100, isDirectory: false, children: [])
+        let drop = DiskNode(url: URL(fileURLWithPath: "/tmp/root/drop"), name: "drop",
+                            size: 200, isDirectory: false, children: [])
+        let root = DiskNode(url: URL(fileURLWithPath: "/tmp/root"), name: "root",
+                            size: 300, isDirectory: true, children: [keep, drop], itemCount: 2)
+
+        let trashed = Trashed()
+        let vm = DiskScannerViewModel(
+            scanner: { _, _ in root },
+            trash: { urls in await trashed.record(urls); return Set(urls) },
+            volumeUsageProvider: { SpaceLensVolumeUsage(volumeName: "T", usedBytes: 1, totalBytes: 10) }
+        )
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        vm.selection.toggle(drop)
+        vm.reviewActive = true
+
+        await vm.removeSelected()
+
+        let recorded = await trashed.urls
+        XCTAssertEqual(recorded, [drop.url])
+        XCTAssertEqual(vm.currentNode?.children.map(\.name), ["keep"])
+        XCTAssertTrue(vm.selection.isEmpty)
+        XCTAssertFalse(vm.reviewActive)
+    }
+
+    /// A node the sink fails to move stays in the tree and selected, so the user
+    /// can see it didn't go.
+    func test_removeSelected_keepsNodesTheSinkDidNotMove() async {
+        let drop = DiskNode(url: URL(fileURLWithPath: "/tmp/root/drop"), name: "drop",
+                            size: 200, isDirectory: false, children: [])
+        let root = DiskNode(url: URL(fileURLWithPath: "/tmp/root"), name: "root",
+                            size: 200, isDirectory: true, children: [drop], itemCount: 1)
+        let vm = DiskScannerViewModel(
+            scanner: { _, _ in root },
+            trash: { _ in [] } // nothing moved (e.g. locked file)
+        )
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        vm.selection.toggle(drop)
+
+        await vm.removeSelected()
+
+        XCTAssertEqual(vm.currentNode?.children.map(\.name), ["drop"])
+        XCTAssertTrue(vm.selection.isSelected(drop))
+    }
+
+    /// Actor that records what the injected trash sink was asked to remove.
+    private actor Trashed {
+        private(set) var urls: [URL] = []
+        func record(_ newURLs: [URL]) { urls.append(contentsOf: newURLs) }
+    }
+
     /// Clicking a breadcrumb crumb truncates the path so the named node
     /// becomes the new tail. Without this, navigating back N levels would
     /// require N separate `navigateUp` calls and the breadcrumb's

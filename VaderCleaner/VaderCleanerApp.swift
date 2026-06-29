@@ -32,7 +32,6 @@ struct VaderCleanerApp: App {
     @State private var systemJunkViewModel: SystemJunkViewModel
     @State private var myClutterViewModel: MyClutterViewModel
     @State private var spaceLensViewModel: DiskScannerViewModel
-    @State private var spaceLensViewMode: SpaceLensViewModeStore
     @State private var appUninstallerViewModel: AppUninstallerViewModel
     @State private var appUpdaterViewModel: AppUpdaterViewModel
     @State private var applicationsViewModel: ApplicationsViewModel
@@ -112,15 +111,6 @@ struct VaderCleanerApp: App {
         _spaceLensViewModel = State(
             initialValue: DiskScannerViewModel.live(exclusions: exclusions)
         )
-        // UI tests pass an isolated UserDefaults suite name so toggling the
-        // Space Lens view mode during a test doesn't mutate the developer's
-        // real preference. Production never sets this, so it falls back to
-        // `.standard`. This is real persistence pointed at a scratch domain,
-        // not a mock.
-        let viewModeDefaults = ProcessInfo.processInfo
-            .environment["UITEST_DEFAULTS_SUITE"]
-            .flatMap { UserDefaults(suiteName: $0) } ?? .standard
-        _spaceLensViewMode = State(initialValue: SpaceLensViewModeStore(defaults: viewModeDefaults))
         // The Protection dashboard owns the only live PrivacyViewModel now that
         // the standalone Privacy section is gone — it drives the dashboard's
         // browser + Recent Items tiles and the Protection Manager.
@@ -253,7 +243,6 @@ struct VaderCleanerApp: App {
                 systemJunkViewModel: systemJunkViewModel,
                 myClutterViewModel: myClutterViewModel,
                 spaceLensViewModel: spaceLensViewModel,
-                spaceLensViewMode: spaceLensViewMode,
                 appUninstallerViewModel: appUninstallerViewModel,
                 appUpdaterViewModel: appUpdaterViewModel,
                 applicationsViewModel: applicationsViewModel,
