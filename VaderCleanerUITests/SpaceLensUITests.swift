@@ -1,13 +1,13 @@
 // SpaceLensUITests.swift
-// End-to-end UI test for Space Lens — navigates to the section, taps the floating Scan on the unified intro, and waits for either the in-progress scan or the post-scan treemap, asserting that the wiring between sidebar selection, view-model, and view reaches the user's home directory.
+// End-to-end UI test for Space Lens — navigates to the section, taps the floating Scan on the unified intro, and waits for either the in-progress scan or the loaded bubble explorer, asserting the sidebar → view-model → view wiring reaches a recognizable state.
 
 import XCTest
 
-/// We do not assert on individual treemap tiles here. The home directory
-/// scanned by the test machine is whatever the CI / developer runner
-/// happens to have, so the only stable invariant is that the section
-/// loads and the scan reaches a recognizable state. Tile rendering is
-/// covered by `TreemapLayoutTests` against synthetic fixtures.
+/// We don't assert on individual bubbles or rows — the boot volume scanned by
+/// the test machine is whatever the CI / developer runner happens to have, so
+/// the only stable invariant is that the section loads and the scan reaches a
+/// recognizable state. Layout and selection logic are covered by the unit suites
+/// (`SpaceLensBubbleLayoutTests`, `SpaceLensSelectionTests`, …).
 final class SpaceLensUITests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -15,10 +15,6 @@ final class SpaceLensUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        // Persist the Space Lens view mode to a throwaway UserDefaults suite so
-        // the toggle test doesn't leak the last-selected mode into the real
-        // app preference (or couple test runs through shared state).
-        app.launchEnvironment["UITEST_DEFAULTS_SUITE"] = "VaderCleanerUITests.SpaceLens.\(UUID().uuidString)"
         app.launch()
     }
 
@@ -27,73 +23,48 @@ final class SpaceLensUITests: XCTestCase {
         app = nil
     }
 
-    /// Sidebar → Space Lens must reach either the in-progress scanning
-    /// indicator or the loaded treemap (or, on a permission-denied home
-    /// directory, the error banner). Any of these is evidence that the
-    /// view-model is alive and the scan kicked off — anything else is a
-    /// wiring regression.
-    func test_navigateToSpaceLens_scan_revealsScanningOrTreemap() throws {
+    /// Sidebar → Space Lens → Scan must reach either the in-progress scanning
+    /// indicator, the loaded bubble explorer, the empty placeholder, or the
+    /// error banner. Any of these proves the view-model is alive and the scan
+    /// kicked off — anything else is a wiring regression.
+    func test_navigateToSpaceLens_scan_revealsScanningOrExplorer() throws {
         dismissOnboardingIfNeeded()
         navigateToSpaceLensAndScan()
 
-        // After Scan we expect either the scanning indicator or — on tiny home
-        // folders / fast machines — the treemap to land before our timeout.
-        // The error banner is accepted as well: a CI runner without
-        // home-folder access should still surface a recognizable state, not
-        // hang on a blank canvas.
         let appeared = waitForAnySpaceLensState(timeout: 30)
         XCTAssertTrue(appeared,
                       "Expected to land on a recognizable Space Lens state after selection")
     }
 
-    /// Once results render, the treemap/sunburst toggle must switch the
-    /// visualization. We don't assert on specific arcs or tiles — the host's
-    /// home directory is whatever the runner happens to have — only that
-    /// tapping each toggle reveals that mode's view (or the shared empty
-    /// placeholder, on a folder with no displayable children). Both prove the
-    /// mode switch is wired through `SpaceLensViewModeStore`.
-    func test_navigateToSpaceLens_toggleSwitchesBetweenTreemapAndSunburst() throws {
+    /// If the scan reaches the ready state, the explorer's chrome must be wired:
+    /// the left list panel and the (disabled-until-selection) Review and Remove
+    /// button. Whole-volume scans are slow and need Full Disk Access, so a host
+    /// that never reaches ready skips rather than fails.
+    func test_readyState_showsListAndReviewControls() throws {
         dismissOnboardingIfNeeded()
         navigateToSpaceLensAndScan()
 
-        // The toggle only exists in the ready state. A permission-restricted or
-        // perpetually-scanning host can't exercise this path, so skip rather
-        // than fail — the toggle's wiring is what's under test, not the host's
-        // ability to finish a home-directory scan.
-        let sunburstToggle = app.buttons["space-lens.viewMode.sunburst"]
-        guard sunburstToggle.waitForExistence(timeout: 30) else {
-            throw XCTSkip("Space Lens did not reach the ready state on this host; the view-mode toggle only appears once results render.")
+        let list = app.groups["space-lens.list"]
+        guard list.waitForExistence(timeout: 60) else {
+            throw XCTSkip("Space Lens did not reach the ready state on this host; the explorer chrome only appears once results render.")
         }
-        let treemapToggle = app.buttons["space-lens.viewMode.treemap"]
-        XCTAssertTrue(treemapToggle.exists, "Both view-mode toggle buttons should be present")
-
-        sunburstToggle.click()
-        XCTAssertTrue(waitForSpaceLensState(["space-lens.sunburst", "space-lens.empty"], timeout: 5),
-                      "Tapping Sunburst should reveal the sunburst (or the empty placeholder)")
-
-        treemapToggle.click()
-        XCTAssertTrue(waitForSpaceLensState(["space-lens.treemap", "space-lens.empty"], timeout: 5),
-                      "Tapping Treemap should reveal the treemap (or the empty placeholder)")
+        XCTAssertTrue(app.buttons["space-lens.reviewAndRemove"].exists,
+                      "The Review and Remove button should be present in the ready state")
+        XCTAssertTrue(app.buttons["space-lens.startOver"].exists,
+                      "The Start Over control should be present in the ready state")
     }
 
     // MARK: - Helpers
 
-    /// Drive the sidebar → Space Lens → floating Scan flow shared by the tests.
-    /// Leaves the app in whatever post-Scan state the host's home directory
-    /// produces (scanning / ready / empty / error).
     private func navigateToSpaceLensAndScan() {
         let sidebarRow = app.buttons["sidebar.spaceLens"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
                       "Expected Space Lens row in sidebar")
         sidebarRow.click()
 
-        // Space Lens lands on the unified intro first; tapping the floating
-        // Scan kicks off the walk that previously ran automatically on appear.
         let intro = app.descendants(matching: .any)["section.intro"]
         XCTAssertTrue(intro.waitForExistence(timeout: 5),
                       "Expected the unified intro screen for Space Lens")
-        // The per-section identifier proves it is *Space Lens's* intro, not
-        // merely "an intro" — the "right title" contract.
         let spaceLensIntro = app.descendants(matching: .any)["section.intro.spacelens"]
         XCTAssertTrue(spaceLensIntro.waitForExistence(timeout: 5),
                       "Expected the Space Lens-specific intro identifier")
@@ -112,9 +83,8 @@ final class SpaceLensUITests: XCTestCase {
     }
 
     /// The floating Scan button gates FDA-sensitive sections behind an access
-    /// popover when Full Disk Access is missing — which it is on a test host
-    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
-    /// Anyway" so the scan proceeds and the wiring under test still runs.
+    /// popover when Full Disk Access is missing. Tap "Scan Anyway" so the scan
+    /// proceeds and the wiring under test still runs.
     private func proceedPastScanAccessPopoverIfNeeded() {
         let scanAnyway = app.buttons["fda.popover.scanAnyway"]
         if scanAnyway.waitForExistence(timeout: 5) {
@@ -123,21 +93,8 @@ final class SpaceLensUITests: XCTestCase {
     }
 
     private func waitForAnySpaceLensState(timeout: TimeInterval) -> Bool {
-        waitForSpaceLensState([
-            "space-lens.scanning",
-            "space-lens.treemap",
-            "space-lens.sunburst",
-            "space-lens.error",
-            "space-lens.empty"
-        ], timeout: timeout)
-    }
-
-    /// Wait for any of the given accessibility identifiers to appear as a
-    /// container group. Each Space Lens state (treemap, sunburst, empty, …)
-    /// marks its root with `accessibilityElement(children: .contain)`, so they
-    /// surface as groups.
-    private func waitForSpaceLensState(_ identifiers: [String], timeout: TimeInterval) -> Bool {
-        let predicate = NSPredicate(format: "identifier IN %@", identifiers)
+        let groupIDs = ["space-lens.scanning", "space-lens.bubbles", "space-lens.error", "space-lens.empty", "space-lens.list"]
+        let predicate = NSPredicate(format: "identifier IN %@", groupIDs)
         return app.groups.matching(predicate).firstMatch.waitForExistence(timeout: timeout)
     }
 }

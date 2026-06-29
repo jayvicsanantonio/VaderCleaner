@@ -1,37 +1,41 @@
 // SpaceLensHoverCard.swift
-// Floating details card the Space Lens treemap and sunburst overlay while the pointer hovers a tile/segment — shows the item's name, size, share of the current folder, and path.
+// Floating details card the Space Lens bubble chart overlays while the pointer hovers a bubble — shows the item's name, category, size, item count, and last-modified date, placed beside the bubble so it never covers the cursor.
 
 import SwiftUI
 import CoreGraphics
 
-/// Small material card surfaced on hover by both Space Lens visualizations.
-/// Reports the hovered item's name, formatted size, its share of the folder
-/// currently shown, and its path, so the user gets at-a-glance detail without
-/// drilling in. Stateless and view-agnostic — the treemap and sunburst each
-/// track which node is hovered and feed the values in.
+/// Small material card surfaced on hover by the Space Lens bubble chart. Reports
+/// the hovered item's name, its category ("System folder" / "Folder" / "File"),
+/// formatted size, descendant count, and last-modified date — the at-a-glance
+/// detail the reference UI shows. Stateless: the bubble view tracks which node
+/// is hovered and feeds the values in.
 struct SpaceLensHoverCard: View {
 
     let name: String
+    /// Display category, e.g. "System folder". Tinted with the warning color
+    /// when `categoryIsProtected` so protected items read as off-limits.
+    let category: String
+    let categoryIsProtected: Bool
     let formattedSize: String
-    /// Share of the currently-displayed folder, in `[0, 1]`.
-    let fraction: Double
-    let path: String
+    let itemCount: Int
+    let modificationDate: Date?
+    /// Running removal selection totals, shown as a trailing "Selected:" line
+    /// when anything is selected (matching the reference card).
+    var selectedCount: Int = 0
+    var selectedSize: Int64 = 0
 
-    /// Fixed width the visualizations frame the card to, so the anchor-clamping
+    /// Fixed width the bubble view frames the card to, so the anchor-clamping
     /// math has a known size to keep the card on-canvas.
     static let preferredWidth: CGFloat = 260
     /// Half the card's assumed height, used to clamp its center within the
-    /// canvas and to push the card clear of the hovered item. A slight
-    /// overestimate is harmless — it just keeps a tall card from being clipped
-    /// at the bottom edge.
-    static let halfHeight: CGFloat = 48
-    /// Breathing room left between the hovered item and the nearest card edge
-    /// when the card is placed beside the item.
+    /// canvas and to push the card clear of the hovered bubble. A slight
+    /// overestimate is harmless — it just keeps a tall card from being clipped.
+    static let halfHeight: CGFloat = 52
+    /// Breathing room left between the hovered bubble and the nearest card edge.
     static let anchorGap: CGFloat = 8
 
     /// Clamp the card's center so a card of `preferredWidth` stays fully inside
-    /// `bounds`. Anchored to the hovered item, an arc near the edge would
-    /// otherwise push the card off-canvas.
+    /// `bounds`. A bubble near the edge would otherwise push the card off-canvas.
     static func clampedCenter(anchor: CGPoint, in bounds: CGSize) -> CGPoint {
         let halfWidth = preferredWidth / 2
         let minX = halfWidth
@@ -44,12 +48,10 @@ struct SpaceLensHoverCard: View {
         )
     }
 
-    /// Center for the card describing a treemap tile, placed just above or
-    /// below the tile — outside its bounds — so it never covers the pointer,
-    /// which sits somewhere inside the tile. Prefers below the tile; flips
-    /// above when the card wouldn't fit beneath. The result is clamped on-canvas
-    /// (a tile taller than the canvas minus the card can still force overlap, an
-    /// accepted edge case).
+    /// Center for the card describing a bubble whose bounding box is `rect`,
+    /// placed just above or below the bubble — outside its bounds — so it never
+    /// covers the pointer inside the bubble. Prefers below; flips above when the
+    /// card wouldn't fit beneath. Clamped on-canvas.
     static func anchor(forTile rect: CGRect, in bounds: CGSize) -> CGPoint {
         let belowY = rect.maxY + anchorGap + halfHeight
         let aboveY = rect.minY - anchorGap - halfHeight
@@ -57,73 +59,72 @@ struct SpaceLensHoverCard: View {
         return clampedCenter(anchor: CGPoint(x: rect.midX, y: y), in: bounds)
     }
 
-    /// Center for the card describing a sunburst segment, pushed radially past
-    /// the segment's outer edge along its mid-angle. The push includes the
-    /// card's support distance in that direction (`|cos|·halfWidth +
-    /// |sin|·halfHeight`) so the rectangle clears the arc whatever the angle —
-    /// a wide card needs far more clearance toward 3/9 o'clock than 12/6. The
-    /// result is clamped on-canvas; on a canvas too small to fit the card beside
-    /// the ring the clamp can still pull it back over a side segment, an
-    /// accepted edge case.
-    static func anchor(
-        forSegmentMidAngle midAngle: Double,
-        outerRadius: CGFloat,
-        center: CGPoint,
-        in bounds: CGSize
-    ) -> CGPoint {
-        let dx = CGFloat(cos(midAngle))
-        let dy = CGFloat(sin(midAngle))
-        let support = abs(dx) * (preferredWidth / 2) + abs(dy) * halfHeight
-        let reach = outerRadius + anchorGap + support
-        let anchor = CGPoint(x: center.x + dx * reach, y: center.y + dy * reach)
-        return clampedCenter(anchor: anchor, in: bounds)
+    /// "Jun 1, 2026 at 1:34 PM" — the medium-date / short-time form the
+    /// reference card uses. Exposed for tests.
+    static func formattedModified(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        return dateFormatter.string(from: date)
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(name)
                 .font(.callout.weight(.semibold))
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            HStack(spacing: 8) {
-                Text(formattedSize)
-                    .monospacedDigit()
-                Text(Self.percent(fraction))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+            Text(category)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(categoryIsProtected ? Color(red: 1.0, green: 0.74, blue: 0.27) : Color.white.opacity(0.7))
+            Text("Size: \(formattedSize)  |  \(Self.itemsLabel(itemCount))")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.85))
+            if let modified = Self.formattedModified(modificationDate) {
+                Text(String(localized: "Modified: \(modified)"))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
             }
-            .font(.caption)
-            Text(path)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.head)
+            if selectedCount > 0 {
+                Text("Selected: \(ByteCountFormatter.string(fromByteCount: selectedSize, countStyle: .binary))  |  \(Self.itemsLabel(selectedCount))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Color(red: 0.96, green: 0.45, blue: 0.85))
+            }
         }
-        .padding(10)
-        .frame(maxWidth: 320, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+        .frame(maxWidth: Self.preferredWidth, alignment: .leading)
+        .background(Color(red: 0.10, green: 0.08, blue: 0.16).opacity(0.96),
+                    in: RoundedRectangle(cornerRadius: 12))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("space-lens.hoverInfo")
     }
 
-    /// "12.3%". One fraction digit (unlike the whole-percent scan readout) so a
-    /// small file or folder still shows a non-zero share on hover.
-    private static func percent(_ ratio: Double) -> String {
-        let clamped = max(0.0, min(1.0, ratio))
-        return clamped.formatted(.percent.precision(.fractionLength(1)))
+    /// "155 items" / "1 item".
+    private static func itemsLabel(_ count: Int) -> String {
+        count == 1 ? String(localized: "1 item") : String(localized: "\(count) items")
     }
 }
 
 #Preview {
     SpaceLensHoverCard(
-        name: "Xcode.app",
-        formattedSize: "12.3 GB",
-        fraction: 0.214,
-        path: "/Applications/Xcode.app"
+        name: "Shared",
+        category: "System folder",
+        categoryIsProtected: true,
+        formattedSize: "809 KB",
+        itemCount: 155,
+        modificationDate: Date()
     )
     .padding()
     .frame(width: 360, height: 160)

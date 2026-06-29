@@ -14,7 +14,6 @@ struct ContentView: View {
     private let systemJunkViewModel: SystemJunkViewModel
     private let myClutterViewModel: MyClutterViewModel
     private let spaceLensViewModel: DiskScannerViewModel
-    private let spaceLensViewMode: SpaceLensViewModeStore
     private let appUninstallerViewModel: AppUninstallerViewModel
     private let appUpdaterViewModel: AppUpdaterViewModel
     private let applicationsViewModel: ApplicationsViewModel
@@ -83,7 +82,6 @@ struct ContentView: View {
         systemJunkViewModel: SystemJunkViewModel,
         myClutterViewModel: MyClutterViewModel,
         spaceLensViewModel: DiskScannerViewModel,
-        spaceLensViewMode: SpaceLensViewModeStore,
         appUninstallerViewModel: AppUninstallerViewModel,
         appUpdaterViewModel: AppUpdaterViewModel,
         applicationsViewModel: ApplicationsViewModel,
@@ -96,7 +94,6 @@ struct ContentView: View {
         self.systemJunkViewModel = systemJunkViewModel
         self.myClutterViewModel = myClutterViewModel
         self.spaceLensViewModel = spaceLensViewModel
-        self.spaceLensViewMode = spaceLensViewMode
         self.appUninstallerViewModel = appUninstallerViewModel
         self.appUpdaterViewModel = appUpdaterViewModel
         self.applicationsViewModel = applicationsViewModel
@@ -382,7 +379,7 @@ struct ContentView: View {
             }
         case .spaceLens:
             ScannableSectionContent(coordinator: spaceLensViewModel, section: section) {
-                SpaceLensView(viewModel: spaceLensViewModel, viewMode: spaceLensViewMode)
+                SpaceLensView(viewModel: spaceLensViewModel)
             }
         case .applications:
             ScannableSectionContent(coordinator: applicationsViewModel, section: section) {
@@ -470,7 +467,6 @@ private extension AnyTransition {
             scanScope: myClutterScanScope
         ),
         spaceLensViewModel: DiskScannerViewModel.live(exclusions: exclusions),
-        spaceLensViewMode: SpaceLensViewModeStore(defaults: UserDefaults(suiteName: "preview")!),
         appUninstallerViewModel: AppUninstallerViewModel.live(exclusions: exclusions),
         appUpdaterViewModel: AppUpdaterViewModel.live(),
         applicationsViewModel: ApplicationsViewModel.live(),

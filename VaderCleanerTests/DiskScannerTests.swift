@@ -64,6 +64,31 @@ final class DiskScannerTests: XCTestCase {
         XCTAssertEqual(root.size, 96)
     }
 
+    /// The scanner rolls up a recursive descendant count and captures each
+    /// node's modification date — the metadata the Space Lens list ("N items")
+    /// and hover card ("Modified: …") read.
+    func test_scan_populatesItemCountAndModificationDate() async throws {
+        let aDir = tempRoot.appendingPathComponent("a", isDirectory: true)
+        let bDir = aDir.appendingPathComponent("b", isDirectory: true)
+        try FileManager.default.createDirectory(at: bDir, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "1.bin", size: 32, in: aDir)
+        try TestHelpers.createDummyFile(named: "2.bin", size: 64, in: bDir)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        // Descendants of root: a, a/1.bin, a/b, a/b/2.bin = 4.
+        XCTAssertEqual(root.itemCount, 4)
+        let aNode = try XCTUnwrap(root.children.first { $0.name == "a" })
+        // a, a/1.bin, a/b, a/b/2.bin minus a itself = 3 beneath a.
+        XCTAssertEqual(aNode.itemCount, 3)
+        let oneBin = try XCTUnwrap(aNode.children.first { $0.name == "1.bin" })
+        XCTAssertEqual(oneBin.itemCount, 0)
+
+        XCTAssertNotNil(root.modificationDate)
+        XCTAssertNotNil(oneBin.modificationDate)
+    }
+
     func test_scan_treatsPackageDirectoryAsLeafWithRolledUpSize() async throws {
         let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
         let contents = package.appendingPathComponent("Contents", isDirectory: true)

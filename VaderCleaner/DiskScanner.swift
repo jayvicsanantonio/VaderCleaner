@@ -75,7 +75,8 @@ struct DiskScanner: DiskScanning {
         .isPackageKey,
         .isSymbolicLinkKey,
         .fileSizeKey,
-        .nameKey
+        .nameKey,
+        .contentModificationDateKey
     ]
 
     private static let resourceKeySet = Set(resourceKeys)
@@ -158,8 +159,22 @@ struct DiskScanner: DiskScanning {
             progress: progress,
             canonicalExclusions: canonicalExclusions,
             pathMapper: pathMapper,
-            isRoot: true
+            isRoot: true,
+            rootName: Self.volumeRootName(for: resolvedRoot)
         )
+    }
+
+    /// The friendly name to show for the scan root when it is the mount point
+    /// of a volume — e.g. "Macintosh HD" for `/` — so Space Lens's breadcrumb
+    /// reads the volume name rather than "/". Returns `nil` when the root is an
+    /// ordinary subdirectory (the volume's mount point is somewhere above it),
+    /// in which case the node keeps its own directory name.
+    private static func volumeRootName(for url: URL) -> String? {
+        guard let values = try? url.resourceValues(forKeys: [.volumeURLKey, .volumeNameKey]),
+              let volumeURL = values.volume,
+              volumeURL.standardizedFileURL == url.standardizedFileURL
+        else { return nil }
+        return values.volumeName
     }
 
     /// Recursive builder. Returns the node for `url`, having recursed into
@@ -189,13 +204,17 @@ struct DiskScanner: DiskScanning {
         progress: @escaping (Int) -> Void,
         canonicalExclusions: [String],
         pathMapper: PathExclusionMatcher.CanonicalPathMapper?,
-        isRoot: Bool = false
+        isRoot: Bool = false,
+        rootName: String? = nil
     ) async throws -> DiskNode {
         try Task.checkCancellation()
         await Task.yield()
 
         let resourceValues = try? url.resourceValues(forKeys: resourceKeySet)
-        let name = resourceValues?.name ?? url.lastPathComponent
+        // The volume name wins for the scan root (see `volumeRootName`); every
+        // other node uses its own file-system name.
+        let name = (isRoot ? rootName : nil) ?? resourceValues?.name ?? url.lastPathComponent
+        let modificationDate = resourceValues?.contentModificationDate
         let isSymlink = resourceValues?.isSymbolicLink ?? false
 
         // The recursion entry point should never receive a symlink — the
@@ -208,7 +227,9 @@ struct DiskScanner: DiskScanning {
                 size: 0,
                 isDirectory: false,
                 children: [],
-                isAccessible: true
+                isAccessible: true,
+                itemCount: 0,
+                modificationDate: modificationDate
             )
         }
 
@@ -226,7 +247,9 @@ struct DiskScanner: DiskScanning {
                 size: bytes,
                 isDirectory: false,
                 children: [],
-                isAccessible: true
+                isAccessible: true,
+                itemCount: 0,
+                modificationDate: modificationDate
             )
         }
 
@@ -252,7 +275,12 @@ struct DiskScanner: DiskScanning {
                 size: result.size,
                 isDirectory: false,
                 children: [],
-                isAccessible: result.isAccessible
+                isAccessible: result.isAccessible,
+                // A package is a leaf in the tree, so it has no descendants to
+                // count; the sizer's modified date is more accurate than the
+                // bundle directory's own stamp.
+                itemCount: 0,
+                modificationDate: result.lastModifiedDate ?? modificationDate
             )
         }
 
@@ -286,13 +314,16 @@ struct DiskScanner: DiskScanning {
                 size: 0,
                 isDirectory: true,
                 children: [],
-                isAccessible: false
+                isAccessible: false,
+                itemCount: 0,
+                modificationDate: modificationDate
             )
         }
 
         var children: [DiskNode] = []
         children.reserveCapacity(entries.count)
         var rolledUpSize: Int64 = 0
+        var rolledUpItemCount = 0
 
         for entry in entries {
             let entryValues = try? entry.resourceValues(forKeys: resourceKeySet)
@@ -320,6 +351,8 @@ struct DiskScanner: DiskScanning {
                 pathMapper: pathMapper
             )
             rolledUpSize += child.size
+            // Each kept child counts as itself plus everything beneath it.
+            rolledUpItemCount += 1 + child.itemCount
             children.append(child)
         }
 
@@ -329,7 +362,9 @@ struct DiskScanner: DiskScanning {
             size: rolledUpSize,
             isDirectory: true,
             children: children,
-            isAccessible: true
+            isAccessible: true,
+            itemCount: rolledUpItemCount,
+            modificationDate: modificationDate
         )
     }
 }

@@ -51,6 +51,17 @@ final class DiskNode: Identifiable {
     /// affordance instead of pretending the directory is empty.
     let isAccessible: Bool
 
+    /// Number of descendants beneath this node — every file and subfolder,
+    /// counted recursively. A leaf file has no descendants, so its own value
+    /// is 0; a directory counts each child as `1 + the child's itemCount`.
+    /// Pre-rolled by the scanner so the list ("N items") and the
+    /// selected-items counter read it from a single property.
+    let itemCount: Int
+
+    /// Last content-modification date, or `nil` when the scanner couldn't read
+    /// it. Surfaced in the Space Lens hover card's "Modified: …" line.
+    let modificationDate: Date?
+
     init(
         id: UUID = UUID(),
         url: URL,
@@ -58,7 +69,9 @@ final class DiskNode: Identifiable {
         size: Int64,
         isDirectory: Bool,
         children: [DiskNode],
-        isAccessible: Bool = true
+        isAccessible: Bool = true,
+        itemCount: Int = 0,
+        modificationDate: Date? = nil
     ) {
         self.id = id
         self.url = url
@@ -67,6 +80,51 @@ final class DiskNode: Identifiable {
         self.isDirectory = isDirectory
         self.children = children
         self.isAccessible = isAccessible
+        self.itemCount = itemCount
+        self.modificationDate = modificationDate
+    }
+
+    /// A copy of this subtree with every node whose `id` is in `ids` removed,
+    /// and each surviving ancestor's `size` and `itemCount` recomputed from the
+    /// children that remain. Lets Space Lens reflect a Trash removal without
+    /// re-walking the volume.
+    ///
+    /// Survivors keep their original `id` (and modification date) so the
+    /// breadcrumb path can be remapped onto the pruned tree. A node never
+    /// removes *itself* here — a parent drops a matching child before
+    /// recursing — so calling this on the root keeps the root and prunes only
+    /// its descendants. Returns `self` unchanged when nothing in `ids` is
+    /// present, so the no-op path allocates nothing.
+    func removing(_ ids: Set<UUID>) -> DiskNode {
+        guard !ids.isEmpty, isDirectory, !children.isEmpty else { return self }
+
+        var newChildren: [DiskNode] = []
+        newChildren.reserveCapacity(children.count)
+        var changed = false
+        for child in children {
+            if ids.contains(child.id) {
+                changed = true
+                continue
+            }
+            let prunedChild = child.removing(ids)
+            if prunedChild !== child { changed = true }
+            newChildren.append(prunedChild)
+        }
+        guard changed else { return self }
+
+        let rolledUpSize = newChildren.reduce(Int64(0)) { $0 + $1.size }
+        let rolledUpCount = newChildren.reduce(0) { $0 + 1 + $1.itemCount }
+        return DiskNode(
+            id: id,
+            url: url,
+            name: name,
+            size: rolledUpSize,
+            isDirectory: isDirectory,
+            children: newChildren,
+            isAccessible: isAccessible,
+            itemCount: rolledUpCount,
+            modificationDate: modificationDate
+        )
     }
 
     /// Shared, pre-configured formatter so each `formattedSize` access
