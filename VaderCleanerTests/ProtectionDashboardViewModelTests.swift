@@ -52,6 +52,44 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(sut.scanPresentation, .results)
     }
 
+    // MARK: - Smart Scan pre-warm
+
+    /// After a Smart Scan, the dashboard seeds its malware tile from the scan's
+    /// results and kicks off the fast privacy preview so both are ready when the
+    /// user opens Protection — without re-running the (already-completed) malware
+    /// scan.
+    func test_prewarmFromSmartScan_seedsMalwareAndStartsPrivacyPreview() async {
+        let sut = makeSUT(privacyDetector: { [] })   // no browsers → lands in .preview
+
+        sut.prewarmFromSmartScan(threats: [threat], clamAVAvailable: true, scannedAt: Date())
+
+        XCTAssertTrue(sut.hasScanned)
+        XCTAssertEqual(sut.scanPresentation, .results)
+        XCTAssertEqual(sut.malware.phase, .results([threat]))
+        await waitUntil { sut.privacy.phase == .preview }
+        XCTAssertEqual(sut.privacy.phase, .preview)
+    }
+
+    /// A clean Smart Scan (no threats) seeds the malware tile to `.clean`.
+    func test_prewarmFromSmartScan_seedsCleanWhenNoThreats() {
+        let sut = makeSUT()
+        sut.prewarmFromSmartScan(threats: [], clamAVAvailable: true, scannedAt: Date())
+        XCTAssertEqual(sut.malware.phase, .clean)
+    }
+
+    /// If the user already scanned Protection here, a later Smart Scan pre-warm
+    /// must not disturb the flow.
+    func test_prewarmFromSmartScan_isNoOpWhenAlreadyScanned() {
+        let sut = makeSUT()
+        sut.beginScan()
+        let malwarePhaseBefore = sut.malware.phase
+
+        sut.prewarmFromSmartScan(threats: [threat], clamAVAvailable: true, scannedAt: Date())
+
+        XCTAssertEqual(sut.malware.phase, malwarePhaseBefore,
+                       "Pre-warm is gated on hasScanned, so it must not re-seed the malware flow")
+    }
+
     // MARK: - Stop
 
     func test_stoppingMalware_keepsDashboardVisible() {

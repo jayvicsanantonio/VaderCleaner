@@ -41,13 +41,12 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertTrue(content.body.contains("Eicar-Test-Signature"))
     }
 
-    /// Low-disk notification embeds the free percentage so the user sees the
-    /// severity without opening the app. The percentage is rounded to whole
-    /// percent for readability.
-    func test_lowDisk_buildsContentWithPercent() {
-        let content = NotificationManager.makeLowDiskContent(freePercent: 7.4)
+    /// Low-disk notification embeds the free space (Finder-style units) so the
+    /// user sees the severity without opening the app.
+    func test_lowDisk_buildsContentWithFreeSpace() {
+        let content = NotificationManager.makeLowDiskContent(freeBytes: 8_000_000_000)
         XCTAssertTrue(content.title.lowercased().contains("disk"))
-        XCTAssertTrue(content.body.contains("7%") || content.body.contains("7.4"))
+        XCTAssertTrue(content.body.contains("GB"))
     }
 
     /// High-RAM notification surfaces the pressure level string verbatim so a

@@ -35,10 +35,20 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertTrue(sut.notifyHighRAM)
         XCTAssertTrue(sut.notifyMalwareFound)
         XCTAssertTrue(sut.notifyLargeFilesFound)
-        XCTAssertEqual(sut.diskSpaceThresholdPercent, 10.0, accuracy: 0.001)
+        XCTAssertEqual(sut.diskFreeThresholdGB, 10)
         XCTAssertTrue(sut.launchAtLogin)
         XCTAssertTrue(sut.showMenuBar)
         XCTAssertFalse(sut.menuBarShowsReading)
+        // Notifications pane parity defaults — every row ships enabled.
+        XCTAssertTrue(sut.remindSmartCare)
+        XCTAssertEqual(sut.smartCareFrequency, .weekly)
+        XCTAssertTrue(sut.notifyTrashSize)
+        XCTAssertEqual(sut.trashSizeThresholdGB, 2)
+        XCTAssertTrue(sut.notifyDeviceBatteryLow)
+        XCTAssertTrue(sut.notifyDriveConnected)
+        XCTAssertTrue(sut.notifyOverfilledDrives)
+        XCTAssertTrue(sut.offerUninstallOnTrash)
+        XCTAssertTrue(sut.notifyHungApps)
     }
 
     // MARK: - Persistence
@@ -53,10 +63,34 @@ final class PreferencesStoreTests: XCTestCase {
 
     func test_persistsThresholdAcrossInstances() {
         let writer = PreferencesStore(defaults: defaults)
-        writer.diskSpaceThresholdPercent = 25.0
+        writer.diskFreeThresholdGB = 25
 
         let reader = PreferencesStore(defaults: defaults)
-        XCTAssertEqual(reader.diskSpaceThresholdPercent, 25.0, accuracy: 0.001)
+        XCTAssertEqual(reader.diskFreeThresholdGB, 25)
+    }
+
+    func test_persistsNotificationPaneSettingsAcrossInstances() {
+        let writer = PreferencesStore(defaults: defaults)
+        writer.remindSmartCare = false
+        writer.smartCareFrequency = .monthly
+        writer.notifyTrashSize = false
+        writer.trashSizeThresholdGB = 5
+        writer.notifyDeviceBatteryLow = false
+        writer.notifyDriveConnected = false
+        writer.notifyOverfilledDrives = false
+        writer.offerUninstallOnTrash = false
+        writer.notifyHungApps = false
+
+        let reader = PreferencesStore(defaults: defaults)
+        XCTAssertFalse(reader.remindSmartCare)
+        XCTAssertEqual(reader.smartCareFrequency, .monthly)
+        XCTAssertFalse(reader.notifyTrashSize)
+        XCTAssertEqual(reader.trashSizeThresholdGB, 5)
+        XCTAssertFalse(reader.notifyDeviceBatteryLow)
+        XCTAssertFalse(reader.notifyDriveConnected)
+        XCTAssertFalse(reader.notifyOverfilledDrives)
+        XCTAssertFalse(reader.offerUninstallOnTrash)
+        XCTAssertFalse(reader.notifyHungApps)
     }
 
     func test_persistsAllNotificationToggles() {

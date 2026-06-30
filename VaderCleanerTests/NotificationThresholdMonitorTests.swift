@@ -11,17 +11,23 @@ final class StubNotificationDispatcher: NotificationDispatching {
 
     enum Call: Equatable {
         case requestPermission
-        case lowDisk(freePercent: Double)
+        case lowDisk(freeBytes: Int64)
         case highRAM(pressureLevel: String)
         case malware(threatName: String)
         case largeFiles(count: Int, totalSize: Int64)
+        case trashSize(sizeBytes: Int64)
+        case deviceBatteryLow(deviceName: String, percent: Int)
+        case driveConnected(volumeName: String)
+        case overfilledDrive(volumeName: String, freeBytes: Int64, totalBytes: Int64)
+        case appTrashed(appName: String)
+        case hungApp(appName: String)
     }
 
     private(set) var calls: [Call] = []
 
     func requestPermission() async { calls.append(.requestPermission) }
-    func sendLowDiskNotification(freePercent: Double) {
-        calls.append(.lowDisk(freePercent: freePercent))
+    func sendLowDiskNotification(freeBytes: Int64) {
+        calls.append(.lowDisk(freeBytes: freeBytes))
     }
     func sendHighRAMNotification(pressureLevel: String) {
         calls.append(.highRAM(pressureLevel: pressureLevel))
@@ -31,6 +37,24 @@ final class StubNotificationDispatcher: NotificationDispatching {
     }
     func sendLargeFilesFoundNotification(count: Int, totalSize: Int64) {
         calls.append(.largeFiles(count: count, totalSize: totalSize))
+    }
+    func sendTrashSizeNotification(sizeBytes: Int64) {
+        calls.append(.trashSize(sizeBytes: sizeBytes))
+    }
+    func sendDeviceBatteryLowNotification(deviceName: String, percent: Int) {
+        calls.append(.deviceBatteryLow(deviceName: deviceName, percent: percent))
+    }
+    func sendDriveConnectedNotification(volumeName: String) {
+        calls.append(.driveConnected(volumeName: volumeName))
+    }
+    func sendOverfilledDriveNotification(volumeName: String, freeBytes: Int64, totalBytes: Int64) {
+        calls.append(.overfilledDrive(volumeName: volumeName, freeBytes: freeBytes, totalBytes: totalBytes))
+    }
+    func sendAppTrashedNotification(appName: String) {
+        calls.append(.appTrashed(appName: appName))
+    }
+    func sendHungAppNotification(appName: String) {
+        calls.append(.hungApp(appName: appName))
     }
 }
 
@@ -83,12 +107,12 @@ final class NotificationThresholdMonitorTests: XCTestCase {
         )
     }
 
-    /// Builds a `DiskStats` with the requested free percentage. `total` is held
-    /// constant at 1 TB so the math is easy to read in test bodies.
-    private func disk(freePercent: Double) -> DiskStats {
+    /// Builds a `DiskStats` with the requested free gigabytes (decimal GB).
+    /// `total` is held constant at 1 TB so the math is easy to read in test bodies.
+    private func disk(freeGB: Int) -> DiskStats {
         let total: UInt64 = 1_000_000_000_000
-        let free = UInt64(Double(total) * (freePercent / 100.0))
-        let used = total - free
+        let free = UInt64(freeGB) * 1_000_000_000
+        let used = total > free ? total - free : 0
         return DiskStats(usedBytes: used, totalBytes: total)
     }
 
@@ -108,18 +132,18 @@ final class NotificationThresholdMonitorTests: XCTestCase {
 
     // MARK: - Low-disk dispatch
 
-    func test_lowDisk_firesWhenFreePercentBelowThresholdAndToggleOn() {
+    func test_lowDisk_firesWhenFreeBelowThresholdAndToggleOn() {
         preferences.notifyLowDisk = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = makeMonitor()
 
-        monitor.evaluate(disk: disk(freePercent: 8.0))
+        monitor.evaluate(disk: disk(freeGB: 8))
 
         XCTAssertEqual(dispatcher.calls.count, 1)
-        if case .lowDisk(let freePercent)? = dispatcher.calls.first {
-            // Free percent passed through unchanged so the notification can
-            // format it however it wants.
-            XCTAssertEqual(freePercent, 8.0, accuracy: 0.01)
+        if case .lowDisk(let freeBytes)? = dispatcher.calls.first {
+            // Free bytes pass through unchanged so the notification can format
+            // them however it wants (8 decimal GB here).
+            XCTAssertEqual(freeBytes, 8_000_000_000)
         } else {
             XCTFail("Expected a .lowDisk call, got \(dispatcher.calls)")
         }
@@ -127,10 +151,10 @@ final class NotificationThresholdMonitorTests: XCTestCase {
 
     func test_lowDisk_doesNotFireWhenToggleOff() {
         preferences.notifyLowDisk = false
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = makeMonitor()
 
-        monitor.evaluate(disk: disk(freePercent: 5.0))
+        monitor.evaluate(disk: disk(freeGB: 5))
 
         XCTAssertTrue(dispatcher.calls.isEmpty,
                       "Notification must respect the user's preference toggle")
@@ -138,24 +162,24 @@ final class NotificationThresholdMonitorTests: XCTestCase {
 
     func test_lowDisk_doesNotFireAboveThreshold() {
         preferences.notifyLowDisk = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = makeMonitor()
 
-        monitor.evaluate(disk: disk(freePercent: 15.0))
+        monitor.evaluate(disk: disk(freeGB: 15))
 
         XCTAssertTrue(dispatcher.calls.isEmpty)
     }
 
     func test_lowDisk_doesNotReFireWithinCooldown() {
         preferences.notifyLowDisk = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = makeMonitor()
 
         // First crossing fires.
-        monitor.evaluate(disk: disk(freePercent: 8.0))
+        monitor.evaluate(disk: disk(freeGB: 8))
         // 4:59 later — still under the 5-minute cooldown.
         virtualNow = virtualNow.addingTimeInterval(299)
-        monitor.evaluate(disk: disk(freePercent: 6.0))
+        monitor.evaluate(disk: disk(freeGB: 6))
 
         XCTAssertEqual(dispatcher.calls.count, 1,
                        "Second sample inside the cooldown must not re-trigger")
@@ -163,13 +187,13 @@ final class NotificationThresholdMonitorTests: XCTestCase {
 
     func test_lowDisk_reFiresAfterCooldownElapses() {
         preferences.notifyLowDisk = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = makeMonitor()
 
-        monitor.evaluate(disk: disk(freePercent: 8.0))
+        monitor.evaluate(disk: disk(freeGB: 8))
         // Step past the 5-minute boundary.
         virtualNow = virtualNow.addingTimeInterval(301)
-        monitor.evaluate(disk: disk(freePercent: 6.0))
+        monitor.evaluate(disk: disk(freeGB: 6))
 
         XCTAssertEqual(dispatcher.calls.count, 2)
     }
@@ -226,10 +250,10 @@ final class NotificationThresholdMonitorTests: XCTestCase {
     func test_cooldownsAreIndependentPerKind() {
         preferences.notifyLowDisk = true
         preferences.notifyHighRAM = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = makeMonitor()
 
-        monitor.evaluate(disk: disk(freePercent: 5.0))
+        monitor.evaluate(disk: disk(freeGB: 5))
         // Still inside the disk cooldown, but RAM has its own clock.
         monitor.evaluate(ram: memory(forLevel: .critical))
 
@@ -267,7 +291,7 @@ final class NotificationThresholdMonitorTests: XCTestCase {
     /// permission.
     func test_doesNotDispatchBeforePermissionResolved() {
         preferences.notifyLowDisk = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = NotificationThresholdMonitor(
             stats: stats,
             preferences: preferences,
@@ -277,7 +301,7 @@ final class NotificationThresholdMonitorTests: XCTestCase {
             // assumesPermissionResolved defaults to false
         )
 
-        monitor.evaluate(disk: disk(freePercent: 5.0))
+        monitor.evaluate(disk: disk(freeGB: 5))
         monitor.evaluate(ram: memory(forLevel: .critical))
         monitor.triggerMalwareDetected(threatName: "X")
         monitor.triggerLargeFilesFound(count: 1, totalSize: 1)
@@ -293,7 +317,7 @@ final class NotificationThresholdMonitorTests: XCTestCase {
     func test_dispatchesImmediatelyAfterPermissionResolves() async {
         preferences.notifyLowDisk = true
         preferences.notifyHighRAM = true
-        preferences.diskSpaceThresholdPercent = 10.0
+        preferences.diskFreeThresholdGB = 10
         let monitor = NotificationThresholdMonitor(
             stats: stats,
             preferences: preferences,
@@ -303,19 +327,19 @@ final class NotificationThresholdMonitorTests: XCTestCase {
         )
 
         // Pre-resolution: gate suppresses everything.
-        monitor.evaluate(disk: disk(freePercent: 5.0))
+        monitor.evaluate(disk: disk(freeGB: 5))
         XCTAssertTrue(dispatcher.calls.filter { !isPermissionRequest($0) }.isEmpty)
 
         // Resolve.
         await monitor.requestPermission()
 
         // Post-resolution: dispatch fires.
-        monitor.evaluate(disk: disk(freePercent: 5.0))
+        monitor.evaluate(disk: disk(freeGB: 5))
 
         let dispatches = dispatcher.calls.filter { !isPermissionRequest($0) }
         XCTAssertEqual(dispatches.count, 1, "Post-grant low-disk alert should fire on the next reading")
-        if case .lowDisk(let pct) = dispatches.first {
-            XCTAssertEqual(pct, 5.0, accuracy: 0.01)
+        if case .lowDisk(let freeBytes) = dispatches.first {
+            XCTAssertEqual(freeBytes, 5_000_000_000)
         } else {
             XCTFail("Expected a .lowDisk dispatch, got \(dispatches)")
         }

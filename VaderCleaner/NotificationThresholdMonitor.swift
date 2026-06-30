@@ -78,8 +78,8 @@ final class NotificationThresholdMonitor {
     ///   - stats: Source of disk/RAM readings. The monitor subscribes to
     ///     `$diskSpace` and `$ramUsage` and forwards each new value to the
     ///     `evaluate(disk:)` / `evaluate(ram:)` paths below.
-    ///   - preferences: Backing store for the four notification toggles and
-    ///     `diskSpaceThresholdPercent`.
+    ///   - preferences: Backing store for the notification toggles and
+    ///     `diskFreeThresholdGB`.
     ///   - dispatcher: Notification sink. Production passes
     ///     `NotificationManager()`; tests pass a recording stub.
     ///   - cooldown: Per-kind minimum interval between successive dispatches.
@@ -170,7 +170,7 @@ final class NotificationThresholdMonitor {
     /// if all four conditions hold:
     ///   1. Permission has been resolved (see `hasResolvedPermission`).
     ///   2. The user has `notifyLowDisk` enabled.
-    ///   3. Free percentage is strictly below `diskSpaceThresholdPercent`.
+    ///   3. Free space is strictly below `diskFreeThresholdGB` gigabytes.
     ///   4. The low-disk cooldown has elapsed since the last firing.
     /// `totalBytes == 0` short-circuits to no-op — that is the pre-first-
     /// refresh placeholder and would otherwise compute a 0% free reading.
@@ -182,12 +182,13 @@ final class NotificationThresholdMonitor {
         let freeBytes = disk.totalBytes > disk.usedBytes
             ? disk.totalBytes - disk.usedBytes
             : 0
-        let freePercent = Double(freeBytes) / Double(disk.totalBytes) * 100.0
+        // Decimal GB to match the Finder-style sizes the picker and banner show.
+        let thresholdBytes = UInt64(max(0, preferences.diskFreeThresholdGB)) * 1_000_000_000
 
-        guard freePercent < preferences.diskSpaceThresholdPercent else { return }
+        guard freeBytes < thresholdBytes else { return }
         guard isCooldownElapsed(.lowDisk) else { return }
 
-        dispatcher.sendLowDiskNotification(freePercent: freePercent)
+        dispatcher.sendLowDiskNotification(freeBytes: Int64(freeBytes))
         lastFired[.lowDisk] = now()
     }
 

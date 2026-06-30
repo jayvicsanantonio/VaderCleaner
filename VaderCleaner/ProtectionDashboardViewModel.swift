@@ -50,6 +50,19 @@ final class ProtectionDashboardViewModel {
         privacy.beginScan()
     }
 
+    /// Populates the dashboard from a completed Smart Scan so the user never has
+    /// to scan Protection by hand afterwards. The malware tile is seeded from the
+    /// scan's own results (no re-scan), and the fast privacy preview is kicked off
+    /// so its tiles are ready too — unlike `beginScan()`, which would redundantly
+    /// re-run the malware scan. A no-op once the user has scanned here, so it
+    /// never disrupts a scan they started themselves.
+    func prewarmFromSmartScan(threats: [MalwareThreat], clamAVAvailable: Bool, scannedAt date: Date) {
+        guard !hasScanned else { return }
+        hasScanned = true
+        malware.seed(threats: threats, clamAVAvailable: clamAVAvailable, scannedAt: date)
+        if case .idle = privacy.phase { privacy.beginScan() }
+    }
+
     /// Resets both flows to idle and returns the section to its intro screen.
     func startOver() {
         // `cancel()` returns the malware flow to idle from any phase (scanning,

@@ -549,37 +549,97 @@ private struct NotificationsTab: View {
 
     @Environment(PreferencesStore.self) private var preferences
 
+    /// Picker option sets for the inline dropdowns.
+    private let trashSizeOptions = [1, 2, 5, 10, 20]
+    private let diskFreeOptions = [5, 10, 25, 50, 100, 200]
+
     var body: some View {
         @Bindable var preferences = preferences
         Form {
-            Section("Alert me when") {
-                Toggle("Disk space is running low", isOn: $preferences.notifyLowDisk)
-                Toggle("RAM usage is high", isOn: $preferences.notifyHighRAM)
-                Toggle("Malware is found", isOn: $preferences.notifyMalwareFound)
-                Toggle("Large files are detected", isOn: $preferences.notifyLargeFilesFound)
+            Section("General") {
+                toggleWithPicker(
+                    "Remind to run regular Smart Care",
+                    isOn: $preferences.remindSmartCare
+                ) {
+                    Picker("", selection: $preferences.smartCareFrequency) {
+                        ForEach(SmartCareFrequency.allCases) { freq in
+                            Text(freq.label).tag(freq)
+                        }
+                    }
+                }
+
+                toggleWithPicker(
+                    "Notify if Trash size exceeds",
+                    isOn: $preferences.notifyTrashSize
+                ) {
+                    Picker("", selection: $preferences.trashSizeThresholdGB) {
+                        ForEach(trashSizeOptions, id: \.self) { gb in
+                            Text("\(gb) GB").tag(gb)
+                        }
+                    }
+                }
+
+                Toggle("Warn when connected device batteries are running low", isOn: $preferences.notifyDeviceBatteryLow)
+                Toggle("Notify when too low on free RAM", isOn: $preferences.notifyHighRAM)
+
+                // Kept from the prior Notifications tab — not in the reference
+                // design but still useful alerts the app already supports.
+                Toggle("Notify when malware is found", isOn: $preferences.notifyMalwareFound)
+                Toggle("Notify when large files are detected", isOn: $preferences.notifyLargeFilesFound)
             }
 
-            Section("Disk space threshold") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Slider(
-                        value: $preferences.diskSpaceThresholdPercent,
-                        in: 1...50,
-                        step: 1
-                    ) {
-                        Text("Disk space threshold")
-                    } minimumValueLabel: {
-                        Text("1%")
-                    } maximumValueLabel: {
-                        Text("50%")
+            Section("Disk Space") {
+                toggleWithPicker(
+                    "Warn when free space is less than",
+                    isOn: $preferences.notifyLowDisk
+                ) {
+                    Picker("", selection: $preferences.diskFreeThresholdGB) {
+                        ForEach(diskFreeOptions, id: \.self) { gb in
+                            Text("\(gb) GB").tag(gb)
+                        }
                     }
-                    Text("Notify when free space drops below \(Int(preferences.diskSpaceThresholdPercent))%")
+                }
+
+                Toggle("Notify when a drive is connected to the Mac", isOn: $preferences.notifyDriveConnected)
+                Toggle("Suggest to clean up overfilled external drives", isOn: $preferences.notifyOverfilledDrives)
+            }
+
+            Section("Applications") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Offer to uninstall applications correctly", isOn: $preferences.offerUninstallOnTrash)
+                    Text("If you put an application into Trash, you will be offered to uninstall it correctly.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .disabled(!preferences.notifyLowDisk)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Notify about hung applications", isOn: $preferences.notifyHungApps)
+                    Text("If any of your apps stop responding, use an easy way of force quitting them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// A checkbox row with an inline trailing dropdown, gated so the picker
+    /// disables when the toggle is off — the pattern the reference design uses
+    /// for the frequency / threshold rows.
+    @ViewBuilder
+    private func toggleWithPicker(
+        _ title: String,
+        isOn: Binding<Bool>,
+        @ViewBuilder picker: () -> some View
+    ) -> some View {
+        HStack {
+            Toggle(title, isOn: isOn)
+            Spacer(minLength: 12)
+            picker()
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!isOn.wrappedValue)
+        }
     }
 }
 
