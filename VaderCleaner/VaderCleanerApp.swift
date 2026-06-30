@@ -27,6 +27,7 @@ struct VaderCleanerApp: App {
     @State private var preferences: PreferencesStore
     @State private var exclusions: ExclusionsStore
     @State private var myClutterScanScope: MyClutterScanScopeStore
+    @State private var webDevScanScope: WebDevScanScopeStore
     @State private var smartScanSettings: SmartScanSettingsStore
     @State private var protectionSettings: ProtectionSettingsStore
     @State private var systemJunkViewModel: SystemJunkViewModel
@@ -94,6 +95,12 @@ struct VaderCleanerApp: App {
         // per scan so a just-picked folder takes effect on the next run.
         let myClutterScanScope = MyClutterScanScopeStore()
         _myClutterScanScope = State(initialValue: myClutterScanScope)
+        // Which folders the Web Development Junk project scan walks. Captured by
+        // `SystemJunkViewModel.live` / `SmartScanViewModel.live` below, which
+        // snapshot it per scan so a folder picked in Settings → Scanning takes
+        // effect on the next run.
+        let webDevScanScope = WebDevScanScopeStore()
+        _webDevScanScope = State(initialValue: webDevScanScope)
         // "Customize Smart Care" choices (which Smart Scan modules and System
         // Junk categories to include). Captured by `SmartScanViewModel.live`
         // below, which snapshots it per scan so a Settings toggle takes effect
@@ -106,7 +113,7 @@ struct VaderCleanerApp: App {
         let protectionSettings = ProtectionSettingsStore()
         _protectionSettings = State(initialValue: protectionSettings)
         _systemJunkViewModel = State(
-            initialValue: SystemJunkViewModel.live(exclusions: exclusions)
+            initialValue: SystemJunkViewModel.live(exclusions: exclusions, webDevScanScope: webDevScanScope)
         )
         _myClutterViewModel = State(
             initialValue: MyClutterViewModel.live(
@@ -174,7 +181,7 @@ struct VaderCleanerApp: App {
         // the standalone junk scanner uses and snapshots it per scan, so an
         // exclusion added in Preferences takes effect on the next Smart Scan.
         _smartScanViewModel = State(
-            initialValue: SmartScanViewModel.live(exclusions: exclusions, settings: smartScanSettings)
+            initialValue: SmartScanViewModel.live(exclusions: exclusions, settings: smartScanSettings, webDevScanScope: webDevScanScope)
         )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
@@ -270,6 +277,7 @@ struct VaderCleanerApp: App {
                 .environment(preferences)
                 .environment(exclusions)
                 .environment(myClutterScanScope)
+                .environment(webDevScanScope)
                 .environment(smartScanSettings)
                 .environment(protectionSettings)
                 .environment(settingsRouter)
@@ -304,6 +312,7 @@ struct VaderCleanerApp: App {
             PreferencesView()
                 .environment(preferences)
                 .environment(exclusions)
+                .environment(webDevScanScope)
                 .environment(smartScanSettings)
                 .environment(protectionSettings)
                 .environment(settingsRouter)

@@ -24,6 +24,7 @@ enum ScanCategory: String, CaseIterable, Codable, Hashable {
     case oldFile
     case xcodeJunk
     case documentVersions
+    case webDevJunk
 
     /// User-facing label used in the System Junk preview rows and the
     /// Smart Scan summary cards. Kept on the enum so every caller renders
@@ -42,6 +43,7 @@ enum ScanCategory: String, CaseIterable, Codable, Hashable {
         case .oldFile: return "Old Files"
         case .xcodeJunk: return "Xcode Junk"
         case .documentVersions: return "Document Versions"
+        case .webDevJunk: return "Web Development Junk"
         }
     }
 }

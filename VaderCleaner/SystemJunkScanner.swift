@@ -31,22 +31,35 @@ struct SystemJunkScanner {
     private let fileScanner: FileScanning
     private let pathProvider: SystemPathProviding
     private let documentVersionsEnumerator: PrivilegedEnumerator
+    private let developerProjectEnumerator: PrivilegedEnumerator
 
     init(
         fileScanner: FileScanning = FileScanner(),
         pathProvider: SystemPathProviding = DefaultSystemPathProvider(),
-        documentVersionsEnumerator: @escaping PrivilegedEnumerator = { [] }
+        documentVersionsEnumerator: @escaping PrivilegedEnumerator = { [] },
+        developerProjectEnumerator: @escaping PrivilegedEnumerator = { [] }
     ) {
         self.fileScanner = fileScanner
         self.pathProvider = pathProvider
         self.documentVersionsEnumerator = documentVersionsEnumerator
+        self.developerProjectEnumerator = developerProjectEnumerator
     }
 
     /// Production scanner wired to enumerate the Document Versions store through
-    /// the privileged helper. Used by the Cleanup section and Smart Scan so both
-    /// surface the same junk categories.
-    static func live() -> SystemJunkScanner {
-        SystemJunkScanner(documentVersionsEnumerator: { await DocumentVersionsScanner().scan() })
+    /// the privileged helper and the scattered web/dev project folders through
+    /// `DeveloperProjectScanner`. Used by the Cleanup section and Smart Scan so
+    /// both surface the same junk categories.
+    ///
+    /// `projectScanRoots` defaults to the user's saved Web Development Junk scope
+    /// (`WebDevScanScopeStore`); callers that own a live scope store pass its
+    /// roots so a freshly-picked folder takes effect on the next scan.
+    @MainActor
+    static func live(projectScanRoots: [URL]? = nil) -> SystemJunkScanner {
+        let roots = projectScanRoots ?? WebDevScanScopeStore().scanRoots
+        return SystemJunkScanner(
+            documentVersionsEnumerator: { await DocumentVersionsScanner().scan() },
+            developerProjectEnumerator: { await DeveloperProjectScanner(roots: roots).scan() }
+        )
     }
 
     /// Runs the scan and returns aggregated results. `excluding` is forwarded
@@ -65,6 +78,12 @@ struct SystemJunkScanner {
         // The default enumerator returns nothing, so this is a no-op unless the
         // production scanner wired one in.
         let documentVersions = await documentVersionsEnumerator()
-        return ScanResult(items: files + documentVersions)
+        // Scattered web/dev project artifacts (node_modules, dist, …) live at
+        // arbitrary depths under the user's code directories, so they come from
+        // the developer-project enumerator rather than a fixed scan root. The
+        // default enumerator returns nothing, so this is a no-op unless the
+        // production scanner wired one in.
+        let developerProjects = await developerProjectEnumerator()
+        return ScanResult(items: files + documentVersions + developerProjects)
     }
 }

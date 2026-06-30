@@ -130,6 +130,50 @@ final class DefaultSystemPathProviderTests: XCTestCase {
         XCTAssertTrue(roots.contains(xcode.appendingPathComponent("Archives", isDirectory: true)))
     }
 
+    // MARK: - Web development caches
+
+    /// The global package-manager caches all live in the user domain (under the
+    /// home directory) so they're readable and removable in-process.
+    func test_webDevCacheRoots_areUnderHomeDirectory() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+
+        let roots = DefaultSystemPathProvider.webDevCacheRoots(homeDirectory: home)
+
+        XCTAssertFalse(roots.isEmpty, "Expected at least one web-dev cache root")
+        for root in roots {
+            XCTAssertTrue(
+                root.path.hasPrefix(home.path + "/"),
+                "Web-dev cache root \(root.path) must live under the home directory"
+            )
+        }
+    }
+
+    /// The npm cache is the canonical heavy web-toolchain cache and must always
+    /// be covered.
+    func test_webDevCacheRoots_includeNpmCache() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+
+        let roots = DefaultSystemPathProvider.webDevCacheRoots(homeDirectory: home)
+
+        XCTAssertTrue(roots.contains(home.appendingPathComponent(".npm", isDirectory: true)))
+    }
+
+    /// Every web-dev cache root is tagged `.webDevJunk` in the assembled scan
+    /// roots so its findings fold into the Web Development Junk card.
+    func test_roots_tagWebDevCachesAsWebDevJunk() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+        let provider = DefaultSystemPathProvider(homeDirectory: home)
+
+        let roots = provider.roots()
+
+        let cacheURLs = Set(DefaultSystemPathProvider.webDevCacheRoots(homeDirectory: home))
+        let tagged = roots.filter { cacheURLs.contains($0.url) }
+        XCTAssertEqual(tagged.count, cacheURLs.count, "Every web-dev cache root must be present in the assembled roots")
+        for root in tagged {
+            XCTAssertEqual(root.category, .webDevJunk)
+        }
+    }
+
     // MARK: - Document Versions store
 
     /// The Document Versions store path is shared with the privileged helper

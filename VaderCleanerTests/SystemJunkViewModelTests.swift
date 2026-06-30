@@ -275,6 +275,85 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTAssertEqual(vm.totalSelectedSize, 300)
     }
 
+    // MARK: - Per-category selected bytes (Cleanup Manager badge)
+
+    /// Toggling a file must move its bytes into (and out of) its own category's
+    /// running total, leaving sibling categories untouched — so the manager's
+    /// per-category badge reads O(1) instead of re-scanning every file.
+    func test_selectedBytesPerCategory_tracksTogglesPerCategory() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 30, category: .userCache)
+        let log = makeFile(name: "c", size: 250, category: .userLogs)
+        let result = makeResult((.userCache, [cacheA, cacheB]), (.userLogs, [log]))
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+
+        vm.toggleSelection(cacheA)
+        vm.toggleSelection(log)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 100)
+        XCTAssertEqual(vm.selectedBytes(in: .userLogs), 250)
+        XCTAssertEqual(vm.selectedBytes(in: .trash), 0, "Untouched categories read zero")
+
+        vm.toggleSelection(cacheB)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 130)
+
+        vm.toggleSelection(cacheA)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 30, "Deselecting subtracts only that file")
+        XCTAssertEqual(vm.selectedBytes(in: .userLogs), 250, "A sibling category is unaffected")
+    }
+
+    /// The per-category totals must equal the grand total at all times.
+    func test_selectedBytesPerCategory_sumsToTotalSelectedSize() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let log = makeFile(name: "c", size: 250, category: .userLogs)
+        let result = makeResult((.userCache, [cacheA]), (.userLogs, [log]))
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+
+        vm.toggleSelection(cacheA)
+        vm.toggleSelection(log)
+
+        XCTAssertEqual(
+            vm.selectedBytes(in: .userCache) + vm.selectedBytes(in: .userLogs),
+            vm.totalSelectedSize
+        )
+    }
+
+    /// `selectOnly` rebuilds the per-category totals to exactly the chosen
+    /// group's files, zeroing categories that fall outside the group.
+    func test_selectedBytesPerCategory_afterSelectOnly() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 200, category: .systemCache)
+        let trash = makeFile(name: "t", size: 400, category: .trash)
+        let result = makeResult((.userCache, [cacheA]), (.systemCache, [cacheB]), (.trash, [trash]))
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+        vm.toggleSelection(trash) // a pre-existing selection outside the group
+
+        vm.selectOnly(categories: [.userCache, .systemCache])
+
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 100)
+        XCTAssertEqual(vm.selectedBytes(in: .systemCache), 200)
+        XCTAssertEqual(vm.selectedBytes(in: .trash), 0, "selectOnly clears categories outside the group")
+    }
+
+    /// A fresh scan and `scanAgain()` must drop the per-category totals so the
+    /// badge never carries a previous run's selection forward.
+    func test_selectedBytesPerCategory_clearedOnScanAndScanAgain() async {
+        let file = makeFile(name: "a", size: 100, category: .userCache)
+        let result = makeResult((.userCache, [file]))
+        let vm = makeViewModel(scanner: { result }, deleter: { _ in 100 })
+
+        await vm.scan()
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 0, "A fresh scan selects nothing")
+
+        vm.toggleSelection(file)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 100)
+
+        vm.scanAgain()
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 0)
+    }
+
     // MARK: - Clean by category (dashboard card "Clean")
 
     /// `clean(categories:)` backs a dashboard card's Clean button: it must

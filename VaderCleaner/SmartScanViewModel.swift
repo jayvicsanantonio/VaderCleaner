@@ -945,7 +945,8 @@ extension SmartScanViewModel {
     @MainActor
     static func live(
         exclusions: ExclusionsStore,
-        settings: SmartScanSettingsStore
+        settings: SmartScanSettingsStore,
+        webDevScanScope: WebDevScanScopeStore? = nil
     ) -> SmartScanViewModel {
         let detector = ClamAVDetector()
         let scanner = ClamAVScanner(detector: detector)
@@ -955,9 +956,11 @@ extension SmartScanViewModel {
                          category: "SmartScanViewModel.live")
 
         return SmartScanViewModel(
-            junkScanner: { [weak exclusions] onProgress in
+            junkScanner: { [weak exclusions, weak webDevScanScope] onProgress in
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await SystemJunkScanner.live().scan(excluding: excluded, onProgress: onProgress)
+                let projectRoots = webDevScanScope?.scanRoots
+                return try await SystemJunkScanner.live(projectScanRoots: projectRoots)
+                    .scan(excluding: excluded, onProgress: onProgress)
             },
             malwareInstalled: { detector.isInstalled() },
             // Best-effort: a missing signature database or a broken clamscan

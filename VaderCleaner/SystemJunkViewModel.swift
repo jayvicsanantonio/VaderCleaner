@@ -74,6 +74,13 @@ final class SystemJunkViewModel {
     /// O(1) rather than walking the (potentially large) result on every read.
     private(set) var totalSelectedSize: Int64 = 0
 
+    /// Per-category running total of selected bytes, maintained in lockstep with
+    /// `totalSelectedSize`. Lets the Cleanup Manager's per-category "selected"
+    /// badge read in O(1) instead of reducing over every file in the category on
+    /// every render — the walk that beachballed switching between categories on
+    /// large scans.
+    private(set) var selectedBytesByCategory: [ScanCategory: Int64] = [:]
+
     /// Running count of filesystem items the in-flight scan has walked. Reset
     /// to 0 at the start of each scan and fed by the scanner's progress
     /// callback so the scanning screen can show "Scanned N items…" — proof the
@@ -114,6 +121,12 @@ final class SystemJunkViewModel {
         selectedURLs.contains(file.url)
     }
 
+    /// Selected bytes in one category — an O(1) read backing the Cleanup
+    /// Manager's per-category selected-size badge.
+    func selectedBytes(in category: ScanCategory) -> Int64 {
+        selectedBytesByCategory[category] ?? 0
+    }
+
     /// Flip the selection state for `file` and adjust `totalSelectedSize` in
     /// lockstep. Idempotent in the sense that two calls in a row return the VM
     /// to its prior selection.
@@ -121,9 +134,11 @@ final class SystemJunkViewModel {
         if selectedURLs.contains(file.url) {
             selectedURLs.remove(file.url)
             totalSelectedSize -= file.size
+            selectedBytesByCategory[file.category, default: 0] -= file.size
         } else {
             selectedURLs.insert(file.url)
             totalSelectedSize += file.size
+            selectedBytesByCategory[file.category, default: 0] += file.size
         }
     }
 
@@ -135,12 +150,15 @@ final class SystemJunkViewModel {
         guard let result = latestResult else { return }
         var urls: Set<URL> = []
         var total: Int64 = 0
+        var bytesByCategory: [ScanCategory: Int64] = [:]
         for file in result.items where categories.contains(file.category) {
             urls.insert(file.url)
             total += file.size
+            bytesByCategory[file.category, default: 0] += file.size
         }
         selectedURLs = urls
         totalSelectedSize = total
+        selectedBytesByCategory = bytesByCategory
     }
 
     /// Run the injected scanner and land in `.preview` (or `.failed`).
@@ -173,12 +191,14 @@ final class SystemJunkViewModel {
             // clean in the Cleanup Manager.
             self.selectedURLs = []
             self.totalSelectedSize = 0
+            self.selectedBytesByCategory = [:]
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
             self.latestResult = nil
             self.selectedURLs = []
             self.totalSelectedSize = 0
+            self.selectedBytesByCategory = [:]
             self.phase = .failed(stage: .scanning, message: error.localizedDescription)
         }
     }
@@ -193,6 +213,7 @@ final class SystemJunkViewModel {
         // Match `scan()`: start with nothing selected so the user opts in.
         selectedURLs = []
         totalSelectedSize = 0
+        selectedBytesByCategory = [:]
         phase = .preview(result)
     }
 
@@ -237,6 +258,7 @@ final class SystemJunkViewModel {
         latestResult = nil
         selectedURLs = []
         totalSelectedSize = 0
+        selectedBytesByCategory = [:]
         scannedItemCount = 0
         phase = .idle
     }
@@ -265,9 +287,12 @@ extension SystemJunkViewModel {
     /// volume trashes). The exclusions snapshot is captured per scan so a
     /// freshly-added Preferences exclusion takes effect on the very next run.
     @MainActor
-    static func live(exclusions: ExclusionsStore) -> SystemJunkViewModel {
+    static func live(
+        exclusions: ExclusionsStore,
+        webDevScanScope: WebDevScanScopeStore? = nil
+    ) -> SystemJunkViewModel {
         SystemJunkViewModel(
-            scanner: { [weak exclusions] onProgress in
+            scanner: { [weak exclusions, weak webDevScanScope] onProgress in
                 // Both `scan()` (the caller) and this closure inherit the
                 // enclosing `@MainActor` isolation, so the `exclusions`
                 // snapshot can be read directly without an explicit
@@ -277,7 +302,12 @@ extension SystemJunkViewModel {
                 // `await`; `onProgress` is forwarded so the walked-item count
                 // reaches the scanning screen.
                 let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                return try await SystemJunkScanner.live().scan(excluding: excluded, onProgress: onProgress)
+                // The Web Development Junk project-scan roots are snapshotted
+                // here too, so a folder picked in Settings takes effect on the
+                // next scan.
+                let projectRoots = webDevScanScope?.scanRoots
+                return try await SystemJunkScanner.live(projectScanRoots: projectRoots)
+                    .scan(excluding: excluded, onProgress: onProgress)
             },
             deleter: { files in
                 try await SystemJunkDeleter().delete(files)

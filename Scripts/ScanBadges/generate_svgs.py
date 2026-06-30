@@ -115,6 +115,12 @@ EMBLEMS = {
       <line x1="130" y1="88" x2="110" y2="154" stroke="#ffffff"
             stroke-width="12" stroke-linecap="round"/>
     """,
+    "webDevJunk": """
+      <path d="M120 80 L158 101 L120 122 L82 101 Z" fill="#ffffff"/>
+      <path d="M82 101 L120 122 L120 166 L82 145 Z" fill="#ffffff" opacity="0.78"/>
+      <path d="M158 101 L120 122 L120 166 L158 145 Z" fill="#ffffff" opacity="0.55"/>
+      <line x1="120" y1="122" x2="120" y2="166" stroke="{dark}" stroke-width="4" opacity="0.5"/>
+    """,
     "documentVersions": """
       <path d="M90 76 H132 L158 102 V164 Q158 171 151 171 H90 Q83 171 83 164 V83 Q83 76 90 76 Z"
             fill="#ffffff"/>
@@ -237,6 +243,7 @@ BADGES = {
     "applications": "blue",
     "myClutter": "purple",
     "xcodeJunk": "green",
+    "webDevJunk": "green",
     "documentVersions": "green",
     "userCacheFiles": "green",
     "cleanupSystemJunk": "green",

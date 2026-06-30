@@ -17,7 +17,7 @@ final class ScanCategoryTests: XCTestCase {
     /// any future case addition is a deliberate test update, not a silent
     /// expansion that breaks downstream UI assumptions.
     func test_allCases_containsAllExpectedCategories() {
-        XCTAssertEqual(ScanCategory.allCases.count, 12)
+        XCTAssertEqual(ScanCategory.allCases.count, 13)
         XCTAssertTrue(ScanCategory.allCases.contains(.systemCache))
         XCTAssertTrue(ScanCategory.allCases.contains(.userCache))
         XCTAssertTrue(ScanCategory.allCases.contains(.systemLogs))
@@ -30,6 +30,7 @@ final class ScanCategoryTests: XCTestCase {
         XCTAssertTrue(ScanCategory.allCases.contains(.oldFile))
         XCTAssertTrue(ScanCategory.allCases.contains(.xcodeJunk))
         XCTAssertTrue(ScanCategory.allCases.contains(.documentVersions))
+        XCTAssertTrue(ScanCategory.allCases.contains(.webDevJunk))
     }
 
     /// Every case must produce a non-empty user-facing label so the UI never
@@ -52,5 +53,6 @@ final class ScanCategoryTests: XCTestCase {
         XCTAssertEqual(ScanCategory.largeFile.rawValue, "largeFile")
         XCTAssertEqual(ScanCategory.xcodeJunk.rawValue, "xcodeJunk")
         XCTAssertEqual(ScanCategory.documentVersions.rawValue, "documentVersions")
+        XCTAssertEqual(ScanCategory.webDevJunk.rawValue, "webDevJunk")
     }
 }
