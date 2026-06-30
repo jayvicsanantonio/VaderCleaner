@@ -90,6 +90,26 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
                        "Pre-warm is gated on hasScanned, so it must not re-seed the malware flow")
     }
 
+    // MARK: - Scan completion (drives the "scan finished" notification)
+
+    /// `isScanComplete` is false before a scan and true only once both the
+    /// malware scan and the privacy preview have settled — the signal the
+    /// completion notifier keys off (since `scanPresentation` is `.results` the
+    /// moment scanning starts).
+    func test_isScanComplete_falseBeforeScan_trueWhenBothChildrenSettle() async {
+        let sut = makeSUT(
+            malwareScan: { _, _ in [] },     // clean
+            privacyDetector: { [] }          // no browsers → lands in .preview
+        )
+        XCTAssertFalse(sut.isScanComplete, "No scan has started yet")
+
+        sut.beginScan()
+        await waitUntil { sut.malware.phase == .clean }
+        await waitUntil { sut.privacy.phase == .preview }
+
+        XCTAssertTrue(sut.isScanComplete)
+    }
+
     // MARK: - Stop
 
     func test_stoppingMalware_keepsDashboardVisible() {

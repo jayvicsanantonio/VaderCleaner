@@ -10,6 +10,7 @@ struct ContentView: View {
     @Environment(SystemStatsService.self) private var systemStats
     @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
     @Environment(NotificationMonitors.self) private var notificationMonitors
+    @Environment(ScanCompletionNotifier.self) private var scanCompletionNotifier
     @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.scenePhase) private var scenePhase
     private let systemJunkViewModel: SystemJunkViewModel
@@ -217,7 +218,8 @@ struct ContentView: View {
                 scanDiscController.attach(
                     to: window,
                     railWidth: railWidth,
-                    appState: appState
+                    appState: appState,
+                    scanCompletionNotifier: scanCompletionNotifier
                 )
             }
         )
@@ -334,6 +336,7 @@ struct ContentView: View {
         // Only Smart Scan auto-starts from the menu's "Run Smart Scan" — the
         // other deep-links just reveal the section and let the user act.
         if startScan, target == .smartScan {
+            scanCompletionNotifier.armScan(section: .smartScan, coordinator: smartScanViewModel)
             smartScanViewModel.beginScan()
         }
     }
@@ -496,5 +499,6 @@ private extension AnyTransition {
             dispatcher: notificationManager
         ))
         .environment(NotificationMonitors(preferences: prefs, dispatcher: notificationManager))
+        .environment(ScanCompletionNotifier(preferences: prefs, dispatcher: notificationManager))
         .environment(MenuRouter())
 }

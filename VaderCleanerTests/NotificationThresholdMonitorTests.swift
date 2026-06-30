@@ -21,6 +21,7 @@ final class StubNotificationDispatcher: NotificationDispatching {
         case overfilledDrive(volumeName: String, freeBytes: Int64, totalBytes: Int64)
         case appTrashed(appName: String)
         case hungApp(appName: String)
+        case scanFinished(scanName: String)
     }
 
     private(set) var calls: [Call] = []
@@ -55,6 +56,9 @@ final class StubNotificationDispatcher: NotificationDispatching {
     }
     func sendHungAppNotification(appName: String) {
         calls.append(.hungApp(appName: appName))
+    }
+    func sendScanFinishedNotification(scanName: String) {
+        calls.append(.scanFinished(scanName: scanName))
     }
 }
 

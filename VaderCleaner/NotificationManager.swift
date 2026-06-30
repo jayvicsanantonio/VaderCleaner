@@ -23,6 +23,7 @@ protocol NotificationDispatching: AnyObject {
     func sendOverfilledDriveNotification(volumeName: String, freeBytes: Int64, totalBytes: Int64)
     func sendAppTrashedNotification(appName: String)
     func sendHungAppNotification(appName: String)
+    func sendScanFinishedNotification(scanName: String)
 }
 
 /// Production `NotificationDispatching` backed by
@@ -171,6 +172,10 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
         deliver(content: Self.makeHungAppContent(appName: appName))
     }
 
+    func sendScanFinishedNotification(scanName: String) {
+        deliver(content: Self.makeScanFinishedContent(scanName: scanName))
+    }
+
     /// Schedules `content` for immediate delivery. A unique request identifier
     /// per call avoids collapsing into a still-displayed banner from a previous
     /// firing — the monitor's per-kind cooldown already prevents spam, and
@@ -282,6 +287,14 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
         let content = UNMutableNotificationContent()
         content.title = "\(appName) Is Not Responding"
         content.body = "\(appName) stopped responding. You can force quit it from the menu bar."
+        content.sound = .default
+        return content
+    }
+
+    static func makeScanFinishedContent(scanName: String) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Scan Complete"
+        content.body = "Your \(scanName) scan has finished. Open VaderCleaner to review the results."
         content.sound = .default
         return content
     }

@@ -67,6 +67,8 @@ struct VaderCleanerApp: App {
     // size, drive mounts, device batteries, hung apps, trashed apps, Smart Care
     // reminder). Started from the same post-launch path that requests permission.
     @State private var notificationMonitors: NotificationMonitors
+    // Fires a "scan complete" banner when a user-initiated scan finishes.
+    @State private var scanCompletionNotifier: ScanCompletionNotifier
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -192,6 +194,9 @@ struct VaderCleanerApp: App {
         _notificationMonitors = State(
             initialValue: NotificationMonitors(preferences: prefs, dispatcher: notificationManager)
         )
+        _scanCompletionNotifier = State(
+            initialValue: ScanCompletionNotifier(preferences: prefs, dispatcher: notificationManager)
+        )
     }
 
     /// Surfaces a launchd registration failure to the user. Kept on the App
@@ -271,6 +276,7 @@ struct VaderCleanerApp: App {
                 .environment(systemStats)
                 .environment(notificationMonitor)
                 .environment(notificationMonitors)
+                .environment(scanCompletionNotifier)
                 .environment(menuRouter)
         }
         // Hide the title bar so no section title is drawn beside the traffic

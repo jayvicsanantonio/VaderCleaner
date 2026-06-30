@@ -83,6 +83,42 @@ final class ProtectionDashboardViewModel {
             return false
         }
     }
+
+    /// Whether the malware scan has settled into a non-scanning state — a real
+    /// result, a clean bill, a finished removal, a failure, or "needs install"
+    /// (ClamAV absent, so nothing more will happen).
+    private var malwareSettled: Bool {
+        switch malware.phase {
+        case .results, .clean, .done, .failed, .needsInstall:
+            return true
+        case .idle, .checkingClamAV, .updatingDatabase, .scanning, .removing:
+            return false
+        }
+    }
+
+    /// Whether the privacy preview has settled (finished previewing, cleared, or
+    /// failed) rather than still being in flight.
+    private var privacySettled: Bool {
+        switch privacy.phase {
+        case .preview, .complete, .failed:
+            return true
+        case .idle, .scanning, .clearing:
+            return false
+        }
+    }
+}
+
+// MARK: - ScanCompletionReporting
+
+extension ProtectionDashboardViewModel: ScanCompletionReporting {
+
+    /// True once a scan started here has finished both halves — the malware scan
+    /// and the privacy preview. The dashboard's `scanPresentation` reaches
+    /// `.results` the moment scanning starts (it streams tiles in), so the scan-
+    /// finished banner keys off this instead.
+    var isScanComplete: Bool {
+        hasScanned && malwareSettled && privacySettled
+    }
 }
 
 // MARK: - ScanCoordinating

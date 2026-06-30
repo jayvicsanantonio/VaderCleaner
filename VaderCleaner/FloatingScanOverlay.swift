@@ -21,6 +21,8 @@ struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
 
     /// Observed so a Scan tap can be gated on the live Full Disk Access flag.
     @Environment(AppState.self) private var appState
+    /// Armed when the user starts a scan here, so its completion notifies.
+    @Environment(ScanCompletionNotifier.self) private var scanCompletionNotifier
 
     /// Drives the Full Disk Access popover anchored to the Scan disc. Set true
     /// when the user taps Scan on an FDA-sensitive section without access; the
@@ -68,7 +70,7 @@ struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
                         },
                         onScanAnyway: {
                             showFullDiskAccessPrompt = false
-                            coordinator.beginScan()
+                            startScan()
                         }
                     )
                 }
@@ -91,9 +93,17 @@ struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
             hasFullDiskAccess: appState.hasFullDiskAccess
         ) {
         case .beginScan:
-            coordinator.beginScan()
+            startScan()
         case .promptForFullDiskAccess:
             showFullDiskAccessPrompt = true
         }
+    }
+
+    /// Arms the completion notification for this section, then starts the scan.
+    /// Both user-facing Scan paths (the disc tap and "Scan Anyway") route here so
+    /// the "scan finished" banner only fires for scans the user initiated.
+    private func startScan() {
+        scanCompletionNotifier.armScan(section: section, coordinator: coordinator)
+        coordinator.beginScan()
     }
 }

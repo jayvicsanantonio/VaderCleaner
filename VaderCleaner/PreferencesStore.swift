@@ -65,6 +65,7 @@ final class PreferencesStore {
         // Notifications pane parity (General / Disk Space / Applications).
         static let remindSmartCare = "preferences.remindSmartCare"
         static let smartCareFrequency = "preferences.smartCareFrequency"
+        static let notifyScanFinished = "preferences.notifyScanFinished"
         static let notifyTrashSize = "preferences.notifyTrashSize"
         static let trashSizeThresholdGB = "preferences.trashSizeThresholdGB"
         static let notifyDeviceBatteryLow = "preferences.notifyDeviceBatteryLow"
@@ -92,6 +93,7 @@ final class PreferencesStore {
     // reference design.
     static let defaultRemindSmartCare = true
     static let defaultSmartCareFrequency = SmartCareFrequency.weekly
+    static let defaultNotifyScanFinished = true
     static let defaultNotifyTrashSize = true
     static let defaultTrashSizeThresholdGB = 2
     static let defaultNotifyDeviceBatteryLow = true
@@ -145,6 +147,11 @@ final class PreferencesStore {
 
     var remindSmartCare: Bool {
         didSet { defaults.set(remindSmartCare, forKey: Key.remindSmartCare) }
+    }
+
+    /// Notify when a scan the user started finishes, naming the section.
+    var notifyScanFinished: Bool {
+        didSet { defaults.set(notifyScanFinished, forKey: Key.notifyScanFinished) }
     }
 
     var smartCareFrequency: SmartCareFrequency {
@@ -247,6 +254,8 @@ final class PreferencesStore {
             ?? Self.defaultDiskFreeThresholdGB
         self.remindSmartCare = (defaults.object(forKey: Key.remindSmartCare) as? Bool)
             ?? Self.defaultRemindSmartCare
+        self.notifyScanFinished = (defaults.object(forKey: Key.notifyScanFinished) as? Bool)
+            ?? Self.defaultNotifyScanFinished
         self.smartCareFrequency = (defaults.object(forKey: Key.smartCareFrequency) as? String)
             .flatMap(SmartCareFrequency.init(rawValue:)) ?? Self.defaultSmartCareFrequency
         self.notifyTrashSize = (defaults.object(forKey: Key.notifyTrashSize) as? Bool)

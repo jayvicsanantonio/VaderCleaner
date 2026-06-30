@@ -581,6 +581,7 @@ private struct NotificationsTab: View {
 
                 Toggle("Warn when connected device batteries are running low", isOn: $preferences.notifyDeviceBatteryLow)
                 Toggle("Notify when too low on free RAM", isOn: $preferences.notifyHighRAM)
+                Toggle("Notify when a scan finishes", isOn: $preferences.notifyScanFinished)
 
                 // Kept from the prior Notifications tab — not in the reference
                 // design but still useful alerts the app already supports.
