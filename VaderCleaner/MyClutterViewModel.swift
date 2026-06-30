@@ -49,6 +49,20 @@ final class MyClutterViewModel {
     private(set) var selectedURLs: Set<URL> = []
     private(set) var totalSelectedSize: Int64 = 0
 
+    /// Per-category running totals of selected bytes and count, maintained in
+    /// lockstep with `selectedURLs`. Let the manager's Large & Old "Selected"
+    /// facet and per-category footer read in O(1) instead of reducing over the
+    /// (potentially huge) file list on every render — the walk that lagged
+    /// switching facets/categories on large scans.
+    private(set) var selectedBytesByCategory: [MyClutterCategory: Int64] = [:]
+    private(set) var selectedCountByCategory: [MyClutterCategory: Int] = [:]
+
+    /// The categories each reviewable URL belongs to. A file can appear in more
+    /// than one (e.g. a large file that is also a duplicate copy), and each
+    /// category's totals count it independently — matching the manager's
+    /// per-category facet reduces. Rebuilt when a scan completes.
+    @ObservationIgnored private var categoriesByURL: [URL: [MyClutterCategory]] = [:]
+
     /// Bumped whenever the result *set* changes (scan completes, files
     /// trashed) — never on a selection toggle. The manager keys its off-main
     /// cache rebuild to this so it recomputes facets/groups only when the data
@@ -114,6 +128,27 @@ final class MyClutterViewModel {
 
     func isSelected(_ url: URL) -> Bool { selectedURLs.contains(url) }
 
+    /// Selected bytes within one category — an O(1) read backing the manager's
+    /// Large & Old "Selected" facet and per-category footer.
+    func selectedBytes(in category: MyClutterCategory) -> Int64 {
+        selectedBytesByCategory[category] ?? 0
+    }
+
+    /// Selected file count within one category — an O(1) read for the footer.
+    func selectedCount(in category: MyClutterCategory) -> Int {
+        selectedCountByCategory[category] ?? 0
+    }
+
+    /// Adjust the per-category running totals for one URL's selection change.
+    /// A no-op for a URL with no recorded categories.
+    private func adjustCategoryTotals(for url: URL, selected: Bool) {
+        let size = sizeByURL[url] ?? 0
+        for category in categoriesByURL[url] ?? [] {
+            selectedBytesByCategory[category, default: 0] += selected ? size : -size
+            selectedCountByCategory[category, default: 0] += selected ? 1 : -1
+        }
+    }
+
     /// Toggle by path string — the id the review manager passes back.
     func toggleSelection(path: String) {
         toggleSelection(url: URL(fileURLWithPath: path))
@@ -123,9 +158,11 @@ final class MyClutterViewModel {
         if selectedURLs.contains(url) {
             selectedURLs.remove(url)
             totalSelectedSize -= sizeByURL[url] ?? 0
+            adjustCategoryTotals(for: url, selected: false)
         } else {
             selectedURLs.insert(url)
             totalSelectedSize += sizeByURL[url] ?? 0
+            adjustCategoryTotals(for: url, selected: true)
         }
     }
 
@@ -136,9 +173,11 @@ final class MyClutterViewModel {
             if selected, !already {
                 selectedURLs.insert(url)
                 totalSelectedSize += sizeByURL[url] ?? 0
+                adjustCategoryTotals(for: url, selected: true)
             } else if !selected, already {
                 selectedURLs.remove(url)
                 totalSelectedSize -= sizeByURL[url] ?? 0
+                adjustCategoryTotals(for: url, selected: false)
             }
         }
     }
@@ -217,7 +256,10 @@ final class MyClutterViewModel {
         downloads = []
         selectedURLs = []
         totalSelectedSize = 0
+        selectedBytesByCategory = [:]
+        selectedCountByCategory = [:]
         sizeByURL = [:]
+        categoriesByURL = [:]
     }
 
     private func applyResults(
@@ -236,6 +278,8 @@ final class MyClutterViewModel {
         // with an empty selection so the user opts each item in deliberately.
         selectedURLs = []
         totalSelectedSize = 0
+        selectedBytesByCategory = [:]
+        selectedCountByCategory = [:]
 
         resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results
@@ -243,11 +287,41 @@ final class MyClutterViewModel {
 
     private func rebuildSizeMap() {
         var map: [URL: Int64] = [:]
-        for file in duplicateCopies { map[file.url] = file.size }
-        for file in similarCopies { map[file.url] = file.size }
-        for file in largeOldFiles { map[file.url] = file.size }
-        for item in downloads { map[item.file.url] = item.file.size }
+        var categories: [URL: [MyClutterCategory]] = [:]
+        for file in duplicateCopies {
+            map[file.url] = file.size
+            categories[file.url, default: []].append(.duplicates)
+        }
+        for file in similarCopies {
+            map[file.url] = file.size
+            categories[file.url, default: []].append(.similar)
+        }
+        for file in largeOldFiles {
+            map[file.url] = file.size
+            categories[file.url, default: []].append(.largeOld)
+        }
+        for item in downloads {
+            map[item.file.url] = item.file.size
+            categories[item.file.url, default: []].append(.downloads)
+        }
         sizeByURL = map
+        categoriesByURL = categories
+    }
+
+    /// Rebuild the per-category selected totals from the current selection and
+    /// category membership. Used after a deletion prunes the result set.
+    private func recomputeSelectedCategoryTotals() {
+        var bytes: [MyClutterCategory: Int64] = [:]
+        var count: [MyClutterCategory: Int] = [:]
+        for url in selectedURLs {
+            let size = sizeByURL[url] ?? 0
+            for category in categoriesByURL[url] ?? [] {
+                bytes[category, default: 0] += size
+                count[category, default: 0] += 1
+            }
+        }
+        selectedBytesByCategory = bytes
+        selectedCountByCategory = count
     }
 
     private func prune(deleted: Set<URL>) {
@@ -265,6 +339,7 @@ final class MyClutterViewModel {
         rebuildSizeMap()
         selectedURLs.subtract(deleted)
         totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
+        recomputeSelectedCategoryTotals()
         resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results
     }

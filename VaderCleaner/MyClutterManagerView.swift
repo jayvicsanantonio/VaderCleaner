@@ -179,12 +179,11 @@ struct MyClutterManagerView: View {
     }
 
     /// The Large & Old facet list: All Files / Selected, then By Kind and By Size.
-    /// All sizes come from the precomputed cache except "Selected", which is one
-    /// cheap pass over the (already in-memory) cached list.
+    /// All sizes come from the precomputed cache; "Selected" is an O(1) read of
+    /// the view-model's incrementally-maintained per-category total, rather than
+    /// a per-render pass over the (potentially huge) cached list.
     private var largeOldFacets: some View {
-        let selectedBytes = largeOldCache.allSorted.reduce(Int64(0)) {
-            $0 + (viewModel.isSelected($1.url) ? $1.size : 0)
-        }
+        let selectedBytes = viewModel.selectedBytes(in: .largeOld)
         return VStack(spacing: 4) {
             facetRow(.all, label: String(localized: "All Files", comment: "Large & Old facet."), bytes: largeOldCache.bytesAll)
             facetRow(.selected, label: String(localized: "Selected", comment: "Large & Old facet."), bytes: selectedBytes)
@@ -581,15 +580,11 @@ struct MyClutterManagerView: View {
         return "\(count)  ·  \(ManagerByteText.string(selection.bytes))"
     }
 
-    /// Count and bytes selected within the category currently shown.
+    /// Count and bytes selected within the category currently shown — an O(1)
+    /// read of the view-model's incrementally-maintained per-category totals,
+    /// rather than a per-render pass over the category's file list.
     private func categorySelection() -> (count: Int, bytes: Int64) {
-        var count = 0
-        var bytes: Int64 = 0
-        for file in currentCategoryFiles where viewModel.isSelected(file.url) {
-            count += 1
-            bytes += file.size
-        }
-        return (count, bytes)
+        (viewModel.selectedCount(in: category), viewModel.selectedBytes(in: category))
     }
 
     /// The reviewable files of the active category (selectable copies for the
