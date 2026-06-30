@@ -22,6 +22,19 @@ final class SystemJunkDeleterTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Trash seam that moves an item into a sandboxed directory under the test's
+    /// temp root, so exercising the real delete path never pollutes the user's
+    /// `~/.Trash`. Captures only the directory URL, so it is safe to run off the
+    /// main actor inside `delete(_:)`.
+    private var sandboxedTrash: SystemJunkDeleter.TrashItem {
+        let trashDir = tempRoot.appendingPathComponent("sandbox-trash", isDirectory: true)
+        return { url in
+            try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+            let dest = trashDir.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            try FileManager.default.moveItem(at: url, to: dest)
+        }
+    }
+
     // MARK: - Path routing
 
     /// Anything under `/Library`, `/private/var`, `/System`, or `/Applications`,
@@ -93,7 +106,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: $0, size: 100, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
         }
 
-        let deleter = SystemJunkDeleter(helperProvider: { _ in nil })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 300)
@@ -103,6 +116,28 @@ final class SystemJunkDeleterTests: XCTestCase {
                 "Expected \(url.path) to be removed"
             )
         }
+    }
+
+    /// The user-domain delete path must move files through the injected trash
+    /// seam — landing them in the test's sandbox, never the real `~/.Trash`.
+    /// Regression guard against the suite leaking fixtures into the user's
+    /// Trash on every run.
+    func test_delete_userDomainFiles_routeThroughInjectedTrashSeam() async throws {
+        let dir = tempRoot.appendingPathComponent("user-cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fileURL = try TestHelpers.createDummyFile(named: "real.bin", size: 10, in: dir)
+
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: sandboxedTrash)
+        _ = try await deleter.delete([
+            ScannedFile(url: fileURL, size: 10, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
+        ])
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path),
+                       "The file must be gone from its source location")
+        let trashDir = tempRoot.appendingPathComponent("sandbox-trash", isDirectory: true)
+        let trashed = try FileManager.default.contentsOfDirectory(atPath: trashDir.path)
+        XCTAssertEqual(trashed.count, 1, "The file must move into the sandboxed trash, not the real ~/.Trash")
+        XCTAssertTrue(trashed[0].hasSuffix("real.bin"))
     }
 
     /// A nonexistent user-domain file must not abort the rest of the batch —
@@ -119,7 +154,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: absentURL,  size: 9_999, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
         ]
 
-        let deleter = SystemJunkDeleter(helperProvider: { _ in nil })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 50, "Only the file that actually existed should contribute to bytesFreed")
@@ -145,7 +180,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         ]
 
         let fakeHelper = FakeHelper(replyError: nil)
-        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 350, "Both user (100) and helper-credited system (250) bytes count")
@@ -167,7 +202,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         ]
 
         let fakeHelper = FakeHelper(replyError: NSError(domain: "test", code: 1))
-        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 50, "Only user-domain bytes should be credited when the helper batch failed")
@@ -218,7 +253,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: systemURL, size: 999, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 
-        let deleter = SystemJunkDeleter(helperProvider: { _ in nil })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 75)
