@@ -16,7 +16,7 @@ enum CleanupManagerModel {
         (
             "systemJunk",
             String(localized: "System Junk", comment: "Cleanup Manager section grouping caches, logs, and developer junk."),
-            [.userCache, .xcodeJunk, .userLogs, .documentVersions, .systemCache, .systemLogs, .languageFiles, .iosBackups]
+            [.userCache, .xcodeJunk, .webDevJunk, .userLogs, .documentVersions, .systemCache, .systemLogs, .languageFiles, .iosBackups]
         ),
         (
             "mailAttachments",
@@ -84,6 +84,9 @@ enum CleanupManagerModel {
         case .documentVersions:
             return String(localized: "Earlier revisions macOS keeps so you can “Revert To” previous versions of documents. Removing them clears that history.",
                           comment: "Cleanup Manager Document Versions category description.")
+        case .webDevJunk:
+            return String(localized: "Dependency folders, build output, and package-manager caches left by web and dev toolchains. Rebuilt on demand — node_modules and build folders return after the next install or build.",
+                          comment: "Cleanup Manager Web Development Junk category description.")
         case .trash:
             return String(localized: "Items you've already moved to the Trash. Cleaning them empties the Trash to reclaim the space.",
                           comment: "Cleanup Manager Trash category description.")
@@ -106,6 +109,7 @@ enum CleanupManagerModel {
         case .trash:            return "trash"
         case .xcodeJunk:        return "hammer"
         case .documentVersions: return "doc.on.doc"
+        case .webDevJunk:       return "shippingbox"
         case .largeFile, .oldFile: return "doc"
         }
     }
@@ -123,6 +127,7 @@ enum CleanupManagerModel {
         case .trash:                   return "scanBadgeTrash"
         case .xcodeJunk:               return "scanBadgeXcodeJunk"
         case .documentVersions:        return "scanBadgeDocumentVersions"
+        case .webDevJunk:              return "scanBadgeWebDevJunk"
         case .largeFile, .oldFile:     return "scanBadgeSystemJunk"
         }
     }

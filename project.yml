@@ -15,6 +15,11 @@ settings:
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     ENABLE_HARDENED_RUNTIME: NO
+    # The Stage-ClamAV and ad-hoc-sign run-script phases read Vendor/clamav and
+    # run from Scripts/ — paths a script sandbox denies, which fails the build
+    # with "Operation not permitted". Pin sandboxing off so Xcode's "update to
+    # recommended settings" can't silently flip it on and break the build.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 # Signing lives in Signing.xcconfig (team-agnostic defaults) with an optional,
 # gitignored Signing.local.xcconfig override, so no personal Team ID is

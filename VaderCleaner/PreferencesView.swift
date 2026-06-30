@@ -156,6 +156,17 @@ private struct ScanningTab: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            // The Web Development Junk scan finds scattered project artifacts
+            // (node_modules, build output) under the user's code directories, so
+            // Cleanup exposes which folders to walk — the other categories scan
+            // fixed system locations and need no folder choice.
+            if selection == .cleanup {
+                Divider()
+                WebDevScanFolderPicker()
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 4)
+            }
         }
         .padding(12)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -853,6 +864,7 @@ private struct MenuBarTab: View {
     PreferencesView()
         .environment(PreferencesStore())
         .environment(ExclusionsStore())
+        .environment(WebDevScanScopeStore())
         .environment(SmartScanSettingsStore())
         .environment(ProtectionSettingsStore())
         .environment(SettingsRouter())

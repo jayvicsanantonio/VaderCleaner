@@ -80,6 +80,25 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         ]
     }
 
+    /// Regenerable web-toolchain caches. All user-domain (in-process deletable),
+    /// rebuilt on demand by the respective package manager — clearing them only
+    /// costs a slower next install. Emitted whether or not each directory exists;
+    /// `FileScanner` yields nothing for an absent root.
+    static func webDevCacheRoots(homeDirectory: URL) -> [URL] {
+        let caches = homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Caches", isDirectory: true)
+        return [
+            homeDirectory.appendingPathComponent(".npm", isDirectory: true),
+            homeDirectory.appendingPathComponent(".pnpm-store", isDirectory: true),
+            homeDirectory.appendingPathComponent(".yarn/cache", isDirectory: true),
+            homeDirectory.appendingPathComponent(".cache/yarn", isDirectory: true),
+            homeDirectory.appendingPathComponent(".bun/install/cache", isDirectory: true),
+            caches.appendingPathComponent("ms-playwright", isDirectory: true),
+            caches.appendingPathComponent("Cypress", isDirectory: true),
+        ]
+    }
+
     func roots() -> [ScanRoot] {
         var roots: [ScanRoot] = []
 
@@ -110,6 +129,12 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         // Xcode developer junk — user-domain, readable and removable in-process.
         roots.append(contentsOf: Self.xcodeJunkRoots(homeDirectory: homeDirectory).map {
             ScanRoot(url: $0, category: .xcodeJunk)
+        })
+
+        // Web-toolchain package-manager caches — user-domain, fold into the same
+        // Web Development Junk card as the scattered project folders.
+        roots.append(contentsOf: Self.webDevCacheRoots(homeDirectory: homeDirectory).map {
+            ScanRoot(url: $0, category: .webDevJunk)
         })
 
         // Document Versions is intentionally NOT a FileScanner root: its store

@@ -217,6 +217,38 @@ final class SystemJunkScannerTests: XCTestCase {
         )
     }
 
+    // MARK: - Supplementary enumerators
+
+    /// Scattered project artifacts come from the developer-project enumerator,
+    /// not a fixed scan root, and must merge into the result tagged
+    /// `.webDevJunk` so they fold into the Web Development Junk card.
+    func test_scan_mergesDeveloperProjectEnumeratorAsWebDevJunk() async throws {
+        let nodeModules = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/test/Developer/app/node_modules"),
+            size: 4_096,
+            lastAccessDate: nil,
+            lastModifiedDate: nil,
+            category: .webDevJunk
+        )
+        let userCaches = try makeRoot("user-caches")
+        try TestHelpers.createDummyFiles(count: 1, size: 8, in: userCaches)
+
+        let scanner = SystemJunkScanner(
+            pathProvider: StubSystemPathProvider(roots: [
+                ScanRoot(url: userCaches, category: .userCache)
+            ]),
+            developerProjectEnumerator: { [nodeModules] }
+        )
+
+        let result = try await scanner.scan(excluding: [])
+
+        XCTAssertEqual(result.itemsByCategory[.webDevJunk]?.count, 1)
+        XCTAssertEqual(result.itemsByCategory[.webDevJunk]?.first, nodeModules)
+        XCTAssertEqual(result.sizeByCategory[.webDevJunk], 4_096)
+        // The fixed-root caches still come through alongside it.
+        XCTAssertEqual(result.itemsByCategory[.userCache]?.count, 1)
+    }
+
     // MARK: - Progress forwarding
 
     /// Walked-count ticks from the underlying `FileScanning` must reach the

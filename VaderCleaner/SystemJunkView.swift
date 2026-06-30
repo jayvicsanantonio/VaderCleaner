@@ -188,9 +188,12 @@ struct SystemJunkView: View {
                 }
             },
             categorySelectedBytes: { category in
+                // O(1) read of the view-model's incrementally-maintained
+                // per-category total, instead of reducing over every file in
+                // the category on every render — the walk that beachballed
+                // switching categories on large scans.
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
-                let files = itemsByCategory[scanCategory] ?? []
-                return files.reduce(Int64(0)) { $0 + (viewModel.isSelected($1) ? $1.size : 0) }
+                return viewModel.selectedBytes(in: scanCategory)
             },
             loadItems: { id in
                 // Off-main: a cache hit (usually, thanks to the prebuild)

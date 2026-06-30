@@ -35,6 +35,7 @@ final class CleanupGroupTests: XCTestCase {
         XCTAssertEqual(CleanupGroup.group(for: .mailAttachments), .systemJunk)
         XCTAssertEqual(CleanupGroup.group(for: .trash), .trashBins)
         XCTAssertEqual(CleanupGroup.group(for: .xcodeJunk), .xcodeJunk)
+        XCTAssertEqual(CleanupGroup.group(for: .webDevJunk), .webDevJunk)
         XCTAssertEqual(CleanupGroup.group(for: .documentVersions), .documentVersions)
     }
 
@@ -46,6 +47,7 @@ final class CleanupGroupTests: XCTestCase {
         XCTAssertTrue(CleanupGroup.systemJunk.allowsDirectClean)
         XCTAssertTrue(CleanupGroup.trashBins.allowsDirectClean)
         XCTAssertFalse(CleanupGroup.xcodeJunk.allowsDirectClean)
+        XCTAssertFalse(CleanupGroup.webDevJunk.allowsDirectClean)
         XCTAssertFalse(CleanupGroup.documentVersions.allowsDirectClean)
     }
 
@@ -81,6 +83,7 @@ final class CleanupGroupTests: XCTestCase {
         XCTAssertTrue(CleanupGroup.systemJunk.categories.contains(.userCache))
         XCTAssertEqual(CleanupGroup.trashBins.managerCategory, .trash)
         XCTAssertEqual(CleanupGroup.xcodeJunk.managerCategory, .xcodeJunk)
+        XCTAssertEqual(CleanupGroup.webDevJunk.managerCategory, .webDevJunk)
         XCTAssertEqual(CleanupGroup.documentVersions.managerCategory, .documentVersions)
     }
 

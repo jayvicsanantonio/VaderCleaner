@@ -13,6 +13,7 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
     case systemJunk
     case trashBins
     case xcodeJunk
+    case webDevJunk
     case documentVersions
 
     var id: String { rawValue }
@@ -29,6 +30,8 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
             return [.trash]
         case .xcodeJunk:
             return [.xcodeJunk]
+        case .webDevJunk:
+            return [.webDevJunk]
         case .documentVersions:
             return [.documentVersions]
         }
@@ -51,6 +54,7 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
         case .systemJunk:       return .userCache
         case .trashBins:        return .trash
         case .xcodeJunk:        return .xcodeJunk
+        case .webDevJunk:       return .webDevJunk
         case .documentVersions: return .documentVersions
         }
     }
@@ -62,7 +66,7 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
         switch self {
         case .systemJunk, .trashBins:
             return true
-        case .xcodeJunk, .documentVersions:
+        case .xcodeJunk, .webDevJunk, .documentVersions:
             return false
         }
     }
@@ -76,6 +80,8 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
             return String(localized: "Trash Bins", comment: "Cleanup dashboard card title.")
         case .xcodeJunk:
             return String(localized: "Xcode Junk", comment: "Cleanup dashboard card title.")
+        case .webDevJunk:
+            return String(localized: "Web Development Junk", comment: "Cleanup dashboard card title.")
         case .documentVersions:
             return String(localized: "Document Versions", comment: "Cleanup dashboard card title.")
         }
@@ -99,6 +105,11 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
                 localized: "Derived data, archives, and old device support left behind by Xcode.",
                 comment: "Cleanup dashboard Xcode Junk card description."
             )
+        case .webDevJunk:
+            return String(
+                localized: "Dependency folders, build output, and package caches from your web and dev projects.",
+                comment: "Cleanup dashboard Web Development Junk card description."
+            )
         case .documentVersions:
             return String(
                 localized: "Saved revisions of edited documents you no longer need.",
@@ -115,6 +126,7 @@ enum CleanupGroup: String, CaseIterable, Identifiable {
         case .systemJunk:       return "scanBadgeCleanupSystemJunk"
         case .trashBins:        return "scanBadgeTrash"
         case .xcodeJunk:        return "scanBadgeXcodeJunk"
+        case .webDevJunk:       return "scanBadgeWebDevJunk"
         case .documentVersions: return "scanBadgeDocumentVersions"
         }
     }
