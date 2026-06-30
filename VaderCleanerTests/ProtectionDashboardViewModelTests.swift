@@ -52,6 +52,64 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(sut.scanPresentation, .results)
     }
 
+    // MARK: - Smart Scan pre-warm
+
+    /// After a Smart Scan, the dashboard seeds its malware tile from the scan's
+    /// results and kicks off the fast privacy preview so both are ready when the
+    /// user opens Protection — without re-running the (already-completed) malware
+    /// scan.
+    func test_prewarmFromSmartScan_seedsMalwareAndStartsPrivacyPreview() async {
+        let sut = makeSUT(privacyDetector: { [] })   // no browsers → lands in .preview
+
+        sut.prewarmFromSmartScan(threats: [threat], clamAVAvailable: true, scannedAt: Date())
+
+        XCTAssertTrue(sut.hasScanned)
+        XCTAssertEqual(sut.scanPresentation, .results)
+        XCTAssertEqual(sut.malware.phase, .results([threat]))
+        await waitUntil { sut.privacy.phase == .preview }
+        XCTAssertEqual(sut.privacy.phase, .preview)
+    }
+
+    /// A clean Smart Scan (no threats) seeds the malware tile to `.clean`.
+    func test_prewarmFromSmartScan_seedsCleanWhenNoThreats() {
+        let sut = makeSUT()
+        sut.prewarmFromSmartScan(threats: [], clamAVAvailable: true, scannedAt: Date())
+        XCTAssertEqual(sut.malware.phase, .clean)
+    }
+
+    /// If the user already scanned Protection here, a later Smart Scan pre-warm
+    /// must not disturb the flow.
+    func test_prewarmFromSmartScan_isNoOpWhenAlreadyScanned() {
+        let sut = makeSUT()
+        sut.beginScan()
+        let malwarePhaseBefore = sut.malware.phase
+
+        sut.prewarmFromSmartScan(threats: [threat], clamAVAvailable: true, scannedAt: Date())
+
+        XCTAssertEqual(sut.malware.phase, malwarePhaseBefore,
+                       "Pre-warm is gated on hasScanned, so it must not re-seed the malware flow")
+    }
+
+    // MARK: - Scan completion (drives the "scan finished" notification)
+
+    /// `isScanComplete` is false before a scan and true only once both the
+    /// malware scan and the privacy preview have settled — the signal the
+    /// completion notifier keys off (since `scanPresentation` is `.results` the
+    /// moment scanning starts).
+    func test_isScanComplete_falseBeforeScan_trueWhenBothChildrenSettle() async {
+        let sut = makeSUT(
+            malwareScan: { _, _ in [] },     // clean
+            privacyDetector: { [] }          // no browsers → lands in .preview
+        )
+        XCTAssertFalse(sut.isScanComplete, "No scan has started yet")
+
+        sut.beginScan()
+        await waitUntil { sut.malware.phase == .clean }
+        await waitUntil { sut.privacy.phase == .preview }
+
+        XCTAssertTrue(sut.isScanComplete)
+    }
+
     // MARK: - Stop
 
     func test_stoppingMalware_keepsDashboardVisible() {

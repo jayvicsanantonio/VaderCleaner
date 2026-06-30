@@ -9,6 +9,8 @@ struct ContentView: View {
     @Environment(PermissionOnboardingViewModel.self) private var onboarding
     @Environment(SystemStatsService.self) private var systemStats
     @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
+    @Environment(NotificationMonitors.self) private var notificationMonitors
+    @Environment(ScanCompletionNotifier.self) private var scanCompletionNotifier
     @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.scenePhase) private var scenePhase
     private let systemJunkViewModel: SystemJunkViewModel
@@ -19,7 +21,6 @@ struct ContentView: View {
     private let applicationsViewModel: ApplicationsViewModel
     private let extensionsManagerViewModel: ExtensionsManagerViewModel
     private let performanceViewModel: PerformanceViewModel
-    private let malwareViewModel: MalwareViewModel
     private let protectionDashboardViewModel: ProtectionDashboardViewModel
     private let smartScanViewModel: SmartScanViewModel
     @State private var selectedSection: NavigationSection? = .smartScan
@@ -87,7 +88,6 @@ struct ContentView: View {
         applicationsViewModel: ApplicationsViewModel,
         extensionsManagerViewModel: ExtensionsManagerViewModel,
         performanceViewModel: PerformanceViewModel,
-        malwareViewModel: MalwareViewModel,
         protectionDashboardViewModel: ProtectionDashboardViewModel,
         smartScanViewModel: SmartScanViewModel
     ) {
@@ -99,7 +99,6 @@ struct ContentView: View {
         self.applicationsViewModel = applicationsViewModel
         self.extensionsManagerViewModel = extensionsManagerViewModel
         self.performanceViewModel = performanceViewModel
-        self.malwareViewModel = malwareViewModel
         self.protectionDashboardViewModel = protectionDashboardViewModel
         self.smartScanViewModel = smartScanViewModel
         _scanDiscController = State(initialValue: ScanDiscWindowController(
@@ -114,32 +113,33 @@ struct ContentView: View {
         // When a Smart Scan completes, populate every standalone section so the
         // user never has to scan a section by hand after a Smart Scan.
         //
-        // System Junk, Large & Old Files, and Malware run the exact same
-        // scanners Smart Scan already used, so they're seeded with the results
-        // directly — instant, no extra work.
+        // System Junk and Protection's malware tile run the exact same scanners
+        // Smart Scan already used, so they're seeded with the results directly —
+        // instant, no extra work.
         //
-        // Applications and Performance need heavier, multi-step scans that
-        // Smart Scan does not perform (full app analysis: updates, unused,
-        // unsupported, leftovers, installers; and launch agents / RAM /
-        // snapshots). Rather than show partial data, kick off each section's own
-        // full scan now so it finishes in the background and is ready by the
-        // time the user opens it.
+        // Large & Old Files, Applications, Performance, Protection's privacy
+        // preview, and Space Lens need scans Smart Scan does not perform (four
+        // composite clutter scans; full app analysis: updates, unused,
+        // unsupported, leftovers, installers; launch agents / RAM / snapshots;
+        // the per-browser privacy preview; and a full-volume disk map). Rather
+        // than show partial data, kick off each section's own scan now so it
+        // finishes in the background and is ready by the time the user opens it.
         //
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
-        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, malwareViewModel, applicationsViewModel, performanceViewModel] result in
+        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, spaceLensViewModel, applicationsViewModel, performanceViewModel, protectionDashboardViewModel] result in
             systemJunkViewModel.seed(with: result.junkResult)
-            malwareViewModel.seed(
+            // Seeds Protection's malware tile from the Smart Scan results and
+            // kicks off the privacy preview, without re-running the malware scan.
+            protectionDashboardViewModel.prewarmFromSmartScan(
                 threats: result.threats,
                 clamAVAvailable: result.clamAVAvailable,
                 scannedAt: Date()
             )
-            // The My Clutter section runs four composite scans Smart Scan
-            // doesn't produce, so it can't be seeded from the result — kick off
-            // its own scan instead, like the other sections below.
             if case .idle = myClutterViewModel.phase { myClutterViewModel.beginScan() }
             if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
             if case .idle = performanceViewModel.phase { performanceViewModel.beginScan() }
+            if case .idle = spaceLensViewModel.phase { spaceLensViewModel.beginScan() }
         }
     }
 
@@ -218,7 +218,8 @@ struct ContentView: View {
                 scanDiscController.attach(
                     to: window,
                     railWidth: railWidth,
-                    appState: appState
+                    appState: appState,
+                    scanCompletionNotifier: scanCompletionNotifier
                 )
             }
         )
@@ -335,6 +336,7 @@ struct ContentView: View {
         // Only Smart Scan auto-starts from the menu's "Run Smart Scan" — the
         // other deep-links just reveal the section and let the user act.
         if startScan, target == .smartScan {
+            scanCompletionNotifier.armScan(section: .smartScan, coordinator: smartScanViewModel)
             smartScanViewModel.beginScan()
         }
     }
@@ -347,6 +349,9 @@ struct ContentView: View {
         guard appState.hasFullDiskAccess || onboarding.isDismissed else { return }
         didRequestNotificationPermission = true
         await notificationMonitor.requestPermission()
+        // Permission has resolved — start the Notifications-pane background
+        // monitors so their banners can present.
+        notificationMonitors.start()
     }
 
     /// Routes the selected sidebar section to its detail view. The switch is
@@ -474,7 +479,6 @@ private extension AnyTransition {
         applicationsViewModel: ApplicationsViewModel.live(),
         extensionsManagerViewModel: ExtensionsManagerViewModel.live(),
         performanceViewModel: PerformanceViewModel.live(systemStats: stats, preferences: prefs),
-        malwareViewModel: malware,
         protectionDashboardViewModel: ProtectionDashboardViewModel(
             malware: malware,
             privacy: privacy,
@@ -494,5 +498,7 @@ private extension AnyTransition {
             preferences: prefs,
             dispatcher: notificationManager
         ))
+        .environment(NotificationMonitors(preferences: prefs, dispatcher: notificationManager))
+        .environment(ScanCompletionNotifier(preferences: prefs, dispatcher: notificationManager))
         .environment(MenuRouter())
 }

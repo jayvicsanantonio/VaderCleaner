@@ -588,12 +588,110 @@ final class AppUninstallerViewModelTests: XCTestCase {
         XCTAssertFalse(outcome.bundlePermanentlyRemoved, "Bundle was Trashed by NSWorkspace, not escalated")
     }
 
+    // MARK: - List metrics cache
+
+    /// `loadListMetrics()` populates the session-scoped per-app size and
+    /// last-opened caches the manager's uninstaller list sorts and renders by.
+    func test_loadListMetrics_populatesSizesAndDates() async {
+        let appA = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        let appB = makeApp(name: "Bravo", bundleID: "com.acme.bravo")
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let vm = makeViewModel(
+            discover: { _ in [appA, appB] },
+            measureListMetrics: { apps in
+                var sizes: [AppInfo.ID: Int64] = [:]
+                var dates: [AppInfo.ID: Date] = [:]
+                for app in apps {
+                    sizes[app.id] = 1_000
+                    dates[app.id] = date
+                }
+                return (sizes, dates)
+            }
+        )
+        await vm.loadApps()
+        await vm.loadListMetrics()
+
+        XCTAssertEqual(vm.listSizes[appA.id], 1_000)
+        XCTAssertEqual(vm.listSizes[appB.id], 1_000)
+        XCTAssertEqual(vm.listLastOpened[appA.id], date)
+        XCTAssertEqual(vm.listLastOpened[appB.id], date)
+    }
+
+    /// The metrics walk is the expensive pass, so once an app is measured it is
+    /// never re-measured for the session — reopening the manager reuses the
+    /// cache instead of re-walking the disk.
+    func test_loadListMetrics_isIdempotent_skipsAlreadyMeasured() async {
+        let app = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        let measuredApps = ActorBox<[[AppInfo.ID]]>([])
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            measureListMetrics: { apps in
+                await measuredApps.mutate { $0.append(apps.map(\.id)) }
+                return (Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }), [:])
+            }
+        )
+        await vm.loadApps()
+        await vm.loadListMetrics()
+        await vm.loadListMetrics()
+
+        let calls = await measuredApps.value
+        XCTAssertEqual(calls.count, 1, "The second call must find every app cached and skip the walk")
+    }
+
+    /// New apps that appear after a reload are measured without re-walking the
+    /// apps already cached.
+    func test_loadListMetrics_measuresOnlyNewlyAppearedApps() async {
+        let appA = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        let appB = makeApp(name: "Bravo", bundleID: "com.acme.bravo")
+        let measuredApps = ActorBox<[[AppInfo.ID]]>([])
+        var roster = [appA]
+        let vm = makeViewModel(
+            discover: { _ in roster },
+            measureListMetrics: { apps in
+                await measuredApps.mutate { $0.append(apps.map(\.id)) }
+                return (Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }), [:])
+            }
+        )
+        await vm.loadApps()
+        await vm.loadListMetrics()
+
+        roster = [appA, appB]
+        await vm.reloadApps()
+        await vm.loadListMetrics()
+
+        let calls = await measuredApps.value
+        XCTAssertEqual(calls, [[appA.id], [appB.id]], "Only the newly-appeared app is measured on the second pass")
+        XCTAssertEqual(vm.listSizes[appA.id], 1)
+        XCTAssertEqual(vm.listSizes[appB.id], 1)
+    }
+
+    /// Each batch of freshly-measured metrics bumps the revision so the
+    /// manager's memoized list recomputes its order once the values land.
+    func test_loadListMetrics_bumpsRevisionWhenMetricsLand() async {
+        let app = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            measureListMetrics: { apps in
+                (Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }), [:])
+            }
+        )
+        let before = vm.listMetricsRevision
+        await vm.loadApps()
+        await vm.loadListMetrics()
+        XCTAssertEqual(vm.listMetricsRevision, before + 1)
+
+        // No pending apps the second time — nothing lands, revision is steady.
+        await vm.loadListMetrics()
+        XCTAssertEqual(vm.listMetricsRevision, before + 1)
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
         discover: @escaping AppUninstallerViewModel.Discover = { _ in [] },
         findFiles: @escaping AppUninstallerViewModel.FindFiles = { _ in [] },
         measureSize: @escaping AppUninstallerViewModel.MeasureSize = { _ in 0 },
+        measureListMetrics: @escaping AppUninstallerViewModel.MeasureListMetrics = { _ in ([:], [:]) },
         recycle: @escaping AppUninstallerViewModel.Recycle = { _, _ in
             AppUninstallerViewModel.RecycleOutcome(bytesFreed: 0, bundlePermanentlyRemoved: false)
         },
@@ -603,6 +701,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
             discover: discover,
             findFiles: findFiles,
             measureSize: measureSize,
+            measureListMetrics: measureListMetrics,
             recycle: recycle,
             reinstallHelper: reinstallHelper
         )
@@ -654,6 +753,7 @@ private actor ActorBox<Value: Sendable> {
     private(set) var value: Value
     init(_ initial: Value) { self.value = initial }
     func set(_ newValue: Value) { value = newValue }
+    func mutate(_ body: (inout Value) -> Void) { body(&value) }
 }
 
 private extension ActorBox where Value == Int {

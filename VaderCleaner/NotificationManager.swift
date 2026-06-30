@@ -12,10 +12,18 @@ import os.log
 @MainActor
 protocol NotificationDispatching: AnyObject {
     func requestPermission() async
-    func sendLowDiskNotification(freePercent: Double)
+    func sendLowDiskNotification(freeBytes: Int64)
     func sendHighRAMNotification(pressureLevel: String)
     func sendMalwareDetectedNotification(threatName: String)
     func sendLargeFilesFoundNotification(count: Int, totalSize: Int64)
+    // Notifications pane parity.
+    func sendTrashSizeNotification(sizeBytes: Int64)
+    func sendDeviceBatteryLowNotification(deviceName: String, percent: Int)
+    func sendDriveConnectedNotification(volumeName: String)
+    func sendOverfilledDriveNotification(volumeName: String, freeBytes: Int64, totalBytes: Int64)
+    func sendAppTrashedNotification(appName: String)
+    func sendHungAppNotification(appName: String)
+    func sendScanFinishedNotification(scanName: String)
 }
 
 /// Production `NotificationDispatching` backed by
@@ -123,8 +131,8 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
 
     // MARK: - Dispatch entry points
 
-    func sendLowDiskNotification(freePercent: Double) {
-        deliver(content: Self.makeLowDiskContent(freePercent: freePercent))
+    func sendLowDiskNotification(freeBytes: Int64) {
+        deliver(content: Self.makeLowDiskContent(freeBytes: freeBytes))
     }
 
     func sendHighRAMNotification(pressureLevel: String) {
@@ -138,6 +146,34 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     func sendLargeFilesFoundNotification(count: Int, totalSize: Int64) {
         deliver(content: Self.makeLargeFilesFoundContent(count: count,
                                                          totalSize: totalSize))
+    }
+
+    func sendTrashSizeNotification(sizeBytes: Int64) {
+        deliver(content: Self.makeTrashSizeContent(sizeBytes: sizeBytes))
+    }
+
+    func sendDeviceBatteryLowNotification(deviceName: String, percent: Int) {
+        deliver(content: Self.makeDeviceBatteryLowContent(deviceName: deviceName, percent: percent))
+    }
+
+    func sendDriveConnectedNotification(volumeName: String) {
+        deliver(content: Self.makeDriveConnectedContent(volumeName: volumeName))
+    }
+
+    func sendOverfilledDriveNotification(volumeName: String, freeBytes: Int64, totalBytes: Int64) {
+        deliver(content: Self.makeOverfilledDriveContent(volumeName: volumeName, freeBytes: freeBytes, totalBytes: totalBytes))
+    }
+
+    func sendAppTrashedNotification(appName: String) {
+        deliver(content: Self.makeAppTrashedContent(appName: appName))
+    }
+
+    func sendHungAppNotification(appName: String) {
+        deliver(content: Self.makeHungAppContent(appName: appName))
+    }
+
+    func sendScanFinishedNotification(scanName: String) {
+        deliver(content: Self.makeScanFinishedContent(scanName: scanName))
     }
 
     /// Schedules `content` for immediate delivery. A unique request identifier
@@ -161,14 +197,13 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
 
     // MARK: - Content builders (pure — unit-test surface)
 
-    static func makeLowDiskContent(freePercent: Double) -> UNMutableNotificationContent {
+    static func makeLowDiskContent(freeBytes: Int64) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = "Low Disk Space"
-        // Round to whole percent so the banner reads cleanly. The threshold
-        // setting is itself an integer-feeling slider in Preferences, so a
-        // sub-percent reading would look out of place next to it.
-        let rounded = Int(freePercent.rounded())
-        content.body = "Only \(rounded)% of disk space is free. Consider cleaning system junk."
+        // Reads in the same Finder-style units the Notifications picker offers
+        // ("Less than 10 GB"), so the banner and the setting speak the same way.
+        let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+        content.body = "Only \(free) of disk space is free. Consider cleaning system junk."
         content.sound = .default
         return content
     }
@@ -194,6 +229,72 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
         content.title = "Large Files Found"
         let formattedSize = byteCountFormatter.string(fromByteCount: totalSize)
         content.body = "Found \(count) large or old files totaling \(formattedSize)."
+        content.sound = .default
+        return content
+    }
+
+    static func makeSmartCareReminderContent() -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Time for Smart Care"
+        content.body = "Run a Smart Scan to keep your Mac clean, fast, and protected."
+        content.sound = .default
+        return content
+    }
+
+    static func makeTrashSizeContent(sizeBytes: Int64) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Trash Is Filling Up"
+        let size = ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+        content.body = "Your Trash holds \(size). Empty it to reclaim the space."
+        content.sound = .default
+        return content
+    }
+
+    static func makeDeviceBatteryLowContent(deviceName: String, percent: Int) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Device Battery Low"
+        content.body = "\(deviceName) is at \(percent)%. Consider charging it soon."
+        content.sound = .default
+        return content
+    }
+
+    static func makeDriveConnectedContent(volumeName: String) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Drive Connected"
+        content.body = "\(volumeName) was mounted. Scan it with Space Lens to see what's using the space."
+        content.sound = .default
+        return content
+    }
+
+    static func makeOverfilledDriveContent(volumeName: String, freeBytes: Int64, totalBytes: Int64) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "External Drive Almost Full"
+        let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+        content.body = "\(volumeName) has only \(free) free. Clean it up to make room."
+        content.sound = .default
+        return content
+    }
+
+    static func makeAppTrashedContent(appName: String) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Uninstall \(appName) Completely?"
+        content.body = "You moved \(appName) to the Trash. Open Applications to remove its leftover files too."
+        content.sound = .default
+        return content
+    }
+
+    static func makeHungAppContent(appName: String) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "\(appName) Is Not Responding"
+        content.body = "\(appName) stopped responding. You can force quit it from the menu bar."
+        content.sound = .default
+        return content
+    }
+
+    static func makeScanFinishedContent(scanName: String) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Scan Complete"
+        content.body = "Your \(scanName) scan has finished. Open VaderCleaner to review the results."
         content.sound = .default
         return content
     }

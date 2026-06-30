@@ -44,6 +44,7 @@ final class ScanDiscWindowController {
     @ObservationIgnored private var panel: NSPanel?
     @ObservationIgnored private weak var parentWindow: NSWindow?
     @ObservationIgnored private var appState: AppState?
+    @ObservationIgnored private var scanCompletionNotifier: ScanCompletionNotifier?
     @ObservationIgnored private var railWidth: CGFloat = 0
     @ObservationIgnored private var isFullScreen = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
@@ -70,9 +71,15 @@ final class ScanDiscWindowController {
     /// re-attaching to the same window only re-positions, and attaching to a
     /// different window detaches the old one first — `ContentView.onAppear` can
     /// fire more than once across a window close/reopen.
-    func attach(to window: NSWindow, railWidth: CGFloat, appState: AppState) {
+    func attach(
+        to window: NSWindow,
+        railWidth: CGFloat,
+        appState: AppState,
+        scanCompletionNotifier: ScanCompletionNotifier
+    ) {
         self.railWidth = railWidth
         self.appState = appState
+        self.scanCompletionNotifier = scanCompletionNotifier
 
         if parentWindow === window, panel != nil {
             reposition()
@@ -81,7 +88,7 @@ final class ScanDiscWindowController {
         if parentWindow != nil { detach() }
 
         parentWindow = window
-        let panel = makePanel(appState: appState)
+        let panel = makePanel(appState: appState, scanCompletionNotifier: scanCompletionNotifier)
         self.panel = panel
         window.addChildWindow(panel, ordered: .above)
         isFullScreen = window.styleMask.contains(.fullScreen)
@@ -116,7 +123,7 @@ final class ScanDiscWindowController {
 
     // MARK: - Panel construction
 
-    private func makePanel(appState: AppState) -> NSPanel {
+    private func makePanel(appState: AppState, scanCompletionNotifier: ScanCompletionNotifier) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelSize, height: panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -143,6 +150,7 @@ final class ScanDiscWindowController {
         panel.contentView = NSHostingView(
             rootView: ScanDiscHostView(controller: self)
                 .environment(appState)
+                .environment(scanCompletionNotifier)
         )
         return panel
     }

@@ -19,11 +19,15 @@ struct MyClutterDashboardView: View {
     let onReviewDownloads: () -> Void
     let onStartOver: () -> Void
 
-    private var byteFormatter: ByteCountFormatter {
+    // Allocated once for the process: `ByteCountFormatter` builds measurable
+    // internal state per instance, so a stored static avoids rebuilding it on
+    // each access during a render. Matches the convention used across the app's
+    // other dashboards.
+    private static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.countStyle = .file
         return f
-    }
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -132,7 +136,7 @@ struct MyClutterDashboardView: View {
             ),
             subtitle: String.localizedStringWithFormat(
                 String(localized: "Remove %@ of duplicate files.", comment: "Duplicates card subtitle; %@ is a size."),
-                byteFormatter.string(fromByteCount: viewModel.duplicateReclaimableBytes)
+                Self.byteFormatter.string(fromByteCount: viewModel.duplicateReclaimableBytes)
             ),
             accent: accent,
             thumbnails: Array(viewModel.duplicateCopies.prefix(3).map(\.url)),
@@ -152,7 +156,7 @@ struct MyClutterDashboardView: View {
             ),
             subtitle: String.localizedStringWithFormat(
                 String(localized: "%@ of nearly identical photos.", comment: "Similar Images card subtitle; %@ is a size."),
-                byteFormatter.string(fromByteCount: viewModel.similarReclaimableBytes)
+                Self.byteFormatter.string(fromByteCount: viewModel.similarReclaimableBytes)
             ),
             accent: accent,
             thumbnails: Array(viewModel.similarCopies.prefix(3).map(\.url)),
@@ -167,7 +171,7 @@ struct MyClutterDashboardView: View {
         MyClutterCard(
             title: String.localizedStringWithFormat(
                 String(localized: "%@ of Large and Old Files Found", comment: "Large & Old card title; %@ is a size."),
-                byteFormatter.string(fromByteCount: viewModel.largeOldBytes)
+                Self.byteFormatter.string(fromByteCount: viewModel.largeOldBytes)
             ),
             subtitle: nil,
             accent: accent,
@@ -202,7 +206,7 @@ struct MyClutterDashboardView: View {
     }
 
     private var downloadsTitle: String {
-        let size = byteFormatter.string(fromByteCount: viewModel.downloadsBytes)
+        let size = Self.byteFormatter.string(fromByteCount: viewModel.downloadsBytes)
         if let source = viewModel.dominantDownloadSource {
             let format = String(
                 localized: "%1$@ of %2$@ Downloads Found",

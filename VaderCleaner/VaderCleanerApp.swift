@@ -63,6 +63,12 @@ struct VaderCleanerApp: App {
     // long as the app and so the per-kind cooldown table survives across
     // window open/close cycles.
     @State private var notificationMonitor: NotificationThresholdMonitor
+    // App-scope aggregator for the Notifications-pane background monitors (trash
+    // size, drive mounts, device batteries, hung apps, trashed apps, Smart Care
+    // reminder). Started from the same post-launch path that requests permission.
+    @State private var notificationMonitors: NotificationMonitors
+    // Fires a "scan complete" banner when a user-initiated scan finishes.
+    @State private var scanCompletionNotifier: ScanCompletionNotifier
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
 
     init() {
@@ -183,6 +189,14 @@ struct VaderCleanerApp: App {
                 dispatcher: notificationManager
             )
         )
+        // The Notifications-pane background monitors share the same preferences
+        // and dispatcher; they're started after the permission prompt resolves.
+        _notificationMonitors = State(
+            initialValue: NotificationMonitors(preferences: prefs, dispatcher: notificationManager)
+        )
+        _scanCompletionNotifier = State(
+            initialValue: ScanCompletionNotifier(preferences: prefs, dispatcher: notificationManager)
+        )
     }
 
     /// Surfaces a launchd registration failure to the user. Kept on the App
@@ -248,7 +262,6 @@ struct VaderCleanerApp: App {
                 applicationsViewModel: applicationsViewModel,
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 performanceViewModel: performanceViewModel,
-                malwareViewModel: malwareViewModel,
                 protectionDashboardViewModel: protectionDashboardViewModel,
                 smartScanViewModel: smartScanViewModel
             )
@@ -262,6 +275,8 @@ struct VaderCleanerApp: App {
                 .environment(settingsRouter)
                 .environment(systemStats)
                 .environment(notificationMonitor)
+                .environment(notificationMonitors)
+                .environment(scanCompletionNotifier)
                 .environment(menuRouter)
         }
         // Hide the title bar so no section title is drawn beside the traffic

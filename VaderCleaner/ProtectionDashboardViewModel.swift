@@ -50,6 +50,19 @@ final class ProtectionDashboardViewModel {
         privacy.beginScan()
     }
 
+    /// Populates the dashboard from a completed Smart Scan so the user never has
+    /// to scan Protection by hand afterwards. The malware tile is seeded from the
+    /// scan's own results (no re-scan), and the fast privacy preview is kicked off
+    /// so its tiles are ready too — unlike `beginScan()`, which would redundantly
+    /// re-run the malware scan. A no-op once the user has scanned here, so it
+    /// never disrupts a scan they started themselves.
+    func prewarmFromSmartScan(threats: [MalwareThreat], clamAVAvailable: Bool, scannedAt date: Date) {
+        guard !hasScanned else { return }
+        hasScanned = true
+        malware.seed(threats: threats, clamAVAvailable: clamAVAvailable, scannedAt: date)
+        if case .idle = privacy.phase { privacy.beginScan() }
+    }
+
     /// Resets both flows to idle and returns the section to its intro screen.
     func startOver() {
         // `cancel()` returns the malware flow to idle from any phase (scanning,
@@ -69,6 +82,42 @@ final class ProtectionDashboardViewModel {
         default:
             return false
         }
+    }
+
+    /// Whether the malware scan has settled into a non-scanning state — a real
+    /// result, a clean bill, a finished removal, a failure, or "needs install"
+    /// (ClamAV absent, so nothing more will happen).
+    private var malwareSettled: Bool {
+        switch malware.phase {
+        case .results, .clean, .done, .failed, .needsInstall:
+            return true
+        case .idle, .checkingClamAV, .updatingDatabase, .scanning, .removing:
+            return false
+        }
+    }
+
+    /// Whether the privacy preview has settled (finished previewing, cleared, or
+    /// failed) rather than still being in flight.
+    private var privacySettled: Bool {
+        switch privacy.phase {
+        case .preview, .complete, .failed:
+            return true
+        case .idle, .scanning, .clearing:
+            return false
+        }
+    }
+}
+
+// MARK: - ScanCompletionReporting
+
+extension ProtectionDashboardViewModel: ScanCompletionReporting {
+
+    /// True once a scan started here has finished both halves — the malware scan
+    /// and the privacy preview. The dashboard's `scanPresentation` reaches
+    /// `.results` the moment scanning starts (it streams tiles in), so the scan-
+    /// finished banner keys off this instead.
+    var isScanComplete: Bool {
+        hasScanned && malwareSettled && privacySettled
     }
 }
 
