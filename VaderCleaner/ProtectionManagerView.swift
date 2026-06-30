@@ -44,8 +44,14 @@ struct ProtectionManagerView: View {
             .accessibilityIdentifier("protection.manager")
             .task {
                 if privacyModel.phase == .idle { await privacyModel.scan() }
+                // Seed the right pane to the first browser whenever data is
+                // already present — covers the pre-warmed case, where `browsers`
+                // is populated before this view appears so `onChange` never fires.
+                if selectedBrowser == nil { selectedBrowser = privacyModel.browsers.first }
                 if !hasInitialized { hasInitialized = true; privacyModel.deselectAll() }
             }
+            // Catches the case where a pre-warm scan is still in flight when the
+            // manager opens: select the first browser the moment it lands.
             .onChange(of: privacyModel.browsers) { _, browsers in
                 if selectedBrowser == nil { selectedBrowser = browsers.first }
             }

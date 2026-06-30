@@ -48,6 +48,7 @@ final class ProtectionDashboardViewModel {
         hasScanned = true
         malware.beginScan()
         privacy.beginScan()
+        prewarmManagerPrivacy()
     }
 
     /// Populates the dashboard from a completed Smart Scan so the user never has
@@ -61,6 +62,17 @@ final class ProtectionDashboardViewModel {
         hasScanned = true
         malware.seed(threats: threats, clamAVAvailable: clamAVAvailable, scannedAt: date)
         if case .idle = privacy.phase { privacy.beginScan() }
+        prewarmManagerPrivacy()
+    }
+
+    /// Warms the Protection Manager's privacy model alongside the dashboard scan
+    /// so the manager opens already populated (per-browser categories, per-item
+    /// rows, real counts) instead of blank. Gated on `.idle` so it runs once and
+    /// reuses the cached result on later scans — matching how the manager itself
+    /// caches its first scan.
+    private func prewarmManagerPrivacy() {
+        guard protectionPrivacy.phase == .idle else { return }
+        Task { await protectionPrivacy.scan() }
     }
 
     /// Resets both flows to idle and returns the section to its intro screen.

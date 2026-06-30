@@ -77,6 +77,31 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(sut.malware.phase, .clean)
     }
 
+    // MARK: - Manager privacy pre-warm
+
+    /// Starting a Protection scan also warms the manager's privacy model
+    /// (per-browser categories, per-item rows, real counts) so the Protection
+    /// Manager opens already populated instead of blank.
+    func test_beginScan_prewarmsManagerPrivacyScan() async {
+        let sut = makeSUT(managerBrowsers: [.chrome])
+
+        sut.beginScan()
+
+        await waitUntil { sut.protectionPrivacy.phase == .ready }
+        XCTAssertEqual(sut.protectionPrivacy.browsers, [.chrome])
+    }
+
+    /// The Smart Scan seed warms the manager's privacy model too, so opening the
+    /// manager after a Smart Scan is also instant.
+    func test_prewarmFromSmartScan_prewarmsManagerPrivacyScan() async {
+        let sut = makeSUT(managerBrowsers: [.chrome])
+
+        sut.prewarmFromSmartScan(threats: [], clamAVAvailable: true, scannedAt: Date())
+
+        await waitUntil { sut.protectionPrivacy.phase == .ready }
+        XCTAssertEqual(sut.protectionPrivacy.browsers, [.chrome])
+    }
+
     /// If the user already scanned Protection here, a later Smart Scan pre-warm
     /// must not disturb the flow.
     func test_prewarmFromSmartScan_isNoOpWhenAlreadyScanned() {
@@ -147,7 +172,8 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
 
     private func makeSUT(
         malwareScan: @escaping MalwareViewModel.Scan = { _, _ in [] },
-        privacyDetector: @escaping PrivacyViewModel.Detector = { [] }
+        privacyDetector: @escaping PrivacyViewModel.Detector = { [] },
+        managerBrowsers: [Browser] = []
     ) -> ProtectionDashboardViewModel {
         let malware = MalwareViewModel(
             checkInstalled: { true },
@@ -166,7 +192,7 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
             clearRecentFiles: { }
         )
         let protectionPrivacy = ProtectionPrivacyModel(
-            detect: { [] }, count: { _, _ in 0 }, items: { _, _ in [] }, remove: { _ in }
+            detect: { managerBrowsers }, count: { _, _ in 0 }, items: { _, _ in [] }, remove: { _ in }
         )
         return ProtectionDashboardViewModel(malware: malware, privacy: privacy, protectionPrivacy: protectionPrivacy)
     }
