@@ -30,7 +30,7 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .quick:    return String(localized: "Fast", comment: "Protection scan mode speed.")
         case .balanced: return String(localized: "Moderate", comment: "Protection scan mode speed.")
-        case .deep:     return String(localized: "Slow", comment: "Protection scan mode speed.")
+        case .deep:     return String(localized: "Slowest", comment: "Protection scan mode speed.")
         }
     }
 
@@ -39,7 +39,7 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .quick:    return String(localized: "Surface-level", comment: "Protection scan mode depth.")
         case .balanced: return String(localized: "Thorough", comment: "Protection scan mode depth.")
-        case .deep:     return String(localized: "Exhaustive", comment: "Protection scan mode depth.")
+        case .deep:     return String(localized: "Comprehensive", comment: "Protection scan mode depth.")
         }
     }
 
@@ -58,7 +58,7 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
             )
         case .deep:
             return String(
-                localized: "Scans your entire home folder with the fewest exclusions for maximum coverage. Best when you suspect an infection and want a complete sweep.",
+                localized: "Conducts an exhaustive examination of your entire system, diving into every file and folder. Best used when maximum security assurance is needed or after a suspected malware activity.",
                 comment: "Protection Deep Scan purpose."
             )
         }
@@ -70,9 +70,9 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
 /// skip locally-downloaded iCloud files, and how thorough the scan is.
 /// Persisted in `UserDefaults` so the choices survive relaunch.
 ///
-/// Defaults mirror the reference design — every content option on and Quick
-/// Scan selected — so a fresh install behaves like a fast, comprehensive
-/// surface scan. The `UserDefaults` instance is injected so tests can use an
+/// Defaults mirror the reference design — every content option on and Deep
+/// Scan selected — so a fresh install behaves like a thorough, comprehensive
+/// sweep. The `UserDefaults` instance is injected so tests can use an
 /// isolated suite, the same seam `SmartScanSettingsStore` uses.
 @MainActor
 @Observable
@@ -94,7 +94,7 @@ final class ProtectionSettingsStore {
     /// On by default: iCloud Drive's local copy mirrors a store Apple already
     /// scans, so skipping it trims scan time with little detection cost.
     static let defaultExcludeDownloadedICloudFiles = true
-    static let defaultScanMode: ScanMode = .quick
+    static let defaultScanMode: ScanMode = .deep
 
     // MARK: - Tracked state
 

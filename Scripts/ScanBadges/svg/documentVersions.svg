@@ -17,9 +17,9 @@
     </filter>
   </defs>
   <g filter="url(#ds)">
-    <rect x="26" y="24" width="188" height="188" rx="46" fill="url(#body)"/>
-    <rect x="40" y="38" width="160" height="96" rx="34" fill="url(#gloss)"/>
-    <rect x="26" y="24" width="188" height="188" rx="46" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+    <circle cx="120" cy="118" r="98" fill="url(#body)"/>
+    <ellipse cx="120" cy="70" rx="78" ry="46" fill="url(#gloss)"/>
+    <circle cx="120" cy="118" r="98" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
   </g>
   <g filter="url(#es)">
       <path d="M90 76 H132 L158 102 V164 Q158 171 151 171 H90 Q83 171 83 164 V83 Q83 76 90 76 Z"

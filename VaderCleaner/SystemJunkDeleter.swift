@@ -37,6 +37,11 @@ struct SystemJunkDeleter {
     /// reply block or the connection-level error handler fires first.
     typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
 
+    /// Moves a single user-domain file to the Trash. Injectable so tests can
+    /// redirect to a sandboxed directory instead of the real `~/.Trash`;
+    /// production uses `FileManager.trashItem`.
+    typealias TrashItem = (URL) throws -> Void
+
     /// Plain prefix matches that mean "must go through the helper". Stored
     /// with trailing slashes so the check matches descendants but not paths
     /// that merely start with the same characters (`/Libraryfoo` ≠ `/Library/`).
@@ -61,13 +66,21 @@ struct SystemJunkDeleter {
 
     private let fileManager: FileManager
     private let helperProvider: HelperProvider
+    private let trashItem: TrashItem
 
     init(
         fileManager: FileManager = .default,
-        helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider
+        helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider,
+        trashItem: TrashItem? = nil
     ) {
         self.fileManager = fileManager
         self.helperProvider = helperProvider
+        // `FileManager.trashItem` always targets the system Trash regardless of
+        // the instance, so the trash destination is its own seam rather than a
+        // property of the injected `fileManager`.
+        self.trashItem = trashItem ?? { url in
+            try fileManager.trashItem(at: url, resultingItemURL: nil)
+        }
     }
 
     /// Deletes every file in `files` and returns the sum of byte sizes for
@@ -90,7 +103,7 @@ struct SystemJunkDeleter {
                     try fileManager.removeItem(at: file.url)
                 } else {
                     // Recoverable: move to the Trash instead of deleting.
-                    try fileManager.trashItem(at: file.url, resultingItemURL: nil)
+                    try trashItem(file.url)
                 }
                 bytesFreed += file.size
             } catch {
