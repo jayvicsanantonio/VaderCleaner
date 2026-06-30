@@ -206,6 +206,15 @@ EMBLEMS = {
       </g>
       <path d="M80 108 a40 14 0 0 0 80 0" fill="none" stroke="{dark}" stroke-width="5"/>
     """,
+    # Green cache emblem for the Scanning tab's "User Cache Files" row, so the
+    # Cleanup tree stays all-green without recoloring the pink privacy badge.
+    "userCacheFiles": """
+      <g fill="#ffffff">
+        <ellipse cx="120" cy="86" rx="40" ry="14"/>
+        <path d="M80 86 v44 a40 14 0 0 0 80 0 v-44 a40 14 0 0 1 -80 0 z"/>
+      </g>
+      <path d="M80 108 a40 14 0 0 0 80 0" fill="none" stroke="{dark}" stroke-width="5"/>
+    """,
     "tabs": """
       <g fill="#ffffff">
         <rect x="78" y="92" width="84" height="64" rx="10"/>
@@ -229,6 +238,7 @@ BADGES = {
     "myClutter": "purple",
     "xcodeJunk": "green",
     "documentVersions": "green",
+    "userCacheFiles": "green",
     "cleanupSystemJunk": "green",
     "logs": "green",
     "languageFiles": "green",
@@ -243,14 +253,10 @@ BADGES = {
     "tabs": "pink",
 }
 
-# badge name -> body shape. Defaults to the glossy round orb; a few badges use a
-# rounded-square "app icon" (squircle) instead to match the reference Cleanup
-# tiles, where Xcode Junk and Document Versions read as app-style tiles rather
-# than orbs.
-SHAPES = {
-    "xcodeJunk": "squircle",
-    "documentVersions": "squircle",
-}
+# badge name -> body shape. Every badge uses the glossy round orb; the squircle
+# "app icon" silhouette in SHAPE_BODIES remains available for any badge that opts
+# in here, but the Cleanup tree reads as a uniform set of round green orbs.
+SHAPES: dict[str, str] = {}
 
 TEMPLATE = """<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
   <defs>

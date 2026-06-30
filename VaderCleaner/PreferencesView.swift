@@ -1,10 +1,10 @@
 // PreferencesView.swift
-// SwiftUI Settings window — Notifications, Exclusions, Startup, and Menu Bar tabs bound to PreferencesStore and ExclusionsStore.
+// SwiftUI Settings window — General, Scanning, Notifications, Menu, Protection, and Ignore List tabs bound to the preference and settings stores.
 
 import SwiftUI
 import AppKit
 
-/// Root of the Settings scene. Splits the four preference categories across a
+/// Root of the Settings scene. Splits the preference categories across a
 /// `TabView` so the layout matches macOS's native Settings windows.
 ///
 /// Each tab is a small, self-contained subview — they all read/write the same
@@ -19,35 +19,35 @@ struct PreferencesView: View {
     var body: some View {
         @Bindable var router = router
         TabView(selection: $router.selectedTab) {
+            GeneralTab()
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
+
             ScanningTab()
-                .tabItem { Label("Scanning", systemImage: "magnifyingglass") }
+                .tabItem { Label("Scanning", systemImage: "desktopcomputer") }
                 .tag(SettingsTab.scanning)
+
+            NotificationsTab()
+                .tabItem { Label("Notifications", systemImage: "bell") }
+                .tag(SettingsTab.notifications)
+
+            MenuBarTab()
+                .tabItem { Label("Menu", systemImage: "menubar.rectangle") }
+                .tag(SettingsTab.menuBar)
 
             ProtectionTab()
                 .tabItem { Label("Protection", systemImage: "hand.raised") }
                 .tag(SettingsTab.protectionScan)
 
-            NotificationsTab()
-                .tabItem { Label("Notifications", systemImage: "bell.badge") }
-                .tag(SettingsTab.notifications)
-
             ExclusionsTab()
-                .tabItem { Label("Exclusions", systemImage: "minus.circle") }
+                .tabItem { Label("Ignore List", systemImage: "nosign") }
                 .tag(SettingsTab.exclusions)
-
-            StartupTab()
-                .tabItem { Label("Startup", systemImage: "power") }
-                .tag(SettingsTab.startup)
-
-            MenuBarTab()
-                .tabItem { Label("Menu Bar", systemImage: "menubar.rectangle") }
-                .tag(SettingsTab.menuBar)
         }
         // Fixed width so all tabs share the same window size and the window
         // doesn't jump as the user switches tabs. The width accommodates the
         // Scanning tab's two-pane Smart Care layout; the form-based tabs simply
         // have more breathing room.
-        .frame(width: 620, height: 460)
+        .frame(width: 620, height: 580)
     }
 }
 
@@ -68,9 +68,13 @@ private struct ScanningTab: View {
 
     @Environment(SmartScanSettingsStore.self) private var settings
     @State private var selection: SidebarItem = .smartCare
-    /// Node ids whose children are revealed. Cleanup opens by default so its
-    /// System Junk / Mail Attachments / Trash Bins sub-tree shows on first view.
-    @State private var expanded: Set<String> = ["module.systemJunk"]
+    /// Node ids whose children are revealed. Every module opens by default so the
+    /// Smart Care tree shows each module's features on first view; the System Junk
+    /// sub-group stays collapsed there and expands when Cleanup is selected.
+    @State private var expanded: Set<String> = [
+        "module.systemJunk", "module.malware", "module.performance",
+        "module.applications", "module.myClutter",
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -85,6 +89,15 @@ private struct ScanningTab: View {
             }
         }
         .padding(18)
+        // System Junk shows collapsed in the Smart Care overview but expanded
+        // when Cleanup is selected, so its categories are visible up front.
+        .onChange(of: selection) { _, newValue in
+            if newValue == .cleanup {
+                expanded.insert("group.systemJunk")
+            } else {
+                expanded.remove("group.systemJunk")
+            }
+        }
     }
 
     // MARK: Sidebar
@@ -165,16 +178,27 @@ private struct ScanningTab: View {
     // MARK: Tree model
 
     /// The top-level nodes shown in the detail pane. `.smartCare` shows every
-    /// module; selecting Cleanup in the sidebar narrows to that one module.
+    /// module; selecting Cleanup in the sidebar narrows to that module's own
+    /// children (System Junk / Mail Attachments / Trash Bins), with no Cleanup
+    /// parent row — matching the "Categories to scan using Cleanup:" view.
     private var rootNodes: [ScanNode] {
         switch selection {
-        case .cleanup: return [cleanupNode]
+        case .cleanup: return cleanupNode.children
         case .smartCare:
-            return [cleanupNode]
-                + [moduleNode(.malware, featureTitle: "Malware Removal", featureBadge: "scanBadgeMalware"),
-                   moduleNode(.performance, featureTitle: "Maintenance Scripts", featureBadge: "scanBadgePerformance"),
-                   moduleNode(.applications, featureTitle: "App Updates", featureBadge: "scanBadgeApplications"),
-                   moduleNode(.myClutter, featureTitle: "Large & Old Files", featureBadge: "scanBadgeMyClutter")]
+            return [cleanupNode,
+                    moduleNode(.malware, features: [
+                        ("Malware Removal", "scanBadgeMalware"),
+                    ]),
+                    moduleNode(.performance, features: [
+                        ("Background Items", "scanBadgePerformance"),
+                        ("Login Items", "scanBadgePerformance"),
+                    ]),
+                    moduleNode(.applications, features: [
+                        ("Updater", "scanBadgeApplications"),
+                    ]),
+                    moduleNode(.myClutter, features: [
+                        ("Duplicates", "scanBadgeMyClutter"),
+                    ])]
         }
     }
 
@@ -192,18 +216,26 @@ private struct ScanningTab: View {
             isEnabled: { true },
             children: [
                 systemJunkGroupNode,
-                categoryNode(.mailAttachments, title: "Mail Attachments"),
-                categoryNode(.trash, title: "Trash Bins"),
+                categoryNode(.mailAttachments, title: "Mail Attachments", badge: "scanBadgeMailAttachments"),
+                categoryNode(.trash, title: "Trash Bins", badge: "scanBadgeTrash"),
             ]
         )
     }
 
-    /// The "System Junk" sub-group: a tri-state over the cache/log/language/
-    /// backup categories (everything under Cleanup except mail + trash).
+    /// The named System Junk categories shown under Cleanup, matching the
+    /// reference screenshot's set and order. Each title/badge is a display label
+    /// over a real `ScanCategory` toggle.
+    private static let systemJunkDisplays: [(category: ScanCategory, title: String, badge: String)] = [
+        (.systemCache, "Broken Preferences", "scanBadgeSystemJunk"),
+        (.userLogs, "User Log Files", "scanBadgeLogs"),
+        (.documentVersions, "Document Versions", "scanBadgeDocumentVersions"),
+        (.userCache, "User Cache Files", "scanBadgeUserCacheFiles"),
+        (.xcodeJunk, "Xcode Junk", "scanBadgeXcodeJunk"),
+    ]
+
+    /// The "System Junk" sub-group: a tri-state over the named categories above.
     private var systemJunkGroupNode: ScanNode {
-        let categories = SmartScanSettingsStore.junkCategories.filter {
-            $0 != .mailAttachments && $0 != .trash
-        }
+        let categories = Self.systemJunkDisplays.map(\.category)
         return ScanNode(
             id: "group.systemJunk",
             title: "System Junk",
@@ -213,15 +245,15 @@ private struct ScanningTab: View {
             state: { self.groupState(categories) },
             toggle: { self.setCategories(categories, enabled: !self.allEnabled(categories)) },
             isEnabled: { self.settings.isModuleEnabled(.systemJunk) },
-            children: categories.map { categoryNode($0, title: $0.displayName) }
+            children: Self.systemJunkDisplays.map { categoryNode($0.category, title: $0.title, badge: $0.badge) }
         )
     }
 
-    private func categoryNode(_ category: ScanCategory, title: String) -> ScanNode {
+    private func categoryNode(_ category: ScanCategory, title: String, badge: String) -> ScanNode {
         ScanNode(
             id: "category.\(category.rawValue)",
             title: title,
-            badge: Self.categoryBadge(category),
+            badge: badge,
             canMix: false,
             checkboxID: "scanning.junkCategory.\(category.rawValue)",
             state: { self.settings.isJunkCategoryEnabled(category) ? .on : .off },
@@ -230,10 +262,11 @@ private struct ScanningTab: View {
         )
     }
 
-    /// A non-Cleanup module rendered as a parent over its single named feature,
-    /// matching the reference (Protection → Malware Removal, etc.). The parent
-    /// and the child are the same toggle — the module's on/off state.
-    private func moduleNode(_ module: SmartScanModule, featureTitle: String, featureBadge: String) -> ScanNode {
+    /// A non-Cleanup module rendered as a parent over its named features,
+    /// matching the reference (Protection → Malware Removal, Performance →
+    /// Background Items / Login Items, etc.). The parent and every child share
+    /// the same toggle — the module's on/off state.
+    private func moduleNode(_ module: SmartScanModule, features: [(title: String, badge: String)]) -> ScanNode {
         let toggle = { self.settings.setModule(module, enabled: !self.settings.isModuleEnabled(module)) }
         let state = { self.settings.isModuleEnabled(module) ? ScanState.on : .off }
         return ScanNode(
@@ -245,18 +278,18 @@ private struct ScanningTab: View {
             state: state,
             toggle: toggle,
             isEnabled: { true },
-            children: [
+            children: features.enumerated().map { index, feature in
                 ScanNode(
-                    id: "feature.\(module.rawValue)",
-                    title: featureTitle,
-                    badge: featureBadge,
+                    id: "feature.\(module.rawValue).\(index)",
+                    title: feature.title,
+                    badge: feature.badge,
                     canMix: false,
-                    checkboxID: "scanning.feature.\(module.rawValue)",
+                    checkboxID: "scanning.feature.\(module.rawValue).\(index)",
                     state: state,
                     toggle: toggle,
                     isEnabled: { true }
                 )
-            ]
+            }
         )
     }
 
@@ -318,16 +351,6 @@ private struct ScanningTab: View {
         }
     }
 
-    /// Badge artwork for a System Junk category. Mail and Trash have their own
-    /// emblems; the remaining cache/log/language/backup categories share the
-    /// System Junk bin badge.
-    private static func categoryBadge(_ category: ScanCategory) -> String {
-        switch category {
-        case .mailAttachments: return "scanBadgeMailAttachments"
-        case .trash: return "scanBadgeTrash"
-        default: return "scanBadgeSystemJunk"
-        }
-    }
 }
 
 /// Tri-state of a checkbox in the Smart Care tree. Aliased to the store's
@@ -505,14 +528,59 @@ private struct ProtectionTab: View {
     @Environment(ProtectionSettingsStore.self) private var settings
 
     var body: some View {
+        HStack(spacing: 0) {
+            brandColumn
+                .frame(width: 200)
+
+            Divider()
+
+            scanOptions
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(28)
+        }
+    }
+
+    // MARK: Brand column
+
+    /// Left column: the app icon centered over the "POWERED by ClamAV"
+    /// wordmark, matching the reference layout. The icon is the running app's
+    /// own icon so it always reflects the shipped artwork.
+    private var brandColumn: some View {
+        VStack(spacing: 18) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 128, height: 128)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 2) {
+                Text("POWERED")
+                    .font(.caption.weight(.bold))
+                    .tracking(1.5)
+                    .foregroundStyle(.secondary)
+                Text("by ClamAV")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    // MARK: Scan options
+
+    private var scanOptions: some View {
         @Bindable var settings = settings
-        Form {
-            Section("Scan options") {
+        return VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Scan options")
+                    .font(.title2.weight(.semibold))
+
                 Toggle("Scan email attachments", isOn: $settings.scanEmailAttachments)
                     .accessibilityIdentifier("protection.scanEmailAttachments")
                 Toggle("Scan archives", isOn: $settings.scanArchives)
                     .accessibilityIdentifier("protection.scanArchives")
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Toggle("Exclude downloaded iCloud files", isOn: $settings.excludeDownloadedICloudFiles)
                         .accessibilityIdentifier("protection.excludeDownloadedICloudFiles")
                     Image(systemName: "info.circle")
@@ -520,26 +588,45 @@ private struct ProtectionTab: View {
                         .help("Skips iCloud Drive files already downloaded to this Mac. Apple scans the canonical copies in iCloud, so excluding them speeds up scans.")
                 }
             }
+            .toggleStyle(.checkbox)
+            .controlSize(.large)
 
-            Section("Scan mode") {
-                Picker("Scan mode:", selection: $settings.scanMode) {
-                    ForEach(ScanMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
+            Divider()
+
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    Text("Scan mode:")
+                    Picker("Scan mode:", selection: $settings.scanMode) {
+                        ForEach(ScanMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityIdentifier("protection.scanMode")
                 }
-                .accessibilityIdentifier("protection.scanMode")
 
-                LabeledContent("Speed", value: settings.scanMode.speed)
-                LabeledContent("Depth", value: settings.scanMode.depth)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Purpose")
-                        .foregroundStyle(.secondary)
-                    Text(settings.scanMode.purpose)
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    attribute("Speed", value: settings.scanMode.speed)
+                    attribute("Depth", value: settings.scanMode.depth)
+                    attribute("Purpose", value: settings.scanMode.purpose)
                 }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    /// One scan-mode attribute row: a bold label in a fixed leading column with
+    /// the value wrapping beside it, as in the reference.
+    private func attribute(_ label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .font(.body.weight(.semibold))
+                .frame(width: 72, alignment: .leading)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -555,92 +642,97 @@ private struct NotificationsTab: View {
 
     var body: some View {
         @Bindable var preferences = preferences
-        Form {
-            Section("General") {
-                toggleWithPicker(
-                    "Remind to run regular Smart Care",
-                    isOn: $preferences.remindSmartCare
-                ) {
-                    Picker("", selection: $preferences.smartCareFrequency) {
-                        ForEach(SmartCareFrequency.allCases) { freq in
-                            Text(freq.label).tag(freq)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                section("General") {
+                    toggleRow("Remind to run regular Smart Care", isOn: $preferences.remindSmartCare) {
+                        Picker("", selection: $preferences.smartCareFrequency) {
+                            ForEach(SmartCareFrequency.allCases) { freq in
+                                Text(freq.label).tag(freq)
+                            }
                         }
                     }
-                }
-
-                toggleWithPicker(
-                    "Notify if Trash size exceeds",
-                    isOn: $preferences.notifyTrashSize
-                ) {
-                    Picker("", selection: $preferences.trashSizeThresholdGB) {
-                        ForEach(trashSizeOptions, id: \.self) { gb in
-                            Text("\(gb) GB").tag(gb)
+                    toggleRow("Notify if Trash size exceeds", isOn: $preferences.notifyTrashSize) {
+                        Picker("", selection: $preferences.trashSizeThresholdGB) {
+                            ForEach(trashSizeOptions, id: \.self) { gb in
+                                Text("\(gb) GB").tag(gb)
+                            }
                         }
                     }
+                    Toggle("Warn when connected device batteries are running low", isOn: $preferences.notifyDeviceBatteryLow)
+                    Toggle("Notify when too low on free RAM", isOn: $preferences.notifyHighRAM)
                 }
 
-                Toggle("Warn when connected device batteries are running low", isOn: $preferences.notifyDeviceBatteryLow)
-                Toggle("Notify when too low on free RAM", isOn: $preferences.notifyHighRAM)
-                Toggle("Notify when a scan finishes", isOn: $preferences.notifyScanFinished)
-
-                // Kept from the prior Notifications tab — not in the reference
-                // design but still useful alerts the app already supports.
-                Toggle("Notify when malware is found", isOn: $preferences.notifyMalwareFound)
-                Toggle("Notify when large files are detected", isOn: $preferences.notifyLargeFilesFound)
-            }
-
-            Section("Disk Space") {
-                toggleWithPicker(
-                    "Warn when free space is less than",
-                    isOn: $preferences.notifyLowDisk
-                ) {
-                    Picker("", selection: $preferences.diskFreeThresholdGB) {
-                        ForEach(diskFreeOptions, id: \.self) { gb in
-                            Text("\(gb) GB").tag(gb)
+                section("Disk Space") {
+                    toggleRow("Warn when free space is less than", isOn: $preferences.notifyLowDisk) {
+                        Picker("", selection: $preferences.diskFreeThresholdGB) {
+                            ForEach(diskFreeOptions, id: \.self) { gb in
+                                Text("\(gb) GB").tag(gb)
+                            }
                         }
                     }
+                    Toggle("Notify when a drive is connected to the Mac", isOn: $preferences.notifyDriveConnected)
+                    Toggle("Suggest to clean up overfilled external drives", isOn: $preferences.notifyOverfilledDrives)
                 }
 
-                Toggle("Notify when a drive is connected to the Mac", isOn: $preferences.notifyDriveConnected)
-                Toggle("Suggest to clean up overfilled external drives", isOn: $preferences.notifyOverfilledDrives)
-            }
-
-            Section("Applications") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Offer to uninstall applications correctly", isOn: $preferences.offerUninstallOnTrash)
-                    Text("If you put an application into Trash, you will be offered to uninstall it correctly.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Notify about hung applications", isOn: $preferences.notifyHungApps)
-                    Text("If any of your apps stop responding, use an easy way of force quitting them.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                section("Applications") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Offer to uninstall applications correctly", isOn: $preferences.offerUninstallOnTrash)
+                        caption("If you put an application into Trash, you will be offered to uninstall it correctly.")
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Notify about hung applications", isOn: $preferences.notifyHungApps)
+                        caption("If any of your apps stop responding, use an easy way of force quitting them.")
+                    }
                 }
             }
+            .toggleStyle(.checkbox)
+            .controlSize(.large)
+            .padding(28)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .formStyle(.grouped)
     }
 
-    /// A checkbox row with an inline trailing dropdown, gated so the picker
-    /// disables when the toggle is off — the pattern the reference design uses
-    /// for the frequency / threshold rows.
+    /// One category: a bold title in a fixed leading column with the category's
+    /// toggle rows stacked beside it, matching the reference layout.
     @ViewBuilder
-    private func toggleWithPicker(
+    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Text(title)
+                .font(.headline)
+                .frame(width: 130, alignment: .leading)
+            VStack(alignment: .leading, spacing: 14) {
+                content()
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// A checkbox row with an inline dropdown sized to its content, so the picker
+    /// sits just after the label as in the reference. The picker disables when
+    /// the toggle is off.
+    @ViewBuilder
+    private func toggleRow(
         _ title: String,
         isOn: Binding<Bool>,
         @ViewBuilder picker: () -> some View
     ) -> some View {
-        HStack {
+        HStack(spacing: 14) {
             Toggle(title, isOn: isOn)
-            Spacer(minLength: 12)
+                .fixedSize()
             picker()
                 .labelsHidden()
                 .fixedSize()
+                .controlSize(.regular)
                 .disabled(!isOn.wrappedValue)
         }
+    }
+
+    /// Secondary explanatory line shown under an Applications toggle.
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -711,9 +803,9 @@ private struct ExclusionsTab: View {
     }
 }
 
-// MARK: - Startup tab
+// MARK: - General tab
 
-private struct StartupTab: View {
+private struct GeneralTab: View {
 
     @Environment(PreferencesStore.self) private var preferences
 

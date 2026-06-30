@@ -34,7 +34,7 @@ final class ProtectionSettingsStoreTests: XCTestCase {
         XCTAssertTrue(sut.scanEmailAttachments)
         XCTAssertTrue(sut.scanArchives)
         XCTAssertTrue(sut.excludeDownloadedICloudFiles)
-        XCTAssertEqual(sut.scanMode, .quick)
+        XCTAssertEqual(sut.scanMode, .deep)
     }
 
     // MARK: - Persistence
@@ -73,6 +73,6 @@ final class ProtectionSettingsStoreTests: XCTestCase {
     func test_scanMode_unknownPersistedValueFallsBackToDefault() {
         defaults.set("nonsense", forKey: "protection.scanMode")
         let sut = ProtectionSettingsStore(defaults: defaults)
-        XCTAssertEqual(sut.scanMode, .quick)
+        XCTAssertEqual(sut.scanMode, .deep)
     }
 }

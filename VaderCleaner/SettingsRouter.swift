@@ -7,10 +7,10 @@ import Observation
 /// The tabs of the Settings window, used as the `TabView` selection. Adding a
 /// case is a compile-time prompt to give it a `.tag(...)` in `PreferencesView`.
 enum SettingsTab: Hashable, CaseIterable {
+    case general
     case scanning
     case notifications
     case exclusions
-    case startup
     case menuBar
     case protectionScan
 }
@@ -22,7 +22,7 @@ enum SettingsTab: Hashable, CaseIterable {
 @MainActor
 @Observable
 final class SettingsRouter {
-    /// The tab the Settings window should display. Defaults to Scanning so the
-    /// window opens on its existing first tab when nothing routed it.
-    var selectedTab: SettingsTab = .scanning
+    /// The tab the Settings window should display. Defaults to General so the
+    /// window opens on its first tab when nothing routed it.
+    var selectedTab: SettingsTab = .general
 }
