@@ -44,8 +44,14 @@ struct ProtectionManagerView: View {
             .accessibilityIdentifier("protection.manager")
             .task {
                 if privacyModel.phase == .idle { await privacyModel.scan() }
+                // Seed the right pane to the first browser whenever data is
+                // already present — covers the pre-warmed case, where `browsers`
+                // is populated before this view appears so `onChange` never fires.
+                if selectedBrowser == nil { selectedBrowser = privacyModel.browsers.first }
                 if !hasInitialized { hasInitialized = true; privacyModel.deselectAll() }
             }
+            // Catches the case where a pre-warm scan is still in flight when the
+            // manager opens: select the first browser the moment it lands.
             .onChange(of: privacyModel.browsers) { _, browsers in
                 if selectedBrowser == nil { selectedBrowser = browsers.first }
             }
@@ -165,8 +171,11 @@ struct ProtectionManagerView: View {
         case .privacy:
             ScrollView {
                 VStack(spacing: 6) {
-                    middleHeader(String(localized: "Privacy", comment: "Privacy middle header."),
-                                 String(localized: "Instantly remove your browsing history, along with traces of your online and offline activities.", comment: "Privacy middle description."))
+                    PaneHeading(
+                        title: String(localized: "Privacy", comment: "Privacy middle header."),
+                        description: String(localized: "Instantly remove your browsing history, along with traces of your online and offline activities.", comment: "Privacy middle description."),
+                        bottomPadding: 8
+                    )
                     ForEach(privacyModel.browsers) { browser in browserRow(browser) }
                 }
                 .padding(12)
@@ -174,21 +183,16 @@ struct ProtectionManagerView: View {
         case .malware:
             ScrollView {
                 VStack(spacing: 6) {
-                    middleHeader(String(localized: "Malware Removal", comment: "Malware middle header."),
-                                 String(localized: "Threats detected during the scan.", comment: "Malware middle description."))
+                    PaneHeading(
+                        title: String(localized: "Malware Removal", comment: "Malware middle header."),
+                        description: String(localized: "Threats detected during the scan.", comment: "Malware middle description."),
+                        bottomPadding: 8
+                    )
                     threatsSummaryRow
                 }
                 .padding(12)
             }
         }
-    }
-
-    private func middleHeader(_ title: String, _ description: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.title3.weight(.semibold))
-            Text(description).font(.callout).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
     }
 
     private func browserRow(_ browser: Browser) -> some View {
@@ -197,7 +201,7 @@ struct ProtectionManagerView: View {
                 browserIcon(browser)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(browser.displayName).font(.body.weight(.medium))
-                    Text(itemsLabel(privacyModel.totalCount(browser))).font(.caption).foregroundStyle(.secondary)
+                    Text(managerItemsLabel(privacyModel.totalCount(browser))).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -209,7 +213,7 @@ struct ProtectionManagerView: View {
             Image(systemName: "allergens").font(.title3).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
                 Text(String(localized: "Detected Threats", comment: "Threats row.")).font(.body.weight(.medium))
-                Text(itemsLabel(threats.count)).font(.caption).foregroundStyle(.secondary)
+                Text(managerItemsLabel(threats.count)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -221,177 +225,35 @@ struct ProtectionManagerView: View {
     @ViewBuilder
     private var rightPane: some View {
         switch section {
-        case .privacy: privacyPane
-        case .malware: malwarePane
-        }
-    }
-
-    @ViewBuilder
-    private var privacyPane: some View {
-        if let browser = selectedBrowser {
-            ScrollView {
-                VStack(spacing: 0) {
-                    paneHeading(browser.displayName,
-                                String(localized: "You may choose to remove all the locally stored items that remain after browser use.", comment: "Privacy pane description."))
-                    selectMenu(
-                        selected: privacyModel.selectedCount,
-                        any: privacyModel.hasSelection,
-                        onAll: { privacyModel.setAllSelected(true, browser: browser) },
-                        onNone: { privacyModel.setAllSelected(false, browser: browser) }
-                    )
-                    ForEach(ProtectionPrivacyCategory.allCases) { category in
-                        categoryRow(browser, category)
-                        if isExpanded(browser, category) {
-                            ForEach(sortedItems(browser, category)) { item in
-                                itemRow(browser, category, item)
-                            }
-                        }
-                        Divider().opacity(0.3)
-                    }
-                }
-                .padding(.horizontal, 20).padding(.vertical, 16)
-            }
-        } else {
-            Color.clear
-        }
-    }
-
-    private func categoryRow(_ browser: Browser, _ category: ProtectionPrivacyCategory) -> some View {
-        HStack(spacing: 12) {
-            leadingControl(browser, category)
-                .frame(width: 26)
-            Image(category.iconAsset).resizable().interpolation(.high).scaledToFit().frame(width: 34, height: 34)
-            Text(category.displayName).font(.body)
-            Spacer(minLength: 8)
-            Text(itemsLabel(privacyModel.count(browser, category))).font(.callout).foregroundStyle(.secondary)
-            if category.isExpandable {
-                Button { toggleExpanded(browser, category) } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded(browser, category) ? 90 : 0))
-                        .frame(width: 20, height: 20).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+        case .privacy:
+            if let browser = selectedBrowser {
+                PrivacyPane(
+                    browser: browser,
+                    model: privacyModel,
+                    expanded: $expanded,
+                    infoCategory: $infoCategory,
+                    search: search,
+                    sortByCount: sort == .count,
+                    accent: Self.accent
+                )
             } else {
-                Color.clear.frame(width: 20, height: 1)
+                Color.clear
+            }
+        case .malware:
+            // While the engine is still looking for threats, show the scanning
+            // placeholder instead of an empty "No threats were found" list — the
+            // results aren't in yet.
+            if malware.isScanningPhase {
+                MalwareScanningPlaceholder()
+            } else {
+                MalwareResultsPane(
+                    threats: threats,
+                    search: search,
+                    selectedThreats: $selectedThreats,
+                    accent: Self.accent
+                )
             }
         }
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("protection.manager.category.\(browser.rawValue).\(category.rawValue)")
-    }
-
-    @ViewBuilder
-    private func leadingControl(_ browser: Browser, _ category: ProtectionPrivacyCategory) -> some View {
-        switch category.kind {
-        case .informational:
-            Button { infoCategory = category } label: {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 16)).foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: Binding(get: { infoCategory == category }, set: { if !$0 { infoCategory = nil } })) {
-                Text(category.info).font(.callout).padding(14).frame(width: 260)
-            }
-        case .removable:
-            checkbox(privacyModel.categoryState(browser, category)) { privacyModel.toggleCategory(browser, category) }
-        }
-    }
-
-    private func itemRow(_ browser: Browser, _ category: ProtectionPrivacyCategory, _ item: PrivacyItem) -> some View {
-        HStack(spacing: 12) {
-            checkbox(privacyModel.isItemSelected(browser, category, item.id) ? .on : .off) {
-                privacyModel.toggleItem(browser, category, item.id)
-            }
-            .frame(width: 26)
-            Text(item.label).font(.body).lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: 8)
-            Text(itemsLabel(item.count)).font(.callout).foregroundStyle(.secondary)
-            Color.clear.frame(width: 20, height: 1)
-        }
-        .padding(.vertical, 7).padding(.leading, 34)
-        .background(Color.primary.opacity(0.02))
-    }
-
-    private var malwarePane: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                paneHeading(String(localized: "Detected Threats", comment: "Threats pane title."),
-                            String(localized: "Select the infected files to remove. Removal is permanent.", comment: "Threats pane description."))
-                if threats.isEmpty {
-                    Text(String(localized: "No threats were found.", comment: "Empty threats."))
-                        .font(.callout).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-                } else {
-                    selectMenu(
-                        selected: selectedThreats.count, any: !selectedThreats.isEmpty,
-                        onAll: { selectedThreats = Set(threats.map(\.id)) },
-                        onNone: { selectedThreats = [] }
-                    )
-                    ForEach(sortedThreats) { threat in
-                        HStack(spacing: 12) {
-                            checkbox(selectedThreats.contains(threat.id) ? .on : .off) {
-                                if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
-                                else { selectedThreats.insert(threat.id) }
-                            }
-                            .frame(width: 26)
-                            Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(threat.threatName).font(.body)
-                                Text(threat.filePath.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, 9)
-                        Divider().opacity(0.3)
-                    }
-                }
-            }
-            .padding(.horizontal, 20).padding(.vertical, 16)
-        }
-    }
-
-    // MARK: - Shared pieces
-
-    private func paneHeading(_ title: String, _ description: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.title3.weight(.semibold))
-            Text(description).font(.callout).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 12)
-    }
-
-    private func selectMenu(selected: Int, any: Bool, onAll: @escaping () -> Void, onNone: @escaping () -> Void) -> some View {
-        HStack(spacing: 6) {
-            Text(String(localized: "Select:", comment: "Bulk-select label.")).foregroundStyle(.secondary)
-            Menu {
-                Button(String(localized: "Select All", comment: "Select all.")) { onAll() }
-                Button(String(localized: "Deselect All", comment: "Deselect all.")) { onNone() }
-            } label: {
-                Text(any ? String(localized: "Some", comment: "Some selected.") : String(localized: "None", comment: "None selected."))
-                    .foregroundStyle(.tint)
-            }
-            .menuStyle(.borderlessButton).fixedSize()
-            .accessibilityIdentifier("protection.manager.select")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 12)
-    }
-
-    /// A tri-state checkbox tinted with the manager accent.
-    private func checkbox(_ state: ProtectionPrivacyModel.CheckState, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(Self.accent, lineWidth: 1.5)
-                    .frame(width: 18, height: 18)
-                if state != .off {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Self.accent).frame(width: 18, height: 18)
-                    Image(systemName: state == .mixed ? "minus" : "checkmark")
-                        .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Footer
@@ -416,34 +278,6 @@ struct ProtectionManagerView: View {
     private var threats: [MalwareThreat] {
         if case .results(let found) = malware.phase { return found }
         return []
-    }
-
-    private var sortedThreats: [MalwareThreat] {
-        threats
-            .filter { search.isEmpty || $0.threatName.localizedCaseInsensitiveContains(search) || $0.filePath.lastPathComponent.localizedCaseInsensitiveContains(search) }
-            .sorted { $0.threatName < $1.threatName }
-    }
-
-    private func sortedItems(_ browser: Browser, _ category: ProtectionPrivacyCategory) -> [PrivacyItem] {
-        let items = privacyModel.items(browser, category)
-            .filter { search.isEmpty || $0.label.localizedCaseInsensitiveContains(search) }
-        switch sort {
-        case .name:  return items.sorted { $0.label < $1.label }
-        case .count: return items.sorted { $0.count > $1.count }
-        }
-    }
-
-    private func isExpanded(_ browser: Browser, _ category: ProtectionPrivacyCategory) -> Bool {
-        expanded.contains(key(browser, category))
-    }
-
-    private func toggleExpanded(_ browser: Browser, _ category: ProtectionPrivacyCategory) {
-        let k = key(browser, category)
-        if expanded.contains(k) { expanded.remove(k) } else { expanded.insert(k) }
-    }
-
-    private func key(_ browser: Browser, _ category: ProtectionPrivacyCategory) -> String {
-        "\(browser.rawValue).\(category.rawValue)"
     }
 
     private var canRemove: Bool {
@@ -492,8 +326,301 @@ struct ProtectionManagerView: View {
             Image(systemName: "globe").font(.title3).foregroundStyle(.tint).frame(width: 28, height: 28)
         }
     }
+}
 
-    private func itemsLabel(_ count: Int) -> String {
-        String(localized: "\(count) items", comment: "Item count label.")
+// MARK: - Privacy pane
+
+/// The right pane's Privacy content for one browser: a heading, a bulk
+/// select/deselect menu, and each data category with its expandable per-item
+/// rows. Owns the expand/collapse and info-popover state via bindings back to
+/// the manager, and derives its own filtered/sorted item lists.
+private struct PrivacyPane: View {
+
+    let browser: Browser
+    let model: ProtectionPrivacyModel
+    @Binding var expanded: Set<String>
+    @Binding var infoCategory: ProtectionPrivacyCategory?
+    let search: String
+    let sortByCount: Bool
+    let accent: Color
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                PaneHeading(
+                    title: browser.displayName,
+                    description: String(localized: "You may choose to remove all the locally stored items that remain after browser use.", comment: "Privacy pane description.")
+                )
+                ManagerSelectMenu(
+                    any: model.hasSelection,
+                    onAll: { model.setAllSelected(true, browser: browser) },
+                    onNone: { model.setAllSelected(false, browser: browser) }
+                )
+                ForEach(ProtectionPrivacyCategory.allCases) { category in
+                    categoryRow(category)
+                    if isExpanded(category) {
+                        ForEach(sortedItems(category)) { item in
+                            itemRow(category, item)
+                        }
+                    }
+                    Divider().opacity(0.3)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 16)
+        }
     }
+
+    private func categoryRow(_ category: ProtectionPrivacyCategory) -> some View {
+        HStack(spacing: 12) {
+            leadingControl(category)
+                .frame(width: 26)
+            Image(category.iconAsset).resizable().interpolation(.high).scaledToFit().frame(width: 34, height: 34)
+            Text(category.displayName).font(.body)
+            Spacer(minLength: 8)
+            Text(managerItemsLabel(model.count(browser, category))).font(.callout).foregroundStyle(.secondary)
+            if category.isExpandable {
+                Button { toggleExpanded(category) } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded(category) ? 90 : 0))
+                        .frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear.frame(width: 20, height: 1)
+            }
+        }
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("protection.manager.category.\(browser.rawValue).\(category.rawValue)")
+    }
+
+    @ViewBuilder
+    private func leadingControl(_ category: ProtectionPrivacyCategory) -> some View {
+        switch category.kind {
+        case .informational:
+            Button { infoCategory = category } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 16)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: Binding(get: { infoCategory == category }, set: { if !$0 { infoCategory = nil } })) {
+                Text(category.info).font(.callout).padding(14).frame(width: 260)
+            }
+        case .removable:
+            ManagerCheckbox(state: model.categoryState(browser, category), accent: accent) {
+                model.toggleCategory(browser, category)
+            }
+        }
+    }
+
+    private func itemRow(_ category: ProtectionPrivacyCategory, _ item: PrivacyItem) -> some View {
+        HStack(spacing: 12) {
+            ManagerCheckbox(state: model.isItemSelected(browser, category, item.id) ? .on : .off, accent: accent) {
+                model.toggleItem(browser, category, item.id)
+            }
+            .frame(width: 26)
+            Text(item.label).font(.body).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
+            Text(managerItemsLabel(item.count)).font(.callout).foregroundStyle(.secondary)
+            Color.clear.frame(width: 20, height: 1)
+        }
+        .padding(.vertical, 7).padding(.leading, 34)
+        .background(Color.primary.opacity(0.02))
+    }
+
+    private func sortedItems(_ category: ProtectionPrivacyCategory) -> [PrivacyItem] {
+        let items = model.items(browser, category)
+            .filter { search.isEmpty || $0.label.localizedCaseInsensitiveContains(search) }
+        return sortByCount
+            ? items.sorted { $0.count > $1.count }
+            : items.sorted { $0.label < $1.label }
+    }
+
+    private func isExpanded(_ category: ProtectionPrivacyCategory) -> Bool {
+        expanded.contains(key(category))
+    }
+
+    private func toggleExpanded(_ category: ProtectionPrivacyCategory) {
+        let k = key(category)
+        if expanded.contains(k) { expanded.remove(k) } else { expanded.insert(k) }
+    }
+
+    private func key(_ category: ProtectionPrivacyCategory) -> String {
+        "\(browser.rawValue).\(category.rawValue)"
+    }
+}
+
+// MARK: - Malware panes
+
+/// The right pane's Malware content once the scan has settled: the detected
+/// threats with per-file selection, or an empty-state line when the Mac is
+/// clean. Derives its own filtered/sorted threat list.
+private struct MalwareResultsPane: View {
+
+    let threats: [MalwareThreat]
+    let search: String
+    @Binding var selectedThreats: Set<String>
+    let accent: Color
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                PaneHeading(
+                    title: String(localized: "Detected Threats", comment: "Threats pane title."),
+                    description: String(localized: "Select the infected files to remove. Removal is permanent.", comment: "Threats pane description.")
+                )
+                if threats.isEmpty {
+                    Text(String(localized: "No threats were found.", comment: "Empty threats."))
+                        .font(.callout).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                } else {
+                    ManagerSelectMenu(
+                        any: !selectedThreats.isEmpty,
+                        onAll: { selectedThreats = Set(threats.map(\.id)) },
+                        onNone: { selectedThreats = [] }
+                    )
+                    ForEach(sortedThreats) { threat in threatRow(threat) }
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 16)
+        }
+    }
+
+    private func threatRow(_ threat: MalwareThreat) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                ManagerCheckbox(state: selectedThreats.contains(threat.id) ? .on : .off, accent: accent) {
+                    if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
+                    else { selectedThreats.insert(threat.id) }
+                }
+                .frame(width: 26)
+                Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(threat.threatName).font(.body)
+                    Text(threat.filePath.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 9)
+            Divider().opacity(0.3)
+        }
+    }
+
+    private var sortedThreats: [MalwareThreat] {
+        threats
+            .filter { search.isEmpty || $0.threatName.localizedCaseInsensitiveContains(search) || $0.filePath.lastPathComponent.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.threatName < $1.threatName }
+    }
+}
+
+/// Shown in the Malware Removal pane while the scan is still running — the app's
+/// malware badge over a "Looking for threats…" message, attributed to the
+/// ClamAV engine at the bottom.
+private struct MalwareScanningPlaceholder: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(spacing: 14) {
+                Image("scanBadgeMalware")
+                    .resizable().interpolation(.high).scaledToFit()
+                    .frame(width: 104, height: 104)
+                Text(String(localized: "Looking for threats…",
+                            comment: "Protection Manager malware pane title while scanning."))
+                    .font(.title.weight(.semibold))
+                Text(String(localized: "Scanning your Mac in the background. This may take a moment.",
+                            comment: "Protection Manager malware pane subtitle while scanning."))
+                    .font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+            Spacer()
+            poweredByClamAV
+                .padding(.bottom, 28)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("protection.manager.malware.scanning")
+    }
+
+    private var poweredByClamAV: some View {
+        HStack(spacing: 5) {
+            Text(String(localized: "Powered by",
+                        comment: "Attribution prefix before the malware engine name."))
+                .foregroundStyle(.secondary)
+            Text(verbatim: "ClamAV")
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary.opacity(0.85))
+        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Shared pieces
+
+/// Section heading (title + description) shared by the manager's panes. The
+/// middle-pane headers pass a tighter bottom padding than the detail panes.
+private struct PaneHeading: View {
+    let title: String
+    let description: String
+    var bottomPadding: CGFloat = 12
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.title3.weight(.semibold))
+            Text(description).font(.callout).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, bottomPadding)
+    }
+}
+
+/// The "Select: Some/None" bulk menu shown above a pane's selectable rows.
+private struct ManagerSelectMenu: View {
+    let any: Bool
+    let onAll: () -> Void
+    let onNone: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(String(localized: "Select:", comment: "Bulk-select label.")).foregroundStyle(.secondary)
+            Menu {
+                Button(String(localized: "Select All", comment: "Select all.")) { onAll() }
+                Button(String(localized: "Deselect All", comment: "Deselect all.")) { onNone() }
+            } label: {
+                Text(any ? String(localized: "Some", comment: "Some selected.") : String(localized: "None", comment: "None selected."))
+                    .foregroundStyle(.tint)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .accessibilityIdentifier("protection.manager.select")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 12)
+    }
+}
+
+/// A tri-state checkbox tinted with the manager accent.
+private struct ManagerCheckbox: View {
+    let state: ProtectionPrivacyModel.CheckState
+    let accent: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(accent, lineWidth: 1.5)
+                    .frame(width: 18, height: 18)
+                if state != .off {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(accent).frame(width: 18, height: 18)
+                    Image(systemName: state == .mixed ? "minus" : "checkmark")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Localized "N items" label shared by the manager's rows.
+private func managerItemsLabel(_ count: Int) -> String {
+    String(localized: "\(count) items", comment: "Item count label.")
 }
