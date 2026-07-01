@@ -318,7 +318,19 @@ struct ProtectionManagerView: View {
         .background(Color.primary.opacity(0.02))
     }
 
+    @ViewBuilder
     private var malwarePane: some View {
+        // While the engine is still looking for threats, show the scanning
+        // placeholder instead of an empty "No threats were found" list — the
+        // results aren't in yet.
+        if malware.isScanInProgress {
+            malwareScanningState
+        } else {
+            malwareResults
+        }
+    }
+
+    private var malwareResults: some View {
         ScrollView {
             VStack(spacing: 0) {
                 paneHeading(String(localized: "Detected Threats", comment: "Threats pane title."),
@@ -354,6 +366,46 @@ struct ProtectionManagerView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 16)
         }
+    }
+
+    /// Shown in the Malware Removal pane while the scan is still running — the
+    /// app's malware badge over a "Looking for threats…" message, attributed to
+    /// the ClamAV engine at the bottom.
+    private var malwareScanningState: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(spacing: 14) {
+                Image("scanBadgeMalware")
+                    .resizable().interpolation(.high).scaledToFit()
+                    .frame(width: 104, height: 104)
+                Text(String(localized: "Looking for threats…",
+                            comment: "Protection Manager malware pane title while scanning."))
+                    .font(.title.weight(.semibold))
+                Text(String(localized: "Scanning your Mac in the background. This may take a moment.",
+                            comment: "Protection Manager malware pane subtitle while scanning."))
+                    .font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+            Spacer()
+            poweredByClamAV
+                .padding(.bottom, 28)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("protection.manager.malware.scanning")
+    }
+
+    private var poweredByClamAV: some View {
+        HStack(spacing: 5) {
+            Text(String(localized: "Powered by",
+                        comment: "Attribution prefix before the malware engine name."))
+                .foregroundStyle(.secondary)
+            Text(verbatim: "ClamAV")
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary.opacity(0.85))
+        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Shared pieces
