@@ -323,7 +323,7 @@ struct ProtectionManagerView: View {
         // While the engine is still looking for threats, show the scanning
         // placeholder instead of an empty "No threats were found" list — the
         // results aren't in yet.
-        if malware.isScanInProgress {
+        if malware.isScanningPhase {
             malwareScanningState
         } else {
             malwareResults
