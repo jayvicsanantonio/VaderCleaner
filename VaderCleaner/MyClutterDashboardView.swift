@@ -5,6 +5,75 @@ import SwiftUI
 import QuickLookThumbnailing
 import AppKit
 
+/// One card on the My Clutter dashboard: a clutter category with findings, or
+/// an "all good" reassurance card used to backfill the grid to its minimum
+/// count when a scan finds fewer than two categories.
+enum MyClutterTileKind: Identifiable, Equatable {
+    case duplicates
+    case similar
+    case largeOld
+    case downloads
+    case reassurance(ReassuranceContent)
+
+    var id: String {
+        switch self {
+        case .duplicates:               return "duplicates"
+        case .similar:                  return "similar"
+        case .largeOld:                 return "largeOld"
+        case .downloads:                return "downloads"
+        case .reassurance(let content): return "reassurance.\(content.id)"
+        }
+    }
+
+    /// The ranked 2–4 cards the dashboard shows: the categories that actually
+    /// found files, largest reclaimable size first (capped at four), backfilled
+    /// with reassurance cards when a scan finds fewer than two categories. Each
+    /// category is passed as a `(count, bytes)` pair so an empty category is
+    /// dropped even if its byte total rounds to zero.
+    static func recommended(duplicates: (count: Int, bytes: Int64),
+                            similar: (count: Int, bytes: Int64),
+                            largeOld: (count: Int, bytes: Int64),
+                            downloads: (count: Int, bytes: Int64)) -> [MyClutterTileKind] {
+        var candidates: [RankedTile<MyClutterTileKind>] = []
+        func add(_ kind: MyClutterTileKind, _ category: (count: Int, bytes: Int64)) {
+            guard category.count > 0 else { return }
+            candidates.append(RankedTile(payload: kind, urgency: .space, reclaimableBytes: category.bytes))
+        }
+        add(.duplicates, duplicates)
+        add(.similar, similar)
+        add(.largeOld, largeOld)
+        add(.downloads, downloads)
+
+        let reassurance = reassurancePool.map { content in
+            RankedTile(payload: MyClutterTileKind.reassurance(content), urgency: .reassurance, reclaimableBytes: 0)
+        }
+        return SectionRecommendationSelector.select(real: candidates, reassurance: reassurance)
+    }
+
+    /// Ordered pool of "all good" cards, drawn from in order when a scan finds
+    /// fewer than two categories so backfilling never repeats a card.
+    static let reassurancePool: [ReassuranceContent] = [
+        ReassuranceContent(
+            id: "myClutter.organized",
+            title: String(localized: "Nicely Organized", comment: "My Clutter reassurance card title."),
+            detail: String(
+                localized: "No duplicates, look-alikes, or space hogs stood out in this scan.",
+                comment: "My Clutter reassurance card detail."
+            ),
+            icon: "checkmark.seal"
+        ),
+        ReassuranceContent(
+            id: "myClutter.reviewAll",
+            title: String(localized: "Browse Everything", comment: "My Clutter reassurance card title."),
+            detail: String(
+                localized: "Use Review All Files to look through your files whenever you like.",
+                comment: "My Clutter reassurance card detail."
+            ),
+            icon: "folder"
+        ),
+    ]
+}
+
 /// The My Clutter results dashboard. A "Start Over" bar, a centered header
 /// counting the files to sort through with a "Review All Files" button, then the
 /// four recommendation cards laid out as a tall Duplicates card on the left and
@@ -107,22 +176,82 @@ struct MyClutterDashboardView: View {
 
     // MARK: - Grid
 
+    /// Fixed width of the hero column so the lead card keeps a stable shape while
+    /// the remaining cards absorb the rest of the width — mirrors the Cleanup
+    /// dashboard so the two sections share one look.
+    private let heroColumnWidth: CGFloat = 340
+
+    /// The ranked 2–4 cards this scan warrants, largest reclaimable size first.
+    private var recommendedTiles: [MyClutterTileKind] {
+        MyClutterTileKind.recommended(
+            duplicates: (viewModel.duplicateCopies.count, viewModel.duplicateReclaimableBytes),
+            similar: (viewModel.similarCopies.count, viewModel.similarReclaimableBytes),
+            largeOld: (viewModel.largeOldFiles.count, viewModel.largeOldBytes),
+            downloads: (viewModel.downloads.count, viewModel.downloadsBytes)
+        )
+    }
+
+    /// The bento grid: the top-ranked card leads on the left, the rest fill the
+    /// right column (a wide card on top, the remainder in rows of two). Lower
+    /// card counts degrade gracefully so the pane never shows a lone card beside
+    /// empty space.
+    @ViewBuilder
     private var grid: some View {
-        HStack(alignment: .top, spacing: 16) {
-            duplicatesCard
+        let tiles = recommendedTiles
+        switch tiles.count {
+        case 0:
+            EmptyView()
+        case 1:
+            card(tiles[0])
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            VStack(spacing: 16) {
-                similarCard
+        default:
+            HStack(alignment: .top, spacing: 16) {
+                card(tiles[0])
+                    .frame(width: heroColumnWidth)
+                    .frame(maxHeight: .infinity)
+                rightColumn(Array(tiles.dropFirst()))
+            }
+        }
+    }
+
+    /// The non-hero cards: the first is a wide card spanning the column, the rest
+    /// flow in rows of two beneath it.
+    private func rightColumn(_ rest: [MyClutterTileKind]) -> some View {
+        VStack(spacing: 16) {
+            if let wide = rest.first {
+                card(wide)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            ForEach(Array(rows(of: Array(rest.dropFirst())).enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 16) {
-                    largeOldCard
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    downloadsCard
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ForEach(row) { tile in
+                        card(tile)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
                 .frame(maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Chunks the remaining cards into rows of at most two so the lower grid
+    /// reads as a balanced two-up arrangement.
+    private func rows(of tiles: [MyClutterTileKind]) -> [[MyClutterTileKind]] {
+        stride(from: 0, to: tiles.count, by: 2).map {
+            Array(tiles[$0..<min($0 + 2, tiles.count)])
+        }
+    }
+
+    /// Renders one ranked tile with its category card, or a reassurance backfill.
+    @ViewBuilder
+    private func card(_ kind: MyClutterTileKind) -> some View {
+        switch kind {
+        case .duplicates:               duplicatesCard
+        case .similar:                  similarCard
+        case .largeOld:                 largeOldCard
+        case .downloads:                downloadsCard
+        case .reassurance(let content): ReassuranceCard(content: content, accent: accent)
         }
     }
 

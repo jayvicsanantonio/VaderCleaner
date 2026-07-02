@@ -650,7 +650,7 @@ final class ApplicationsViewModelTests: XCTestCase {
     }
 
     /// No cleanup findings → no recommendations, even though installed apps
-    /// exist. Drives the dashboard's "all clear" state.
+    /// exist. Drives the dashboard's reassurance backfill.
     func test_recommendations_emptyWhenNoCleanupFindings() {
         XCTAssertEqual(makeResult().recommendations, [])
     }
@@ -696,6 +696,61 @@ final class ApplicationsViewModelTests: XCTestCase {
             updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
         )
         XCTAssertEqual(result.recommendations, [.unused, .updates, .installationFiles])
+    }
+
+    // MARK: - Dashboard tiles (ranked selection)
+
+    private func recommendations(
+        of tiles: [ApplicationsDashboardTile]
+    ) -> [ApplicationsScanResult.Recommendation] {
+        tiles.compactMap { tile in
+            if case .recommendation(let recommendation) = tile { return recommendation }
+            return nil
+        }
+    }
+
+    /// A scan with nothing to clean up still fills the grid with two distinct
+    /// reassurance cards.
+    func test_recommendedTiles_emptyScanBackfillsToTwoReassurance() {
+        let tiles = makeResult().recommendedTiles()
+
+        XCTAssertEqual(tiles.count, 2)
+        XCTAssertTrue(recommendations(of: tiles).isEmpty, "No real cards on an empty scan")
+        XCTAssertNotEqual(tiles[0].id, tiles[1].id, "Backfill cards must be distinct")
+    }
+
+    /// Review-worthy findings lead the space-reclaim cruft, and within the
+    /// space-reclaim tier the larger reclaimable size ranks first.
+    func test_recommendedTiles_ranksAttentionThenSpaceBySize() {
+        let result = makeResult(
+            installers: [makeInstaller(name: "Big.dmg", size: 5_000)],
+            leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)],
+            updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
+        )
+
+        // updates (attention) leads; then the space items by size: installers (5000) before leftovers (10).
+        XCTAssertEqual(
+            recommendations(of: result.recommendedTiles()),
+            [.updates, .installationFiles, .leftovers]
+        )
+    }
+
+    /// Never more than four cards: with all five categories present the
+    /// lowest-ranked space item is dropped (still reachable via Manage).
+    func test_recommendedTiles_capsAtFour_dropsSmallestSpaceItem() {
+        let result = makeResult(
+            installers: [makeInstaller(name: "Big.dmg", size: 5_000)],
+            unsupported: [makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
+            unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
+            leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)],
+            updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
+        )
+
+        // attention trio in order, then the larger space item; leftovers (10) drops.
+        XCTAssertEqual(
+            recommendations(of: result.recommendedTiles()),
+            [.unsupported, .unused, .updates, .installationFiles]
+        )
     }
 }
 

@@ -125,7 +125,8 @@ struct SystemJunkView: View {
             // the Large & Old Files section.
             SystemJunkDashboardView(
                 totalBytes: result.totalSize,
-                tiles: CleanupGroupTile.tiles(from: result),
+                tiles: CleanupDashboardTile.recommended(from: result),
+                accent: NavigationSection.systemJunk.theme.accent,
                 onReview: { group in
                     // Pre-select this card's whole group so the right pane opens
                     // all-checked and the selected total matches the card's size.

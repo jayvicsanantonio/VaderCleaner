@@ -134,6 +134,39 @@ final class CleanupGroupTests: XCTestCase {
         XCTAssertEqual(tiles.map(\.group), [.systemJunk, .trashBins, .xcodeJunk, .documentVersions])
     }
 
+    // MARK: - Dashboard recommendation
+
+    /// The dashboard ranks its cards by reclaimable size (largest first) and
+    /// never shows more than four, so a five-group scan drops the smallest.
+    func test_recommended_ranksBySizeAndCapsAtFour() {
+        let result = ScanResult(items: [
+            file("cache", size: 500, category: .userCache),        // System Junk
+            file("trash", size: 900, category: .trash),            // Trash Bins
+            file("xcode", size: 700, category: .xcodeJunk),        // Xcode Junk
+            file("web", size: 300, category: .webDevJunk),         // Web Dev Junk
+            file("doc", size: 100, category: .documentVersions),   // Document Versions (smallest)
+        ])
+
+        let groups = CleanupDashboardTile.recommended(from: result).compactMap { tile -> CleanupGroup? in
+            if case .group(let g) = tile { return g.group }
+            return nil
+        }
+
+        XCTAssertEqual(groups, [.trashBins, .xcodeJunk, .systemJunk, .webDevJunk])
+    }
+
+    /// A scan with a single junk group is topped up to two cards with a
+    /// reassurance backfill so the grid never shows a lone card.
+    func test_recommended_backfillsReassuranceBelowFloor() {
+        let result = ScanResult(items: [file("t", size: 10, category: .trash)])
+
+        let tiles = CleanupDashboardTile.recommended(from: result)
+
+        XCTAssertEqual(tiles.count, 2)
+        guard case .group = tiles[0] else { return XCTFail("first tile should be the real group") }
+        guard case .reassurance = tiles[1] else { return XCTFail("second tile should be reassurance") }
+    }
+
     // MARK: - Helpers
 
     private func file(_ name: String, size: Int64, category: ScanCategory) -> ScannedFile {
