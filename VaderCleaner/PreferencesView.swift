@@ -60,7 +60,7 @@ struct PreferencesView: View {
 /// modules with glossy colored badge icons. The Cleanup parent carries a
 /// disclosure triangle and a native tri-state checkbox over its category
 /// children; disabling a module greys out and excludes its whole subtree.
-private struct ScanningTab: View {
+struct ScanningTab: View {
 
     /// Left-list selection: the whole Smart Care profile, or the Cleanup module
     /// drilled down to its own sub-tree.
@@ -225,12 +225,28 @@ private struct ScanningTab: View {
             state: { self.settings.junkCategoryState },
             toggle: self.toggleCleanup,
             isEnabled: { true },
-            children: [
-                systemJunkGroupNode,
-                categoryNode(.mailAttachments, title: "Mail Attachments", badge: "scanBadgeMailAttachments"),
-                categoryNode(.trash, title: "Trash Bins", badge: "scanBadgeTrash"),
-            ]
+            children: [systemJunkGroupNode] + Self.cleanupLeafDisplays.map {
+                categoryNode($0.category, title: $0.title, badge: $0.badge)
+            }
         )
+    }
+
+    /// The category leaves shown directly under Cleanup, beside the System Junk
+    /// sub-group — distinct user-data stores rather than named system-junk kinds.
+    /// Each title/badge is a display label over a real `ScanCategory` toggle.
+    private static let cleanupLeafDisplays: [(category: ScanCategory, title: String, badge: String)] = [
+        (.mailAttachments, "Mail Attachments", "scanBadgeMailAttachments"),
+        (.iosBackups, "iOS Backups", "scanBadgeIosBackups"),
+        (.trash, "Trash Bins", "scanBadgeTrash"),
+    ]
+
+    /// Every System Junk `ScanCategory` the Cleanup tree renders a toggle for —
+    /// the System Junk sub-group plus the Cleanup-level leaves. Exposed so a test
+    /// can assert the tree covers every scannable junk category, guarding against
+    /// a category that is scanned and filtered but has no user-facing toggle.
+    static var toggleableJunkCategories: Set<ScanCategory> {
+        Set(systemJunkDisplays.map(\.category))
+            .union(cleanupLeafDisplays.map(\.category))
     }
 
     /// The named System Junk categories shown under Cleanup, matching the
@@ -239,9 +255,12 @@ private struct ScanningTab: View {
     private static let systemJunkDisplays: [(category: ScanCategory, title: String, badge: String)] = [
         (.systemCache, "Broken Preferences", "scanBadgeSystemJunk"),
         (.userLogs, "User Log Files", "scanBadgeLogs"),
+        (.systemLogs, "System Log Files", "scanBadgeLogs"),
         (.documentVersions, "Document Versions", "scanBadgeDocumentVersions"),
         (.userCache, "User Cache Files", "scanBadgeUserCacheFiles"),
+        (.languageFiles, "Language Files", "scanBadgeLanguageFiles"),
         (.xcodeJunk, "Xcode Junk", "scanBadgeXcodeJunk"),
+        (.webDevJunk, "Web Development Junk", "scanBadgeWebDevJunk"),
     ]
 
     /// The "System Junk" sub-group: a tri-state over the named categories above.
