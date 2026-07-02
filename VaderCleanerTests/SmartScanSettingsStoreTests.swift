@@ -56,6 +56,15 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         XCTAssertEqual(Set(SmartScanSettingsStore.junkCategories), expected)
     }
 
+    func test_scanningTab_offersToggleForEveryJunkCategory() {
+        // Every category the scanner can emit and the store filters on must have
+        // a toggle in Settings → Scanning; otherwise it is silently always-on.
+        XCTAssertEqual(
+            ScanningTab.toggleableJunkCategories,
+            Set(SmartScanSettingsStore.junkCategories)
+        )
+    }
+
     // MARK: - Toggling modules
 
     func test_setModule_disablesAndEnables() {
