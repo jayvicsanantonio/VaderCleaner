@@ -319,6 +319,13 @@ final class PerformanceViewModel {
         }
     }
 
+    /// Number of maintenance-cocktail tasks currently due — the count behind the
+    /// dashboard's Maintenance card, scoped to the same tasks `runDueMaintenance()`
+    /// runs so the card and the action always agree.
+    var maintenanceTasksDue: Int {
+        runLog.staleTaskCount(among: availableCocktailIDs)
+    }
+
     /// Runs every due maintenance-cocktail task (the action behind the
     /// "Maintenance Tasks Recommended" card), so the card's count and its "Run
     /// Tasks" action cover the same set.

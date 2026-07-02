@@ -16,9 +16,53 @@ struct PerformanceDashboardView: View {
     /// Login Items summary card.
     let loginItemBundleIDs: [String]
     let backgroundItemCount: Int
+    /// Number of due maintenance-cocktail tasks — drives the Maintenance card.
+    let maintenanceTasksDue: Int
+    /// Section accent, used to tint any reassurance backfill cards.
+    let accent: Color
     let onViewAllTasks: () -> Void
     let onReviewLoginItems: () -> Void
     let onReviewBackgroundItems: () -> Void
+    let onReviewMaintenance: () -> Void
+
+    /// One card on the Performance dashboard: a summary of a category with
+    /// findings, or an "all good" reassurance card used to backfill the row to
+    /// its minimum count.
+    private enum Tile: Identifiable {
+        case loginItems
+        case backgroundItems
+        case maintenance
+        case reassurance(ReassuranceContent)
+
+        var id: String {
+            switch self {
+            case .loginItems:               return "loginItems"
+            case .backgroundItems:          return "backgroundItems"
+            case .maintenance:              return "maintenance"
+            case .reassurance(let content): return "reassurance.\(content.id)"
+            }
+        }
+    }
+
+    /// The ranked 2–4 summary cards this state warrants: only the categories
+    /// with findings appear, backfilled with reassurance cards when fewer than
+    /// two have anything to review.
+    private var tiles: [Tile] {
+        var real: [RankedTile<Tile>] = []
+        if loginItemCount > 0 {
+            real.append(RankedTile(payload: .loginItems, urgency: .attention, reclaimableBytes: 0))
+        }
+        if backgroundItemCount > 0 {
+            real.append(RankedTile(payload: .backgroundItems, urgency: .attention, reclaimableBytes: 0))
+        }
+        if maintenanceTasksDue > 0 {
+            real.append(RankedTile(payload: .maintenance, urgency: .attention, reclaimableBytes: 0))
+        }
+        let reassurance = Self.reassurancePool.map { content in
+            RankedTile(payload: Tile.reassurance(content), urgency: .reassurance, reclaimableBytes: 0)
+        }
+        return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -61,35 +105,83 @@ struct PerformanceDashboardView: View {
         }
     }
 
-    /// The two summary cards along the bottom, refracting together in one glass
-    /// container so they read as a pair.
+    /// The ranked summary cards along the bottom, refracting together in one
+    /// glass container so they read as a set.
     private var summaryCards: some View {
         GlassEffectContainer(spacing: 16) {
             HStack(spacing: 16) {
-                PerformanceSummaryCard(
-                    title: loginItemsTitle,
-                    description: String(
-                        localized: "Review the list of applications that open automatically when you start up your Mac. You may want to disable some of them.",
-                        comment: "Login Items summary card description."
-                    ),
-                    accessory: .appIcons(loginItemBundleIDs),
-                    reviewIdentifier: "performance.reviewLoginItems",
-                    onReview: onReviewLoginItems
-                )
-                PerformanceSummaryCard(
-                    title: backgroundItemsTitle,
-                    description: String(
-                        localized: "Review the processes and apps that run in the background. You may not need or want part of them.",
-                        comment: "Background Items summary card description."
-                    ),
-                    accessory: .badge(symbol: "gearshape.2.fill", tint: Color(red: 0.96, green: 0.55, blue: 0.30)),
-                    reviewIdentifier: "performance.reviewBackgroundItems",
-                    onReview: onReviewBackgroundItems
-                )
+                ForEach(tiles) { tile in
+                    card(tile)
+                }
             }
         }
         .frame(height: 200)
     }
+
+    /// Renders one ranked summary card, or a reassurance backfill.
+    @ViewBuilder
+    private func card(_ tile: Tile) -> some View {
+        switch tile {
+        case .loginItems:
+            PerformanceSummaryCard(
+                title: loginItemsTitle,
+                description: String(
+                    localized: "Review the list of applications that open automatically when you start up your Mac. You may want to disable some of them.",
+                    comment: "Login Items summary card description."
+                ),
+                accessory: .appIcons(loginItemBundleIDs),
+                reviewIdentifier: "performance.reviewLoginItems",
+                onReview: onReviewLoginItems
+            )
+        case .backgroundItems:
+            PerformanceSummaryCard(
+                title: backgroundItemsTitle,
+                description: String(
+                    localized: "Review the processes and apps that run in the background. You may not need or want part of them.",
+                    comment: "Background Items summary card description."
+                ),
+                accessory: .badge(symbol: "gearshape.2.fill", tint: Color(red: 0.96, green: 0.55, blue: 0.30)),
+                reviewIdentifier: "performance.reviewBackgroundItems",
+                onReview: onReviewBackgroundItems
+            )
+        case .maintenance:
+            PerformanceSummaryCard(
+                title: maintenanceTitle,
+                description: String(
+                    localized: "Run the due maintenance tasks to keep your Mac in shape — rebuilding caches and tidying system housekeeping.",
+                    comment: "Maintenance summary card description."
+                ),
+                accessory: .badge(symbol: "wrench.and.screwdriver.fill", tint: accent),
+                reviewIdentifier: "performance.reviewMaintenance",
+                onReview: onReviewMaintenance
+            )
+        case .reassurance(let content):
+            ReassuranceCard(content: content, accent: accent)
+        }
+    }
+
+    /// Ordered pool of "all good" cards, drawn from in order when fewer than two
+    /// categories have anything to review so backfilling never repeats a card.
+    private static let reassurancePool: [ReassuranceContent] = [
+        ReassuranceContent(
+            id: "performance.tuned",
+            title: String(localized: "Running Smoothly", comment: "Performance reassurance card title."),
+            detail: String(
+                localized: "No login items, background items, or maintenance tasks need your attention.",
+                comment: "Performance reassurance card detail."
+            ),
+            icon: "gauge.with.needle"
+        ),
+        ReassuranceContent(
+            id: "performance.allTasks",
+            title: String(localized: "Fine-Tune Anytime", comment: "Performance reassurance card title."),
+            detail: String(
+                localized: "Open View All Tasks to run maintenance or review startup items whenever you like.",
+                comment: "Performance reassurance card detail."
+            ),
+            icon: "slider.horizontal.3"
+        ),
+    ]
 
     private var loginItemsTitle: String {
         String.localizedStringWithFormat(
@@ -102,6 +194,13 @@ struct PerformanceDashboardView: View {
         String.localizedStringWithFormat(
             String(localized: "%lld Background Items Found", comment: "Background Items summary card title; %lld is the count."),
             backgroundItemCount
+        )
+    }
+
+    private var maintenanceTitle: String {
+        String.localizedStringWithFormat(
+            String(localized: "%lld Maintenance Tasks Recommended", comment: "Maintenance summary card title; %lld is the count."),
+            maintenanceTasksDue
         )
     }
 }

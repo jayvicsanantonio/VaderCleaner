@@ -120,6 +120,8 @@ struct PerformanceView: View {
                 loginItemCount: viewModel.loginItems.count,
                 loginItemBundleIDs: viewModel.loginItems.map(\.id),
                 backgroundItemCount: viewModel.userAgents.count + viewModel.systemAgents.count,
+                maintenanceTasksDue: viewModel.maintenanceTasksDue,
+                accent: NavigationSection.performance.theme.accent,
                 onViewAllTasks: {
                     catalogPane = .maintenanceTasks
                     showAllTasks = true
@@ -130,6 +132,10 @@ struct PerformanceView: View {
                 },
                 onReviewBackgroundItems: {
                     catalogPane = .backgroundItems
+                    showAllTasks = true
+                },
+                onReviewMaintenance: {
+                    catalogPane = .maintenanceTasks
                     showAllTasks = true
                 }
             )

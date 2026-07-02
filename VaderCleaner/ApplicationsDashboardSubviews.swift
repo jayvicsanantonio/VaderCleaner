@@ -11,6 +11,8 @@ import SwiftUI
 struct ApplicationsDashboardView: View {
     let result: ApplicationsScanResult
     var iconCache: AppIconCache
+    /// Section accent, used to tint any reassurance backfill cards.
+    let accent: Color
     let onOpenManage: () -> Void
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
@@ -28,16 +30,10 @@ struct ApplicationsDashboardView: View {
     var body: some View {
         VStack(spacing: 18) {
             header
-            Group {
-                if result.recommendations.isEmpty {
-                    allClear
-                } else {
-                    cardLayout
-                }
-            }
             // The grid stays flexible (it absorbs any height squeeze) so the
             // hero keeps its standard size instead of being compressed.
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            cardLayout
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("applications.dashboard")
@@ -141,30 +137,29 @@ struct ApplicationsDashboardView: View {
         }
     }
 
-    /// One card per cleanup recommendation that has findings, in display order.
-    private var recommendationSpecs: [CardSpec] {
-        result.recommendations.map(spec(for:))
+    /// The ranked 2–4 cards this scan warrants, most actionable first.
+    private var tiles: [ApplicationsDashboardTile] {
+        result.recommendedTiles()
     }
 
-    /// The reference layout: the lead recommendation is a tall card on the left,
-    /// and the remaining findings sit in a right-hand column packed into rows of
-    /// two (an odd count leads with a single full-width row), mirroring the My
-    /// Clutter dashboard. Capping the right column at rows of two keeps the grid
-    /// bounded so it fills the pane without overflowing, however many findings
-    /// there are. With a single finding the card fills the whole pane.
+    /// The reference layout: the lead card is a tall card on the left, and the
+    /// remaining cards sit in a right-hand column packed into rows of two (an odd
+    /// count leads with a single full-width row), mirroring the My Clutter
+    /// dashboard. Capping the right column at rows of two keeps the grid bounded
+    /// so it fills the pane without overflowing, however many cards there are.
     @ViewBuilder
     private var cardLayout: some View {
-        let specs = recommendationSpecs
-        if specs.count <= 1 {
-            if let only = specs.first {
+        let tiles = self.tiles
+        if tiles.count <= 1 {
+            if let only = tiles.first {
                 card(only).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
             GlassEffectContainer(spacing: 16) {
                 HStack(alignment: .top, spacing: 16) {
-                    card(specs[0])
+                    card(tiles[0])
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    rightColumn(Array(specs.dropFirst()))
+                    rightColumn(Array(tiles.dropFirst()))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -172,14 +167,14 @@ struct ApplicationsDashboardView: View {
         }
     }
 
-    /// The right-hand findings, packed into rows of at most two so the column
-    /// never grows taller than the pane.
-    private func rightColumn(_ specs: [CardSpec]) -> some View {
+    /// The right-hand cards, packed into rows of at most two so the column never
+    /// grows taller than the pane.
+    private func rightColumn(_ tiles: [ApplicationsDashboardTile]) -> some View {
         VStack(spacing: 16) {
-            ForEach(rows(of: specs)) { row in
+            ForEach(rows(of: tiles)) { row in
                 HStack(spacing: 16) {
-                    ForEach(row.specs) { spec in
-                        card(spec).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ForEach(row.tiles) { tile in
+                        card(tile).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -190,64 +185,46 @@ struct ApplicationsDashboardView: View {
     /// One row of right-column cards.
     private struct CardRow: Identifiable {
         let id: Int
-        let specs: [CardSpec]
+        let tiles: [ApplicationsDashboardTile]
     }
 
-    /// Chunks the right-column specs into rows of two. An odd count leads with a
+    /// Chunks the right-column cards into rows of two. An odd count leads with a
     /// single full-width row (matching My Clutter's "one then a pair" shape).
-    private func rows(of specs: [CardSpec]) -> [CardRow] {
+    private func rows(of tiles: [ApplicationsDashboardTile]) -> [CardRow] {
         var rows: [CardRow] = []
-        var remaining = specs
+        var remaining = tiles
         if remaining.count % 2 == 1 {
-            rows.append(CardRow(id: 0, specs: [remaining.removeFirst()]))
+            rows.append(CardRow(id: 0, tiles: [remaining.removeFirst()]))
         }
         while !remaining.isEmpty {
             let chunk = Array(remaining.prefix(2))
             remaining.removeFirst(chunk.count)
-            rows.append(CardRow(id: rows.count, specs: chunk))
+            rows.append(CardRow(id: rows.count, tiles: chunk))
         }
         return rows
     }
 
-    private func card(_ spec: CardSpec) -> some View {
-        ApplicationsDashboardCard(
-            title: spec.title,
-            detail: spec.detail,
-            icon: spec.icon,
-            primaryLabel: spec.primaryLabel,
-            primaryAction: spec.primaryAction,
-            secondaryLabel: spec.secondaryLabel,
-            secondaryAction: spec.secondaryAction,
-            identifier: spec.id,
-            iconCache: iconCache
-        )
-    }
-
-    /// Shown when no cleanup category has findings — the curated grid would
-    /// otherwise be empty. The header (count + Manage / Rescan) stays above.
-    /// Mirrors the Performance dashboard's empty state.
-    private var allClear: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.tint)
-            Text(String(
-                localized: "No cleanup needed right now",
-                comment: "Applications dashboard all-clear title when no cleanup recommendations remain."
-            ))
-            .font(.title3.weight(.semibold))
-            Text(String(
-                localized: "No unused or unsupported apps, available updates, leftovers, or installer files to review. Open Manage My Applications to browse everything you have installed.",
-                comment: "Applications dashboard all-clear detail shown when no recommendation category has findings."
-            ))
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: 460)
+    /// Renders one ranked tile with its recommendation card, or a reassurance
+    /// backfill.
+    @ViewBuilder
+    private func card(_ tile: ApplicationsDashboardTile) -> some View {
+        switch tile {
+        case .recommendation(let recommendation):
+            let spec = spec(for: recommendation)
+            ApplicationsDashboardCard(
+                title: spec.title,
+                detail: spec.detail,
+                icon: spec.icon,
+                primaryLabel: spec.primaryLabel,
+                primaryAction: spec.primaryAction,
+                secondaryLabel: spec.secondaryLabel,
+                secondaryAction: spec.secondaryAction,
+                identifier: spec.id,
+                iconCache: iconCache
+            )
+        case .reassurance(let content):
+            ReassuranceCard(content: content, accent: accent)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 24)
-        .accessibilityIdentifier("applications.dashboard.allClear")
     }
 
     // MARK: Copy

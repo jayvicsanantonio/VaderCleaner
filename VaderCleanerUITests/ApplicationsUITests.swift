@@ -43,10 +43,10 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the floating Scan button on the Applications intro")
     }
 
-    /// Scan → the dashboard appears showing only recommendation cards (or the
-    /// all-clear state when nothing needs attention). Updates is one of the
-    /// ranked cards now; the old standalone Manage card is gone — Manage lives
-    /// behind the header button.
+    /// Scan → the dashboard appears showing the ranked recommendation cards (or
+    /// reassurance backfill cards when nothing needs attention). Updates is one
+    /// of the ranked cards now; the old standalone Manage card is gone — Manage
+    /// lives behind the header button.
     func test_applications_scanShowsDashboard() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
@@ -57,16 +57,17 @@ final class ApplicationsUITests: XCTestCase {
 
         // Which recommendation cards appear depends on the machine, so assert
         // the dashboard reaches a valid state: at least one recommendation card,
-        // or the all-clear state.
+        // or a reassurance backfill card.
         let validState = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier IN {"
                 + "'applications.card.unsupported','applications.card.unused',"
                 + "'applications.card.updates','applications.card.leftovers',"
                 + "'applications.card.installationFiles',"
-                + "'applications.dashboard.allClear'}"))
+                + "'recommendation.reassurance.applications.allClear',"
+                + "'recommendation.reassurance.applications.manage'}"))
             .firstMatch
         XCTAssertTrue(validState.waitForExistence(timeout: 10),
-                      "Expected a recommendation card or the all-clear state")
+                      "Expected a recommendation card or a reassurance backfill card")
 
         // The standalone Manage card is gone — Manage is the header button now.
         XCTAssertFalse(app.buttons["applications.card.manage"].exists,
@@ -79,8 +80,8 @@ final class ApplicationsUITests: XCTestCase {
     /// dashboard. The dashboard now shows only cleanup categories that have
     /// findings, so the exact cards depend on the host — this exercises
     /// whichever recommendation card is present rather than assuming a specific
-    /// one. On a host with nothing to clean up the dashboard shows the all-clear
-    /// state and there is no card to open, which the test accepts.
+    /// one. On a host with nothing to clean up the dashboard shows reassurance
+    /// backfill cards and there is no review card to open, which the test accepts.
     func test_applications_recommendationCardOpensReviewAndBackReturns() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
@@ -96,10 +97,15 @@ final class ApplicationsUITests: XCTestCase {
             .firstMatch
 
         guard card.waitForExistence(timeout: 10) else {
-            // No findings → the all-clear state; there is no card to open.
+            // No findings → reassurance backfill cards; there is no card to open.
+            let reassurance = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier IN {"
+                    + "'recommendation.reassurance.applications.allClear',"
+                    + "'recommendation.reassurance.applications.manage'}"))
+                .firstMatch
             XCTAssertTrue(
-                app.descendants(matching: .any)["applications.dashboard.allClear"].exists,
-                "With no recommendation cards the dashboard must show the all-clear state"
+                reassurance.exists,
+                "With no recommendation cards the dashboard must show reassurance backfill cards"
             )
             return
         }

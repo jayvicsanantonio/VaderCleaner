@@ -18,6 +18,63 @@ enum SystemJunkFormatting {
     }()
 }
 
+// MARK: - Dashboard tile
+
+/// One card on the Cleanup dashboard: either a junk group's card or an "all
+/// good" reassurance card used to backfill the grid to its minimum count when a
+/// scan finds fewer than two groups.
+enum CleanupDashboardTile: Identifiable {
+    case group(CleanupGroupTile)
+    case reassurance(ReassuranceContent)
+
+    var id: String {
+        switch self {
+        case .group(let tile):          return tile.id
+        case .reassurance(let content): return "reassurance.\(content.id)"
+        }
+    }
+
+    /// The 2–4 cards the Cleanup dashboard shows for a scan: the junk groups
+    /// with the most reclaimable space lead (capped at four), backfilled with
+    /// reassurance cards when a scan finds fewer than two groups.
+    static func recommended(from result: ScanResult) -> [CleanupDashboardTile] {
+        let real = CleanupGroupTile.tiles(from: result).map { tile in
+            RankedTile(payload: CleanupDashboardTile.group(tile),
+                       urgency: .space,
+                       reclaimableBytes: tile.totalBytes)
+        }
+        let reassurance = reassurancePool.map { content in
+            RankedTile(payload: CleanupDashboardTile.reassurance(content),
+                       urgency: .reassurance,
+                       reclaimableBytes: 0)
+        }
+        return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
+    }
+
+    /// Ordered pool of "all good" cards, drawn from in order when a scan finds
+    /// fewer than two junk groups so backfilling never repeats a card.
+    static let reassurancePool: [ReassuranceContent] = [
+        ReassuranceContent(
+            id: "cleanup.tidy",
+            title: String(localized: "Your Mac Is Tidy", comment: "Cleanup reassurance card title."),
+            detail: String(
+                localized: "There's almost no junk to clear right now. Nicely kept.",
+                comment: "Cleanup reassurance card detail."
+            ),
+            icon: "sparkles"
+        ),
+        ReassuranceContent(
+            id: "cleanup.checkBack",
+            title: String(localized: "Check Back Later", comment: "Cleanup reassurance card title."),
+            detail: String(
+                localized: "Junk builds up as you use your Mac. Re-scan any time to keep it lean.",
+                comment: "Cleanup reassurance card detail."
+            ),
+            icon: "clock.arrow.circlepath"
+        ),
+    ]
+}
+
 // MARK: - Dashboard
 
 /// Post-scan landing surface for the Cleanup section: a "Start Over" bar, the
@@ -29,7 +86,9 @@ enum SystemJunkFormatting {
 /// cards also offer a direct Clean.
 struct SystemJunkDashboardView: View {
     let totalBytes: Int64
-    let tiles: [CleanupGroupTile]
+    let tiles: [CleanupDashboardTile]
+    /// Section accent, used to tint any reassurance backfill cards.
+    let accent: Color
     /// Drills into one group's combined file list.
     let onReview: (CleanupGroup) -> Void
     /// Cleans an entire group directly (only the cards that allow it call this).
@@ -146,7 +205,7 @@ struct SystemJunkDashboardView: View {
     /// The non-hero cards: the first is a wide card spanning the column, the rest
     /// flow in rows of two beneath it. Grouped in a `GlassEffectContainer` so the
     /// adjacent glass surfaces sample each other and refract consistently.
-    private func rightColumn(_ rest: [CleanupGroupTile]) -> some View {
+    private func rightColumn(_ rest: [CleanupDashboardTile]) -> some View {
         GlassEffectContainer(spacing: 16) {
             VStack(spacing: 16) {
                 if let wide = rest.first {
@@ -169,23 +228,29 @@ struct SystemJunkDashboardView: View {
 
     /// Chunks the compact cards into rows of at most two so the lower grid reads
     /// as a balanced two-up arrangement.
-    private func rows(of tiles: [CleanupGroupTile]) -> [[CleanupGroupTile]] {
+    private func rows(of tiles: [CleanupDashboardTile]) -> [[CleanupDashboardTile]] {
         stride(from: 0, to: tiles.count, by: 2).map {
             Array(tiles[$0..<min($0 + 2, tiles.count)])
         }
     }
 
-    private func card(_ tile: CleanupGroupTile, style: CleanupCardStyle) -> some View {
-        CleanupCard(
-            title: cardTitle(for: tile),
-            blurb: tile.group.blurb,
-            badgeAsset: tile.group.badgeAsset,
-            style: style,
-            showsClean: tile.group.allowsDirectClean,
-            identifierBase: "system-junk.card.\(tile.group.rawValue)",
-            onReview: { onReview(tile.group) },
-            onClean: { onClean(tile.group) }
-        )
+    @ViewBuilder
+    private func card(_ tile: CleanupDashboardTile, style: CleanupCardStyle) -> some View {
+        switch tile {
+        case .group(let groupTile):
+            CleanupCard(
+                title: cardTitle(for: groupTile),
+                blurb: groupTile.group.blurb,
+                badgeAsset: groupTile.group.badgeAsset,
+                style: style,
+                showsClean: groupTile.group.allowsDirectClean,
+                identifierBase: "system-junk.card.\(groupTile.group.rawValue)",
+                onReview: { onReview(groupTile.group) },
+                onClean: { onClean(groupTile.group) }
+            )
+        case .reassurance(let content):
+            ReassuranceCard(content: content, accent: accent)
+        }
     }
 
     /// "30.9 GB of System Junk Found" — the size-led title from the reference.
