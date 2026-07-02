@@ -43,11 +43,13 @@ struct PreferencesView: View {
                 .tabItem { Label("Ignore List", systemImage: "nosign") }
                 .tag(SettingsTab.exclusions)
         }
-        // Fixed width so all tabs share the same window size and the window
-        // doesn't jump as the user switches tabs. The width accommodates the
-        // Scanning tab's two-pane Smart Care layout; the form-based tabs simply
-        // have more breathing room.
-        .frame(width: 620, height: 580)
+        // Fixed size so all tabs share the same window and it doesn't jump as
+        // the user switches tabs. The width accommodates the Scanning tab's
+        // two-pane Smart Care layout; the height fits the fully-expanded Cleanup
+        // tree (the System Junk sub-group plus its Cleanup-level leaves and the
+        // Web Development Junk folder picker) without scrolling. The form-based
+        // tabs simply have more breathing room.
+        .frame(width: 620, height: 740)
     }
 }
 
@@ -253,7 +255,7 @@ struct ScanningTab: View {
     /// reference screenshot's set and order. Each title/badge is a display label
     /// over a real `ScanCategory` toggle.
     private static let systemJunkDisplays: [(category: ScanCategory, title: String, badge: String)] = [
-        (.systemCache, "Broken Preferences", "scanBadgeSystemJunk"),
+        (.systemCache, "System Caches", "scanBadgeSystemJunk"),
         (.userLogs, "User Log Files", "scanBadgeLogs"),
         (.systemLogs, "System Log Files", "scanBadgeLogs"),
         (.documentVersions, "Document Versions", "scanBadgeDocumentVersions"),
