@@ -60,7 +60,7 @@ struct ApplicationsScanResult: Equatable {
     /// The categories that currently have findings, ranked by severity (the
     /// `Recommendation` declaration order). The full installed-app list is
     /// deliberately excluded — it lives under "Manage My Applications", not as a
-    /// cleanup card. An empty result drives the dashboard's "all clear" state.
+    /// cleanup card.
     var recommendations: [Recommendation] {
         Recommendation.allCases.filter { recommendation in
             switch recommendation {
@@ -70,6 +70,82 @@ struct ApplicationsScanResult: Equatable {
             case .leftovers:         return leftoversCount > 0
             case .installationFiles: return installationFilesCount > 0
             }
+        }
+    }
+
+    /// Reclaimable size for a recommendation, used to rank the space-based
+    /// findings; `0` for the count-based ones (apps that need review rather than
+    /// bytes to free).
+    private func reclaimableBytes(for recommendation: Recommendation) -> Int64 {
+        switch recommendation {
+        case .leftovers:         return leftoversTotalBytes
+        case .installationFiles: return installationFilesTotalBytes
+        case .unsupported, .unused, .updates: return 0
+        }
+    }
+
+    /// The ranked 2–4 cards the dashboard shows: findings that need review lead,
+    /// then the space-based findings by how much they free (capped at four),
+    /// backfilled with reassurance cards when a scan finds fewer than two.
+    func recommendedTiles() -> [ApplicationsDashboardTile] {
+        let real = recommendations.map { recommendation in
+            RankedTile(payload: ApplicationsDashboardTile.recommendation(recommendation),
+                       urgency: recommendation.urgency,
+                       reclaimableBytes: reclaimableBytes(for: recommendation))
+        }
+        let reassurance = ApplicationsDashboardTile.reassurancePool.map { content in
+            RankedTile(payload: ApplicationsDashboardTile.reassurance(content),
+                       urgency: .reassurance,
+                       reclaimableBytes: 0)
+        }
+        return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
+    }
+}
+
+/// One card on the Applications dashboard: a cleanup recommendation, or an "all
+/// good" reassurance card used to backfill the grid to its minimum count.
+enum ApplicationsDashboardTile: Identifiable {
+    case recommendation(ApplicationsScanResult.Recommendation)
+    case reassurance(ReassuranceContent)
+
+    var id: String {
+        switch self {
+        case .recommendation(let recommendation): return "recommendation.\(recommendation)"
+        case .reassurance(let content):           return "reassurance.\(content.id)"
+        }
+    }
+
+    /// Ordered pool of "all good" cards, drawn from in order when a scan finds
+    /// fewer than two cleanup categories so backfilling never repeats a card.
+    static let reassurancePool: [ReassuranceContent] = [
+        ReassuranceContent(
+            id: "applications.allClear",
+            title: String(localized: "Apps Look Healthy", comment: "Applications reassurance card title."),
+            detail: String(
+                localized: "No unused or unsupported apps, updates, leftovers, or installer files to review.",
+                comment: "Applications reassurance card detail."
+            ),
+            icon: "checkmark.seal"
+        ),
+        ReassuranceContent(
+            id: "applications.manage",
+            title: String(localized: "Manage Anytime", comment: "Applications reassurance card title."),
+            detail: String(
+                localized: "Open Manage My Applications to browse everything you have installed.",
+                comment: "Applications reassurance card detail."
+            ),
+            icon: "square.grid.2x2"
+        ),
+    ]
+}
+
+extension ApplicationsScanResult.Recommendation {
+    /// How strongly this finding demands attention. Apps that need review lead
+    /// the space-based cruft, matching the section's severity ordering.
+    var urgency: RecommendationUrgency {
+        switch self {
+        case .unsupported, .unused, .updates: return .attention
+        case .leftovers, .installationFiles:  return .space
         }
     }
 }

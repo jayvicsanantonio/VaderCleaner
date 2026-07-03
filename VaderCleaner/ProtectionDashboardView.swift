@@ -237,23 +237,84 @@ struct ProtectionDashboardView: View {
     /// rows divide the height evenly and the two columns stay aligned, exactly
     /// like `ApplicationsDashboardView.cardLayout`. With no privacy findings the
     /// malware tile fills the whole pane.
+    /// The ranked 2–4 tiles the dashboard shows: the live malware scan always
+    /// leads (safety first — `.critical` once threats are found), then the
+    /// privacy findings by reclaimable size (capped so the grid never exceeds
+    /// four), backfilled with a reassurance card when privacy is clean.
+    private var selectedTiles: [ProtectionDashboardTile] {
+        let malwareHasThreats: Bool
+        if case .results(let threats) = malware.phase { malwareHasThreats = !threats.isEmpty }
+        else { malwareHasThreats = false }
+
+        var real: [RankedTile<ProtectionDashboardTile>] = [
+            RankedTile(payload: .malware,
+                       urgency: malwareHasThreats ? .critical : .attention,
+                       reclaimableBytes: 0)
+        ]
+        real.append(contentsOf: privacyTiles.map { tile in
+            RankedTile(payload: .privacy(tile), urgency: .space, reclaimableBytes: tile.bytes)
+        })
+        let reassurance = Self.reassurancePool.map { content in
+            RankedTile(payload: ProtectionDashboardTile.reassurance(content),
+                       urgency: .reassurance, reclaimableBytes: 0)
+        }
+        return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
+    }
+
     @ViewBuilder
     private var grid: some View {
-        if privacyTiles.isEmpty {
-            malwareTile
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let tiles = selectedTiles
+        if tiles.count <= 1 {
+            if let only = tiles.first {
+                tileView(only)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             GlassEffectContainer(spacing: 16) {
                 HStack(alignment: .top, spacing: 16) {
-                    malwareTile
+                    tileView(tiles[0])
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    rightColumn
+                    rightColumn(Array(tiles.dropFirst()))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+
+    /// Renders one selected tile: the live malware scan, a privacy finding, or a
+    /// reassurance backfill.
+    @ViewBuilder
+    private func tileView(_ tile: ProtectionDashboardTile) -> some View {
+        switch tile {
+        case .malware:                  malwareTile
+        case .privacy(let privacyTile): privacyCard(privacyTile)
+        case .reassurance(let content): ReassuranceCard(content: content, accent: accent)
+        }
+    }
+
+    /// Ordered pool of "all good" cards, drawn from in order to backfill the grid
+    /// to its minimum count when a scan finds no privacy items to clear.
+    private static let reassurancePool: [ReassuranceContent] = [
+        ReassuranceContent(
+            id: "protection.privacyClean",
+            title: String(localized: "Privacy Is Clear", comment: "Protection reassurance card title."),
+            detail: String(
+                localized: "No browsing data or recent-item traces stood out to clean up.",
+                comment: "Protection reassurance card detail."
+            ),
+            icon: "hand.raised"
+        ),
+        ReassuranceContent(
+            id: "protection.protected",
+            title: String(localized: "You're Protected", comment: "Protection reassurance card title."),
+            detail: String(
+                localized: "Re-scan any time to keep checking for threats and privacy traces.",
+                comment: "Protection reassurance card detail."
+            ),
+            icon: "shield.lefthalf.filled"
+        ),
+    ]
 
     private var malwareTile: some View {
         ProtectionMalwareTile(
@@ -266,14 +327,14 @@ struct ProtectionDashboardView: View {
         )
     }
 
-    /// The privacy findings, packed into rows of at most two so the column never
+    /// The non-hero cards, packed into rows of at most two so the column never
     /// grows taller than the pane — exactly the Applications dashboard shape.
-    private var rightColumn: some View {
+    private func rightColumn(_ tiles: [ProtectionDashboardTile]) -> some View {
         VStack(spacing: 16) {
-            ForEach(privacyRows) { row in
+            ForEach(rows(of: tiles)) { row in
                 HStack(spacing: 16) {
                     ForEach(row.tiles) { tile in
-                        privacyCard(tile)
+                        tileView(tile)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
@@ -295,28 +356,45 @@ struct ProtectionDashboardView: View {
     }
 
     /// One row of right-column cards.
-    private struct PrivacyRow: Identifiable {
+    private struct TileRow: Identifiable {
         let id: Int
-        let tiles: [PrivacyTile]
+        let tiles: [ProtectionDashboardTile]
     }
 
-    /// Chunks the privacy tiles into rows of two. An odd count leads with a
+    /// Chunks the right-column tiles into rows of two. An odd count leads with a
     /// single full-width row (matching the Applications / My Clutter shape).
-    private var privacyRows: [PrivacyRow] {
-        var rows: [PrivacyRow] = []
-        var remaining = privacyTiles
+    private func rows(of tiles: [ProtectionDashboardTile]) -> [TileRow] {
+        var rows: [TileRow] = []
+        var remaining = tiles
         if remaining.count % 2 == 1 {
-            rows.append(PrivacyRow(id: 0, tiles: [remaining.removeFirst()]))
+            rows.append(TileRow(id: 0, tiles: [remaining.removeFirst()]))
         }
         while !remaining.isEmpty {
             let chunk = Array(remaining.prefix(2))
             remaining.removeFirst(chunk.count)
-            rows.append(PrivacyRow(id: rows.count, tiles: chunk))
+            rows.append(TileRow(id: rows.count, tiles: chunk))
         }
         return rows
     }
 
     // MARK: - Privacy tiles model
+
+    /// One card on the Protection dashboard: the live malware scan, a privacy
+    /// finding, or an "all good" reassurance card used to backfill the grid to
+    /// its minimum count.
+    private enum ProtectionDashboardTile: Identifiable {
+        case malware
+        case privacy(PrivacyTile)
+        case reassurance(ReassuranceContent)
+
+        var id: String {
+            switch self {
+            case .malware:                  return "malware"
+            case .privacy(let tile):        return "privacy.\(tile.id)"
+            case .reassurance(let content): return "reassurance.\(content.id)"
+            }
+        }
+    }
 
     /// One privacy tile derived from the privacy preview. Browser tiles carry a
     /// size metric; the recent-items tile is a single fixed entry.
@@ -327,6 +405,9 @@ struct ProtectionDashboardView: View {
         let caption: String
         let systemImage: String
         let removal: PrivacyRemoval
+        /// Reclaimable size in bytes used to rank the tiles; `0` for the
+        /// recent-items tile, which carries no size metric.
+        let bytes: Int64
     }
 
     /// Tiles to render: one per detected browser with data, plus Recent Items —
@@ -349,7 +430,8 @@ struct ProtectionDashboardView: View {
                 caption: String(localized: "Remove your browser data to free up space and improve your privacy.",
                                 comment: "Protection browser-data tile caption."),
                 systemImage: "globe",
-                removal: .browser(browser)
+                removal: .browser(browser),
+                bytes: size
             ))
         }
         if !removedPrivacyTiles.contains("recents") {
@@ -361,7 +443,8 @@ struct ProtectionDashboardView: View {
                 caption: String(localized: "Remove the traces of your recent activities by cleaning up these lists.",
                                 comment: "Protection recent-items tile caption."),
                 systemImage: "list.bullet.rectangle",
-                removal: .recents
+                removal: .recents,
+                bytes: 0
             ))
         }
         return tiles

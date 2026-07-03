@@ -91,6 +91,7 @@ struct ApplicationsView: View {
             ApplicationsDashboardView(
                 result: result,
                 iconCache: iconCache,
+                accent: NavigationSection.applications.theme.accent,
                 onOpenManage: { detail = .manage(.uninstaller) },
                 onOpenInstallationFiles: { detail = .installationFiles },
                 onOpenUnsupported: { detail = .unsupported },
