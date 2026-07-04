@@ -42,6 +42,13 @@ struct MyClutterManagerView: View {
     /// panes show a loader instead of a momentarily-empty list.
     @State private var isLoadingCache = false
 
+    /// The right pane's rendered file rows, memoized so a selection toggle
+    /// re-renders the checkboxes without re-running the search filter (and,
+    /// under name sort, the O(n log n) re-sort) over the whole facet on every
+    /// render. Rebuilt off the main actor only when a real input changes —
+    /// see `DisplayInputs`.
+    @State private var displayedFiles: [ScannedFile] = []
+
     /// Most file rows rendered at once. The lists are pre-sorted, so the capped
     /// slice is the meaningful top; the rest is reached by clearing and re-scanning.
     private static let displayRowLimit = 1000
@@ -81,6 +88,87 @@ struct MyClutterManagerView: View {
         // changes (and on first appearance). Selection toggles bump nothing
         // here, so they no longer trigger an O(N) recompute.
         .task(id: viewModel.resultsVersion) { await rebuildCaches() }
+        // Rebuild the right pane's rows only when a display input changes.
+        // The selection stamp participates only under the "Selected" facet,
+        // so an ordinary checkbox toggle repaints rows without recomputing
+        // the list.
+        .task(id: displayInputs) { await rebuildDisplayedFiles() }
+    }
+
+    /// The complete set of inputs the right pane's file rows derive from. The
+    /// rebuild task keys on this value, so any change reruns it and everything
+    /// else (notably a selection toggle outside the "Selected" facet) does not.
+    private struct DisplayInputs: Equatable {
+        let category: MyClutterCategory
+        let facet: MyClutterLargeOldFacet
+        let browser: String?
+        let search: String
+        let sort: ManagerSort
+        let resultsVersion: Int
+        let cacheLoading: Bool
+        /// Selected-file count in Large & Old — an O(1) read that changes on
+        /// every relevant toggle. Pinned to 0 outside the "Selected" facet so
+        /// toggles there don't retrigger the rebuild.
+        let selectionStamp: Int
+    }
+
+    private var displayInputs: DisplayInputs {
+        DisplayInputs(
+            category: category,
+            facet: largeOldFacet,
+            browser: selectedBrowser,
+            search: search,
+            sort: sort,
+            resultsVersion: viewModel.resultsVersion,
+            cacheLoading: isLoadingCache,
+            selectionStamp: (category == .largeOld && largeOldFacet == .selected)
+                ? viewModel.selectedCount(in: .largeOld)
+                : 0
+        )
+    }
+
+    /// Recomputes `displayedFiles` off the main actor: picks the pre-sorted
+    /// base list for the active category/facet, applies the "Selected" filter
+    /// when that facet is active, then runs the shared search/sort/cap pass.
+    private func rebuildDisplayedFiles() async {
+        let base: [ScannedFile]
+        var selection: Set<URL>? = nil
+        switch category {
+        case .largeOld:
+            switch largeOldFacet {
+            case .all:
+                base = largeOldCache.allSorted
+            case .selected:
+                base = largeOldCache.allSorted
+                selection = viewModel.selectedURLs
+            case .kind(let kind):
+                base = largeOldCache.byKind[kind] ?? []
+            case .size(let bucket):
+                base = largeOldCache.bySize[bucket] ?? []
+            }
+        case .downloads:
+            let group = downloadCache.first(where: { $0.source == selectedBrowser }) ?? downloadCache.first
+            base = group?.items.map(\.file) ?? []
+        case .duplicates, .similar:
+            // The image categories render the preview pane, not a file list.
+            displayedFiles = []
+            return
+        }
+        let search = self.search
+        let sortByName = sort == .name
+        let limit = Self.displayRowLimit
+        let selectionFilter = selection
+        let rows = await Task.detached(priority: .userInitiated) {
+            var files = base
+            if let selectionFilter {
+                files = files.filter { selectionFilter.contains($0.url) }
+            }
+            return MyClutterManagerModel.display(files, search: search, sortByName: sortByName, limit: limit)
+        }.value
+        // A superseded rebuild (its `.task` id changed mid-flight) must not
+        // overwrite the newer task's rows.
+        guard !Task.isCancelled else { return }
+        displayedFiles = rows
     }
 
     private func rebuildCaches() async {
@@ -348,7 +436,7 @@ struct MyClutterManagerView: View {
     private var rightPaneContent: some View {
         switch category {
         case .largeOld:
-            if isLoadingCache { loadingPane } else { fileList(display(largeOldBase)) }
+            if isLoadingCache { loadingPane } else { fileList(displayedFiles) }
         case .duplicates:
             if let group = viewModel.duplicateGroups.first(where: { $0.id == (selectedGroupID ?? viewModel.duplicateGroups.first?.id) }) {
                 imagePreviewPane(files: group.files, original: group.original, showsBestBadge: false)
@@ -360,11 +448,10 @@ struct MyClutterManagerView: View {
         case .downloads:
             if isLoadingCache {
                 loadingPane
+            } else if downloadCache.isEmpty {
+                emptyRightPane
             } else {
-                let group = downloadCache.first(where: { $0.source == selectedBrowser }) ?? downloadCache.first
-                if let group {
-                    fileList(display(group.items.map(\.file)))
-                } else { emptyRightPane }
+                fileList(displayedFiles)
             }
         }
     }
@@ -379,31 +466,6 @@ struct MyClutterManagerView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// The cached, pre-sorted base list for the active Large & Old facet. The
-    /// "Selected" facet filters the (in-memory) cached list; the rest are O(1).
-    private var largeOldBase: [ScannedFile] {
-        switch largeOldFacet {
-        case .all: return largeOldCache.allSorted
-        case .selected: return largeOldCache.allSorted.filter { viewModel.isSelected($0.url) }
-        case .kind(let kind): return largeOldCache.byKind[kind] ?? []
-        case .size(let bucket): return largeOldCache.bySize[bucket] ?? []
-        }
-    }
-
-    /// Applies the search filter and (only for name sort) re-sorts, then caps
-    /// the rendered rows. Size-sorted lists arrive pre-sorted from the cache, so
-    /// the default view does no per-render sort.
-    private func display(_ files: [ScannedFile]) -> [ScannedFile] {
-        var result = files
-        if !search.isEmpty {
-            result = result.filter { $0.url.lastPathComponent.localizedCaseInsensitiveContains(search) }
-        }
-        if sort == .name {
-            result = result.sorted { $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedAscending }
-        }
-        return Array(result.prefix(Self.displayRowLimit))
     }
 
     private var emptyRightPane: some View {
@@ -675,13 +737,16 @@ struct MyClutterManagerView: View {
         focusedURL = nil
     }
 
+    /// Home path and name resolved once for the process — `breadcrumbText`
+    /// runs per visible row, so it must not re-derive them on every call.
+    private static let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+    private static let homeName = FileManager.default.homeDirectoryForCurrentUser.lastPathComponent
+
     private func breadcrumbText(_ url: URL) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
         var path = url.deletingLastPathComponent().path
-        if path.hasPrefix(home) { path = String(path.dropFirst(home.count)) }
+        if path.hasPrefix(Self.homePath) { path = String(path.dropFirst(Self.homePath.count)) }
         let components = path.split(separator: "/").map(String.init)
-        let homeName = FileManager.default.homeDirectoryForCurrentUser.lastPathComponent
-        return ([homeName] + components).joined(separator: " › ")
+        return ([Self.homeName] + components).joined(separator: " › ")
     }
 
     private func dateText(_ date: Date?) -> String {

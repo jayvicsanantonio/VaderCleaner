@@ -219,11 +219,22 @@ struct SmartScanReviewManager: View {
     /// include the children of any expanded row. Recomputed when the category,
     /// sort, search, or expansion changes — never on a selection toggle.
     @State private var displayedItems: [ManagerItem] = []
+    /// Reload token for `displayedItems`, rebuilt alongside it (see
+    /// `ManagerItemTable.contentToken`) so the O(n) id hash runs once per
+    /// content change instead of once per render.
+    @State private var displayedToken = ""
     /// Lazily-loaded rows per category id (when `loadItems` is set), cached for
     /// this manager session.
     @State private var lazyItemsByCategory: [String: [ManagerItem]] = [:]
-    /// True while the selected category's rows are being loaded lazily.
-    @State private var isLoadingItems = false
+    /// Category id whose rows are being loaded lazily right now. Tracked by id
+    /// (not a plain flag) so a load superseded by a category switch can't
+    /// clear — or leave stuck — the newer load's spinner.
+    @State private var loadingCategoryID: String?
+
+    /// True while the *selected* category's rows are being loaded lazily.
+    private var isLoadingItems: Bool {
+        loadingCategoryID != nil && loadingCategoryID == selectedCategoryID
+    }
 
     private var loadedSections: [ManagerSection] { sections ?? [] }
 
@@ -278,11 +289,13 @@ struct SmartScanReviewManager: View {
     /// caching them for this session. No-op for eager managers.
     private func loadSelectedCategoryIfNeeded() async {
         guard let loadItems, let id = selectedCategoryID, lazyItemsByCategory[id] == nil else { return }
-        isLoadingItems = true
+        loadingCategoryID = id
         let built = await loadItems(id)
-        // Guard against the category having changed while loading.
-        if selectedCategoryID == id { lazyItemsByCategory[id] = built }
-        isLoadingItems = false
+        // Guard against the category having changed while loading: the cache
+        // still accepts the stale build (it's valid for its category), but
+        // only the load that is still current may clear the loading marker.
+        lazyItemsByCategory[id] = built
+        if loadingCategoryID == id { loadingCategoryID = nil }
     }
 
     // MARK: - Header
@@ -444,9 +457,6 @@ struct SmartScanReviewManager: View {
                         Text(String(localized: "Select:", comment: "Label before the bulk-select menu on a Smart Scan Manager."))
                             .foregroundStyle(.secondary)
                         Menu {
-                            Button(String(localized: "Smartly", comment: "Bulk-select the recommended items in the category.")) {
-                                onSetCategory(category, true)
-                            }
                             Button(String(localized: "Select All", comment: "Bulk-select every item in the category.")) {
                                 onSetCategory(category, true)
                             }
@@ -487,8 +497,10 @@ struct SmartScanReviewManager: View {
                         // `displayedItems` is recomputed, so an input-based token
                         // would reload with the previous category's row count and
                         // then skip the reload once the real rows arrive — leaving
-                        // stale, unconfigured cells.
-                        contentToken: "\(displayedItems.count)|\(displayedItems.first?.id ?? "")|\(displayedItems.last?.id ?? "")|\(sort.rawValue)|\(search)",
+                        // stale, unconfigured cells. The token is precomputed in
+                        // `refreshDisplayedItems` so its O(n) id hash never runs
+                        // per render.
+                        contentToken: displayedToken,
                         accessibilityPrefix: accessibilityPrefix,
                         forcesLightAppearance: lightSurface,
                         showsSparkle: showsSparkle,
@@ -610,7 +622,11 @@ struct SmartScanReviewManager: View {
     /// needs no top-level sort. Expanded rows are followed by their (already
     /// size-sorted) children.
     private func refreshDisplayedItems() {
-        guard selectedCategory != nil else { displayedItems = []; return }
+        guard selectedCategory != nil else {
+            displayedItems = []
+            displayedToken = ManagerItemTable.contentToken(items: [], sort: sort.rawValue, search: search)
+            return
+        }
         let categoryItems = currentCategoryItems
         let filtered = search.isEmpty
             ? categoryItems
@@ -630,6 +646,7 @@ struct SmartScanReviewManager: View {
             }
         }
         displayedItems = rows
+        displayedToken = ManagerItemTable.contentToken(items: rows, sort: sort.rawValue, search: search)
     }
 
     /// Toggle a top-level row's disclosure and rebuild the visible list.

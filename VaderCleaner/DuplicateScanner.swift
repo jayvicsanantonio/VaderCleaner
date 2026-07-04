@@ -1,5 +1,5 @@
 // DuplicateScanner.swift
-// Finds byte-identical files under ~/Downloads by bucketing on size then confirming with a streamed SHA-256 content hash, returning groups of duplicates.
+// Finds byte-identical files under ~/Downloads by bucketing on size, pre-filtering size collisions with a cheap prefix hash, then confirming with a streamed SHA-256 content hash, returning groups of duplicates.
 
 import Foundation
 import CryptoKit
@@ -10,6 +10,18 @@ import CryptoKit
 /// content-hashes only the size collisions with a streamed SHA-256 to confirm
 /// true byte-for-byte duplicates.
 struct DuplicateScanner {
+
+    /// Bytes covered by the cheap first-pass hash tier. Files whose first
+    /// `prefixHashByteLimit` bytes differ cannot be identical, so only prefix
+    /// collisions pay a full-content read — the expensive step when a size
+    /// bucket holds large files that diverge early. Internal so tests can
+    /// build fixtures on either side of the boundary.
+    static let prefixHashByteLimit = 64 * 1024
+
+    /// Most content hashes in flight at once. Hashing is I/O-bound; a small
+    /// bound overlaps reads across files without saturating the disk or
+    /// holding more cooperative-pool threads than the work needs.
+    private static let maxConcurrentHashes = 4
 
     private let fileScanner: FileScanning
     private let roots: [URL]
@@ -58,17 +70,29 @@ struct DuplicateScanner {
 
         // Only size collisions can be duplicates — hash just those to confirm.
         // iCloud placeholders are skipped so confirming a duplicate never forces
-        // a slow on-demand download.
+        // a slow on-demand download. Confirmation runs in two tiers: a cheap
+        // prefix hash first (files diverging in their first bytes never pay a
+        // full read), then a full-content hash over the surviving prefix
+        // collisions.
         var groups: [DuplicateGroup] = []
-        for (_, candidates) in bySize where candidates.count > 1 {
+        for (size, candidates) in bySize where candidates.count > 1 {
             try Task.checkCancellation()
-            var byHash: [String: [ScannedFile]] = [:]
-            for file in candidates where CloudFileAvailability.isLocallyAvailable(file.url) {
-                guard let hash = Self.sha256Hex(of: file.url) else { continue }
-                byHash[hash, default: []].append(file)
-            }
-            for (_, identical) in byHash where identical.count > 1 {
-                groups.append(DuplicateGroup(files: Self.sortedKeepingOriginalFirst(identical)))
+            let local = candidates.filter { CloudFileAvailability.isLocallyAvailable($0.url) }
+            guard local.count > 1 else { continue }
+
+            let byPrefix = try await Self.groupedByContentHash(local, readingUpTo: Self.prefixHashByteLimit)
+            for prefixMatches in byPrefix.values where prefixMatches.count > 1 {
+                // A file no longer than the prefix tier is fully covered by
+                // it — the prefix hash *is* the content hash, so these files
+                // are already confirmed identical without a second read.
+                if size <= Int64(Self.prefixHashByteLimit) {
+                    groups.append(DuplicateGroup(files: Self.sortedKeepingOriginalFirst(prefixMatches)))
+                    continue
+                }
+                let byHash = try await Self.groupedByContentHash(prefixMatches, readingUpTo: nil)
+                for (_, identical) in byHash where identical.count > 1 {
+                    groups.append(DuplicateGroup(files: Self.sortedKeepingOriginalFirst(identical)))
+                }
             }
         }
 
@@ -87,23 +111,62 @@ struct DuplicateScanner {
         }
     }
 
+    /// Buckets `files` by their content hash, reading at most `byteLimit`
+    /// bytes per file (`nil` hashes the whole file). Hashes run with bounded
+    /// concurrency (`maxConcurrentHashes`) so a big size bucket overlaps its
+    /// file reads instead of paying them serially. Unreadable files are
+    /// dropped, matching the single-hash behaviour.
+    private static func groupedByContentHash(
+        _ files: [ScannedFile],
+        readingUpTo byteLimit: Int?
+    ) async throws -> [String: [ScannedFile]] {
+        let hashes = try await withThrowingTaskGroup(of: (Int, String?).self) { group -> [String?] in
+            var results = [String?](repeating: nil, count: files.count)
+            var nextIndex = 0
+            func addTaskIfNeeded() {
+                guard nextIndex < files.count else { return }
+                let index = nextIndex
+                let url = files[index].url
+                nextIndex += 1
+                group.addTask { (index, Self.sha256Hex(of: url, readingUpTo: byteLimit)) }
+            }
+            for _ in 0..<maxConcurrentHashes { addTaskIfNeeded() }
+            while let (index, hash) = try await group.next() {
+                results[index] = hash
+                try Task.checkCancellation()
+                addTaskIfNeeded()
+            }
+            return results
+        }
+        var byHash: [String: [ScannedFile]] = [:]
+        for (file, hash) in zip(files, hashes) {
+            guard let hash else { continue }
+            byHash[hash, default: []].append(file)
+        }
+        return byHash
+    }
+
     /// Streams the file through SHA-256 in 1 MB chunks so a large file never
-    /// loads into memory at once. Returns `nil` if the file can't be read, so an
-    /// unreadable candidate is simply dropped rather than failing the scan.
-    private static func sha256Hex(of url: URL) -> String? {
+    /// loads into memory at once. `readingUpTo` caps the bytes hashed (the
+    /// prefix tier); `nil` hashes the whole file. Returns `nil` if the file
+    /// can't be read, so an unreadable candidate is simply dropped rather than
+    /// failing the scan.
+    private static func sha256Hex(of url: URL, readingUpTo byteLimit: Int?) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         var hasher = SHA256()
         let chunkSize = 1024 * 1024
-        while true {
+        var remaining = byteLimit ?? Int.max
+        while remaining > 0 {
             let chunk: Data
             do {
-                chunk = try handle.read(upToCount: chunkSize) ?? Data()
+                chunk = try handle.read(upToCount: min(chunkSize, remaining)) ?? Data()
             } catch {
                 return nil
             }
             if chunk.isEmpty { break }
             hasher.update(data: chunk)
+            remaining -= chunk.count
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }

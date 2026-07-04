@@ -136,6 +136,28 @@ enum MyClutterManagerModel {
         files.reduce(0) { $0 + $1.size }
     }
 
+    /// The rows the manager's right pane actually renders: the search filter
+    /// (case-insensitive, on the file name), an optional name sort, and a cap
+    /// on the rendered row count. Size-sorted lists arrive pre-sorted from the
+    /// facet cache, so `sortByName == false` passes the input order through.
+    /// Pure and `Sendable`-friendly so the view can recompute it off the main
+    /// actor only when an input changes — never per render.
+    static func display(
+        _ files: [ScannedFile],
+        search: String,
+        sortByName: Bool,
+        limit: Int
+    ) -> [ScannedFile] {
+        var result = files
+        if !search.isEmpty {
+            result = result.filter { $0.url.lastPathComponent.localizedCaseInsensitiveContains(search) }
+        }
+        if sortByName {
+            result = result.sorted { $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedAscending }
+        }
+        return Array(result.prefix(limit))
+    }
+
     /// Downloads grouped by their source app, ordered by total bytes (largest
     /// first). Files with no recorded source fall into an "Other" bucket.
     static func downloadsBySource(_ items: [DownloadItem]) -> [MyClutterDownloadGroup] {

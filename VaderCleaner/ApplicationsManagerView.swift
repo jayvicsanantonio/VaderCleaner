@@ -115,6 +115,17 @@ struct ApplicationsManagerView: View {
             if extensionsManagerViewModel.phase == .idle { await extensionsManagerViewModel.refresh() }
         }
         .task(id: uninstallerViewModel.apps.map(\.id)) { await uninstallerViewModel.loadListMetrics() }
+        // Warm the shared icon cache for every roster this manager renders.
+        // The cache never loads on a miss — `icon(for:)` returns the generic
+        // placeholder until a preload lands — so without these the rows only
+        // show real icons for apps some other card happened to preload.
+        // `preloadIcons` skips URLs already cached, so re-runs cost nothing.
+        .task(id: uninstallerViewModel.apps.map(\.id)) {
+            await iconCache.preloadIcons(for: uninstallerViewModel.apps.map(\.bundleURL))
+        }
+        .task(id: updaterViewModel.availableUpdates.map(\.bundleID)) {
+            await iconCache.preloadIcons(for: updaterViewModel.availableUpdates.map(\.bundleURL))
+        }
         .alert(uninstallConfirmationTitle, isPresented: $showUninstallConfirmation) {
             Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
             Button(String(localized: "Uninstall", comment: "Confirm batch uninstall."), role: .destructive) {

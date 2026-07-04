@@ -547,7 +547,10 @@ struct PerformanceTaskCatalogView: View {
                     onToggle: { toggle($0, in: selection) },
                     accent: ManagerChrome.accent,
                     rowHeight: 44,
-                    contentToken: "\(paneKey)|\(displayed.count)|\(displayed.first?.id ?? "")|\(sort.rawValue)|\(search)",
+                    // These panes hold at most a few dozen rows, so building
+                    // the order-sensitive token inline per render is cheap;
+                    // large-list managers precompute it instead.
+                    contentToken: "\(paneKey)|\(ManagerItemTable.contentToken(items: displayed, sort: sort.rawValue, search: search))",
                     accessibilityPrefix: "performance.manager.\(paneKey)",
                     forcesLightAppearance: true,
                     showsSparkle: true
@@ -588,9 +591,6 @@ struct PerformanceTaskCatalogView: View {
             Text(String(localized: "Select:", comment: "Label before the bulk-select menu on the Performance Manager."))
                 .foregroundStyle(.secondary)
             Menu {
-                Button(String(localized: "Smartly", comment: "Bulk-select the recommended items.")) {
-                    selection.wrappedValue.formUnion(allIDs)
-                }
                 Button(String(localized: "Select All", comment: "Bulk-select every item in the pane.")) {
                     selection.wrappedValue.formUnion(allIDs)
                 }
