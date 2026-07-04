@@ -39,6 +39,53 @@ final class MyClutterManagerModelTests: XCTestCase {
                        [URL(fileURLWithPath: "/a/big.mov")])
     }
 
+    func test_displayFiltersBySearchCaseInsensitively() {
+        let files = [
+            file("/a/Holiday.mov", size: 300),
+            file("/a/report.pdf", size: 200),
+            file("/a/holiday-2.mov", size: 100),
+        ]
+
+        let shown = MyClutterManagerModel.display(files, search: "HOLIDAY", sortByName: false, limit: 100)
+
+        XCTAssertEqual(shown.map(\.url.lastPathComponent), ["Holiday.mov", "holiday-2.mov"])
+    }
+
+    func test_displayPreservesInputOrderForSizeSort() {
+        let files = [
+            file("/a/b.mov", size: 300),
+            file("/a/a.mov", size: 200),
+            file("/a/c.mov", size: 100),
+        ]
+
+        let shown = MyClutterManagerModel.display(files, search: "", sortByName: false, limit: 100)
+
+        XCTAssertEqual(shown.map(\.url.lastPathComponent), ["b.mov", "a.mov", "c.mov"],
+                       "Size-sorted input arrives pre-sorted and must pass through untouched")
+    }
+
+    func test_displaySortsByNameWhenAsked() {
+        let files = [
+            file("/a/beta.mov", size: 300),
+            file("/a/Alpha.mov", size: 200),
+            file("/a/gamma.mov", size: 100),
+        ]
+
+        let shown = MyClutterManagerModel.display(files, search: "", sortByName: true, limit: 100)
+
+        XCTAssertEqual(shown.map(\.url.lastPathComponent), ["Alpha.mov", "beta.mov", "gamma.mov"])
+    }
+
+    func test_displayCapsRowsAtLimit() {
+        let files = (0..<10).map { file("/a/f\($0).mov", size: Int64(10 - $0)) }
+
+        let shown = MyClutterManagerModel.display(files, search: "", sortByName: false, limit: 3)
+
+        XCTAssertEqual(shown.count, 3)
+        XCTAssertEqual(shown.map(\.url.lastPathComponent), ["f0.mov", "f1.mov", "f2.mov"],
+                       "The cap keeps the head of the pre-sorted list")
+    }
+
     func test_downloadsGroupedBySourceOrderedByBytes() {
         let items = [
             DownloadItem(file: file("/d/a.dmg", size: 100), sourceApp: "Safari"),

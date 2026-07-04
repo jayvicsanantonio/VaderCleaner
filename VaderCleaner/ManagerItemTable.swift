@@ -35,6 +35,19 @@ struct ManagerItemTable: NSViewRepresentable {
     /// Toggle an expandable row's disclosure (chevron tap).
     var onToggleExpand: (String) -> Void = { _ in }
 
+    /// Builds the reload token for a displayed row set: the row count, an
+    /// order-sensitive hash of every row id, and the sort/search inputs. Any
+    /// change to the rows or their order changes the token, so the bridge
+    /// reloads exactly when the content differs — including a swap in the
+    /// middle of the list that a count/first/last heuristic can't see. O(n)
+    /// over the ids, so callers with large lists compute it when the row set
+    /// changes rather than per render; tiny lists may build it inline.
+    static func contentToken(items: [ManagerItem], sort: String, search: String) -> String {
+        var hasher = Hasher()
+        for item in items { hasher.combine(item.id) }
+        return "\(items.count)|\(hasher.finalize())|\(sort)|\(search)"
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -501,15 +514,18 @@ private enum ManagerCheckboxImage {
 /// Caches the real Finder icons the Cleanup Manager rows show, keyed by path.
 /// `NSWorkspace.icon(forFile:)` is reasonably fast and OS-cached, but caching
 /// the sized `NSImage` here keeps scrolling smooth for large categories.
-/// Main-thread only (cells are configured on the main actor).
+/// LRU-bounded so scrolling a category of tens of thousands of files can't
+/// grow the cache without limit — evicted icons just re-fetch from
+/// `NSWorkspace` on the next pass. Main-thread only (cells are configured on
+/// the main actor).
 private enum ManagerFileIconCache {
-    private static var cache: [String: NSImage] = [:]
+    private static var cache = LRUCache<String, NSImage>(capacity: 1024)
 
     static func icon(forPath path: String) -> NSImage {
-        if let cached = cache[path] { return cached }
+        if let cached = cache.value(forKey: path) { return cached }
         let image = NSWorkspace.shared.icon(forFile: path)
         image.size = NSSize(width: 28, height: 28)
-        cache[path] = image
+        cache.setValue(image, forKey: path)
         return image
     }
 }

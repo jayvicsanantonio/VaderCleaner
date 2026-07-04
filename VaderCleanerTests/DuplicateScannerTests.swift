@@ -96,4 +96,32 @@ final class DuplicateScannerTests: XCTestCase {
                              "Groups must be ordered by reclaimable bytes, largest first")
         XCTAssertEqual(groups[0].reclaimableBytes, 5000, "One redundant 5000-byte copy is reclaimable")
     }
+
+    func test_identicalFilesLargerThanPrefixTierAreGrouped() async throws {
+        // Bigger than the prefix-hash tier, so grouping must fall through to
+        // the full-content hash and still confirm the match.
+        let bytes = Data((0..<(DuplicateScanner.prefixHashByteLimit + 4096)).map { UInt8(truncatingIfNeeded: $0) })
+        try bytes.write(to: root.appendingPathComponent("big-a.bin"))
+        try bytes.write(to: root.appendingPathComponent("big-b.bin"))
+
+        let groups = try await scan()
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(Set(groups[0].files.map { $0.url.lastPathComponent }), ["big-a.bin", "big-b.bin"])
+    }
+
+    func test_samePrefixDifferentTailIsNotGrouped() async throws {
+        // Identical through the whole prefix tier, differing only in the final
+        // byte — the cheap prefix pass must not be trusted as confirmation.
+        var a = Data((0..<(DuplicateScanner.prefixHashByteLimit + 4096)).map { UInt8(truncatingIfNeeded: $0) })
+        var b = a
+        a[a.count - 1] = 0x00
+        b[b.count - 1] = 0xFF
+        try a.write(to: root.appendingPathComponent("tail-a.bin"))
+        try b.write(to: root.appendingPathComponent("tail-b.bin"))
+
+        let groups = try await scan()
+
+        XCTAssertTrue(groups.isEmpty, "Files sharing only a prefix must not be reported as duplicates")
+    }
 }
