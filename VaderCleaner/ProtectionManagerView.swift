@@ -115,7 +115,7 @@ struct ProtectionManagerView: View {
         HStack(spacing: 16) {
             Button(action: onBack) {
                 HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "chevron.left").foregroundStyle(.tint)
                     Text(String(localized: "Back", comment: "Back button on the Protection Manager."))
                 }
             }
@@ -125,7 +125,7 @@ struct ProtectionManagerView: View {
             Text(String(localized: "Protection Manager", comment: "Protection Manager screen title.")).font(.headline)
             Spacer()
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                Image(systemName: "magnifyingglass").foregroundStyle(.tint)
                 TextField(String(localized: "Search", comment: "Manager search placeholder."), text: $search)
                     .textFieldStyle(.plain).frame(width: 130)
                     .accessibilityIdentifier("protection.manager.search")

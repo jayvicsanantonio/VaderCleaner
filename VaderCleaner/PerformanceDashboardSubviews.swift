@@ -404,7 +404,7 @@ struct PerformanceTaskCatalogView: View {
                 // HStack(Image, Text) rather than Label so the control surfaces
                 // reliably in XCUITest.
                 HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "chevron.left").foregroundStyle(.tint)
                     Text(String(localized: "Back", comment: "Back button returning from the Performance Manager to the dashboard."))
                 }
             }
@@ -418,7 +418,7 @@ struct PerformanceTaskCatalogView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tint)
                 TextField(
                     String(localized: "Search", comment: "Placeholder in the Performance Manager search field."),
                     text: $search

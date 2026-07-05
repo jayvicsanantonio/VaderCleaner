@@ -174,7 +174,7 @@ struct ApplicationsManagerView: View {
         HStack(spacing: 16) {
             Button(action: onBack) {
                 HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "chevron.left").foregroundStyle(.tint)
                     Text(String(localized: "Back", comment: "Back button on the Applications Manager."))
                 }
             }
@@ -187,7 +187,7 @@ struct ApplicationsManagerView: View {
             Spacer()
 
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                Image(systemName: "magnifyingglass").foregroundStyle(.tint)
                 TextField(String(localized: "Search", comment: "Manager search placeholder."), text: $search)
                     .textFieldStyle(.plain)
                     .frame(width: 130)
@@ -701,7 +701,7 @@ private struct UninstallerPaneView: View {
                     inspectingAppID = nil
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
+                        Image(systemName: "chevron.left").foregroundStyle(.tint)
                         Text(String(localized: "All Applications", comment: "Back to the full uninstaller list."))
                     }
                 }

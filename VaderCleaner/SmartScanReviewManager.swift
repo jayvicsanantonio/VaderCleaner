@@ -312,7 +312,7 @@ struct SmartScanReviewManager: View {
         HStack(spacing: 16) {
             Button(action: onBack) {
                 HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "chevron.left").foregroundStyle(.tint)
                     Text(String(localized: "Back", comment: "Back button on a Smart Scan Manager screen."))
                 }
             }
@@ -327,7 +327,7 @@ struct SmartScanReviewManager: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tint)
                 TextField(
                     String(localized: "Search", comment: "Placeholder in a Smart Scan Manager search field."),
                     text: $search

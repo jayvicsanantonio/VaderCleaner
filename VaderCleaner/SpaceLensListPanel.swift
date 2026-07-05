@@ -135,33 +135,38 @@ struct SpaceLensListPanel: View {
         let highlighted = viewModel.highlightedNodeID == child.id
         HStack(spacing: 10) {
             leadingControl(for: child, selected: selected)
-            Image(nsImage: iconCache.icon(for: child.url))
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 22, height: 22)
-            Text(child.name)
-                .font(.callout)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(child.formattedSize)
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
+            // The drill-in tap is scoped to the icon/name/size content so it
+            // doesn't overlap the checkbox button; a container-wide tap gesture
+            // would swallow the checkbox click and drill in instead of toggling.
+            HStack(spacing: 10) {
+                Image(nsImage: iconCache.icon(for: child.url))
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 22, height: 22)
+                Text(child.name)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(child.formattedSize)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if child.isDirectory { viewModel.drillDown(into: child) }
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: Self.rowHeight)
         .background(highlighted ? Color.white.opacity(0.08) : .clear,
                     in: RoundedRectangle(cornerRadius: 8))
-        .contentShape(Rectangle())
         // Hovering the row drives the shared highlight; the checkbox is a
         // separate control, so a row click drills in without toggling removal.
         .onHover { hovering in
             if hovering { viewModel.highlightedNodeID = child.id }
             else if viewModel.highlightedNodeID == child.id { viewModel.highlightedNodeID = nil }
-        }
-        .onTapGesture {
-            if child.isDirectory { viewModel.drillDown(into: child) }
         }
         .accessibilityIdentifier("space-lens.row.\(child.name)")
     }
