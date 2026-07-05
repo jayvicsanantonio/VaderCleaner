@@ -478,14 +478,13 @@ struct MyClutterManagerView: View {
     /// breadcrumb path, modified date, and size.
     private func fileList(_ files: [ScannedFile]) -> some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: 10) {
                 ForEach(files, id: \.url) { file in
                     fileRow(file)
-                    Divider().opacity(0.3)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
         }
     }
 
@@ -505,7 +504,8 @@ struct MyClutterManagerView: View {
             Text(ManagerByteText.string(file.size))
                 .font(.callout.weight(.semibold)).frame(width: 72, alignment: .trailing)
         }
-        .padding(.vertical, 10)
+        .padding(12)
+        .managerRowCard()
     }
 
     /// The image-preview pane for Duplicates / Similar Images: a "Select"
