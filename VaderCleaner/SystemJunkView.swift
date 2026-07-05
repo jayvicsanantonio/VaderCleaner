@@ -167,26 +167,23 @@ struct SystemJunkView: View {
             // Cheap shell: sections + category sizes, no file trees.
             buildSections: { store.sections() },
             isSelected: { id in
-                let paths = store.selectionPaths(forRowID: id)
-                return !paths.isEmpty && paths.allSatisfy { store.file(forPath: $0).map(viewModel.isSelected) ?? false }
+                // Checked when every file beneath the row is selected. The files
+                // are gathered under one store lock, and `areAllSelected` short-
+                // circuits, so an unchecked folder is cheap to answer.
+                viewModel.areAllSelected(store.files(forRowID: id))
             },
             onToggle: { id in
-                let paths = store.selectionPaths(forRowID: id)
-                // Whole-folder toggle: if every descendant is selected, clear
-                // them; otherwise select them all.
-                let target = !paths.allSatisfy { store.file(forPath: $0).map(viewModel.isSelected) ?? false }
-                for path in paths {
-                    guard let file = store.file(forPath: path) else { continue }
-                    if viewModel.isSelected(file) != target { viewModel.toggleSelection(file) }
-                }
+                // Whole-folder toggle in one batched pass: gather the row's files
+                // under a single lock, then flip them together so a folder over
+                // tens of thousands of files fires one UI update, not one per
+                // file.
+                viewModel.toggleSelection(store.files(forRowID: id))
             },
             onSetCategory: { category, selected in
                 // Operate on the whole scan category (by id), independent of
-                // whether its rows are loaded yet.
+                // whether its rows are loaded yet — one batched selection pass.
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return }
-                for file in itemsByCategory[scanCategory] ?? [] {
-                    if viewModel.isSelected(file) != selected { viewModel.toggleSelection(file) }
-                }
+                viewModel.setSelection(itemsByCategory[scanCategory] ?? [], selected: selected)
             },
             categorySelectedBytes: { category in
                 // O(1) read of the view-model's incrementally-maintained
@@ -195,6 +192,16 @@ struct SystemJunkView: View {
                 // switching categories on large scans.
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
                 return viewModel.selectedBytes(in: scanCategory)
+            },
+            categorySelectionTally: { category in
+                // O(1) None/All/Some for the bulk-select menu: the view model's
+                // incrementally-maintained per-category selected count against
+                // the scan's file count for that category — instead of the
+                // folder-aggregate scan that walked every file (with a lock per
+                // path) on each render and delayed the checkbox repaint.
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
+                let total = itemsByCategory[scanCategory]?.count ?? 0
+                return (selected: viewModel.selectedCount(in: scanCategory), total: total)
             },
             loadItems: { id in
                 // Off-main: a cache hit (usually, thanks to the prebuild)

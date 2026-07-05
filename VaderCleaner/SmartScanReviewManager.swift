@@ -162,6 +162,14 @@ struct SmartScanReviewManager: View {
     /// badge. Returns `nil` (no badge) when the caller doesn't track it or
     /// nothing in the category is selected.
     var categorySelectedBytes: (ManagerCategory) -> Int64? = { _ in nil }
+    /// Optional O(1) per-category selection tally — the number of leaf items
+    /// selected in a category and its total item count — so the bulk-select
+    /// menu's None/All/Some state needn't scan every row (and, for hierarchical
+    /// managers, every file beneath each folder row) on each render. `nil` falls
+    /// back to a per-row `isSelected` scan, which is fine for the small flat
+    /// managers but is the walk that delayed the Cleanup Manager's checkbox
+    /// repaint on large scans.
+    var categorySelectionTally: (ManagerCategory) -> (selected: Int, total: Int)? = { _ in nil }
     /// Builds the rows for one category on demand (by `ManagerCategory.id`). When
     /// set, `buildSections` only needs to return the lightweight shell and each
     /// category's rows are loaded lazily here. `nil` keeps the eager behavior
@@ -420,12 +428,19 @@ struct SmartScanReviewManager: View {
                 icon(category.systemImage, category.tint.color)
             }
             VStack(alignment: .leading, spacing: 2) {
+                // Pinned to one line each: when the selected-size badge appears
+                // it steals trailing width, and an unconstrained title would wrap
+                // to a second line — growing the row and reflowing the whole
+                // middle pane on every checkbox toggle.
                 Text(category.title).font(.body.weight(.medium))
+                    .lineLimit(1)
                 if let text = category.totalSizeText {
                     Text(text).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
                 } else {
                     Text("\(category.items.count) item\(category.items.count == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -452,7 +467,7 @@ struct SmartScanReviewManager: View {
                     // Counts come from the visible (loaded) rows, not the shell
                     // category, which carries no items when loading is lazy.
                     let rows = currentCategoryItems
-                    let selectedCount = rows.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
+                    let state = bulkSelectionState(category: category, rows: rows)
                     HStack(spacing: 8) {
                         Text(String(localized: "Select:", comment: "Label before the bulk-select menu on a Smart Scan Manager."))
                             .foregroundStyle(.secondary)
@@ -460,13 +475,13 @@ struct SmartScanReviewManager: View {
                             Button(String(localized: "Select All", comment: "Bulk-select every item in the category.")) {
                                 onSetCategory(category, true)
                             }
-                            .disabled(selectedCount == rows.count)
+                            .disabled(state == .all)
                             Button(String(localized: "Deselect All", comment: "Bulk-deselect every item in the category.")) {
                                 onSetCategory(category, false)
                             }
-                            .disabled(selectedCount == 0)
+                            .disabled(state == .none)
                         } label: {
-                            Text(bulkSelectLabel(selected: selectedCount, total: rows.count))
+                            Text(state.label)
                                 .foregroundStyle(.tint)
                         }
                         .menuStyle(.borderlessButton)
@@ -686,15 +701,36 @@ struct SmartScanReviewManager: View {
             .frame(width: 28, height: 28)
     }
 
-    /// The bulk-select menu's trigger label, reflecting the visible category's
-    /// current selection: "None", "All", or "Some".
-    private func bulkSelectLabel(selected: Int, total: Int) -> String {
-        if selected == 0 || total == 0 {
-            return String(localized: "None", comment: "Bulk-select trigger when nothing in the category is selected.")
+    /// The visible category's bulk-selection state, driving both the menu's
+    /// trigger label and the Select All / Deselect All disabled states.
+    private enum BulkSelectionState {
+        case none, some, all
+
+        var label: String {
+            switch self {
+            case .none:
+                return String(localized: "None", comment: "Bulk-select trigger when nothing in the category is selected.")
+            case .all:
+                return String(localized: "All", comment: "Bulk-select trigger when everything in the category is selected.")
+            case .some:
+                return String(localized: "Some", comment: "Bulk-select trigger when part of the category is selected.")
+            }
         }
-        if selected == total {
-            return String(localized: "All", comment: "Bulk-select trigger when everything in the category is selected.")
+    }
+
+    /// Resolve the bulk-select state for `category`. Prefers the caller's O(1)
+    /// `categorySelectionTally` (leaf-level selected/total counts) when supplied;
+    /// otherwise falls back to a per-row `isSelected` scan over the visible
+    /// `rows` — fine for the small flat managers that don't provide a tally.
+    private func bulkSelectionState(category: ManagerCategory, rows: [ManagerItem]) -> BulkSelectionState {
+        if let tally = categorySelectionTally(category) {
+            if tally.selected == 0 { return .none }
+            if tally.total > 0 && tally.selected >= tally.total { return .all }
+            return .some
         }
-        return String(localized: "Some", comment: "Bulk-select trigger when part of the category is selected.")
+        let selectedCount = rows.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
+        if selectedCount == 0 || rows.isEmpty { return .none }
+        if selectedCount == rows.count { return .all }
+        return .some
     }
 }
