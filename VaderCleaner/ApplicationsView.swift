@@ -28,18 +28,13 @@ struct ApplicationsView: View {
     /// brief remount when the underlying detail view loads.
     @State private var detail: Detail = .dashboard
 
-    /// The results surface's screens. Updates are reached through the Manager's
-    /// Updater pane, so the dashboard no longer pushes a standalone Updates
-    /// screen.
+    /// The results surface's screens: the dashboard grid, or the full Manager
+    /// opened on a specific destination. Every card's Review button deep-links
+    /// into the Manager rather than pushing its own review screen, so the Manage
+    /// button and the cards share one manager surface.
     private enum Detail {
         case dashboard
-        /// The full Manager, opened on a specific pane — the Manage button opens
-        /// it on the Uninstaller, the Updates card deep-links to the Updater.
-        case manage(ApplicationsManagerView.Pane)
-        case installationFiles
-        case unsupported
-        case unused
-        case leftovers
+        case manage(ApplicationsManagerView.Destination)
     }
 
     init(
@@ -93,11 +88,11 @@ struct ApplicationsView: View {
                 iconCache: iconCache,
                 accent: NavigationSection.applications.theme.accent,
                 onOpenManage: { detail = .manage(.uninstaller) },
-                onOpenInstallationFiles: { detail = .installationFiles },
-                onOpenUnsupported: { detail = .unsupported },
-                onOpenUnused: { detail = .unused },
+                onOpenInstallationFiles: { detail = .manage(.installationFiles) },
+                onOpenUnsupported: { detail = .manage(.unsupported) },
+                onOpenUnused: { detail = .manage(.unused) },
                 onOpenUpdates: { detail = .manage(.updater) },
-                onOpenLeftovers: { detail = .leftovers },
+                onOpenLeftovers: { detail = .manage(.leftovers) },
                 onRemoveLeftovers: {
                     viewModel.selectAllLeftovers()
                     Task { await viewModel.deleteSelectedLeftovers() }
@@ -109,11 +104,12 @@ struct ApplicationsView: View {
             .padding(.top, 44)
             .padding(.bottom, 48)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .manage(let pane):
-            // Full multi-pane manager (Uninstaller / Updater / Leftovers),
-            // styled like the Performance "View All Tasks" catalog — it owns
-            // its own header, so it is not wrapped in `detailScreen`. Opens on
-            // `pane` so the Updates card can deep-link straight to the Updater.
+        case .manage(let destination):
+            // Full multi-pane manager (Uninstaller / Updater / Extensions /
+            // Leftovers / Unsupported), styled like the Performance "View All
+            // Tasks" catalog — it owns its own header. Opens on `destination` so
+            // each card's Review deep-links straight to the pane and facet where
+            // its finding lives.
             ApplicationsManagerView(
                 viewModel: viewModel,
                 uninstallerViewModel: uninstallerViewModel,
@@ -121,120 +117,9 @@ struct ApplicationsView: View {
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 result: result,
                 iconCache: iconCache,
-                initialPane: pane,
+                destination: destination,
                 onBack: { detail = .dashboard }
             )
-        case .installationFiles:
-            detailScreen(
-                title: String(
-                    localized: "Installation Files",
-                    comment: "Title of the Applications Installation Files detail screen."
-                )
-            ) {
-                InstallationFilesReviewView(
-                    files: result.installationFiles,
-                    isSelected: viewModel.isInstallationFileSelected,
-                    onToggle: viewModel.toggleInstallationFile,
-                    onSelectAll: viewModel.selectAllInstallationFiles,
-                    onClear: viewModel.clearInstallationFileSelection,
-                    isRemoving: viewModel.isRemovingInstallationFiles,
-                    canRemove: viewModel.canRemoveInstallationFiles,
-                    onRemove: { Task { await viewModel.deleteSelectedInstallationFiles() } }
-                )
-            }
-        case .unsupported:
-            detailScreen(
-                title: String(
-                    localized: "Unsupported Applications",
-                    comment: "Title of the Applications Unsupported detail screen."
-                )
-            ) {
-                UnsupportedAppsReviewView(
-                    apps: result.unsupportedApps,
-                    iconCache: iconCache,
-                    isSelected: viewModel.isUnsupportedAppSelected,
-                    onToggle: viewModel.toggleUnsupportedApp,
-                    onSelectAll: viewModel.selectAllUnsupportedApps,
-                    onClear: viewModel.clearUnsupportedAppSelection,
-                    isRemoving: viewModel.isRemovingUnsupportedApps,
-                    canRemove: viewModel.canRemoveUnsupportedApps,
-                    onRemove: { Task { await viewModel.deleteSelectedUnsupportedApps() } }
-                )
-            }
-        case .unused:
-            detailScreen(
-                title: String(
-                    localized: "Unused Applications",
-                    comment: "Title of the Applications Unused detail screen."
-                )
-            ) {
-                UnusedAppsReviewView(
-                    apps: result.unusedApps,
-                    iconCache: iconCache,
-                    isSelected: viewModel.isUnusedAppSelected,
-                    onToggle: viewModel.toggleUnusedApp,
-                    onSelectAll: viewModel.selectAllUnusedApps,
-                    onClear: viewModel.clearUnusedAppSelection,
-                    isRemoving: viewModel.isRemovingUnusedApps,
-                    canRemove: viewModel.canRemoveUnusedApps,
-                    onRemove: { Task { await viewModel.deleteSelectedUnusedApps() } }
-                )
-            }
-        case .leftovers:
-            detailScreen(
-                title: String(
-                    localized: "App Leftovers",
-                    comment: "Title of the Applications Leftovers detail screen."
-                )
-            ) {
-                AppLeftoversReviewView(
-                    groups: result.leftovers,
-                    isSelected: viewModel.isLeftoverSelected,
-                    onToggle: viewModel.toggleLeftover,
-                    onSelectAll: viewModel.selectAllLeftovers,
-                    onClear: viewModel.clearLeftoverSelection,
-                    isRemoving: viewModel.isRemovingLeftovers,
-                    canRemove: viewModel.canRemoveLeftovers,
-                    onRemove: { Task { await viewModel.deleteSelectedLeftovers() } }
-                )
-            }
-        }
-    }
-
-    /// Wraps a reused detail screen with a Back bar that returns to the grid.
-    /// Mirrors `PerformanceTaskCatalogView`'s header layout.
-    private func detailScreen<Content: View>(
-        title: String,
-        @ViewBuilder _ screen: () -> Content
-    ) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button {
-                    detail = .dashboard
-                } label: {
-                    // HStack(Image, Text) rather than Label so the control
-                    // surfaces reliably in XCUITest.
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(String(
-                            localized: "Back",
-                            comment: "Back button returning from an Applications detail screen to the dashboard."
-                        ))
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("applications.backToDashboard")
-                Spacer()
-                Text(title)
-                    .font(.headline)
-                Spacer()
-                // Balances the leading Back button so the title stays centred.
-                Color.clear.frame(width: 44, height: 1)
-            }
-            .padding(16)
-            Divider()
-            screen()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
