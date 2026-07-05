@@ -76,12 +76,13 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the Manage My Applications header button")
     }
 
-    /// A recommendation card opens its review screen, and Back returns to the
-    /// dashboard. The dashboard now shows only cleanup categories that have
-    /// findings, so the exact cards depend on the host — this exercises
-    /// whichever recommendation card is present rather than assuming a specific
-    /// one. On a host with nothing to clean up the dashboard shows reassurance
-    /// backfill cards and there is no review card to open, which the test accepts.
+    /// A recommendation card's Review deep-links into the Applications Manager
+    /// (not a standalone review screen), and Back returns to the dashboard. The
+    /// dashboard now shows only cleanup categories that have findings, so the
+    /// exact cards depend on the host — this exercises whichever recommendation
+    /// card is present rather than assuming a specific one. On a host with
+    /// nothing to clean up the dashboard shows reassurance backfill cards and
+    /// there is no review card to open, which the test accepts.
     func test_applications_recommendationCardOpensReviewAndBackReturns() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
@@ -90,10 +91,13 @@ final class ApplicationsUITests: XCTestCase {
         XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
                       "Expected the Applications dashboard after the scan")
 
+        // Match only the Review-opening controls. The Leftovers card's primary
+        // button is a destructive Remove, so target its `.secondary` Review
+        // instead — every match here deep-links into the Manager.
         let card = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier IN {"
                 + "'applications.card.unused','applications.card.unsupported',"
-                + "'applications.card.leftovers','applications.card.installationFiles'}"))
+                + "'applications.card.leftovers.secondary','applications.card.installationFiles'}"))
             .firstMatch
 
         guard card.waitForExistence(timeout: 10) else {
@@ -112,10 +116,13 @@ final class ApplicationsUITests: XCTestCase {
 
         card.click()
 
-        // Whichever review screen opened, it carries the shared Back control.
+        // The Review deep-links into the Applications Manager, which carries the
+        // shared Back control.
+        XCTAssertTrue(app.descendants(matching: .any)["applications.manager"].waitForExistence(timeout: 10),
+                      "Expected a recommendation card's Review to open the Applications Manager")
         let back = app.buttons["applications.backToDashboard"]
         XCTAssertTrue(back.waitForExistence(timeout: 10),
-                      "Expected a recommendation card to open a review screen with a Back control")
+                      "Expected the Manager's Back control")
         back.click()
         XCTAssertTrue(
             app.descendants(matching: .any)["applications.dashboard"].waitForExistence(timeout: 5),
@@ -124,8 +131,8 @@ final class ApplicationsUITests: XCTestCase {
     }
 
     /// The Manage My Applications button opens the Applications Manager catalog
-    /// with its Uninstaller / Updater / Extensions / Leftovers sub-navigation;
-    /// switching panes works and Back returns to the dashboard.
+    /// with its Uninstaller / Updater / Extensions / Leftovers / Unsupported
+    /// sub-navigation; switching panes works and Back returns to the dashboard.
     func test_applications_manageOpensManagerCatalog() throws {
         dismissOnboardingIfNeeded()
         openApplicationsAndScan()
@@ -140,7 +147,8 @@ final class ApplicationsUITests: XCTestCase {
         for navID in ["applications.manager.nav.uninstaller",
                       "applications.manager.nav.updater",
                       "applications.manager.nav.extensions",
-                      "applications.manager.nav.leftovers"] {
+                      "applications.manager.nav.leftovers",
+                      "applications.manager.nav.unsupported"] {
             XCTAssertTrue(app.buttons[navID].waitForExistence(timeout: 5),
                           "Expected sub-nav item \(navID)")
         }
@@ -284,6 +292,36 @@ final class ApplicationsUITests: XCTestCase {
         let remove = app.buttons["applications.manager.remove"]
         XCTAssertTrue(remove.waitForExistence(timeout: 10), "Expected the Remove footer action")
         XCTAssertFalse(remove.isEnabled, "Remove must be disabled with nothing selected")
+    }
+
+    /// The Unsupported pane renders its list (or empty state) and a Move to Trash
+    /// footer action, disabled until something is selected.
+    func test_applications_unsupportedPaneRenders() throws {
+        dismissOnboardingIfNeeded()
+        openApplicationsAndScan()
+
+        let manage = app.buttons["applications.manageMyApplications"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 90),
+                      "Expected the Manage My Applications button after the scan")
+        manage.click()
+
+        let unsupportedNav = app.buttons["applications.manager.nav.unsupported"]
+        XCTAssertTrue(unsupportedNav.waitForExistence(timeout: 10), "Expected the Unsupported nav item")
+        unsupportedNav.click()
+
+        // The pane reaches a display state: the list of unsupported apps or its
+        // empty state (most hosts have none).
+        let unsupportedState = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier IN {'applications.manager.unsupported.empty', 'applications.manager.unsupported.list'}"
+            ))
+            .firstMatch
+        XCTAssertTrue(unsupportedState.waitForExistence(timeout: 30),
+                      "Expected the Unsupported pane to render its list or empty state")
+
+        let remove = app.buttons["applications.manager.unsupported.remove"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 10), "Expected the Move to Trash footer action")
+        XCTAssertFalse(remove.isEnabled, "Move to Trash must be disabled with nothing selected")
     }
 
     // MARK: - Helpers
