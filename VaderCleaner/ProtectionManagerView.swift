@@ -356,17 +356,25 @@ private struct PrivacyPane: View {
                     onAll: { model.setAllSelected(true, browser: browser) },
                     onNone: { model.setAllSelected(false, browser: browser) }
                 )
-                ForEach(ProtectionPrivacyCategory.allCases) { category in
-                    categoryRow(category)
-                    if isExpanded(category) {
-                        ForEach(sortedItems(category)) { item in
-                            itemRow(category, item)
+                // Each category (with its expanded per-item rows) sits on its
+                // own rounded glass card, matching the manager card rows used
+                // across the app's other sections.
+                VStack(spacing: 10) {
+                    ForEach(ProtectionPrivacyCategory.allCases) { category in
+                        VStack(spacing: 0) {
+                            categoryRow(category)
+                            if isExpanded(category) {
+                                ForEach(sortedItems(category)) { item in
+                                    itemRow(category, item)
+                                }
+                            }
                         }
+                        .padding(.horizontal, 12)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 12))
                     }
-                    Divider().opacity(0.3)
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 16)
+            .padding(.horizontal, 24).padding(.vertical, 16)
         }
     }
 
@@ -479,31 +487,31 @@ private struct MalwareResultsPane: View {
                         onAll: { selectedThreats = Set(threats.map(\.id)) },
                         onNone: { selectedThreats = [] }
                     )
-                    ForEach(sortedThreats) { threat in threatRow(threat) }
+                    VStack(spacing: 10) {
+                        ForEach(sortedThreats) { threat in threatRow(threat) }
+                    }
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 16)
+            .padding(.horizontal, 24).padding(.vertical, 16)
         }
     }
 
     private func threatRow(_ threat: MalwareThreat) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                ManagerCheckbox(state: selectedThreats.contains(threat.id) ? .on : .off, accent: accent) {
-                    if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
-                    else { selectedThreats.insert(threat.id) }
-                }
-                .frame(width: 26)
-                Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(threat.threatName).font(.body)
-                    Text(threat.filePath.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer(minLength: 0)
+        HStack(spacing: 12) {
+            ManagerCheckbox(state: selectedThreats.contains(threat.id) ? .on : .off, accent: accent) {
+                if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
+                else { selectedThreats.insert(threat.id) }
             }
-            .padding(.vertical, 9)
-            Divider().opacity(0.3)
+            .frame(width: 26)
+            Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(threat.threatName).font(.body)
+                Text(threat.filePath.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
         }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
     private var sortedThreats: [MalwareThreat] {

@@ -491,7 +491,9 @@ struct SmartScanReviewManager: View {
                         isSelected: isSelected,
                         onToggle: onToggle,
                         accent: accent,
-                        rowHeight: 44,
+                        // Tall enough for the 38-point icon plus the card's
+                        // interior padding and 4-point vertical card inset.
+                        rowHeight: 68,
                         // Key the table reload to the *actual* displayed rows, not
                         // the inputs: `selectedCategoryID` changes a render before
                         // `displayedItems` is recomputed, so an input-based token
