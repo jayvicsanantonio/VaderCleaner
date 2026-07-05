@@ -672,9 +672,7 @@ private struct InstallationFileRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
 
             Image(systemName: kindSymbol)
                 .font(.system(size: 18))
@@ -860,9 +858,7 @@ private struct UnsupportedAppRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
 
             Image(nsImage: iconCache.icon(for: entry.app.bundleURL))
                 .resizable()
@@ -1039,9 +1035,7 @@ private struct UnusedAppRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
 
             Image(nsImage: iconCache.icon(for: entry.app.bundleURL))
                 .resizable()
@@ -1211,9 +1205,7 @@ private struct LeftoverRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
 
             Image(systemName: "folder.badge.minus")
                 .font(.system(size: 18))

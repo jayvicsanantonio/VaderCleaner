@@ -112,7 +112,6 @@ struct ManagerItemTable: NSViewRepresentable {
         private var showsSparkle = false
         private var isExpanded: (String) -> Bool = { _ in false }
         private var onToggleExpand: (String) -> Void = { _ in }
-        private var roundedCheckbox = false
         fileprivate var contentToken = ""
         weak var table: NSTableView?
 
@@ -126,8 +125,6 @@ struct ManagerItemTable: NSViewRepresentable {
             showsSparkle = source.showsSparkle
             isExpanded = source.isExpanded
             onToggleExpand = source.onToggleExpand
-            // The white Cleanup card uses the rounded, accent-outlined checkbox.
-            roundedCheckbox = source.forcesLightAppearance
             contentToken = source.contentToken
         }
 
@@ -149,8 +146,7 @@ struct ManagerItemTable: NSViewRepresentable {
                 showsSparkle: showsSparkle,
                 isExpanded: isExpanded(item.id),
                 onToggleExpand: onToggleExpand,
-                onToggleSelection: onToggle,
-                roundedCheckbox: roundedCheckbox
+                onToggleSelection: onToggle
             )
             cell.setAccessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
             return cell
@@ -301,9 +297,6 @@ final class ManagerRowCellView: NSTableCellView {
     private var onChevron: (() -> Void)?
     /// Invoked when the checkbox is clicked — the only way to (de)select a row.
     private var onCheckbox: (() -> Void)?
-    /// Whether to draw the rounded, accent-outlined checkbox (Cleanup card)
-    /// instead of the system SF-symbol checkbox.
-    private var roundedCheckbox = false
 
     init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
         textStack = NSStackView(views: [titleField, subtitleField])
@@ -397,10 +390,8 @@ final class ManagerRowCellView: NSTableCellView {
         showsSparkle: Bool,
         isExpanded: Bool,
         onToggleExpand: @escaping (String) -> Void,
-        onToggleSelection: @escaping (String) -> Void,
-        roundedCheckbox: Bool
+        onToggleSelection: @escaping (String) -> Void
     ) {
-        self.roundedCheckbox = roundedCheckbox
         indentWidth.constant = CGFloat(item.indentLevel) * Self.indentStep
         checkbox.isHidden = !showsCheckbox
         let selectionID = item.id
@@ -472,18 +463,10 @@ final class ManagerRowCellView: NSTableCellView {
 
     func setSelected(_ selected: Bool, accent: NSColor) {
         guard !checkbox.isHidden else { return }
-        if roundedCheckbox {
-            // A rounded square: an accent-outlined box when unchecked, filled
-            // with a white check when selected — matching the reference card.
-            checkbox.image = ManagerCheckboxImage.image(checked: selected, accent: accent)
-            checkbox.contentTintColor = nil
-        } else {
-            checkbox.image = ManagerSymbolCache.image(
-                selected ? "checkmark.square.fill" : "square",
-                pointSize: 15
-            )
-            checkbox.contentTintColor = selected ? accent : .tertiaryLabelColor
-        }
+        // A rounded square: an accent-outlined box when unchecked, filled
+        // with a white check when selected — matching the reference card.
+        checkbox.image = ManagerCheckboxImage.image(checked: selected, accent: accent)
+        checkbox.contentTintColor = nil
     }
 }
 
@@ -502,7 +485,7 @@ private enum ManagerSymbolCache {
     }
 }
 
-/// Draws and caches the rounded checkbox used on the Cleanup card: an
+/// Draws and caches the rounded checkbox used on every manager row: an
 /// accent-outlined rounded square when unchecked, filled with a white check when
 /// selected. Keyed by checked-state + accent so it redraws only when those
 /// change. Main-thread only (cells are configured on the main actor).

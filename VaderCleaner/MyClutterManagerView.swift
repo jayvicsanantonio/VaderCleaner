@@ -678,14 +678,9 @@ struct MyClutterManagerView: View {
     }
 
     private func checkbox(for url: URL) -> some View {
-        Button {
+        ManagerRowCheckbox(isOn: viewModel.isSelected(url)) {
             viewModel.toggleSelection(url: url)
-        } label: {
-            Image(systemName: viewModel.isSelected(url) ? "checkmark.square.fill" : "square")
-                .font(.system(size: 18))
-                .foregroundStyle(viewModel.isSelected(url) ? Self.accent : Color.secondary)
         }
-        .buttonStyle(.plain)
     }
 
     private func breadcrumb(_ url: URL) -> some View {

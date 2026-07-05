@@ -1280,12 +1280,7 @@ struct ApplicationsManagerCheckbox: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: selected ? "checkmark.square.fill" : "square")
-                .font(.system(size: 18))
-                .foregroundStyle(selected ? ApplicationsManagerChrome.accent : Color.secondary)
-        }
-        .buttonStyle(.plain)
+        ManagerRowCheckbox(isOn: selected, action: action)
     }
 }
 

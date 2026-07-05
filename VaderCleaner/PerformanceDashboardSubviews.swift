@@ -866,9 +866,7 @@ struct PerformanceTaskRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
                 .accessibilityIdentifier("performance.task.checkbox.\(task.kind.rawValue)")
 
             TaskIconBadge(symbol: task.icon, tint: tint)
@@ -932,9 +930,7 @@ struct PerformanceItemRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
 
             iconView
 

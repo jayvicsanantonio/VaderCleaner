@@ -389,7 +389,7 @@ private struct PrivacyPane: View {
             if category.isExpandable {
                 Button { toggleExpanded(category) } label: {
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.tint)
                         .rotationEffect(.degrees(isExpanded(category) ? 90 : 0))
                         .frame(width: 20, height: 20).contentShape(Rectangle())
                 }
@@ -613,8 +613,9 @@ private struct ManagerCheckbox: View {
     var body: some View {
         Button(action: action) {
             ZStack {
+                // Softened outline matching ManagerRowCheckbox's unchecked state.
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(accent, lineWidth: 1.5)
+                    .strokeBorder(accent.opacity(0.6), lineWidth: 1.5)
                     .frame(width: 18, height: 18)
                 if state != .off {
                     RoundedRectangle(cornerRadius: 5, style: .continuous).fill(accent).frame(width: 18, height: 18)
