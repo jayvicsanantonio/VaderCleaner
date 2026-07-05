@@ -517,8 +517,9 @@ struct PerformanceTaskCatalogView: View {
         }
     }
 
-    /// A checkbox list pane (Login Items / Background Items): a header, a
-    /// `Select:` menu, the `ManagerItemTable`, and an optional footnote.
+    /// A checkbox list pane (Login Items / Background Items), laid out like the
+    /// Maintenance Tasks pane: a heading, a one-line description, a `Select:`
+    /// menu, the card rows, and an optional footnote.
     @ViewBuilder
     private func itemListPane(
         paneKey: String,
@@ -530,58 +531,39 @@ struct PerformanceTaskCatalogView: View {
     ) -> some View {
         let allIDs = items.map(\.id)
         let displayed = filteredSorted(items)
-        VStack(alignment: .leading, spacing: 0) {
-            paneHeader(title: title, description: description)
-            selectRow(paneKey: paneKey, allIDs: allIDs, selection: selection)
-            if displayed.isEmpty {
-                Spacer()
-                Text(String(localized: "Nothing to review", comment: "Empty state in a Performance Manager pane."))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(title).font(.title3.weight(.semibold))
+                Text(description)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                Spacer()
-            } else {
-                ManagerItemTable(
-                    items: displayed,
-                    showsSelection: true,
-                    isSelected: { selection.wrappedValue.contains($0) },
-                    onToggle: { toggle($0, in: selection) },
-                    accent: ManagerChrome.accent,
-                    rowHeight: 44,
-                    // These panes hold at most a few dozen rows, so building
-                    // the order-sensitive token inline per render is cheap;
-                    // large-list managers precompute it instead.
-                    contentToken: "\(paneKey)|\(ManagerItemTable.contentToken(items: displayed, sort: sort.rawValue, search: search))",
-                    accessibilityPrefix: "performance.manager.\(paneKey)",
-                    forcesLightAppearance: true,
-                    showsSparkle: true
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                selectRow(paneKey: paneKey, allIDs: allIDs, selection: selection)
+                if displayed.isEmpty {
+                    Text(String(localized: "Nothing to review", comment: "Empty state in a Performance Manager pane."))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 48)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(displayed) { item in
+                            PerformanceItemRow(
+                                item: item,
+                                isSelected: selection.wrappedValue.contains(item.id),
+                                identifier: "performance.manager.\(paneKey).item.\(item.id)",
+                                onToggle: { toggle(item.id, in: selection) }
+                            )
+                        }
+                    }
+                }
+                if let footnote {
+                    Text(footnote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            if let footnote {
-                Text(footnote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 10)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    }
-
-    /// The title + one-line description atop a pane, mirroring the Cleanup
-    /// Manager's pane header.
-    private func paneHeader(title: String, description: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.title3.weight(.semibold))
-            Text(description)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 24)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
     }
 
     /// The `Select:` bulk-select menu, scoped to the pane's items.
@@ -609,9 +591,6 @@ struct PerformanceTaskCatalogView: View {
             Spacer()
         }
         .font(.callout)
-        .padding(.horizontal, 24)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
     }
 
     private var maintenanceTasksPane: some View {
@@ -933,6 +912,79 @@ struct PerformanceTaskRow: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
         .accessibilityIdentifier("performance.task.\(task.kind.rawValue)")
         .animation(.smooth(duration: 0.25), value: isCompleted)
+    }
+}
+
+/// One selectable Login Items / Background Items card, matching the Maintenance
+/// Tasks row styling: a checkbox, the item's icon (the real Finder icon when it
+/// has one, else a tinted badge), the name with a one-line detail underneath,
+/// and the trailing pink sparkle.
+struct PerformanceItemRow: View {
+    let item: ManagerItem
+    let isSelected: Bool
+    let identifier: String
+    let onToggle: () -> Void
+
+    // Resolved once per icon path rather than on every render: the Finder-icon
+    // lookup is a synchronous NSWorkspace call, and a checkbox toggle re-renders
+    // every row in the pane.
+    @State private var fileIcon: NSImage?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            iconView
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.body.weight(.medium))
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        // The full detail (often a long path) stays readable on
+                        // hover; the row stays one line so its height is stable.
+                        .help(subtitle)
+                }
+            }
+
+            Spacer()
+
+            // Decorative "smart suggestion" sparkle, matching the maintenance
+            // task rows so every pane shares one trailing column.
+            Image(systemName: "sparkles")
+                .font(.system(size: 15))
+                .foregroundStyle(.pink)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle() }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .accessibilityIdentifier(identifier)
+        .task(id: item.iconPath ?? item.id) { resolveFileIcon() }
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        if item.usesFileIcon, let fileIcon {
+            Image(nsImage: fileIcon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 38, height: 38)
+        } else {
+            TaskIconBadge(symbol: item.systemImage, tint: item.tint.color)
+        }
+    }
+
+    private func resolveFileIcon() {
+        guard item.usesFileIcon else { return }
+        fileIcon = NSWorkspace.shared.icon(forFile: item.iconPath ?? item.id)
     }
 }
 
