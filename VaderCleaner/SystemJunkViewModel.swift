@@ -81,6 +81,13 @@ final class SystemJunkViewModel {
     /// large scans.
     private(set) var selectedBytesByCategory: [ScanCategory: Int64] = [:]
 
+    /// Per-category running count of selected files, maintained in lockstep with
+    /// `selectedBytesByCategory`. Lets the Cleanup Manager's "Select:
+    /// None/All/Some" bulk menu read its state in O(1) instead of scanning every
+    /// row (and every file beneath each folder row) on each render — the walk
+    /// that delayed the checkbox repaint on large scans.
+    private(set) var selectedCountByCategory: [ScanCategory: Int] = [:]
+
     /// Running count of filesystem items the in-flight scan has walked. Reset
     /// to 0 at the start of each scan and fed by the scanner's progress
     /// callback so the scanning screen can show "Scanned N items…" — proof the
@@ -121,6 +128,12 @@ final class SystemJunkViewModel {
         selectedBytesByCategory[category] ?? 0
     }
 
+    /// Selected file count in one category — an O(1) read backing the Cleanup
+    /// Manager's per-category bulk-select menu state.
+    func selectedCount(in category: ScanCategory) -> Int {
+        selectedCountByCategory[category] ?? 0
+    }
+
     /// Flip the selection state for `file` and adjust `totalSelectedSize` in
     /// lockstep. Idempotent in the sense that two calls in a row return the VM
     /// to its prior selection.
@@ -129,11 +142,61 @@ final class SystemJunkViewModel {
             selectedURLs.remove(file.url)
             totalSelectedSize -= file.size
             selectedBytesByCategory[file.category, default: 0] -= file.size
+            selectedCountByCategory[file.category, default: 0] -= 1
         } else {
             selectedURLs.insert(file.url)
             totalSelectedSize += file.size
             selectedBytesByCategory[file.category, default: 0] += file.size
+            selectedCountByCategory[file.category, default: 0] += 1
         }
+    }
+
+    /// Whether every file in `files` is currently selected. Short-circuits on
+    /// the first unselected file, so the common "nothing selected yet" case is
+    /// O(1). Backs the folder-row checkbox's checked state and its all-or-
+    /// nothing toggle target.
+    func areAllSelected(_ files: [ScannedFile]) -> Bool {
+        !files.isEmpty && files.allSatisfy { selectedURLs.contains($0.url) }
+    }
+
+    /// Toggle a whole group of files as one unit — the Cleanup Manager's
+    /// folder-row checkbox, which covers every file beneath a folder. If the
+    /// group is already fully selected it's cleared; otherwise the whole group
+    /// is selected (so a partially-selected folder fills in).
+    func toggleSelection(_ files: [ScannedFile]) {
+        setSelection(files, selected: !areAllSelected(files))
+    }
+
+    /// Select or clear a whole group of files in a single pass, writing each
+    /// observable property exactly once. Toggling a folder that covers tens of
+    /// thousands of files went through `toggleSelection(_ file:)` per file,
+    /// which re-acquired the store lock, re-hashed each URL several times, and
+    /// fired four observation mutations *per file* — the work that froze the UI
+    /// for seconds on large folders. Building the new values on local copies and
+    /// assigning once collapses that to four mutations total.
+    func setSelection(_ files: [ScannedFile], selected: Bool) {
+        guard !files.isEmpty else { return }
+        var urls = selectedURLs
+        var total = totalSelectedSize
+        var bytes = selectedBytesByCategory
+        var counts = selectedCountByCategory
+        for file in files {
+            if selected {
+                guard urls.insert(file.url).inserted else { continue }
+                total += file.size
+                bytes[file.category, default: 0] += file.size
+                counts[file.category, default: 0] += 1
+            } else {
+                guard urls.remove(file.url) != nil else { continue }
+                total -= file.size
+                bytes[file.category, default: 0] -= file.size
+                counts[file.category, default: 0] -= 1
+            }
+        }
+        selectedURLs = urls
+        totalSelectedSize = total
+        selectedBytesByCategory = bytes
+        selectedCountByCategory = counts
     }
 
     /// Replace the selection with every file in `categories` — backs a
@@ -145,14 +208,17 @@ final class SystemJunkViewModel {
         var urls: Set<URL> = []
         var total: Int64 = 0
         var bytesByCategory: [ScanCategory: Int64] = [:]
+        var countByCategory: [ScanCategory: Int] = [:]
         for file in result.items where categories.contains(file.category) {
             urls.insert(file.url)
             total += file.size
             bytesByCategory[file.category, default: 0] += file.size
+            countByCategory[file.category, default: 0] += 1
         }
         selectedURLs = urls
         totalSelectedSize = total
         selectedBytesByCategory = bytesByCategory
+        selectedCountByCategory = countByCategory
     }
 
     /// Run the injected scanner and land in `.preview` (or `.failed`).
@@ -186,6 +252,7 @@ final class SystemJunkViewModel {
             self.selectedURLs = []
             self.totalSelectedSize = 0
             self.selectedBytesByCategory = [:]
+            self.selectedCountByCategory = [:]
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
@@ -193,6 +260,7 @@ final class SystemJunkViewModel {
             self.selectedURLs = []
             self.totalSelectedSize = 0
             self.selectedBytesByCategory = [:]
+            self.selectedCountByCategory = [:]
             self.phase = .failed(stage: .scanning, message: error.localizedDescription)
         }
     }
@@ -208,6 +276,7 @@ final class SystemJunkViewModel {
         selectedURLs = []
         totalSelectedSize = 0
         selectedBytesByCategory = [:]
+        selectedCountByCategory = [:]
         phase = .preview(result)
     }
 
@@ -253,6 +322,7 @@ final class SystemJunkViewModel {
         selectedURLs = []
         totalSelectedSize = 0
         selectedBytesByCategory = [:]
+        selectedCountByCategory = [:]
         scannedItemCount = 0
         phase = .idle
     }

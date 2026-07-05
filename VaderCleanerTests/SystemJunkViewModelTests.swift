@@ -354,6 +354,154 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTAssertEqual(vm.selectedBytes(in: .userCache), 0)
     }
 
+    // MARK: - Per-category selected count (bulk-select menu)
+
+    /// The per-category selected *count* is maintained incrementally on every
+    /// toggle so the Cleanup Manager's "Select: None/All/Some" menu reads O(1)
+    /// instead of re-scanning every file in the category on each render.
+    func test_selectedCountPerCategory_tracksTogglesPerCategory() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 30, category: .userCache)
+        let log = makeFile(name: "c", size: 250, category: .userLogs)
+        let result = makeResult((.userCache, [cacheA, cacheB]), (.userLogs, [log]))
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+
+        vm.toggleSelection(cacheA)
+        vm.toggleSelection(log)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
+        XCTAssertEqual(vm.selectedCount(in: .userLogs), 1)
+        XCTAssertEqual(vm.selectedCount(in: .trash), 0, "Untouched categories read zero")
+
+        vm.toggleSelection(cacheB)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 2)
+
+        vm.toggleSelection(cacheA)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 1, "Deselecting subtracts only that file")
+        XCTAssertEqual(vm.selectedCount(in: .userLogs), 1, "A sibling category is unaffected")
+    }
+
+    /// `selectOnly` rebuilds the per-category counts to exactly the chosen
+    /// group's files, zeroing categories that fall outside the group.
+    func test_selectedCountPerCategory_afterSelectOnly() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 200, category: .systemCache)
+        let trash = makeFile(name: "t", size: 400, category: .trash)
+        let result = makeResult((.userCache, [cacheA]), (.systemCache, [cacheB]), (.trash, [trash]))
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+        vm.toggleSelection(trash) // a pre-existing selection outside the group
+
+        vm.selectOnly(categories: [.userCache, .systemCache])
+
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
+        XCTAssertEqual(vm.selectedCount(in: .systemCache), 1)
+        XCTAssertEqual(vm.selectedCount(in: .trash), 0, "selectOnly clears categories outside the group")
+    }
+
+    /// A fresh scan and `scanAgain()` must drop the per-category counts so the
+    /// menu never carries a previous run's selection forward.
+    func test_selectedCountPerCategory_clearedOnScanAndScanAgain() async {
+        let file = makeFile(name: "a", size: 100, category: .userCache)
+        let result = makeResult((.userCache, [file]))
+        let vm = makeViewModel(scanner: { result }, deleter: { _ in 100 })
+
+        await vm.scan()
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 0, "A fresh scan selects nothing")
+
+        vm.toggleSelection(file)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
+
+        vm.scanAgain()
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 0)
+    }
+
+    // MARK: - Bulk selection (folder-row / category toggle)
+
+    /// `setSelection(_:selected:)` selects a whole group in one pass, updating
+    /// the URL set and every running total. This backs the Cleanup Manager's
+    /// folder-row and category toggles, which cover thousands of files — doing
+    /// the work per file (and firing observation per file) is what froze the UI.
+    func test_setSelection_selectsGroupAndUpdatesTotals() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let c = makeFile(name: "c", size: 250, category: .userLogs)
+        let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b]), (.userLogs, [c])) }, deleter: noopDeleter)
+        await vm.scan()
+
+        vm.setSelection([a, b, c], selected: true)
+
+        XCTAssertEqual(vm.selectedURLs, [a.url, b.url, c.url])
+        XCTAssertEqual(vm.totalSelectedSize, 380)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 130)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 2)
+        XCTAssertEqual(vm.selectedBytes(in: .userLogs), 250)
+        XCTAssertEqual(vm.selectedCount(in: .userLogs), 1)
+    }
+
+    /// Deselecting a group removes exactly those files and no others.
+    func test_setSelection_deselectsOnlyGivenFiles() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b])) }, deleter: noopDeleter)
+        await vm.scan()
+        vm.setSelection([a, b], selected: true)
+
+        vm.setSelection([a], selected: false)
+
+        XCTAssertEqual(vm.selectedURLs, [b.url])
+        XCTAssertEqual(vm.totalSelectedSize, 30)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 30)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
+    }
+
+    /// Re-selecting already-selected files (or clearing unselected ones) must
+    /// not double-count the totals — the bulk pass is idempotent per file.
+    func test_setSelection_isIdempotentPerFile() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a])) }, deleter: noopDeleter)
+        await vm.scan()
+
+        vm.setSelection([a], selected: true)
+        vm.setSelection([a], selected: true) // repeat — must be a no-op
+
+        XCTAssertEqual(vm.selectedURLs, [a.url])
+        XCTAssertEqual(vm.totalSelectedSize, 100)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
+    }
+
+    /// `toggleSelection(_ files:)` selects the group when it isn't already fully
+    /// selected, and clears it when every file is selected — the folder-row
+    /// checkbox's all-or-nothing behavior.
+    func test_toggleSelectionGroup_selectsThenClears() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b])) }, deleter: noopDeleter)
+        await vm.scan()
+
+        vm.toggleSelection([a, b]) // nothing selected → select all
+        XCTAssertTrue(vm.areAllSelected([a, b]))
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 2)
+
+        vm.toggleSelection([a, b]) // all selected → clear all
+        XCTAssertTrue(vm.selectedURLs.isEmpty)
+        XCTAssertEqual(vm.selectedCount(in: .userCache), 0)
+    }
+
+    /// A partially-selected group toggles to fully selected (not cleared), so a
+    /// folder with one checked child fills in rather than emptying.
+    func test_toggleSelectionGroup_partialSelectsRest() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b])) }, deleter: noopDeleter)
+        await vm.scan()
+        vm.setSelection([a], selected: true) // only one of two selected
+
+        vm.toggleSelection([a, b])
+
+        XCTAssertTrue(vm.areAllSelected([a, b]), "A partial group toggles to fully selected")
+    }
+
     // MARK: - Clean by category (dashboard card "Clean")
 
     /// `clean(categories:)` backs a dashboard card's Clean button: it must

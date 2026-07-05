@@ -133,4 +133,15 @@ final class CleanupManagerStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return filesByPath[path]
     }
+
+    /// The scanned files a row covers (a folder's whole subtree, or a single
+    /// file), resolved under a single lock. A folder toggle needs every
+    /// descendant file; resolving them one `file(forPath:)` call at a time
+    /// re-acquired the lock per path, so a big folder paid tens of thousands of
+    /// lock round-trips just to gather its files.
+    func files(forRowID id: String) -> [ScannedFile] {
+        lock.lock(); defer { lock.unlock() }
+        let paths = pathsByRowID[id] ?? [id]
+        return paths.compactMap { filesByPath[$0] }
+    }
 }
