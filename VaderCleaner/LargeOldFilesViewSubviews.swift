@@ -33,12 +33,6 @@ enum LargeOldFilesFormatting {
     }
 }
 
-enum LargeOldFilesActions {
-    static func showInFinder(_ file: ScannedFile) {
-        NSWorkspace.shared.activateFileViewerSelecting([file.url])
-    }
-}
-
 /// Pure strings for the results header above the file list: a headline file
 /// count and a supporting detail line. Kept free of any view so the phrasing
 /// is unit-testable without rendering.
