@@ -20,7 +20,6 @@ final class TrashedAppMonitor {
     /// Apps already seen in the Trash, so only *newly* trashed apps notify.
     private var seen: Set<String> = []
     private var source: DispatchSourceFileSystemObject?
-    private var watchedDescriptor: Int32 = -1
 
     init(
         preferences: PreferencesStore,
@@ -45,13 +44,13 @@ final class TrashedAppMonitor {
     }
 
     func start() {
+        stop()
         // Prime the baseline so apps already in the Trash don't notify on launch.
         seen = Set(appLister())
 
         let trash = Self.trashURL()
         let descriptor = open(trash.path, O_EVTONLY)
         guard descriptor >= 0 else { return }
-        watchedDescriptor = descriptor
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor,
@@ -61,9 +60,11 @@ final class TrashedAppMonitor {
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.poll() }
         }
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.watchedDescriptor, fd >= 0 { close(fd) }
-            self?.watchedDescriptor = -1
+        // Close the descriptor this source owns — captured locally so a
+        // stop()/restart closes the right fd rather than a shared field a
+        // newer start() may have overwritten.
+        source.setCancelHandler {
+            close(descriptor)
         }
         self.source = source
         source.resume()
