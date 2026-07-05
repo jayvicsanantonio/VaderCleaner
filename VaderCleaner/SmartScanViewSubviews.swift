@@ -359,14 +359,6 @@ struct SmartScanResultsState: View {
             .staggeredEntrance(index: index, appeared: appeared)
     }
 
-    /// Whether the given module would actually produce work if Run were
-    /// pressed right now. Delegates to `SmartScanViewModel.willExecute(_:)`
-    /// so per-tile caption decisions and the floating Run disc's visibility
-    /// gate share one source of truth.
-    private func willExecute(_ module: SmartScanModule) -> Bool {
-        viewModel.willExecute(module)
-    }
-
     @ViewBuilder
     private func tile(for module: SmartScanModule) -> some View {
         if !settings.isModuleEnabled(module) {

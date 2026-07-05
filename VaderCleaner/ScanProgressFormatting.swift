@@ -61,21 +61,4 @@ enum ScanProgressFormatting {
         return String.localizedStringWithFormat(template, checkedFormatted, totalFormatted)
     }
 
-    /// "12,431 files" — the Malware variant, where each counted unit is a file
-    /// ClamAV reported on rather than a generic filesystem item.
-    static func filesScanned(_ count: Int) -> String {
-        let formatted = count.formatted()
-        // Malware counts one file per ClamAV line, so the very first tick is
-        // count == 1 — use the singular template there.
-        let template = count == 1
-            ? String(
-                localized: "%@ file",
-                comment: "Live progress count, singular, shown under the Scanning label while the malware scanner checks files; %@ is a localized file count of one."
-            )
-            : String(
-                localized: "%@ files",
-                comment: "Live progress count shown under the Scanning label while the malware scanner checks files; %@ is a localized file count."
-            )
-        return String.localizedStringWithFormat(template, formatted)
-    }
 }

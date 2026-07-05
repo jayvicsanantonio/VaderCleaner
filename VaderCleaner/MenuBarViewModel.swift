@@ -65,9 +65,6 @@ final class MenuBarViewModel {
     /// Free space on the boot volume — the storage tile's headline number.
     var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
 
-    /// Memory in use as a whole percentage — the memory tile's headline number.
-    var memoryUsedPercent: String { Self.memoryUsedPercentString(service.ramUsage) }
-
     /// Live charge snapshot for the battery tile, or `nil` when there is no
     /// internal battery.
     var batteryCharge: BatteryCharge? { service.batteryCharge }

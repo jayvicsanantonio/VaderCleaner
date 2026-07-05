@@ -130,20 +130,6 @@ extension FileScanning {
         return results
     }
 
-    func scan(
-        roots: [ScanRoot],
-        excluding: [URL],
-        batchSize: Int,
-        onBatch: ([ScannedFile]) async throws -> Void
-    ) async throws {
-        try await scan(
-            roots: roots,
-            excluding: excluding,
-            options: .default,
-            batchSize: batchSize,
-            onBatch: onBatch
-        )
-    }
 }
 
 enum PathExclusionMatcher {
@@ -262,18 +248,6 @@ enum PackageDirectorySizer {
     ]
 
     private static let resourceKeySet = Set(resourceKeys)
-
-    static func recursiveSize(
-        of packageURL: URL,
-        excluding canonicalExclusions: [String] = [],
-        progress: (() -> Void)? = nil
-    ) async throws -> Int64 {
-        try await recursiveSizeResult(
-            of: packageURL,
-            excluding: canonicalExclusions,
-            progress: progress
-        ).size
-    }
 
     static func recursiveSizeResult(
         of packageURL: URL,

@@ -510,27 +510,6 @@ final class PrivacyViewModel {
         isClearRecentsChecked.toggle()
     }
 
-    // MARK: - Bulk selection (Protection Manager)
-
-    /// Clear every selection. The Protection Manager opens with nothing
-    /// selected, so it calls this on appear. Cached sizes/counts/paths stay.
-    func deselectAll() {
-        checkedSelections = []
-        isClearRecentsChecked = false
-    }
-
-    /// Set a single `(browser, category)` cell's checked state — used by the
-    /// Protection Manager's per-pane Select All / Deselect All.
-    func setChecked(_ value: Bool, browser: Browser, category: PrivacyCategory) {
-        let selection = Selection(browser: browser, category: category)
-        if value { checkedSelections.insert(selection) } else { checkedSelections.remove(selection) }
-    }
-
-    /// Set the recent-items toggle directly (Protection Manager Select menu).
-    func setClearRecents(_ value: Bool) {
-        isClearRecentsChecked = value
-    }
-
     /// Reset to `.idle`, dropping cached preview state.
     func scanAgain() {
         cancelCurrentOperation()

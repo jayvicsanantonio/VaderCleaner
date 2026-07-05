@@ -2,7 +2,6 @@
 // Locates on-disk artifacts (preferences, caches, logs, containers, launch agents, …) that belong to a given app bundle so the App Uninstaller can review and Trash them alongside the .app bundle.
 
 import Foundation
-import os.log
 
 /// Production finder — looks under `~/Library/...` and `/Library/...`
 /// for files and directories whose names match the given bundle ID.
@@ -24,8 +23,6 @@ struct DefaultAssociatedFileFinder: Sendable {
     /// leave alone. Injected (like `homeDirectory`) so the production
     /// wiring can snapshot the live `ExclusionsStore` per uninstall.
     private let canonicalExclusions: [String]
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "AssociatedFileFinder")
 
     init(
         fileManager: FileManager = .default,

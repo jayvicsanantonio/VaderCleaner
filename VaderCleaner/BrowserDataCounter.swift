@@ -3,7 +3,6 @@
 
 import Foundation
 import SQLite3
-import os.log
 
 /// Reads item counts for the Privacy feature, the count analogue of
 /// `BrowserDataClearer`'s size preview. Cache categories count files on disk;
@@ -37,8 +36,6 @@ private actor BrowserDataCountWorker {
 
     private let pathProvider: BrowserDataPathProviding
     private let fileManager: FileManager
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "BrowserDataCounter")
 
     init(pathProvider: BrowserDataPathProviding, fileManager: FileManager) {
         self.pathProvider = pathProvider

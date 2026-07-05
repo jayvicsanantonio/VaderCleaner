@@ -2,7 +2,6 @@
 // Sparkle appcast pipeline — reads SUFeedURL from an .app bundle, fetches the appcast XML, and parses out the newest <item> with a downloadable enclosure.
 
 import Foundation
-import os.log
 
 /// Single appcast `<item>` reduced to the fields the App Updater consumes.
 /// `shortVersion` is the user-facing version string ("2.0.0"); `version`
@@ -21,8 +20,6 @@ struct SparkleAppcastItem: Hashable, Sendable {
 struct DefaultSparkleUpdateChecker: Sendable {
 
     private let httpFetcher: HTTPFetching
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "SparkleUpdateChecker")
 
     init(httpFetcher: HTTPFetching = URLSession.shared) {
         self.httpFetcher = httpFetcher

@@ -3,7 +3,6 @@
 
 import AppKit
 import Foundation
-import os.log
 
 /// Clears the user's recently-opened files list.
 ///
@@ -29,8 +28,6 @@ struct RecentFilesManager {
     private let homeDirectory: URL
     private let fileManager: FileManager
     private let clearAppRecentDocuments: @MainActor () -> Void
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "RecentFilesManager")
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,

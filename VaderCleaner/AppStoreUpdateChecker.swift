@@ -2,7 +2,6 @@
 // Mac App Store update lookup via the public iTunes Search API — returns the latest released version and the apps.apple.com URL for an installed App Store bundle ID.
 
 import Foundation
-import os.log
 
 /// Reduced view of the iTunes Search API response that the App Updater
 /// actually consumes — version and the App Store URL we hand to
@@ -19,8 +18,6 @@ struct DefaultAppStoreUpdateChecker: Sendable {
 
     private let httpFetcher: HTTPFetching
     private let baseURL: URL
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "AppStoreUpdateChecker")
 
     init(
         httpFetcher: HTTPFetching = URLSession.shared,
