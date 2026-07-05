@@ -262,7 +262,10 @@ final class HoverTableRowView: NSTableRowView {
             path.stroke()
         }
         guard isHovered else { return }
-        (isLight ? NSColor.black.withAlphaComponent(0.03) : NSColor.white.withAlphaComponent(0.05)).setFill()
+        // A quieter magenta hover fill matching the manager nav rows and the
+        // SwiftUI row cards, a touch stronger over the dark card so it stays
+        // visible there.
+        ManagerChrome.nsAccent.withAlphaComponent(isLight ? 0.08 : 0.16).setFill()
         path.fill()
     }
 }
