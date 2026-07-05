@@ -1422,11 +1422,10 @@ private struct ExtensionsPaneView: View {
 // MARK: - Shared chrome
 
 /// Constants and helpers shared by the Applications Manager and its pane
-/// subviews. The accent is the standalone Manager magenta; the selection fill is
-/// this manager's own quieter purple pill (distinct from `NavRow`'s accent fill).
+/// subviews. The accent is the standalone Manager magenta shared across the
+/// manager screens.
 enum ApplicationsManagerChrome {
     static let accent = ManagerChrome.accent
-    static let selectionFill = Color(red: 0.45, green: 0.30, blue: 0.85).opacity(0.14)
 
     static func byteText(_ bytes: Int64) -> String {
         smartScanByteFormatter.string(fromByteCount: bytes)
@@ -1449,11 +1448,15 @@ struct ApplicationsManagerPaneHeader: View {
     }
 }
 
-/// A nav / facet / section row with the manager's selection pill.
+/// A nav / facet / section row with the manager's selection pill and a quieter
+/// hover fill — the magenta `ManagerChrome.accent` active/hover states every
+/// manager's left and middle panes share (active fill plus a border, hover a
+/// lighter fill with no border).
 struct ApplicationsManagerSelectableRow<Content: View>: View {
     let selected: Bool
     let action: () -> Void
     @ViewBuilder let content: () -> Content
+    @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
@@ -1462,11 +1465,16 @@ struct ApplicationsManagerSelectableRow<Content: View>: View {
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? ApplicationsManagerChrome.selectionFill : .clear)
+                        .fill(selected ? ManagerChrome.accent.opacity(0.22) : (hovered ? ManagerChrome.accent.opacity(0.08) : .clear))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(selected ? ManagerChrome.accent.opacity(0.40) : .clear, lineWidth: 1)
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 

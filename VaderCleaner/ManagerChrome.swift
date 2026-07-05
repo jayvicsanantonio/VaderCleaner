@@ -8,17 +8,22 @@ import SwiftUI
 /// the footer action so every Manager card reads with one identity.
 enum ManagerChrome {
     static let accent = Color(red: 0.81, green: 0.10, blue: 0.55)
+    /// The AppKit twin of `accent`, for the recycled item-table row views that
+    /// draw their card and hover highlight with `NSColor`.
+    static let nsAccent = NSColor(srgbRed: 0.81, green: 0.10, blue: 0.55, alpha: 1)
 }
 
-/// A selectable section/category row with the section-accent selection pill and
-/// a quieter hover fill. Its own view with local hover `@State`, so moving the
-/// pointer between rows re-renders only the rows involved — never the whole
-/// manager (whose body recomputes per-category sizes and the item table).
+/// A selectable section/category row with the magenta manager selection pill
+/// and a quieter hover fill. Every manager's left and middle panes share the one
+/// `ManagerChrome.accent` for these active/hover states so they read with a
+/// single identity regardless of the section's own hue. Its own view with local
+/// hover `@State`, so moving the pointer between rows re-renders only the rows
+/// involved — never the whole manager (whose body recomputes per-category sizes
+/// and the item table).
 struct NavRow<Content: View>: View {
     let selected: Bool
     let action: () -> Void
     let content: Content
-    @Environment(\.sectionAccent) private var accent
     @State private var hovered = false
 
     init(selected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
@@ -35,11 +40,11 @@ struct NavRow<Content: View>: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? accent.opacity(0.22) : (hovered ? accent.opacity(0.08) : .clear))
+                        .fill(selected ? ManagerChrome.accent.opacity(0.22) : (hovered ? ManagerChrome.accent.opacity(0.08) : .clear))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(selected ? accent.opacity(0.40) : .clear, lineWidth: 1)
+                        .strokeBorder(selected ? ManagerChrome.accent.opacity(0.40) : .clear, lineWidth: 1)
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -56,6 +61,8 @@ struct NavRow<Content: View>: View {
 /// and disclosure buttons unclickable. All the managers that use these rows
 /// force the light appearance, so the fixed white fill is safe.
 struct ManagerRowCard: ViewModifier {
+    @State private var hovered = false
+
     func body(content: Content) -> some View {
         content
             .background(
@@ -63,10 +70,19 @@ struct ManagerRowCard: ViewModifier {
                     .fill(Color.white)
                     .shadow(color: .black.opacity(0.10), radius: 3, y: 1)
             )
+            // A quieter magenta hover fill matching the left/middle nav rows, laid
+            // over the white card. Non-hit-testing so it never intercepts the
+            // row's checkbox or disclosure control.
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(ManagerChrome.accent.opacity(hovered ? 0.08 : 0))
+                    .allowsHitTesting(false)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
             )
+            .onHover { hovered = $0 }
     }
 }
 

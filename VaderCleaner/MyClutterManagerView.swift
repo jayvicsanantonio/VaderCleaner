@@ -18,8 +18,6 @@ struct MyClutterManagerView: View {
     /// The reference Manager uses a magenta accent on a white surface — the same
     /// one the Cleanup Manager adopts — independent of the section's teal.
     static let accent = Color(red: 0.81, green: 0.10, blue: 0.55)
-    /// Soft lavender selection fill for the left and middle panes.
-    private static let selectionFill = Color(red: 0.45, green: 0.30, blue: 0.85).opacity(0.14)
 
     @State private var category: MyClutterCategory
     @State private var search = ""
@@ -234,7 +232,7 @@ struct MyClutterManagerView: View {
         ScrollView {
             VStack(spacing: 4) {
                 ForEach(MyClutterCategory.allCases) { item in
-                    selectableRow(selected: item == category) {
+                    NavRow(selected: item == category) {
                         category = item
                         resetMiddleSelection()
                     } content: {
@@ -290,7 +288,7 @@ struct MyClutterManagerView: View {
     }
 
     private func facetRow(_ facet: MyClutterLargeOldFacet, label: String, bytes: Int64) -> some View {
-        selectableRow(selected: largeOldFacet == facet) {
+        NavRow(selected: largeOldFacet == facet) {
             largeOldFacet = facet
         } content: {
             HStack {
@@ -317,7 +315,7 @@ struct MyClutterManagerView: View {
     private func groupList(_ groups: [(id: String, original: ScannedFile, files: [ScannedFile])]) -> some View {
         LazyVStack(spacing: 4) {
             ForEach(groups, id: \.id) { group in
-                selectableRow(selected: selectedGroupID == group.id) {
+                NavRow(selected: selectedGroupID == group.id) {
                     selectedGroupID = group.id
                     focusedURL = group.files.first?.url
                 } content: {
@@ -347,7 +345,7 @@ struct MyClutterManagerView: View {
     private var browserList: some View {
         LazyVStack(spacing: 4) {
             ForEach(downloadCache) { group in
-                selectableRow(selected: selectedBrowser == group.source) {
+                NavRow(selected: selectedBrowser == group.source) {
                     selectedBrowser = group.source
                 } content: {
                     HStack(spacing: 12) {
@@ -686,24 +684,6 @@ struct MyClutterManagerView: View {
     private func breadcrumb(_ url: URL) -> some View {
         Text(breadcrumbText(url))
             .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
-    }
-
-    private func selectableRow<Content: View>(
-        selected: Bool,
-        action: @escaping () -> Void,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        Button(action: action) {
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selected ? Self.selectionFill : .clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     private func browserIcon(for group: MyClutterDownloadGroup) -> some View {
