@@ -384,57 +384,6 @@ struct ApplicationsDashboardView: View {
     }
 }
 
-/// A single Applications summary card. Uses the same glass surface and corner
-/// radius as the Performance / Smart Scan dashboards so the app's card
-/// surfaces stay consistent. Also reused by the Privacy dashboard's category
-/// cards for the same reason.
-struct ApplicationsCard: View {
-    let title: String
-    /// Short, emphasized magnitude (reclaimable size or item count) shown as the
-    /// card's headline number beneath the title.
-    let metric: String
-    let detail: String
-    let icon: String
-    let actionLabel: String
-    let identifier: String
-    /// Hero cards render taller, matching the Performance dashboard's hero /
-    /// standard `minHeight` (260 / 150) so the two dashboards share one look.
-    let isHero: Bool
-    let action: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                Text(title)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(.tint)
-            }
-            Text(metric)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.tint)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            HStack {
-                Spacer()
-                Button(actionLabel, action: action)
-                    .buttonStyle(.vaderProminent)
-                    .accessibilityIdentifier(identifier)
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: isHero ? 260 : 150, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
-    }
-}
-
 // MARK: - Dashboard card (Applications)
 
 /// How an Applications dashboard card illustrates its finding: a generated
@@ -450,8 +399,7 @@ enum ApplicationsCardIcon {
 /// detail at the top with a top-right illustration, and a bottom action row.
 /// The Unused card additionally shows a cluster of real app icons at the
 /// bottom-left; the App Leftovers card shows a bordered Review plus a prominent
-/// Remove. Distinct from `ApplicationsCard` (still used by the Privacy
-/// dashboard) so that surface is left unchanged.
+/// Remove.
 struct ApplicationsDashboardCard: View {
     let title: String
     let detail: String

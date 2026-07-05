@@ -1,5 +1,5 @@
 // ApplicationsView.swift
-// Detail view for the Applications section — renders the post-scan dashboard grid and pushes to the reused App Updater / App Uninstaller screens.
+// Detail view for the Applications section — renders the post-scan dashboard grid and pushes into the Applications Manager screens.
 
 import SwiftUI
 
@@ -8,9 +8,9 @@ import SwiftUI
 /// `ScannableSectionContent` + `ContentView`; this view owns the `.scanning`,
 /// `.results`, and `.failed` phases.
 ///
-/// The summary grid pushes to the existing `AppUpdaterView` and
-/// `AppUninstallerView`, reused unchanged as detail screens — the new
-/// `ApplicationsViewModel` only produces the dashboard metrics.
+/// The summary grid pushes into `ApplicationsManagerView`, opened on a
+/// specific pane, as its detail screens — the new `ApplicationsViewModel`
+/// only produces the dashboard metrics.
 struct ApplicationsView: View {
 
     private var viewModel: ApplicationsViewModel

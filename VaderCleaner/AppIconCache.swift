@@ -12,10 +12,9 @@ import Observation
 /// the row still renders something — the real icon swaps in once the
 /// pre-load publishes its `revision` bump.
 ///
-/// Cache is keyed by bundle URL path rather than file extension (the
-/// strategy `FileIconCache` uses) because each `.app` has its own
-/// asset-catalog icon — there's no shared "kind" key the way `.png`
-/// or `.txt` share one.
+/// Cache is keyed by bundle URL path rather than file extension because
+/// each `.app` has its own asset-catalog icon — there's no shared "kind"
+/// key the way `.png` or `.txt` share one.
 @MainActor
 @Observable
 final class AppIconCache {
