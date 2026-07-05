@@ -59,7 +59,9 @@ struct ManagerItemTable: NSViewRepresentable {
         table.gridStyleMask = []
         table.usesAlternatingRowBackgroundColors = false
         table.rowHeight = rowHeight
-        table.intercellSpacing = NSSize(width: 0, height: 4)
+        // The 10-point visual gap between row cards comes from each card's
+        // 4-point vertical inset (×2) plus this spacing.
+        table.intercellSpacing = NSSize(width: 0, height: 2)
         // No table-wide click action: only the row's checkbox toggles selection.
         table.onHoverRowChange = { [weak coordinator = context.coordinator] row in
             coordinator?.setHoveredRow(row)
@@ -110,7 +112,6 @@ struct ManagerItemTable: NSViewRepresentable {
         private var showsSparkle = false
         private var isExpanded: (String) -> Bool = { _ in false }
         private var onToggleExpand: (String) -> Void = { _ in }
-        private var roundedCheckbox = false
         fileprivate var contentToken = ""
         weak var table: NSTableView?
 
@@ -124,8 +125,6 @@ struct ManagerItemTable: NSViewRepresentable {
             showsSparkle = source.showsSparkle
             isExpanded = source.isExpanded
             onToggleExpand = source.onToggleExpand
-            // The white Cleanup card uses the rounded, accent-outlined checkbox.
-            roundedCheckbox = source.forcesLightAppearance
             contentToken = source.contentToken
         }
 
@@ -147,14 +146,13 @@ struct ManagerItemTable: NSViewRepresentable {
                 showsSparkle: showsSparkle,
                 isExpanded: isExpanded(item.id),
                 onToggleExpand: onToggleExpand,
-                onToggleSelection: onToggle,
-                roundedCheckbox: roundedCheckbox
+                onToggleSelection: onToggle
             )
             cell.setAccessibilityIdentifier("\(accessibilityPrefix).item.\(item.id)")
             return cell
         }
 
-        /// Vends a row view that can draw the hover highlight.
+        /// Vends a row view that draws the card background and hover highlight.
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let id = NSUserInterfaceItemIdentifier("HoverRow")
             let view = (tableView.makeView(withIdentifier: id, owner: self) as? HoverTableRowView)
@@ -225,7 +223,9 @@ final class HoverTableView: NSTableView {
     }
 }
 
-/// Row view that draws a soft, rounded hover fill behind its cell.
+/// Row view that draws each row as a rounded card — the same look as the
+/// SwiftUI glass card rows in the manager panes — plus a soft hover tint over
+/// the card.
 final class HoverTableRowView: NSTableRowView {
     var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
@@ -233,10 +233,37 @@ final class HoverTableRowView: NSTableRowView {
 
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
+        // Inset to the panes' 24-point content margin; the vertical inset pairs
+        // with the table's intercell spacing to form the gap between cards.
+        let card = bounds.insetBy(dx: 24, dy: 4)
+        let path = NSBezierPath(roundedRect: card, xRadius: 12, yRadius: 12)
+        let isLight = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        if isLight {
+            // A white card with a soft shadow and hairline border, standing in
+            // for SwiftUI's glass card on the white manager surface.
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.10)
+            shadow.shadowBlurRadius = 3
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            shadow.set()
+            NSColor.white.setFill()
+            path.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.black.withAlphaComponent(0.06).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        } else {
+            // A translucent white card over the section's dark gradient.
+            NSColor.white.withAlphaComponent(0.08).setFill()
+            path.fill()
+            NSColor.white.withAlphaComponent(0.12).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
         guard isHovered else { return }
-        let inset = bounds.insetBy(dx: 8, dy: 1)
-        NSColor(white: 0.5, alpha: 0.16).setFill()
-        NSBezierPath(roundedRect: inset, xRadius: 8, yRadius: 8).fill()
+        (isLight ? NSColor.black.withAlphaComponent(0.03) : NSColor.white.withAlphaComponent(0.05)).setFill()
+        path.fill()
     }
 }
 
@@ -264,15 +291,12 @@ final class ManagerRowCellView: NSTableCellView {
     private var indentWidth: NSLayoutConstraint!
 
     /// Per-indent-level inset (matches the icon column so children line up).
-    private static let indentStep: CGFloat = 28
+    private static let indentStep: CGFloat = 38
 
     /// Invoked when the disclosure chevron is clicked. Set per `configure`.
     private var onChevron: (() -> Void)?
     /// Invoked when the checkbox is clicked — the only way to (de)select a row.
     private var onCheckbox: (() -> Void)?
-    /// Whether to draw the rounded, accent-outlined checkbox (Cleanup card)
-    /// instead of the system SF-symbol checkbox.
-    private var roundedCheckbox = false
 
     init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
         textStack = NSStackView(views: [titleField, subtitleField])
@@ -294,7 +318,7 @@ final class ManagerRowCellView: NSTableCellView {
         subtitleField.textColor = .secondaryLabelColor
         subtitleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        sparkleView.image = ManagerSymbolCache.image("sparkles", pointSize: 14)
+        sparkleView.image = ManagerSymbolCache.image("sparkles", pointSize: 15)
         sparkleView.contentTintColor = .systemPink
         sparkleView.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -346,7 +370,9 @@ final class ManagerRowCellView: NSTableCellView {
         rowStack.orientation = .horizontal
         rowStack.alignment = .centerY
         rowStack.spacing = 12
-        rowStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        // 24-point card inset plus the card's 14-point interior padding, so the
+        // content sits inside the row's card background.
+        rowStack.edgeInsets = NSEdgeInsets(top: 0, left: 38, bottom: 0, right: 38)
         rowStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowStack)
         NSLayoutConstraint.activate([
@@ -364,10 +390,8 @@ final class ManagerRowCellView: NSTableCellView {
         showsSparkle: Bool,
         isExpanded: Bool,
         onToggleExpand: @escaping (String) -> Void,
-        onToggleSelection: @escaping (String) -> Void,
-        roundedCheckbox: Bool
+        onToggleSelection: @escaping (String) -> Void
     ) {
-        self.roundedCheckbox = roundedCheckbox
         indentWidth.constant = CGFloat(item.indentLevel) * Self.indentStep
         checkbox.isHidden = !showsCheckbox
         let selectionID = item.id
@@ -377,11 +401,12 @@ final class ManagerRowCellView: NSTableCellView {
             // `iconPath` lets a row draw an icon from a path other than its
             // selection `id` (e.g. a login item keyed by bundle id).
             iconView.image = ManagerFileIconCache.icon(forPath: item.iconPath ?? item.id)
-            iconView.contentTintColor = nil
         } else {
-            iconView.image = ManagerSymbolCache.image(item.systemImage, pointSize: 16)
-            iconView.contentTintColor = item.tint.nsColor
+            // A tinted gradient badge — the same look as the SwiftUI
+            // `TaskIconBadge` — so symbol rows match the card panes.
+            iconView.image = ManagerBadgeImageCache.image(symbol: item.systemImage, tint: item.tint)
         }
+        iconView.contentTintColor = nil
         titleField.stringValue = item.title
         if let subtitle = item.subtitle {
             subtitleField.stringValue = subtitle
@@ -438,18 +463,10 @@ final class ManagerRowCellView: NSTableCellView {
 
     func setSelected(_ selected: Bool, accent: NSColor) {
         guard !checkbox.isHidden else { return }
-        if roundedCheckbox {
-            // A rounded square: an accent-outlined box when unchecked, filled
-            // with a white check when selected — matching the reference card.
-            checkbox.image = ManagerCheckboxImage.image(checked: selected, accent: accent)
-            checkbox.contentTintColor = nil
-        } else {
-            checkbox.image = ManagerSymbolCache.image(
-                selected ? "checkmark.square.fill" : "square",
-                pointSize: 15
-            )
-            checkbox.contentTintColor = selected ? accent : .tertiaryLabelColor
-        }
+        // A rounded square: an accent-outlined box when unchecked, filled
+        // with a white check when selected — matching the reference card.
+        checkbox.image = ManagerCheckboxImage.image(checked: selected, accent: accent)
+        checkbox.contentTintColor = nil
     }
 }
 
@@ -468,7 +485,7 @@ private enum ManagerSymbolCache {
     }
 }
 
-/// Draws and caches the rounded checkbox used on the Cleanup card: an
+/// Draws and caches the rounded checkbox used on every manager row: an
 /// accent-outlined rounded square when unchecked, filled with a white check when
 /// selected. Keyed by checked-state + accent so it redraws only when those
 /// change. Main-thread only (cells are configured on the main actor).
@@ -511,6 +528,48 @@ private enum ManagerCheckboxImage {
     }
 }
 
+/// Draws and caches the tinted gradient icon badges for symbol rows — the same
+/// look as the SwiftUI `TaskIconBadge` so table rows match the card panes.
+/// Keyed by symbol + tint. Main-thread only (cells are configured on the main
+/// actor).
+private enum ManagerBadgeImageCache {
+    private static var cache: [String: NSImage] = [:]
+
+    static func image(symbol: String, tint: ManagerTint) -> NSImage {
+        let key = "\(symbol)|\(tint)"
+        if let cached = cache[key] { return cached }
+
+        let side: CGFloat = 38
+        let fill = NSColor(tint.color.deepenedForWhite).usingColorSpace(.sRGB) ?? .systemGray
+        let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            )
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let bounds = NSRect(x: 0, y: 0, width: side, height: side)
+            NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).addClip()
+            // Top-to-bottom fade matching TaskIconBadge's LinearGradient.
+            NSGradient(
+                starting: fill.withAlphaComponent(0.95),
+                ending: fill.withAlphaComponent(0.65)
+            )?.draw(in: bounds, angle: 270)
+            if let glyph {
+                let size = glyph.size
+                glyph.draw(in: NSRect(
+                    x: (side - size.width) / 2,
+                    y: (side - size.height) / 2,
+                    width: size.width,
+                    height: size.height
+                ))
+            }
+            return true
+        }
+        cache[key] = image
+        return image
+    }
+}
+
 /// Caches the real Finder icons the Cleanup Manager rows show, keyed by path.
 /// `NSWorkspace.icon(forFile:)` is reasonably fast and OS-cached, but caching
 /// the sized `NSImage` here keeps scrolling smooth for large categories.
@@ -524,22 +583,8 @@ private enum ManagerFileIconCache {
     static func icon(forPath path: String) -> NSImage {
         if let cached = cache.value(forKey: path) { return cached }
         let image = NSWorkspace.shared.icon(forFile: path)
-        image.size = NSSize(width: 28, height: 28)
+        image.size = NSSize(width: 38, height: 38)
         cache.setValue(image, forKey: path)
         return image
-    }
-}
-
-extension ManagerTint {
-    /// AppKit counterpart of `color`, for the native table rows.
-    var nsColor: NSColor {
-        switch self {
-        case .green: return .systemGreen
-        case .blue: return .systemBlue
-        case .red: return .systemRed
-        case .orange: return .systemOrange
-        case .purple: return .systemPurple
-        case .secondary: return .secondaryLabelColor
-        }
     }
 }

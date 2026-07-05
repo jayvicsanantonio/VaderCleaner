@@ -356,17 +356,25 @@ private struct PrivacyPane: View {
                     onAll: { model.setAllSelected(true, browser: browser) },
                     onNone: { model.setAllSelected(false, browser: browser) }
                 )
-                ForEach(ProtectionPrivacyCategory.allCases) { category in
-                    categoryRow(category)
-                    if isExpanded(category) {
-                        ForEach(sortedItems(category)) { item in
-                            itemRow(category, item)
+                // Each category (with its expanded per-item rows) sits on its
+                // own rounded glass card, matching the manager card rows used
+                // across the app's other sections.
+                VStack(spacing: 10) {
+                    ForEach(ProtectionPrivacyCategory.allCases) { category in
+                        VStack(spacing: 0) {
+                            categoryRow(category)
+                            if isExpanded(category) {
+                                ForEach(sortedItems(category)) { item in
+                                    itemRow(category, item)
+                                }
+                            }
                         }
+                        .padding(.horizontal, 12)
+                        .managerRowCard()
                     }
-                    Divider().opacity(0.3)
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 16)
+            .padding(.horizontal, 24).padding(.vertical, 16)
         }
     }
 
@@ -381,7 +389,7 @@ private struct PrivacyPane: View {
             if category.isExpandable {
                 Button { toggleExpanded(category) } label: {
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.tint)
                         .rotationEffect(.degrees(isExpanded(category) ? 90 : 0))
                         .frame(width: 20, height: 20).contentShape(Rectangle())
                 }
@@ -479,31 +487,31 @@ private struct MalwareResultsPane: View {
                         onAll: { selectedThreats = Set(threats.map(\.id)) },
                         onNone: { selectedThreats = [] }
                     )
-                    ForEach(sortedThreats) { threat in threatRow(threat) }
+                    VStack(spacing: 10) {
+                        ForEach(sortedThreats) { threat in threatRow(threat) }
+                    }
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 16)
+            .padding(.horizontal, 24).padding(.vertical, 16)
         }
     }
 
     private func threatRow(_ threat: MalwareThreat) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                ManagerCheckbox(state: selectedThreats.contains(threat.id) ? .on : .off, accent: accent) {
-                    if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
-                    else { selectedThreats.insert(threat.id) }
-                }
-                .frame(width: 26)
-                Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(threat.threatName).font(.body)
-                    Text(threat.filePath.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer(minLength: 0)
+        HStack(spacing: 12) {
+            ManagerCheckbox(state: selectedThreats.contains(threat.id) ? .on : .off, accent: accent) {
+                if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
+                else { selectedThreats.insert(threat.id) }
             }
-            .padding(.vertical, 9)
-            Divider().opacity(0.3)
+            .frame(width: 26)
+            Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(threat.threatName).font(.body)
+                Text(threat.filePath.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
         }
+        .padding(12)
+        .managerRowCard()
     }
 
     private var sortedThreats: [MalwareThreat] {
@@ -605,8 +613,9 @@ private struct ManagerCheckbox: View {
     var body: some View {
         Button(action: action) {
             ZStack {
+                // Softened outline matching ManagerRowCheckbox's unchecked state.
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(accent, lineWidth: 1.5)
+                    .strokeBorder(accent.opacity(0.6), lineWidth: 1.5)
                     .frame(width: 18, height: 18)
                 if state != .off {
                     RoundedRectangle(cornerRadius: 5, style: .continuous).fill(accent).frame(width: 18, height: 18)

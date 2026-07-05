@@ -575,14 +575,13 @@ private struct UninstallerPaneView: View {
 
     private var list: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: 10) {
                 ForEach(displayedApps) { app in
                     appRow(app)
-                    Divider().opacity(0.3)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
         }
         .onAppear { recompute() }
         .onChange(of: facet) { _, _ in recompute() }
@@ -632,7 +631,8 @@ private struct UninstallerPaneView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("applications.manager.uninstaller.detail.\(app.bundleID)")
         }
-        .padding(.vertical, 10)
+        .padding(12)
+        .managerRowCard()
         .accessibilityIdentifier("applications.manager.uninstaller.row.\(app.bundleID)")
     }
 
@@ -846,7 +846,7 @@ private struct LeftoversPaneView: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: 10) {
                         ForEach(rows) { row in
                             HStack(spacing: 12) {
                                 ApplicationsManagerCheckbox(selected: row.selected, action: row.toggle)
@@ -859,13 +859,13 @@ private struct LeftoversPaneView: View {
                                 Spacer(minLength: 8)
                                 Text(ApplicationsManagerChrome.byteText(row.bytes)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 10)
                             .contentShape(Rectangle())
                             .onTapGesture { row.toggle() }
-                            Divider().opacity(0.3)
+                            .padding(12)
+                            .managerRowCard()
                         }
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, 24).padding(.vertical, 12)
                 }
             }
         }
@@ -990,13 +990,12 @@ private struct UpdaterPaneView: View {
             .accessibilityIdentifier("applications.manager.updater.empty")
         } else {
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 10) {
                     ForEach(displayed) { info in
                         row(info)
-                        Divider().opacity(0.3)
                     }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                .padding(.horizontal, 24).padding(.vertical, 12)
             }
             .onAppear { recompute() }
             .onChange(of: facet) { _, _ in recompute() }
@@ -1027,7 +1026,8 @@ private struct UpdaterPaneView: View {
                  : String(localized: "Web", comment: "Update source label."))
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 10)
+        .padding(12)
+        .managerRowCard()
         .accessibilityIdentifier("applications.manager.updater.row.\(info.bundleID)")
     }
 
@@ -1172,13 +1172,12 @@ private struct ExtensionsPaneView: View {
             .accessibilityIdentifier("applications.manager.extensions.empty")
         } else {
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 10) {
                     ForEach(displayed) { item in
                         row(item)
-                        Divider().opacity(0.3)
                     }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                .padding(.horizontal, 24).padding(.vertical, 12)
             }
             .onAppear { recompute() }
             .onChange(of: facet) { _, _ in recompute() }
@@ -1208,7 +1207,8 @@ private struct ExtensionsPaneView: View {
             Spacer(minLength: 8)
             Text(ApplicationsManagerChrome.byteText(item.size)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 10)
+        .padding(12)
+        .managerRowCard()
         .accessibilityIdentifier("applications.manager.extensions.row.\(item.id.path)")
     }
 
@@ -1280,12 +1280,7 @@ struct ApplicationsManagerCheckbox: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: selected ? "checkmark.square.fill" : "square")
-                .font(.system(size: 18))
-                .foregroundStyle(selected ? ApplicationsManagerChrome.accent : Color.secondary)
-        }
-        .buttonStyle(.plain)
+        ManagerRowCheckbox(isOn: selected, action: action)
     }
 }
 
