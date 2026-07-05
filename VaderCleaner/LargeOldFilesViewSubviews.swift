@@ -11,26 +11,6 @@ enum LargeOldFilesFormatting {
         f.countStyle = .file
         return f
     }()
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
-
-    static func accessDate(_ date: Date?) -> String {
-        guard let date else { return "—" }
-        return dateFormatter.string(from: date)
-    }
-
-    static func selectionLabel(for file: ScannedFile) -> String {
-        let format = String(
-            localized: "Select %@",
-            comment: "Accessibility label for selecting a file in the Large & Old Files table."
-        )
-        return String.localizedStringWithFormat(format, file.url.lastPathComponent)
-    }
 }
 
 /// Pure strings for the results header above the file list: a headline file

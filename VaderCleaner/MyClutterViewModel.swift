@@ -149,11 +149,6 @@ final class MyClutterViewModel {
         }
     }
 
-    /// Toggle by path string — the id the review manager passes back.
-    func toggleSelection(path: String) {
-        toggleSelection(url: URL(fileURLWithPath: path))
-    }
-
     func toggleSelection(url: URL) {
         if selectedURLs.contains(url) {
             selectedURLs.remove(url)

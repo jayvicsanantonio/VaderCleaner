@@ -2,7 +2,6 @@
 // Rebuilds the Mail "Envelope Index" SQLite databases (VACUUM; REINDEX) to speed up Mail search. Runs at user level — no privileged helper — and distinguishes "no Full Disk Access" from "no Mail data" so the UI can guide the user.
 
 import Foundation
-import os.log
 
 /// Speeds up Mail by compacting and reindexing its envelope-index databases.
 /// The index locator and the per-database vacuum are injected so unit tests
@@ -16,8 +15,6 @@ struct MailReindexer {
 
     private let locateIndexes: LocateIndexes
     private let vacuumIndex: VacuumIndex
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "MailReindexer")
 
     init(
         locateIndexes: @escaping LocateIndexes = MailReindexer.defaultLocateIndexes,

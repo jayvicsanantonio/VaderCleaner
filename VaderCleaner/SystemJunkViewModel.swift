@@ -109,12 +109,6 @@ final class SystemJunkViewModel {
 
     // MARK: - Public surface
 
-    /// Convenience for the view layer — formatting once on the VM keeps the
-    /// "human-readable size" rule in one place across cards and totals.
-    var formattedTotalSelectedSize: String {
-        Self.byteFormatter.string(fromByteCount: totalSelectedSize)
-    }
-
     /// Whether `file` is currently selected. The view binds each review row's
     /// `Toggle` to `Binding(get:set:)` over `isSelected` + `toggleSelection`.
     func isSelected(_ file: ScannedFile) -> Bool {
@@ -263,18 +257,6 @@ final class SystemJunkViewModel {
         phase = .idle
     }
 
-    // MARK: - Formatters
-
-    /// Shared `ByteCountFormatter` for the human-readable total. Constructed
-    /// once because the formatter allocates measurable internal state per
-    /// instance and `formattedTotalSelectedSize` is read on every keystroke /
-    /// toggle while the preview list is on screen.
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = .useAll
-        f.countStyle = .file
-        return f
-    }()
 }
 
 // MARK: - Production wiring

@@ -586,19 +586,6 @@ private struct PressureBadge: View {
     }
 }
 
-extension StatusColor {
-    /// Maps the SwiftUI-free `StatusColor` to a `Color` at the leaf, keeping
-    /// the view-model and its tests free of SwiftUI imports.
-    var color: Color {
-        switch self {
-        case .green: return .green
-        case .yellow: return .yellow
-        case .red: return .red
-        case .gray: return .secondary
-        }
-    }
-}
-
 #Preview("Health Monitor") {
     HealthMonitorView(service: SystemStatsService(autostart: false))
         .frame(width: 900, height: 600)

@@ -55,7 +55,7 @@ final class TrashSizeMonitor {
 
     /// Begins polling the Trash size on a timer.
     func start() {
-        timer?.invalidate()
+        stop()
         let timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.poll() }
         }

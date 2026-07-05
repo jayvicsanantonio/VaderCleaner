@@ -76,7 +76,7 @@ final class HungAppMonitor {
     }
 
     func start() {
-        timer?.invalidate()
+        stop()
         let timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.evaluate() }
         }

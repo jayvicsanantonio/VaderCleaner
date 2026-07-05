@@ -131,11 +131,6 @@ enum MyClutterManagerModel {
         }
     }
 
-    /// Total bytes of the files in a facet.
-    static func bytes(of files: [ScannedFile]) -> Int64 {
-        files.reduce(0) { $0 + $1.size }
-    }
-
     /// The rows the manager's right pane actually renders: the search filter
     /// (case-insensitive, on the file name), an optional name sort, and a cap
     /// on the rendered row count. Size-sorted lists arrive pre-sorted from the

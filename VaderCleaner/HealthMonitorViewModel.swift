@@ -42,28 +42,22 @@ final class HealthMonitorViewModel {
 
     var cpuPercent: String { Self.cpuPercentString(service.cpuUsage) }
     var cpuRatio: Double { Self.cpuRatio(service.cpuUsage) }
-    var cpuColor: StatusColor { Self.cpuColor(for: service.cpuUsage) }
 
     var ramUsage: String { Self.ramUsageString(service.ramUsage) }
     var ramPressureLevel: MemoryPressureLevel { service.ramUsage.pressureLevel }
     var ramPressureLabel: String { Self.pressureLabel(for: ramPressureLevel) }
-    var ramPressureColor: StatusColor { Self.pressureColor(for: ramPressureLevel) }
 
     var diskUsage: String { Self.diskSpaceString(service.diskSpace) }
     var diskRatio: Double { Self.diskUsageRatio(service.diskSpace) }
-    var diskColor: StatusColor { Self.diskColor(for: service.diskSpace) }
 
     var batteryAvailability: BatteryAvailability { service.batteryAvailability }
-    var batteryColor: StatusColor { Self.batteryColor(for: batteryAvailability) }
 
     var smartStatus: SMARTStatus { service.diskSMARTStatus }
     var smartLabel: String { Self.smartLabel(for: smartStatus) }
-    var smartColor: StatusColor { Self.smartColor(for: smartStatus) }
 
     var fileVaultState: FileVaultState { service.fileVaultState }
     var fileVaultIconName: String { Self.fileVaultIconName(for: fileVaultState) }
     var fileVaultLabel: String { Self.fileVaultLabel(for: fileVaultState) }
-    var fileVaultColor: StatusColor { Self.fileVaultColor(for: fileVaultState) }
 
     // MARK: - Mac Health hero verdict
 

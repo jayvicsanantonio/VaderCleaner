@@ -29,7 +29,6 @@ struct ApplicationsManagerView: View {
     /// one the My Clutter / Cleanup Managers adopt — independent of the
     /// Applications section's own hue.
     private static let accent = ApplicationsManagerChrome.accent
-    private static let selectionFill = ApplicationsManagerChrome.selectionFill
 
     @State private var pane: Pane
     @State private var search = ""

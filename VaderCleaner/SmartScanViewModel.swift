@@ -881,11 +881,6 @@ final class SmartScanViewModel {
         SmartScanModule.allCases.contains { willExecute($0) }
     }
 
-    /// Whether the system maintenance scripts can run on this macOS — false on
-    /// macOS 26+, where Apple removed `periodic`. Exposed so the Performance
-    /// Review can phrase its explainer accurately.
-    var maintenanceScriptsSupported: Bool { maintenanceScriptsAvailable }
-
     /// Default tile-selection seed for a freshly-landed `.results` payload.
     /// A module starts checked iff it has actionable work for Run. Performance
     /// always starts on because its DNS-cache flush always has work (the
