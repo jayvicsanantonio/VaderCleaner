@@ -909,7 +909,7 @@ struct PerformanceTaskRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .managerRowCard()
         .accessibilityIdentifier("performance.task.\(task.kind.rawValue)")
         .animation(.smooth(duration: 0.25), value: isCompleted)
     }
@@ -965,7 +965,7 @@ struct PerformanceItemRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .managerRowCard()
         .accessibilityIdentifier(identifier)
         .task(id: item.iconPath ?? item.id) { resolveFileIcon() }
     }

@@ -370,7 +370,7 @@ private struct PrivacyPane: View {
                             }
                         }
                         .padding(.horizontal, 12)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                        .managerRowCard()
                     }
                 }
             }
@@ -511,7 +511,7 @@ private struct MalwareResultsPane: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .managerRowCard()
     }
 
     private var sortedThreats: [MalwareThreat] {

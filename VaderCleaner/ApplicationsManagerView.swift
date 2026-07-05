@@ -632,7 +632,7 @@ private struct UninstallerPaneView: View {
             .accessibilityIdentifier("applications.manager.uninstaller.detail.\(app.bundleID)")
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .managerRowCard()
         .accessibilityIdentifier("applications.manager.uninstaller.row.\(app.bundleID)")
     }
 
@@ -862,7 +862,7 @@ private struct LeftoversPaneView: View {
                             .contentShape(Rectangle())
                             .onTapGesture { row.toggle() }
                             .padding(12)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                            .managerRowCard()
                         }
                     }
                     .padding(.horizontal, 24).padding(.vertical, 12)
@@ -1027,7 +1027,7 @@ private struct UpdaterPaneView: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .managerRowCard()
         .accessibilityIdentifier("applications.manager.updater.row.\(info.bundleID)")
     }
 
@@ -1208,7 +1208,7 @@ private struct ExtensionsPaneView: View {
             Text(ApplicationsManagerChrome.byteText(item.size)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .managerRowCard()
         .accessibilityIdentifier("applications.manager.extensions.row.\(item.id.path)")
     }
 
