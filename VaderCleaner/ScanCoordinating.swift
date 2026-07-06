@@ -38,3 +38,18 @@ protocol ScanCoordinating: AnyObject {
     /// Start the section's scan or load.
     func beginScan()
 }
+
+extension ScanCoordinating {
+    /// Spawns a section's async scan inside a power assertion so an automatic
+    /// system sleep can't suspend a scan that is still running. Conformers call
+    /// this from `beginScan()` in place of a bare `Task`; the assertion is held
+    /// for the scan's full duration and released when it finishes.
+    func runScanActivity(
+        reason: String = "VaderCleaner is scanning",
+        _ operation: @escaping () async -> Void
+    ) {
+        Task {
+            await ScanActivityAssertion()(reason: reason, operation)
+        }
+    }
+}

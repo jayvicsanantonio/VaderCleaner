@@ -537,7 +537,7 @@ extension DiskScannerViewModel: ScanCoordinating {
         // Space Lens scans the volume chosen in the intro picker (the boot
         // volume by default), so the explorer starts at that volume's root and
         // the breadcrumb matches its tree, the way a disk-usage map reads.
-        Task { await startScan(root: selectedVolumeURL) }
+        runScanActivity { await self.startScan(root: self.selectedVolumeURL) }
     }
 
     /// The boot volume's mount point — the default Space Lens scan root.

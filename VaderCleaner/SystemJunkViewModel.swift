@@ -393,6 +393,6 @@ extension SystemJunkViewModel: ScanCoordinating {
         // `latestResult` / `selectedURLs` writes interleave. Gate on the
         // in-flight phases, mirroring `SmartScanViewModel.scan()`.
         guard phase != .scanning, phase != .cleaning else { return }
-        Task { await scan() }
+        runScanActivity { await self.scan() }
     }
 }
