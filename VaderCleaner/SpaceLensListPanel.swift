@@ -180,10 +180,23 @@ struct SpaceLensListPanel: View {
             Button {
                 viewModel.selection.toggle(child)
             } label: {
+                // Keep the tap target confined to the box itself so only the
+                // checkbox toggles selection — clicking elsewhere on the row is
+                // reserved for drilling into a folder.
+                //
+                // An unchecked box fills with `Color.clear`, which draws nothing,
+                // and a plain button derives its hit region from the label's
+                // drawn pixels — so an unchecked box has no surface to click and
+                // only checking-off (opaque accent fill) registered. The
+                // near-transparent background gives the label a real, hittable
+                // surface over its full 22×22 frame in both states, and the
+                // content shape makes that whole square the tap region.
                 checkbox(isOn: selected)
+                    .frame(width: 22, height: 22)
+                    .background(Color.black.opacity(0.001))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(width: 22)
             .accessibilityIdentifier("space-lens.checkbox.\(child.name)")
         }
     }
