@@ -499,6 +499,13 @@ struct SmartScanReviewManager: View {
                     ProgressView()
                         .controlSize(.large)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if displayedItems.isEmpty {
+                    ManagerEmptyState(
+                        icon: "checkmark.seal.fill",
+                        title: String(localized: "Nothing to review", comment: "Empty state title in a Smart Scan Manager's detail pane."),
+                        detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Empty state detail in a Smart Scan Manager's detail pane.")
+                    )
+                    .accessibilityIdentifier("\(accessibilityPrefix).empty")
                 } else {
                     ManagerItemTable(
                         items: displayedItems,
@@ -527,11 +534,11 @@ struct SmartScanReviewManager: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
-                Spacer()
-                Text(String(localized: "Nothing to review", comment: "Empty state in a Smart Scan Manager's detail pane."))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                Spacer()
+                ManagerEmptyState(
+                    icon: "checkmark.seal.fill",
+                    title: String(localized: "Nothing to review", comment: "Empty state in a Smart Scan Manager's detail pane."),
+                    detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Empty state detail when no category is selected in a Smart Scan Manager.")
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

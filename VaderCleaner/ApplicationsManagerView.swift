@@ -631,15 +631,31 @@ private struct UninstallerPaneView: View {
         )
     }
 
+    @ViewBuilder
     private var list: some View {
-        ScrollView {
-            LazyVStack(spacing: 10) {
-                ForEach(displayedApps) { app in
-                    appRow(app)
+        // The recompute hooks stay attached to the outer Group so they fire in
+        // both branches — otherwise an initially empty `displayedApps` would
+        // pin the empty state and never recompute into the list.
+        Group {
+            if displayedApps.isEmpty {
+                ApplicationsManagerEmptyState(
+                    icon: "checkmark.seal.fill",
+                    title: String(localized: "Uninstaller", comment: "Uninstaller empty-state title."),
+                    detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Uninstaller empty-state detail.")
+                )
+                .accessibilityIdentifier("applications.manager.uninstaller.empty")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(displayedApps) { app in
+                            appRow(app)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
                 }
+                .accessibilityIdentifier("applications.manager.uninstaller.list")
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
         }
         .onAppear { recompute() }
         .onChange(of: facet) { _, _ in recompute() }
@@ -655,7 +671,6 @@ private struct UninstallerPaneView: View {
         .onChange(of: uninstallerViewModel.uninstallSelection) { _, _ in
             if facet == .selected { recompute() }
         }
-        .accessibilityIdentifier("applications.manager.uninstaller.list")
     }
 
     private func appRow(_ app: AppInfo) -> some View {
@@ -1177,31 +1192,36 @@ private struct UpdaterPaneView: View {
 
     @ViewBuilder
     private var list: some View {
-        if updaterViewModel.availableUpdates.isEmpty {
-            ApplicationsManagerEmptyState(
-                icon: "arrow.down.circle",
-                title: String(localized: "Updater", comment: "Updater empty-state title."),
-                detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Updater empty-state detail.")
-            )
-            .accessibilityIdentifier("applications.manager.updater.empty")
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(displayed) { info in
-                        row(info)
+        // The recompute hooks stay attached to the outer Group so they fire in
+        // both branches — otherwise an initially empty `displayed` would pin the
+        // empty state and never recompute into the list.
+        Group {
+            if displayed.isEmpty {
+                ApplicationsManagerEmptyState(
+                    icon: "arrow.down.circle",
+                    title: String(localized: "Updater", comment: "Updater empty-state title."),
+                    detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Updater empty-state detail.")
+                )
+                .accessibilityIdentifier("applications.manager.updater.empty")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(displayed) { info in
+                            row(info)
+                        }
                     }
+                    .padding(.horizontal, 24).padding(.vertical, 12)
                 }
-                .padding(.horizontal, 24).padding(.vertical, 12)
+                .accessibilityIdentifier("applications.manager.updater.list")
             }
-            .onAppear { recompute() }
-            .onChange(of: facet) { _, _ in recompute() }
-            .onChange(of: search) { _, _ in recompute() }
-            .onChange(of: updaterViewModel.availableUpdates.map(\.id)) { _, _ in recompute() }
-            // The selection only changes the visible list under the Selected facet.
-            .onChange(of: selection) { _, _ in
-                if facet == .selected { recompute() }
-            }
-            .accessibilityIdentifier("applications.manager.updater.list")
+        }
+        .onAppear { recompute() }
+        .onChange(of: facet) { _, _ in recompute() }
+        .onChange(of: search) { _, _ in recompute() }
+        .onChange(of: updaterViewModel.availableUpdates.map(\.id)) { _, _ in recompute() }
+        // The selection only changes the visible list under the Selected facet.
+        .onChange(of: selection) { _, _ in
+            if facet == .selected { recompute() }
         }
     }
 
@@ -1359,31 +1379,36 @@ private struct ExtensionsPaneView: View {
 
     @ViewBuilder
     private var list: some View {
-        if extensionsManagerViewModel.items.isEmpty {
-            ApplicationsManagerEmptyState(
-                icon: "puzzlepiece.extension",
-                title: String(localized: "Extensions", comment: "Extensions empty-state title."),
-                detail: String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
-            )
-            .accessibilityIdentifier("applications.manager.extensions.empty")
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(displayed) { item in
-                        row(item)
+        // The recompute hooks stay attached to the outer Group so they fire in
+        // both branches — otherwise an initially empty `displayed` would pin the
+        // empty state and never recompute into the list.
+        Group {
+            if displayed.isEmpty {
+                ApplicationsManagerEmptyState(
+                    icon: "puzzlepiece.extension",
+                    title: String(localized: "Extensions", comment: "Extensions empty-state title."),
+                    detail: String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
+                )
+                .accessibilityIdentifier("applications.manager.extensions.empty")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(displayed) { item in
+                            row(item)
+                        }
                     }
+                    .padding(.horizontal, 24).padding(.vertical, 12)
                 }
-                .padding(.horizontal, 24).padding(.vertical, 12)
+                .accessibilityIdentifier("applications.manager.extensions.list")
             }
-            .onAppear { recompute() }
-            .onChange(of: facet) { _, _ in recompute() }
-            .onChange(of: search) { _, _ in recompute() }
-            .onChange(of: extensionsManagerViewModel.items.map(\.id)) { _, _ in recompute() }
-            // The selection only changes the visible list under the Selected facet.
-            .onChange(of: selection) { _, _ in
-                if facet == .selected { recompute() }
-            }
-            .accessibilityIdentifier("applications.manager.extensions.list")
+        }
+        .onAppear { recompute() }
+        .onChange(of: facet) { _, _ in recompute() }
+        .onChange(of: search) { _, _ in recompute() }
+        .onChange(of: extensionsManagerViewModel.items.map(\.id)) { _, _ in recompute() }
+        // The selection only changes the visible list under the Selected facet.
+        .onChange(of: selection) { _, _ in
+            if facet == .selected { recompute() }
         }
     }
 
