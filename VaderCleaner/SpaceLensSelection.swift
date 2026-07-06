@@ -111,4 +111,13 @@ final class SpaceLensSelection {
         }
         return (count, size)
     }
+
+    /// A single node's removal contribution *when it is selected*, else zero —
+    /// the count follows the same rule as `totals` (a folder reports its
+    /// contained `itemCount`, a file counts as one). Drives the hover card's
+    /// per-bubble "Selected:" line, which appears only for the hovered node.
+    func selectionTotal(for node: DiskNode) -> (count: Int, size: Int64) {
+        guard isSelected(node) else { return (0, 0) }
+        return (node.isDirectory ? node.itemCount : 1, node.size)
+    }
 }

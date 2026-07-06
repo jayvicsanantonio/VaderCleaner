@@ -634,6 +634,6 @@ extension ApplicationsViewModel: ScanCoordinating {
     }
 
     func beginScan() {
-        Task { await scan() }
+        runScanActivity { await self.scan() }
     }
 }

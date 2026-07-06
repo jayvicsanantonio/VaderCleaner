@@ -584,6 +584,6 @@ extension PrivacyViewModel: ScanCoordinating {
         // work-in-flight phases keeps the behavior identical to the other
         // scannable view models.
         guard phase != .scanning, phase != .clearing else { return }
-        Task { await preview() }
+        runScanActivity { await self.preview() }
     }
 }

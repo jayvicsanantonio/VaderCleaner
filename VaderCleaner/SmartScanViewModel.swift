@@ -1130,6 +1130,6 @@ extension SmartScanViewModel: ScanCoordinating {
     }
 
     func beginScan() {
-        Task { await scan() }
+        runScanActivity { await self.scan() }
     }
 }

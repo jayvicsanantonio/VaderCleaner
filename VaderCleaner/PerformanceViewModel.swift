@@ -690,6 +690,6 @@ extension PerformanceViewModel: ScanCoordinating {
         // redundant work, so skip kicking off another load while one (or
         // an action in `.working`) is already in flight.
         guard phase != .loading, phase != .working else { return }
-        Task { await refresh() }
+        runScanActivity { await self.refresh() }
     }
 }

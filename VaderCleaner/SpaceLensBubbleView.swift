@@ -238,7 +238,11 @@ struct SpaceLensBubbleView: View {
             let category = item.node.map {
                 SpaceLensProtection.category(url: $0.url, isDirectory: $0.isDirectory)
             }
-            let totals = viewModel.selection.totals
+            // Per-bubble: the "Selected:" line reflects only the hovered node's
+            // own selection, so an unselected bubble shows no such line.
+            let hoveredSelection = item.node.map {
+                viewModel.selection.selectionTotal(for: $0)
+            } ?? (count: 0, size: 0)
             SpaceLensHoverCard(
                 name: item.name,
                 category: category?.displayName ?? String(localized: "Group"),
@@ -248,8 +252,8 @@ struct SpaceLensBubbleView: View {
                 formattedSize: ByteCountFormatter.string(fromByteCount: item.size, countStyle: .binary),
                 itemCount: item.itemCount,
                 modificationDate: item.node?.modificationDate,
-                selectedCount: totals.count,
-                selectedSize: totals.size
+                selectedCount: hoveredSelection.count,
+                selectedSize: hoveredSelection.size
             )
             .frame(width: SpaceLensHoverCard.preferredWidth)
             .fixedSize(horizontal: false, vertical: true)

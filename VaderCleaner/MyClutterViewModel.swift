@@ -375,7 +375,7 @@ extension MyClutterViewModel: ScanCoordinating {
 
     func beginScan() {
         guard phase != .scanning else { return }
-        Task { await scan() }
+        runScanActivity { await self.scan() }
     }
 }
 
