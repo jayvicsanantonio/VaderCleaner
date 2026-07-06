@@ -251,6 +251,7 @@
 		AF573F2D6363CF0CDA72E5A4 /* ApplicationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5334403C48811B372CBEB19A /* ApplicationsView.swift */; };
 		AFE3EC8473F0D6BC1141FD07 /* SimilarImageGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331110971EA8F8690773FE88 /* SimilarImageGroup.swift */; };
 		B04E252C6875D95BB275CBA3 /* ExtensionsManagerViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF12BC1A8516C109492FA5B /* ExtensionsManagerViewModelTests.swift */; };
+		B099D858DA5FA94630094FFC /* MyClutterThumbnailStripItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24633693DA0109BA4809355D /* MyClutterThumbnailStripItemTests.swift */; };
 		B139E21F16EA44AC362A028F /* CloudFileAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4CE7DCEB93C1AFD8F68F8DC /* CloudFileAvailability.swift */; };
 		B189206CD9318968B0D685B6 /* WebDevScanFolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2659D57635179FE36BEC0366 /* WebDevScanFolderPicker.swift */; };
 		B1AB0F08BC3A704E2F413AF5 /* DiskNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B39407E2EA6D045893F1BA4B /* DiskNode.swift */; };
@@ -274,6 +275,7 @@
 		BA3D489D48265F806CC468A2 /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C2B92863509818189F46CD /* MenuBarContent.swift */; };
 		BA47B242AAAE6EAD08CC7D23 /* ScanDiscWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F552ABB8AD311ED03743D9 /* ScanDiscWindowController.swift */; };
 		BABEDA3326E05DC3A8356E3D /* AppStoreUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65311CF9EE5FEA6F23FF3552 /* AppStoreUpdateChecker.swift */; };
+		BACC269ED04FA26D7003F449 /* MyClutterThumbnailStripItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */; };
 		BB6D9635C62A1D0635E2799F /* AppUpdaterError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C76CE861C998A697164C552 /* AppUpdaterError.swift */; };
 		BB9A4CF2FD2F04CD567D4F4F /* PerformanceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C485B2B12D9A5E260323AB89 /* PerformanceViewModel.swift */; };
 		BC4853DC6F31E89C7A1017C5 /* DatabaseUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 232219D61C4B82F4675EF95A /* DatabaseUpdater.swift */; };
@@ -468,6 +470,7 @@
 		226E0F0A1BF7247823980DE5 /* AppVendorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVendorTests.swift; sourceTree = "<group>"; };
 		22DEDDB1C46A745F0896DB18 /* SparkleUpdateCheckerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdateCheckerTests.swift; sourceTree = "<group>"; };
 		232219D61C4B82F4675EF95A /* DatabaseUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseUpdater.swift; sourceTree = "<group>"; };
+		24633693DA0109BA4809355D /* MyClutterThumbnailStripItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterThumbnailStripItemTests.swift; sourceTree = "<group>"; };
 		256F4BD04C334D03B15EC600 /* DownloadsScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsScanner.swift; sourceTree = "<group>"; };
 		25BF7F8FE4811CE7663B96F8 /* ActivationPolicyDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationPolicyDecisionTests.swift; sourceTree = "<group>"; };
 		2605C9D00F82838A6A9D11A3 /* SystemJunkDashboardSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkDashboardSubviews.swift; sourceTree = "<group>"; };
@@ -591,6 +594,7 @@
 		785EECE3C6B84ECB7D0A3384 /* spaceLens.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = spaceLens.usdz; sourceTree = "<group>"; };
 		78BB283D2312DE0FFBF3C04D /* RAMManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RAMManagerTests.swift; sourceTree = "<group>"; };
 		7E800D4E6E10B7B99B2D1170 /* AppUninstallerViewModelMultiSelectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUninstallerViewModelMultiSelectTests.swift; sourceTree = "<group>"; };
+		7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterThumbnailStripItem.swift; sourceTree = "<group>"; };
 		7ECD89431BD47AB75E415D87 /* PermissionOnboardingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionOnboardingViewModelTests.swift; sourceTree = "<group>"; };
 		7F08CF19441CB25F982CDCD2 /* MaintenanceTaskRunnersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaintenanceTaskRunnersTests.swift; sourceTree = "<group>"; };
 		7F30A757E0739FCBD68B3EE8 /* AppIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCache.swift; sourceTree = "<group>"; };
@@ -932,6 +936,7 @@
 				558B0A2338BD9E61BDB7CE68 /* MyClutterManagerModel.swift */,
 				03DA725A728374ADDA906C40 /* MyClutterManagerView.swift */,
 				6298096AACFE956ABD8B9C36 /* MyClutterScanScopeStore.swift */,
+				7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */,
 				8B4703AF41629FA4FA05F270 /* MyClutterView.swift */,
 				973FCD99A18392D82D543907 /* MyClutterViewModel.swift */,
 				D7D76FC5B20F88179DF40523 /* NavigationRailView.swift */,
@@ -1168,6 +1173,7 @@
 				CFCB5B73D26EDB0E1FB96805 /* MenuBarViewModelTests.swift */,
 				CFE4CEE105776395ED808C7A /* MyClutterManagerModelTests.swift */,
 				175A6E5DE9F8C11D0560DB04 /* MyClutterScanScopeStoreTests.swift */,
+				24633693DA0109BA4809355D /* MyClutterThumbnailStripItemTests.swift */,
 				183D94243CDA9FABBF5A22E5 /* MyClutterTileKindTests.swift */,
 				1BED81B0628BEACAB6B965B9 /* MyClutterViewModelTests.swift */,
 				133467A06193C406B027D97C /* NavigationSectionTests.swift */,
@@ -1506,6 +1512,7 @@
 				C3F6768F9E7D9A36A7DA5801 /* MenuBarViewModelTests.swift in Sources */,
 				688FEF65720EAF3D51754EC6 /* MyClutterManagerModelTests.swift in Sources */,
 				BDAF9DD5414C50F4546C239B /* MyClutterScanScopeStoreTests.swift in Sources */,
+				B099D858DA5FA94630094FFC /* MyClutterThumbnailStripItemTests.swift in Sources */,
 				8B988F3F94B085674B032A7B /* MyClutterTileKindTests.swift in Sources */,
 				AD3DF5C0E560EB93A7D89410 /* MyClutterViewModelTests.swift in Sources */,
 				BCFA47EF8B1FBC4B3A67E4B5 /* NavigationSectionTests.swift in Sources */,
@@ -1696,6 +1703,7 @@
 				65B572321C38997952E456EF /* MyClutterManagerModel.swift in Sources */,
 				B810AA29ADEFD684916D89A8 /* MyClutterManagerView.swift in Sources */,
 				F3EF226A59824AE175B8B40F /* MyClutterScanScopeStore.swift in Sources */,
+				BACC269ED04FA26D7003F449 /* MyClutterThumbnailStripItem.swift in Sources */,
 				5505910EB98B1A0B51410171 /* MyClutterView.swift in Sources */,
 				EB09514D96CA8746124FFBE9 /* MyClutterViewModel.swift in Sources */,
 				5325F2401AF35C69086E2056 /* NavigationRailView.swift in Sources */,

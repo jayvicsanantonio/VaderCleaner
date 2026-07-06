@@ -555,26 +555,16 @@ struct MyClutterManagerView: View {
     }
 
     private func thumbnailStripItem(_ file: ScannedFile, isOriginal: Bool, showsBestBadge: Bool) -> some View {
-        let isFocused = (focusedURL ?? file.url) == file.url
-        return Button {
-            focusedURL = file.url
-        } label: {
-            ClutterThumbnailView(url: file.url, fallbackSymbol: "photo")
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(isFocused ? Self.accent : Color.secondary.opacity(0.25), lineWidth: isFocused ? 2 : 1)
-                )
-                .overlay(alignment: .topTrailing) {
-                    if showsBestBadge && isOriginal {
-                        Circle().fill(.green).frame(width: 12, height: 12)
-                            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-                            .padding(4)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
+        ClutterThumbnailStripItem(
+            url: file.url,
+            isOriginal: isOriginal,
+            showsBestBadge: showsBestBadge,
+            isSelected: viewModel.isSelected(file.url),
+            isFocused: (focusedURL ?? file.url) == file.url,
+            accent: Self.accent,
+            onToggleSelect: { viewModel.toggleSelection(url: file.url) },
+            onFocus: { focusedURL = file.url }
+        )
     }
 
     private func metadata(for file: ScannedFile) -> some View {
