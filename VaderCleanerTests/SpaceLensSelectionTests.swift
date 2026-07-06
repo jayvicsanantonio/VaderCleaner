@@ -63,6 +63,42 @@ final class SpaceLensSelectionTests: XCTestCase {
         XCTAssertEqual(Set(selection.selectedNodes().map(\.name)), ["docs", "big"])
     }
 
+    func test_selectionTotal_forSelectedFile_reportsItsOwnSizeAndCountsOne() {
+        let tree = sampleTree()
+        let big = tree.children.first { $0.name == "big" }!
+        let selection = SpaceLensSelection()
+
+        selection.toggle(big)
+        let total = selection.selectionTotal(for: big)
+        XCTAssertEqual(total.size, 500)
+        XCTAssertEqual(total.count, 1)
+    }
+
+    func test_selectionTotal_forSelectedFolder_reportsContainedItemCount() {
+        let tree = sampleTree()
+        let docs = tree.children.first { $0.name == "docs" }!
+        let selection = SpaceLensSelection()
+
+        selection.toggle(docs) // folder reports its contained items: itemCount 2
+        let total = selection.selectionTotal(for: docs)
+        XCTAssertEqual(total.size, 300)
+        XCTAssertEqual(total.count, 2)
+    }
+
+    func test_selectionTotal_forUnselectedNode_isZero() {
+        let tree = sampleTree()
+        let docs = tree.children.first { $0.name == "docs" }!
+        let big = tree.children.first { $0.name == "big" }!
+        let selection = SpaceLensSelection()
+
+        // Another node is selected, but `big` itself is not — its per-node total
+        // must stay zero so the hover card's "Selected:" line stays hidden.
+        selection.toggle(docs)
+        let total = selection.selectionTotal(for: big)
+        XCTAssertEqual(total.size, 0)
+        XCTAssertEqual(total.count, 0)
+    }
+
     func test_deselectAndClear() {
         let tree = sampleTree()
         let docs = tree.children.first { $0.name == "docs" }!
