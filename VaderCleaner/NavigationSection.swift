@@ -3,14 +3,16 @@
 
 import Foundation
 
+// Declaration order is the rail's top-to-bottom order (`allCases`), pinned by
+// NavigationSectionTests. Space Lens sits directly above Health Monitor.
 enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case smartScan
     case systemJunk
     case largeOldFiles
-    case spaceLens
     case malwareRemoval
     case performance
     case applications
+    case spaceLens
     case healthMonitor
 
     var id: Self { self }

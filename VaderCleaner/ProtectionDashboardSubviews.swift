@@ -9,8 +9,8 @@ import SwiftUI
 /// it reproduces the reference: a "Looking for Threats…" heading, a biohazard
 /// hero, the current file being scanned, and a Stop button. When the scan
 /// finishes it updates in place — "No threats", a threats card with
-/// Review/Remove, or the removing/done/failed states. Shares the Applications
-/// dashboard card chrome (glass, corner radius 12).
+/// Review/Remove, or the removing/done/failed states. Shares the app-wide
+/// dashboard tile chrome (`vaderTileGlass`).
 struct ProtectionMalwareTile: View {
 
     let malware: MalwareViewModel
@@ -44,9 +44,9 @@ struct ProtectionMalwareTile: View {
                 controls
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .vaderTileGlass()
     }
 
     private var hero: some View {
@@ -85,21 +85,21 @@ struct ProtectionMalwareTile: View {
         case .checkingClamAV, .updatingDatabase, .scanning:
             Button(String(localized: "Stop", comment: "Stops the in-progress malware scan."),
                    action: onStop)
-                .buttonStyle(.bordered)
+                .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier("protection.malwareTile.stop")
         case .results:
             Button(String(localized: "Review", comment: "Opens the detected-threats list."),
                    action: onReview)
-                .buttonStyle(.bordered)
+                .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier("protection.malwareTile.review")
             Button(String(localized: "Remove", comment: "Removes all detected threats."),
                    action: onRemove)
-                .buttonStyle(.vaderProminent)
+                .buttonStyle(.vaderWhite)
                 .accessibilityIdentifier("protection.malwareTile.remove")
         case .idle, .failed:
             Button(String(localized: "Scan Again", comment: "Restarts the malware scan."),
                    action: onScanAgain)
-                .buttonStyle(.bordered)
+                .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier("protection.malwareTile.scanAgain")
         case .clean, .removing, .done, .needsInstall:
             EmptyView()
@@ -203,17 +203,17 @@ struct ProtectionPrivacyTile: View {
                 if let onReview {
                     Button(String(localized: "Review", comment: "Opens the privacy manager for this group."),
                            action: onReview)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.vaderGlass)
                 }
                 if let onRemove {
                     Button(String(localized: "Remove", comment: "Clears this privacy group."),
                            action: onRemove)
-                        .buttonStyle(.vaderProminent)
+                        .buttonStyle(.vaderWhite)
                 }
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .vaderTileGlass()
     }
 }

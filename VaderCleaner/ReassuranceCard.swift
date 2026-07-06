@@ -24,14 +24,14 @@ struct ReassuranceCard: View {
                     .foregroundStyle(.white)
                 Text(content.detail)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .vaderTileGlass()
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("recommendation.reassurance.\(content.id)")
     }

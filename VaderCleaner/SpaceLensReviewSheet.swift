@@ -46,8 +46,10 @@ struct SpaceLensReviewSheet: View {
             .accessibilityIdentifier("space-lens.review.close")
         }
         .frame(maxWidth: 880, maxHeight: 540)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.08)))
+        // The shared dashboard tile surface (same 24pt radius the card already
+        // used), replacing the plain material + hairline so the review card
+        // matches the other sections' frosted glass tiles.
+        .vaderTileGlass()
         .shadow(radius: 30, y: 12)
         .padding(40)
         .accessibilityIdentifier("space-lens.review")

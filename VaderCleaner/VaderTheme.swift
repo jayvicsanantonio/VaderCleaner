@@ -157,3 +157,108 @@ extension ButtonStyle where Self == VaderProminentButtonStyle {
     /// Section-accent prominent button with a luminance-aware label.
     static var vaderProminent: VaderProminentButtonStyle { VaderProminentButtonStyle() }
 }
+
+extension Glass {
+    /// The white-tinted glass shared by the dashboard tiles and the header
+    /// pill buttons, lifting both a step brighter than the section backdrop
+    /// (plain `.regular` glass darkens over the dark gradients).
+    static var vaderTile: Glass { .regular.tint(.white.opacity(0.1)) }
+}
+
+/// Neutral Liquid Glass capsule with a white semibold label — the Review
+/// treatment on the dashboard tiles. Hand-rolled over `glassEffect` rather
+/// than `.buttonStyle(.glass)` because the system style fills with the
+/// window's control tint (the section accent), while the reference keeps
+/// these capsules free of it. On-tile capsules use the darker plain glass;
+/// `matchesTileSurface` swaps in the tiles' white-tinted shade for the
+/// dashboards' header pills.
+struct VaderGlassButtonStyle: ButtonStyle {
+    var matchesTileSurface = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassLabel(configuration: configuration, matchesTileSurface: matchesTileSurface)
+    }
+
+    private struct GlassLabel: View {
+        let configuration: Configuration
+        let matchesTileSurface: Bool
+        @Environment(\.controlSize) private var controlSize
+
+        /// Large/extra-large controls get the header pills' roomier capsule;
+        /// the default size stays compact enough for two capsules to share a
+        /// narrow two-up tile.
+        private var isLarge: Bool { controlSize == .large || controlSize == .extraLarge }
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: isLarge ? 15 : 13, weight: .semibold))
+                .foregroundStyle(.white)
+                // A capsule label must never wrap mid-word on a narrow tile.
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, isLarge ? 20 : 14)
+                .padding(.vertical, isLarge ? 9 : 6)
+                .glassEffect(
+                    matchesTileSurface ? Glass.vaderTile.interactive() : Glass.regular.interactive(),
+                    in: .capsule
+                )
+                .opacity(configuration.isPressed ? 0.82 : 1.0)
+                .contentShape(Capsule())
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == VaderGlassButtonStyle {
+    /// Tint-free glass capsule for the dashboards' Review-style actions.
+    static var vaderGlass: VaderGlassButtonStyle { VaderGlassButtonStyle() }
+    /// Glass capsule in the tiles' white-tinted shade — the dashboards'
+    /// "Review All / View All / Manage" header pills.
+    static var vaderTileGlass: VaderGlassButtonStyle { VaderGlassButtonStyle(matchesTileSurface: true) }
+}
+
+/// Solid white capsule with a black semibold label — the dashboards' direct
+/// Clean/Remove treatment, reading as the brightest element on the glass
+/// tiles. Metrics mirror the glass capsule beside it so the pair sits on one
+/// baseline at one height.
+struct VaderWhiteButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        WhiteLabel(configuration: configuration)
+    }
+
+    private struct WhiteLabel: View {
+        let configuration: Configuration
+        @Environment(\.controlSize) private var controlSize
+
+        private var isLarge: Bool { controlSize == .large || controlSize == .extraLarge }
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: isLarge ? 15 : 13, weight: .semibold))
+                .foregroundStyle(.black)
+                // A capsule label must never wrap mid-word on a narrow tile.
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, isLarge ? 20 : 14)
+                .padding(.vertical, isLarge ? 9 : 6)
+                .background(Capsule().fill(.white))
+                .opacity(configuration.isPressed ? 0.82 : 1.0)
+                .contentShape(Capsule())
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == VaderWhiteButtonStyle {
+    /// White-filled capsule for the dashboard tiles' direct primary action.
+    static var vaderWhite: VaderWhiteButtonStyle { VaderWhiteButtonStyle() }
+}
+
+extension View {
+    /// The dashboard tile surface shared by every section's grid screen:
+    /// Liquid Glass under the reference's large corner radius, in the shared
+    /// white-tinted shade (`Glass.vaderTile`).
+    func vaderTileGlass() -> some View {
+        glassEffect(.vaderTile, in: .rect(cornerRadius: 24))
+    }
+}

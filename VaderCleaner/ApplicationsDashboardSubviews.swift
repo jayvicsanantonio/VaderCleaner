@@ -79,7 +79,7 @@ struct ApplicationsDashboardView: View {
                 ))
                 .padding(.horizontal, 8)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
             .accessibilityIdentifier("applications.manageMyApplications")
         }
@@ -155,7 +155,8 @@ struct ApplicationsDashboardView: View {
                 card(only).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
-            GlassEffectContainer(spacing: 16) {
+            // Spacing below the 16pt grid gap so adjacent tiles never blend.
+            GlassEffectContainer(spacing: 8) {
                 HStack(alignment: .top, spacing: 16) {
                     card(tiles[0])
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -398,8 +399,8 @@ enum ApplicationsCardIcon {
 /// A single Applications dashboard card in the reference layout: a title and
 /// detail at the top with a top-right illustration, and a bottom action row.
 /// The Unused card additionally shows a cluster of real app icons at the
-/// bottom-left; the App Leftovers card shows a bordered Review plus a prominent
-/// Remove.
+/// bottom-left; the App Leftovers card shows a glass Review capsule plus a
+/// white Remove capsule.
 struct ApplicationsDashboardCard: View {
     let title: String
     let detail: String
@@ -420,7 +421,7 @@ struct ApplicationsDashboardCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Text(detail)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.75))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
@@ -439,17 +440,17 @@ struct ApplicationsDashboardCard: View {
                 Spacer()
                 if let secondaryLabel, let secondaryAction {
                     Button(secondaryLabel, action: secondaryAction)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.vaderGlass)
                         .accessibilityIdentifier(identifier + ".secondary")
                 }
                 Button(primaryLabel, action: primaryAction)
-                    .buttonStyle(.vaderProminent)
+                    .buttonStyle(.vaderWhite)
                     .accessibilityIdentifier(identifier)
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .vaderTileGlass()
     }
 
     @ViewBuilder

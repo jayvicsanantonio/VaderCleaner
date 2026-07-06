@@ -203,14 +203,10 @@ struct ProtectionDashboardView: View {
                     localized: "Manage Privacy Items",
                     comment: "Protection dashboard button that opens the Privacy manager."
                 ))
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 9)
-                .background(.white.opacity(0.15), in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
+                .padding(.horizontal, 8)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.vaderTileGlass)
+            .controlSize(.large)
             .accessibilityIdentifier("protection.managePrivacy")
         }
         .padding(.top, 4)
@@ -270,7 +266,10 @@ struct ProtectionDashboardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
-            GlassEffectContainer(spacing: 16) {
+            // Spacing below the 16pt grid gap: glass shapes closer than the
+            // container's spacing melt into one blob, and the tiles must stay
+            // discrete.
+            GlassEffectContainer(spacing: 8) {
                 HStack(alignment: .top, spacing: 16) {
                     tileView(tiles[0])
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

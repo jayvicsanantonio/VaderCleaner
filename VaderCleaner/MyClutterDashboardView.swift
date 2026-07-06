@@ -160,7 +160,7 @@ struct MyClutterDashboardView: View {
                 Text(String(localized: "Review All Files", comment: "Opens the complete review across every My Clutter category."))
                     .padding(.horizontal, 8)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
             .accessibilityIdentifier("myClutter.reviewAll")
         }
@@ -205,11 +205,16 @@ struct MyClutterDashboardView: View {
             card(tiles[0])
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         default:
-            HStack(alignment: .top, spacing: 16) {
-                card(tiles[0])
-                    .frame(width: heroColumnWidth)
-                    .frame(maxHeight: .infinity)
-                rightColumn(Array(tiles.dropFirst()))
+            // One container so the adjacent glass tiles sample each other and
+            // refract consistently; spacing stays below the 16pt grid gap so
+            // they never blend into one blob.
+            GlassEffectContainer(spacing: 8) {
+                HStack(alignment: .top, spacing: 16) {
+                    card(tiles[0])
+                        .frame(width: heroColumnWidth)
+                        .frame(maxHeight: .infinity)
+                    rightColumn(Array(tiles.dropFirst()))
+                }
             }
         }
     }
@@ -398,14 +403,7 @@ struct MyClutterCard: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.white.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-        )
+        .vaderTileGlass()
         .opacity(isEnabled ? 1 : 0.7)
         .accessibilityIdentifier(identifier)
     }
@@ -419,7 +417,7 @@ struct MyClutterCard: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.callout)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -431,9 +429,8 @@ struct MyClutterCard: View {
             if isEnabled {
                 Button(action: onReview) {
                     Text(String(localized: "Review", comment: "Opens the review screen for a My Clutter card."))
-                        .padding(.horizontal, 10)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier("\(identifier).review")
             } else {
                 Text(String(localized: "All clear", comment: "Shown on a My Clutter card whose category found nothing."))

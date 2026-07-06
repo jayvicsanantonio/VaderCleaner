@@ -165,7 +165,7 @@ struct SystemJunkDashboardView: View {
                 ))
                 .padding(.horizontal, 8)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
             .accessibilityIdentifier("system-junk.viewAll")
         }
@@ -206,7 +206,10 @@ struct SystemJunkDashboardView: View {
     /// flow in rows of two beneath it. Grouped in a `GlassEffectContainer` so the
     /// adjacent glass surfaces sample each other and refract consistently.
     private func rightColumn(_ rest: [CleanupDashboardTile]) -> some View {
-        GlassEffectContainer(spacing: 16) {
+        // Container spacing stays below the 16pt grid gap: glass shapes closer
+        // than the container's spacing melt into one blob, and the tiles must
+        // stay discrete.
+        GlassEffectContainer(spacing: 8) {
             VStack(spacing: 16) {
                 if let wide = rest.first {
                     card(wide, style: .wide)
@@ -277,9 +280,9 @@ enum CleanupCardStyle {
 }
 
 /// One Cleanup dashboard card: a size-led title, an optional description, a
-/// glossy 3D badge, and Review / Clean actions. Shares the glass surface and
-/// corner radius of the app's other dashboard cards so the surfaces stay
-/// consistent.
+/// glossy 3D badge, and Review / Clean actions. Wears the shared dashboard
+/// tile surface (`vaderTileGlass`) with a glass Review capsule and a white
+/// Clean capsule, matching the other sections' grid screens.
 struct CleanupCard: View {
     let title: String
     let blurb: String
@@ -297,11 +300,18 @@ struct CleanupCard: View {
     /// Compact cards drop the description, matching the reference's small cards.
     private var showsBlurb: Bool { style != .compact }
 
+    /// Title typography per card style: the hero and wide cards lead with the
+    /// reference's large bold size-led headline; compact cards keep the denser
+    /// headline so two-up rows don't wrap at the grid's narrowest widths.
+    static func titleFont(for style: CleanupCardStyle) -> Font {
+        style == .compact ? .headline : .title2.weight(.bold)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Text(title)
-                    .font(isHero ? .title3.weight(.semibold) : .headline)
+                    .font(Self.titleFont(for: style))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -313,7 +323,10 @@ struct CleanupCard: View {
             if showsBlurb {
                 Text(blurb)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    // Soft white rather than `.secondary`: the reference's
+                    // description text stays warm and legible over the green
+                    // glass instead of going gray.
+                    .foregroundStyle(.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -334,7 +347,7 @@ struct CleanupCard: View {
                     localized: "Review",
                     comment: "Cleanup card action that opens the group's file list."
                 ), action: onReview)
-                .buttonStyle(.bordered)
+                .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier("\(identifierBase).review")
 
                 if showsClean {
@@ -342,14 +355,14 @@ struct CleanupCard: View {
                         localized: "Clean",
                         comment: "Cleanup card action that removes the whole group directly."
                     ), action: onClean)
-                    .buttonStyle(.vaderProminent)
+                    .buttonStyle(.vaderWhite)
                     .accessibilityIdentifier("\(identifierBase).clean")
                 }
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, minHeight: isHero ? 320 : 150, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .vaderTileGlass()
     }
 
     /// The glossy 3D badge artwork. The baked PNG carries its own soft drop
@@ -364,3 +377,4 @@ struct CleanupCard: View {
             .accessibilityHidden(true)
     }
 }
+
