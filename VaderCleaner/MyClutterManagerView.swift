@@ -434,7 +434,13 @@ struct MyClutterManagerView: View {
     private var rightPaneContent: some View {
         switch category {
         case .largeOld:
-            if isLoadingCache { loadingPane } else { fileList(displayedFiles) }
+            if isLoadingCache {
+                loadingPane
+            } else if displayedFiles.isEmpty {
+                emptyRightPane
+            } else {
+                fileList(displayedFiles)
+            }
         case .duplicates:
             if let group = viewModel.duplicateGroups.first(where: { $0.id == (selectedGroupID ?? viewModel.duplicateGroups.first?.id) }) {
                 imagePreviewPane(files: group.files, original: group.original, showsBestBadge: false)
@@ -467,9 +473,11 @@ struct MyClutterManagerView: View {
     }
 
     private var emptyRightPane: some View {
-        VStack { Spacer(); Text(String(localized: "Nothing to review", comment: "Empty manager pane."))
-            .foregroundStyle(.secondary); Spacer() }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ManagerEmptyState(
+            icon: "checkmark.seal.fill",
+            title: String(localized: "Nothing to review", comment: "Empty manager pane title."),
+            detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Empty manager pane detail.")
+        )
     }
 
     /// A scrollable list of file rows with a checkbox, thumbnail, name,

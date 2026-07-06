@@ -148,3 +148,21 @@ struct ManagerSurfaceModifier: ViewModifier {
         }
     }
 }
+
+/// Centered icon + title + detail empty state for a Manager right pane with no
+/// items. Shared across the Cleanup, My Clutter, and Smart Scan managers so an
+/// empty pane reads the same everywhere instead of a bare line of text.
+struct ManagerEmptyState: View {
+    let icon: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 44)).foregroundStyle(.tint.opacity(0.7))
+            Text(title).font(.title2.weight(.semibold))
+            Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
