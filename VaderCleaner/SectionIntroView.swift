@@ -313,7 +313,12 @@ struct SectionIntroView: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.white)
                 }
-                .shadow(color: presentation.accent.opacity(0.4), radius: 7, y: 3)
+                // Shadow from the same deepened tone as the fill: the raw
+                // accent here made the bright-accent sections' badges (green
+                // Cleanup, teal My Clutter) cast a vivid halo that read as a
+                // bloom, while the deep-accent sections cast a normal dark
+                // drop shadow.
+                .shadow(color: presentation.accent.deepenedForWhite.opacity(0.4), radius: 7, y: 3)
             Text(feature.title)
                 .font(.system(size: 15, weight: .regular))
             Spacer(minLength: 0)
