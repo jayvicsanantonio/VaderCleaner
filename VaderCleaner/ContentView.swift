@@ -245,7 +245,7 @@ struct ContentView: View {
         // height (top inset + nine rows + gaps + bottom inset) so the last rail
         // icon always keeps a comfortable gap to the window's bottom edge, even
         // at the smallest allowed size.
-        .frame(minWidth: 1140, minHeight: 640)
+        .frame(minWidth: 1140, minHeight: 720)
         // Per-section gradient backdrop, keyed to the selection and crossfaded
         // on change so moving between sections recolours the whole window. The
         // toolbar background is hidden so the floating glass toolbar items sit

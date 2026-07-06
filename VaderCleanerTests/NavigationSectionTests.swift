@@ -15,6 +15,15 @@ final class NavigationSectionTests: XCTestCase {
         XCTAssertEqual(NavigationSection.allCases.first, .smartScan)
     }
 
+    func test_railOrder_isPinned() {
+        // The rail renders `allCases` top to bottom. Space Lens sits directly
+        // above Health Monitor at the bottom of the rail.
+        XCTAssertEqual(NavigationSection.allCases, [
+            .smartScan, .systemJunk, .largeOldFiles, .malwareRemoval,
+            .performance, .applications, .spaceLens, .healthMonitor,
+        ])
+    }
+
     func test_eachSection_hasNonEmptyTitle() {
         for section in NavigationSection.allCases {
             XCTAssertFalse(

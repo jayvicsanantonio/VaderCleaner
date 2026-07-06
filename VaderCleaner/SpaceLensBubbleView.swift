@@ -1,5 +1,5 @@
 // SpaceLensBubbleView.swift
-// Space Lens bubble chart — packs the current folder's children into glassy purple bubbles sized by disk usage, drills in on tap, reflects the removal selection, and surfaces a details card on hover.
+// Space Lens bubble chart — packs the current folder's children into Liquid Glass bubbles sized by disk usage, drills in on tap, reflects the removal selection, and surfaces a details card on hover.
 
 import SwiftUI
 
@@ -94,18 +94,29 @@ struct SpaceLensBubbleView: View {
             : circle.radius * 0.92
 
         ZStack {
+            // Real Liquid Glass in the tiles' shade. Each bubble is its own
+            // glass shape, deliberately *not* grouped in a GlassEffectContainer:
+            // packed circles touch, and a container would fuse the touching
+            // shapes into one blob.
             Circle()
-                .fill(bubbleFill(isSelected: isSelected, isHovered: isHighlighted, radius: circle.radius))
+                .fill(.clear)
+                .glassEffect(bubbleGlass(isSelected: isSelected, isHovered: isHighlighted), in: .circle)
                 .overlay(
+                    // No resting ring: the tiles carry no border, so a bubble
+                    // at rest is delineated by the glass rim alone. The ring
+                    // appears only for the magenta selected/highlighted states.
                     Circle().strokeBorder(
                         isSelected ? Self.accent.opacity(0.85)
-                            : (isHighlighted ? Self.accent.opacity(0.9) : Color.white.opacity(0.28)),
-                        lineWidth: (isSelected || isHighlighted) ? 2 : 1
+                            : (isHighlighted ? Self.accent.opacity(0.9) : Color.clear),
+                        lineWidth: (isSelected || isHighlighted) ? 2 : 0
                     )
+                    // The glow rides the ring: the glass-filled circle beneath
+                    // is a clear view, so it can't cast the selection shadow
+                    // itself.
+                    .shadow(color: isSelected ? Self.accent.opacity(0.5)
+                                : (isHighlighted ? Self.accent.opacity(0.45) : .clear),
+                            radius: isSelected ? 22 : (isHighlighted ? 16 : 0))
                 )
-                .shadow(color: isSelected ? Self.accent.opacity(0.5)
-                            : (isHighlighted ? Self.accent.opacity(0.45) : .clear),
-                        radius: isSelected ? 22 : (isHighlighted ? 16 : 0))
 
             VStack(spacing: 6) {
                 bubbleIcon(item: item, size: iconSize)
@@ -171,36 +182,20 @@ struct SpaceLensBubbleView: View {
         .accessibilityIdentifier("space-lens.bubble.checkbox.\(node.name)")
     }
 
-    /// Radial fill for a bubble. Selected bubbles keep a purple center (so the
-    /// blue icon still reads) and bloom into bright magenta at the rim — a pink
-    /// rim glow, like the reference. Hovered bubbles lift brighter; at rest they
-    /// are soft lavender glass.
-    private func bubbleFill(isSelected: Bool, isHovered: Bool, radius: CGFloat) -> RadialGradient {
+    /// Liquid Glass for a bubble. At rest it is exactly the tiles' glass
+    /// (`Glass.vaderTile`) — no `interactive` treatment, which renders its own
+    /// darker button-like surface — so the chart's bubbles match the app's
+    /// tile color. Selected bubbles tint magenta (keeping the removal state's
+    /// color, like the reference's pink glow) and hovered bubbles lift a step
+    /// brighter, both with the interactive pointer response.
+    private func bubbleGlass(isSelected: Bool, isHovered: Bool) -> Glass {
         if isSelected {
-            return RadialGradient(
-                colors: [
-                    Color(red: 0.50, green: 0.36, blue: 0.74).opacity(0.34),
-                    Color(red: 0.74, green: 0.34, blue: 0.74).opacity(0.34),
-                    Color(red: 0.96, green: 0.38, blue: 0.80).opacity(0.55)
-                ],
-                center: .init(x: 0.45, y: 0.40),
-                startRadius: radius * 0.30,
-                endRadius: radius
-            )
+            return Glass.regular.tint(Self.accent.opacity(0.35)).interactive()
         }
-        let colors: [Color] = isHovered
-            ? [
-                Color.white.opacity(0.26),
-                Color(red: 0.55, green: 0.45, blue: 0.92).opacity(0.34),
-                Color(red: 0.34, green: 0.24, blue: 0.62).opacity(0.22)
-              ]
-            : [
-                Color(red: 0.62, green: 0.55, blue: 0.86).opacity(0.22),
-                Color(red: 0.46, green: 0.37, blue: 0.74).opacity(0.26),
-                Color(red: 0.30, green: 0.22, blue: 0.52).opacity(0.16)
-              ]
-        return RadialGradient(colors: colors, center: .init(x: 0.42, y: 0.34),
-                              startRadius: 0, endRadius: radius)
+        if isHovered {
+            return Glass.regular.tint(.white.opacity(0.2)).interactive()
+        }
+        return .vaderTile
     }
 
     @ViewBuilder

@@ -99,7 +99,7 @@ struct PerformanceDashboardView: View {
                 ))
                 .padding(.horizontal, 8)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
             .accessibilityIdentifier("performance.viewAllTasks")
         }
@@ -108,7 +108,8 @@ struct PerformanceDashboardView: View {
     /// The ranked summary cards along the bottom, refracting together in one
     /// glass container so they read as a set.
     private var summaryCards: some View {
-        GlassEffectContainer(spacing: 16) {
+        // Spacing below the 16pt grid gap so adjacent tiles never blend.
+        GlassEffectContainer(spacing: 8) {
             HStack(spacing: 16) {
                 ForEach(tiles) { tile in
                     card(tile)
@@ -235,7 +236,7 @@ struct PerformanceSummaryCard: View {
             }
             Text(description)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             HStack {
@@ -243,13 +244,13 @@ struct PerformanceSummaryCard: View {
                 Button(action: onReview) {
                     Text(String(localized: "Review", comment: "Summary card button that opens the manager at this card's items."))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier(reviewIdentifier)
             }
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .vaderTileGlass()
     }
 
     @ViewBuilder

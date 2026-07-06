@@ -135,7 +135,7 @@ struct SpaceLensView: View {
                 bubbleArea(current: current, items: items)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 4)
+            .padding(.top, 16)
             .padding(.bottom, 8)
             SpaceLensBottomBar(viewModel: viewModel)
         }
@@ -225,7 +225,10 @@ struct SpaceLensView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        // Plain (un-tinted) glass on the bar's slimmer radius: the white tile
+        // tint made this wide strip read as a bright-rimmed slab, so the
+        // chrome keeps the quieter regular material.
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
         .padding(.horizontal, 24)
         .padding(.top, 8)
     }

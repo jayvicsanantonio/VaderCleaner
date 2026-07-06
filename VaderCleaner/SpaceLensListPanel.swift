@@ -48,7 +48,10 @@ struct SpaceLensListPanel: View {
         }
         .padding(16)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+        // Plain (un-tinted) glass: the white tile tint reads as a muddy violet
+        // slab with a hard rim at this panel's size over the indigo backdrop,
+        // so the chrome keeps the quieter regular material.
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
         // Draw the protected-item tooltip at the panel level (above the
         // ScrollView) so it isn't clipped by the scrolling rows.
         .overlayPreferenceValue(ProtectedTooltipKey.self) { value in

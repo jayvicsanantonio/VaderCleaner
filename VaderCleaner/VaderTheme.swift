@@ -18,13 +18,22 @@ extension Color {
 }
 
 /// Full-bleed branded backdrop: a vertical dark → rich gradient in the active
-/// section's hue, with a soft accent bloom centred low so the brightest part of
-/// the glow pools behind the hero cluster and the floating Scan disc. Driven by
-/// the section theme so navigating between sections recolours the whole window.
+/// section's hue, under a cluster of accent blooms that orbit at different
+/// radii, speeds, and directions with a slow brightness breathe — a lava-lamp
+/// motion that keeps the gradient visibly alive. The blooms anchor along the
+/// window edges so each shows only a partial arc — an atmospheric wash, not a
+/// travelling circle — with the primary low on the bottom edge where its glow
+/// still pools behind the floating Scan disc. Driven by the section theme so
+/// navigating between sections recolours the whole window.
 struct VaderBackground: View {
     /// The active section's colour identity. The whole backdrop is built from
     /// this, so the caller crossfades it as the selection changes.
     let theme: SectionTheme
+
+    /// Flipped once on appear into a repeat-forever pulse that breathes the
+    /// bloom cluster's brightness.
+    @State private var breathing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -33,17 +42,134 @@ struct VaderBackground: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            RadialGradient(
-                colors: [theme.accent.opacity(0.5), .clear],
-                // y is biased well below centre so the bloom pools behind the
-                // hero/title cluster and the floating Scan disc rather than the
-                // empty middle of the window.
-                center: UnitPoint(x: 0.5, y: 0.74),
-                startRadius: 0,
-                endRadius: 760
-            )
+            GeometryReader { geo in
+                ZStack {
+                    // All three anchors hug (or overshoot) the window edges so
+                    // only a partial arc of each glow is ever visible — the
+                    // light reads as a wash coming in from the edge, never as
+                    // a travelling circle.
+                    //
+                    // Primary bloom — the section's classic glow, low on the
+                    // bottom edge where it still pools behind the floating
+                    // Scan disc.
+                    OrbitingBloom(
+                        color: theme.accent.opacity(0.45),
+                        falloff: 760,
+                        anchor: UnitPoint(x: 0.5, y: 0.9),
+                        orbitRadius: 160,
+                        period: 20,
+                        clockwise: true,
+                        animated: !reduceMotion,
+                        size: geo.size
+                    )
+                    // Secondary bloom — dimmer, wider orbit, counter-rotating
+                    // just past the left edge so it swells in and out of the
+                    // window as it circles.
+                    OrbitingBloom(
+                        color: theme.accent.opacity(0.26),
+                        falloff: 460,
+                        anchor: UnitPoint(x: -0.08, y: 0.3),
+                        orbitRadius: 220,
+                        period: 34,
+                        clockwise: false,
+                        animated: !reduceMotion,
+                        size: geo.size
+                    )
+                    // Tertiary bloom — small and faint in the upper-right
+                    // corner, on the fastest lap, adding a third phase.
+                    OrbitingBloom(
+                        color: theme.accent.opacity(0.2),
+                        falloff: 320,
+                        anchor: UnitPoint(x: 1.08, y: 0.08),
+                        orbitRadius: 140,
+                        period: 14,
+                        clockwise: true,
+                        animated: !reduceMotion,
+                        size: geo.size
+                    )
+                }
+                // A slow breathe over the whole cluster: brightness swells and
+                // relaxes on a cycle offset from every orbit period, so the
+                // combined motion never visibly repeats. Opacity is composited
+                // on the GPU like the orbits — no per-frame view redraws.
+                .opacity(breathing ? 0.86 : 1.0)
+                .animation(.easeInOut(duration: 8).repeatForever(autoreverses: true), value: breathing)
+            }
         }
         .ignoresSafeArea()
+        .onAppear {
+            // Honour Reduce Motion: the blooms stay put at their resting
+            // poses at full brightness.
+            guard !reduceMotion else { return }
+            breathing = true
+        }
+    }
+}
+
+/// One accent bloom on a circular path: a radial glow displaced off the pivot
+/// of an oversized square layer that spins forever — the orbit trick. The
+/// gradient is radially symmetric, so the rotation itself is invisible; only
+/// the circular travel shows. Rotation is a GPU-composited transform, no
+/// per-frame view redraws.
+private struct OrbitingBloom: View {
+    /// The bloom's colour, opacity included.
+    let color: Color
+    /// Radius at which the glow fades to fully clear.
+    let falloff: CGFloat
+    /// Resting pose in window space — the top of the orbit, and where the
+    /// bloom stays when the orbit is not animated (Reduce Motion).
+    let anchor: UnitPoint
+    /// Radius of the circular path.
+    let orbitRadius: CGFloat
+    /// Seconds per revolution.
+    let period: Double
+    /// Direction of travel around the circle.
+    let clockwise: Bool
+    /// Whether the orbit runs; false parks the bloom at its anchor.
+    let animated: Bool
+    /// The hosting window's size, from the caller's `GeometryReader`.
+    let size: CGSize
+
+    /// Flipped once on appear into the repeat-forever linear rotation that
+    /// carries the bloom around its path.
+    @State private var orbiting = false
+
+    /// Side of the square layer the bloom is drawn on. Must contain the whole
+    /// falloff plus the orbit displacement, so the layer's rectangular bounds
+    /// always sit in the gradient's fully-clear region — a bounds cut inside
+    /// the falloff shows up as a hard seam when the layer moves.
+    private var layerSide: CGFloat { 2 * (falloff + orbitRadius) + 100 }
+
+    var body: some View {
+        RadialGradient(
+            // A white-hot core inside the accent glow: on themes whose accent
+            // sits close to the backdrop hue (Health Monitor's blue on blue),
+            // a pure accent bloom moves almost invisibly — the bright core is
+            // what keeps the motion legible on every section's palette.
+            stops: [
+                .init(color: .white.opacity(0.07), location: 0),
+                .init(color: color, location: 0.3),
+                .init(color: .clear, location: 1),
+            ],
+            center: .center,
+            startRadius: 0,
+            endRadius: falloff
+        )
+        .frame(width: layerSide, height: layerSide)
+        .offset(y: -orbitRadius)
+        .rotationEffect(.degrees(orbiting ? (clockwise ? 360 : -360) : 0))
+        .animation(.linear(duration: period).repeatForever(autoreverses: false), value: orbiting)
+        // The orbit's centre sits one radius below the anchor, so the
+        // path's top — and the Reduce Motion resting pose — is exactly
+        // the anchor.
+        .position(
+            x: size.width * anchor.x,
+            y: size.height * anchor.y + orbitRadius
+        )
+        .onAppear {
+            guard animated else { return }
+            orbiting = true
+        }
     }
 }
 
@@ -156,4 +282,109 @@ struct VaderProminentButtonStyle: ButtonStyle {
 extension ButtonStyle where Self == VaderProminentButtonStyle {
     /// Section-accent prominent button with a luminance-aware label.
     static var vaderProminent: VaderProminentButtonStyle { VaderProminentButtonStyle() }
+}
+
+extension Glass {
+    /// The white-tinted glass shared by the dashboard tiles and the header
+    /// pill buttons, lifting both a step brighter than the section backdrop
+    /// (plain `.regular` glass darkens over the dark gradients).
+    static var vaderTile: Glass { .regular.tint(.white.opacity(0.1)) }
+}
+
+/// Neutral Liquid Glass capsule with a white semibold label — the Review
+/// treatment on the dashboard tiles. Hand-rolled over `glassEffect` rather
+/// than `.buttonStyle(.glass)` because the system style fills with the
+/// window's control tint (the section accent), while the reference keeps
+/// these capsules free of it. On-tile capsules use the darker plain glass;
+/// `matchesTileSurface` swaps in the tiles' white-tinted shade for the
+/// dashboards' header pills.
+struct VaderGlassButtonStyle: ButtonStyle {
+    var matchesTileSurface = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassLabel(configuration: configuration, matchesTileSurface: matchesTileSurface)
+    }
+
+    private struct GlassLabel: View {
+        let configuration: Configuration
+        let matchesTileSurface: Bool
+        @Environment(\.controlSize) private var controlSize
+
+        /// Large/extra-large controls get the header pills' roomier capsule;
+        /// the default size stays compact enough for two capsules to share a
+        /// narrow two-up tile.
+        private var isLarge: Bool { controlSize == .large || controlSize == .extraLarge }
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: isLarge ? 15 : 13, weight: .semibold))
+                .foregroundStyle(.white)
+                // A capsule label must never wrap mid-word on a narrow tile.
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, isLarge ? 20 : 14)
+                .padding(.vertical, isLarge ? 9 : 6)
+                .glassEffect(
+                    matchesTileSurface ? Glass.vaderTile.interactive() : Glass.regular.interactive(),
+                    in: .capsule
+                )
+                .opacity(configuration.isPressed ? 0.82 : 1.0)
+                .contentShape(Capsule())
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == VaderGlassButtonStyle {
+    /// Tint-free glass capsule for the dashboards' Review-style actions.
+    static var vaderGlass: VaderGlassButtonStyle { VaderGlassButtonStyle() }
+    /// Glass capsule in the tiles' white-tinted shade — the dashboards'
+    /// "Review All / View All / Manage" header pills.
+    static var vaderTileGlass: VaderGlassButtonStyle { VaderGlassButtonStyle(matchesTileSurface: true) }
+}
+
+/// Solid white capsule with a black semibold label — the dashboards' direct
+/// Clean/Remove treatment, reading as the brightest element on the glass
+/// tiles. Metrics mirror the glass capsule beside it so the pair sits on one
+/// baseline at one height.
+struct VaderWhiteButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        WhiteLabel(configuration: configuration)
+    }
+
+    private struct WhiteLabel: View {
+        let configuration: Configuration
+        @Environment(\.controlSize) private var controlSize
+
+        private var isLarge: Bool { controlSize == .large || controlSize == .extraLarge }
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: isLarge ? 15 : 13, weight: .semibold))
+                .foregroundStyle(.black)
+                // A capsule label must never wrap mid-word on a narrow tile.
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, isLarge ? 20 : 14)
+                .padding(.vertical, isLarge ? 9 : 6)
+                .background(Capsule().fill(.white))
+                .opacity(configuration.isPressed ? 0.82 : 1.0)
+                .contentShape(Capsule())
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == VaderWhiteButtonStyle {
+    /// White-filled capsule for the dashboard tiles' direct primary action.
+    static var vaderWhite: VaderWhiteButtonStyle { VaderWhiteButtonStyle() }
+}
+
+extension View {
+    /// The dashboard tile surface shared by every section's grid screen:
+    /// Liquid Glass under the reference's large corner radius, in the shared
+    /// white-tinted shade (`Glass.vaderTile`).
+    func vaderTileGlass() -> some View {
+        glassEffect(.vaderTile, in: .rect(cornerRadius: 24))
+    }
 }
