@@ -83,6 +83,10 @@ private struct SmartScanScanHero: View {
             .clipShape(RoundedRectangle(cornerRadius: 24))
         )
         .vaderTileGlass()
+        // A light travels the card's edge for as long as this module is the
+        // one being collected, so the hero reads as actively working even when
+        // its counter is momentarily still.
+        .overlay(SmartScanScanBorder(tint: module.scanTileTint))
     }
 
     /// Live progress line for the hero, from the sub-scan's own counters.
@@ -111,6 +115,70 @@ private struct SmartScanScanHero: View {
                     comment: "Hero progress line while the update probe has not yet reported a count."
                 )
         }
+    }
+}
+
+/// An animated stroke around the hero card that signals the module is still
+/// being scanned: a soft segment of the module's accent glides smoothly
+/// around the tile's edge over a steady dim ring of the same tint. The
+/// segment travels along the rounded-rect path itself — an animated dash
+/// phase — so it keeps a constant speed through the corners instead of
+/// whipping across them the way a centre-based sweep does. Reduce Motion
+/// drops the travel and holds the steady edge so the "still working" read
+/// survives without movement.
+private struct SmartScanScanBorder: View {
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = 0.0
+
+    private let cornerRadius: CGFloat = 24
+    private let lineWidth: CGFloat = 2
+
+    var body: some View {
+        if reduceMotion {
+            // No travel: a steady tinted edge still reads as "active".
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .strokeBorder(tint.opacity(0.6), lineWidth: lineWidth)
+        } else {
+            GeometryReader { proxy in
+                let perimeter = perimeter(of: proxy.size)
+                // One soft segment (~a third of the edge) with a matching gap,
+                // so a single band travels the whole path and wraps through the
+                // start seam without a jump.
+                let segment = perimeter / 3
+                ZStack {
+                    // Steady dim ring so the edge is never dark.
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .strokeBorder(tint.opacity(0.3), lineWidth: lineWidth)
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .inset(by: lineWidth / 2)
+                        .stroke(
+                            tint,
+                            style: StrokeStyle(
+                                lineWidth: lineWidth,
+                                lineCap: .round,
+                                dash: [segment, perimeter - segment],
+                                dashPhase: phase
+                            )
+                        )
+                        .blur(radius: 2)
+                }
+                .onAppear {
+                    withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) {
+                        phase = perimeter
+                    }
+                }
+            }
+        }
+    }
+
+    /// Length of the rounded-rect edge: the four straight runs plus the four
+    /// quarter-circle corners. Drives the dash pattern so exactly one segment
+    /// is visible and the phase animation loops seamlessly.
+    private func perimeter(of size: CGSize) -> CGFloat {
+        let straight = 2 * (size.width - 2 * cornerRadius) + 2 * (size.height - 2 * cornerRadius)
+        let corners = 2 * .pi * cornerRadius
+        return straight + corners
     }
 }
 
