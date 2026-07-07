@@ -46,10 +46,16 @@ struct ContentView: View {
     /// Width of the rail when collapsed to icons only — narrow enough to read as
     /// a glyph rail while still fitting the selection pill around each icon.
     private let collapsedRailWidth: CGFloat = 76
+    /// Latched the first time any section collapses the rail. Once set, the
+    /// rail stays icons-only for the rest of the session instead of
+    /// re-expanding when the user returns to an intro or a non-scannable
+    /// section — the expanded rail is a landing layout, not a state worth
+    /// bouncing back to mid-session.
+    @State private var railCollapsedOnceThisSession = false
     /// Current rail width. Shared by the rail's own frame and the Scan disc
     /// panel so the disc centers over the detail content area (not the full
     /// window) without the two drifting apart. Collapses once the selected
-    /// section leaves its intro.
+    /// section leaves its intro, and stays collapsed for the session.
     private var railWidth: CGFloat { isRailCollapsed ? collapsedRailWidth : expandedRailWidth }
 
     /// The coarse scan phase of the section currently on screen, or `nil` for a
@@ -68,11 +74,27 @@ struct ContentView: View {
     }
 
     /// The rail collapses to icons only once the selected section leaves its
-    /// intro — i.e. right after the user taps Scan — and re-expands when it
-    /// returns to the intro (Start Over). Non-scannable sections keep the
+    /// intro — i.e. right after the user taps Scan — and then stays collapsed
+    /// for the rest of the session (see `railCollapsedOnceThisSession`).
+    /// Before that first collapse, intros and non-scannable sections keep the
     /// expanded rail.
     private var isRailCollapsed: Bool {
-        guard let presentation = activeScanPresentation else { return false }
+        Self.railCollapsed(
+            activePresentation: activeScanPresentation,
+            collapsedOnceThisSession: railCollapsedOnceThisSession
+        )
+    }
+
+    /// Pure rail-collapse rule, testable without rendering: collapsed while
+    /// the active scannable section is out of its intro, and latched
+    /// collapsed for the rest of the session once that has happened even
+    /// once.
+    static func railCollapsed(
+        activePresentation: ScanPresentation?,
+        collapsedOnceThisSession: Bool
+    ) -> Bool {
+        if collapsedOnceThisSession { return true }
+        guard let presentation = activePresentation else { return false }
         return presentation != .intro
     }
     /// Owns the borderless child panel that hosts the floating Scan disc so it
@@ -232,6 +254,13 @@ struct ContentView: View {
         // collapses/expands — its placement is computed from the rail width.
         .onChange(of: railWidth) { _, newWidth in
             scanDiscController.setRailWidth(newWidth)
+        }
+        // Latch the first collapse so the rail stays icons-only for the rest
+        // of the session. Setting the latch while the rail is already
+        // collapsed causes no visual change; it only stops later intros from
+        // re-expanding it.
+        .onChange(of: isRailCollapsed) { _, collapsed in
+            if collapsed { railCollapsedOnceThisSession = true }
         }
         // Animates the rail's section-change motion — chiefly the selection
         // pill sliding between rows. The detail pane and the backdrop each
