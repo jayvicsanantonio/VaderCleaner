@@ -237,7 +237,7 @@ final class SystemJunkScannerTests: XCTestCase {
             pathProvider: StubSystemPathProvider(roots: [
                 ScanRoot(url: userCaches, category: .userCache)
             ]),
-            developerProjectEnumerator: { [nodeModules] }
+            developerProjectEnumerator: { _ in [nodeModules] }
         )
 
         let result = try await scanner.scan(excluding: [])
@@ -266,6 +266,35 @@ final class SystemJunkScannerTests: XCTestCase {
         _ = try await scanner.scan(excluding: [], onProgress: { recorder.record($0) })
 
         XCTAssertEqual(recorder.snapshot, [512, 1024, 2000])
+    }
+
+    /// The walked count must keep climbing through the supplementary
+    /// enumerators instead of freezing when the main file walk completes:
+    /// each phase reports its own tally, stacked on the finished phases'
+    /// totals. Without this the scanning screen's count froze while the
+    /// (potentially long) Document Versions and developer-project walks ran.
+    func test_scan_progressKeepsClimbingThroughSupplementaryEnumerators() async throws {
+        let scanner = SystemJunkScanner(
+            fileScanner: ProgressEmittingFakeFileScanner(progressTicks: [512, 1024]),
+            pathProvider: StubSystemPathProvider(roots: [
+                ScanRoot(url: tempRoot, category: .userCache)
+            ]),
+            documentVersionsEnumerator: { reportVisited in
+                reportVisited?(100)
+                return []
+            },
+            developerProjectEnumerator: { reportVisited in
+                reportVisited?(50)
+                return []
+            }
+        )
+        let recorder = TestHelpers.ProgressRecorder()
+
+        _ = try await scanner.scan(excluding: [], onProgress: { recorder.record($0) })
+
+        // 512, 1024 from the main walk; 1024 + 100 once Document Versions
+        // reports; 1024 + 100 + 50 once the developer-project walk reports.
+        XCTAssertEqual(recorder.snapshot, [512, 1024, 1124, 1174])
     }
 
     // MARK: - Helpers

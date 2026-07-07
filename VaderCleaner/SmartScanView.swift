@@ -19,6 +19,13 @@ struct SmartScanView: View {
     /// dashboard is visible. State is local because Review is a transient
     /// UI mode, not a persisted part of the scan model.
     @State private var review: SmartScanModule?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Where the manager zoom anchors: the button that opened it, resolved
+    /// by `openReview`. Also the point Back zooms the manager back into.
+    @State private var managerAnchor: UnitPoint = .center
+    /// The transition host's frame in global space, for mapping the opening
+    /// click to `managerAnchor`.
+    @State private var paneFrame: CGRect = .zero
 
     init(
         viewModel: SmartScanViewModel,
@@ -32,8 +39,13 @@ struct SmartScanView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .id(phaseTransitionID)
-            .transition(.opacity)
-            .animation(.smooth(duration: 0.35), value: phaseTransitionID)
+            // The subtle scale-and-fade phase changes share: the incoming
+            // surface settles forward from 97% while the outgoing recedes.
+            // Review pushes are not phase changes — they swap inside
+            // `resultsContent` with the manager zoom motion. Reduce Motion
+            // keeps the plain crossfade.
+            .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
+            .animation(VaderMotion.surface, value: phaseTransitionID)
             .navigationTitle(NavigationSection.smartScan.title)
             // Every transition out of `.results` clears any in-flight Review
             // (e.g. Start Over → idle, Run → cleaning, an external reset).
@@ -51,17 +63,17 @@ struct SmartScanView: View {
     }
 
     /// Stable per-phase token so moving between scan phases crossfades
-    /// instead of hard-cutting. Distinct phases (and the Review-vs-dashboard
-    /// split within `.results`) map to distinct strings; associated values
-    /// are intentionally ignored — only the phase identity drives the
-    /// transition.
+    /// instead of hard-cutting. Distinct phases map to distinct strings;
+    /// associated values are intentionally ignored — only the phase identity
+    /// drives the transition. The Review-vs-dashboard split within `.results`
+    /// is deliberately not part of the token: Review swaps animate with the
+    /// manager zoom motion inside `resultsContent`, and folding them into
+    /// this identity would replace that with the phase crossfade.
     private var phaseTransitionID: String {
         switch viewModel.phase {
         case .idle:     return "idle"
         case .scanning: return "scanning"
-        case .results:
-            if let review { return "review.\(review)" }
-            return "results"
+        case .results:  return "results"
         case .cleaning: return "cleaning"
         case .done:     return "done"
         case .failed:   return "failed"
@@ -77,18 +89,11 @@ struct SmartScanView: View {
             // so the detail view is never built in this phase. The arm stays
             // only to keep the switch exhaustive over `Phase`.
             EmptyView()
-        case .scanning(let phase):
-            // Key the progress view on the current stage so a stage change
-            // rebuilds ScanningStatusView with the new phrase set — it shuffles
-            // its phrases once at init, so a fresh identity is what swaps the
-            // voice from the broad sweep to threats to the app check.
-            SmartScanProgressState(
-                label: phase,
-                identifier: "smartScan.scanning",
-                detail: viewModel.scanProgressDetail,
-                phrases: ScanPhrases.smartScanStage(viewModel.currentStage)
-            )
-            .id(viewModel.currentStage)
+        case .scanning:
+            // The staged scanning screen: one module heroes at a time while
+            // the others fill in with result summaries as their sub-scans
+            // are collected.
+            SmartScanScanningView(viewModel: viewModel)
         case .results(let result):
             resultsContent(result: result)
         case .cleaning:
@@ -113,47 +118,72 @@ struct SmartScanView: View {
 
     /// Within `.results`, route to the dashboard or to the active Review
     /// screen. Each Review pops back to the dashboard via `review = nil`.
+    /// The two surfaces exchange inside a ZStack (a stable transition host)
+    /// with the shared manager motion: the Review zooms up from the button
+    /// that opened it over the receding dashboard, and zooms back into it on
+    /// Back.
     @ViewBuilder
     private func resultsContent(result: SmartScanResult) -> some View {
-        if let review {
-            switch review {
-            case .systemJunk:
-                SmartScanJunkReview(
+        ZStack {
+            if let review {
+                reviewScreen(for: review, result: result)
+                    .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
+                    // Draw over the dashboard while the two overlap mid-swap.
+                    .zIndex(1)
+            } else {
+                SmartScanResultsState(
                     viewModel: viewModel,
                     result: result,
-                    onBack: { self.review = nil }
+                    onRequestReview: openReview,
+                    onStartOver: { viewModel.reset() }
                 )
-            case .malware:
-                SmartScanMalwareReview(
-                    viewModel: viewModel,
-                    result: result,
-                    onBack: { self.review = nil }
-                )
-            case .performance:
-                SmartScanPerformanceReview(
-                    result: result,
-                    onBack: { self.review = nil },
-                    onOpenPerformance: onOpenPerformance
-                )
-            case .applications:
-                SmartScanApplicationsReview(
-                    viewModel: viewModel,
-                    result: result,
-                    onBack: { self.review = nil }
-                )
-            case .myClutter:
-                SmartScanMyClutterReview(
-                    viewModel: viewModel,
-                    result: result,
-                    onBack: { self.review = nil }
-                )
+                .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
             }
-        } else {
-            SmartScanResultsState(
+        }
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+        .animation(VaderMotion.managerZoom, value: review)
+    }
+
+    /// Anchors the zoom to the button (or failing that, the click) being
+    /// handled, then raises the module's Review screen.
+    private func openReview(_ module: SmartScanModule) {
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        review = module
+    }
+
+    /// The tile-specific Review screen for one Smart Scan module.
+    @ViewBuilder
+    private func reviewScreen(for review: SmartScanModule, result: SmartScanResult) -> some View {
+        switch review {
+        case .systemJunk:
+            SmartScanJunkReview(
                 viewModel: viewModel,
                 result: result,
-                onRequestReview: { module in self.review = module },
-                onStartOver: { viewModel.reset() }
+                onBack: { self.review = nil }
+            )
+        case .malware:
+            SmartScanMalwareReview(
+                viewModel: viewModel,
+                result: result,
+                onBack: { self.review = nil }
+            )
+        case .performance:
+            SmartScanPerformanceReview(
+                result: result,
+                onBack: { self.review = nil },
+                onOpenPerformance: onOpenPerformance
+            )
+        case .applications:
+            SmartScanApplicationsReview(
+                viewModel: viewModel,
+                result: result,
+                onBack: { self.review = nil }
+            )
+        case .myClutter:
+            SmartScanMyClutterReview(
+                viewModel: viewModel,
+                result: result,
+                onBack: { self.review = nil }
             )
         }
     }

@@ -100,10 +100,9 @@ struct ProtectionManagerView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
                 .padding(14)
-                // Extend up under the title-bar safe area so the top margin is
-                // as thin as the sides instead of leaving the toolbar's tall
-                // gradient band above the card.
-                .ignoresSafeArea(.container, edges: .top)
+                // The title-bar safe-area extension is applied by
+                // ProtectionDashboardView, outside the manager zoom
+                // transition — see ManagerSurfaceModifier.
                 .tint(accent)
                 .environment(\.sectionAccent, accent)
         }

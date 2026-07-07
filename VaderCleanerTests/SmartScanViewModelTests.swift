@@ -1541,6 +1541,100 @@ final class SmartScanViewModelTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // MARK: - Staged scanning states
+
+    func test_startingModuleStates_runsTheFirstModuleAndQueuesTheRest() {
+        let states = SmartScanViewModel.startingModuleStates(
+            enabled: Set(SmartScanModule.allCases),
+            clamAVAvailable: true
+        )
+        XCTAssertEqual(states[.systemJunk], .running)
+        XCTAssertEqual(states[.myClutter], .pending)
+        XCTAssertEqual(states[.performance], .pending)
+        XCTAssertEqual(states[.malware], .pending)
+        XCTAssertEqual(states[.applications], .pending)
+    }
+
+    func test_startingModuleStates_skipsDisabledModulesAndMissingClamAV() {
+        let states = SmartScanViewModel.startingModuleStates(
+            enabled: [.malware, .performance],
+            clamAVAvailable: false
+        )
+        XCTAssertEqual(states[.systemJunk], .skipped)
+        XCTAssertEqual(states[.myClutter], .skipped)
+        // Malware is enabled but ClamAV is absent, so its sub-scan never runs.
+        XCTAssertEqual(states[.malware], .skipped)
+        // The first module that will actually run takes the hero slot.
+        XCTAssertEqual(states[.performance], .running)
+    }
+
+    func test_finishing_recordsTheSummaryAndPromotesTheNextPendingModule() {
+        var states = SmartScanViewModel.startingModuleStates(
+            enabled: Set(SmartScanModule.allCases),
+            clamAVAvailable: true
+        )
+        states = SmartScanViewModel.finishing(
+            .systemJunk, in: states, metric: "1.5 GB of junk", caption: "to clean"
+        )
+        XCTAssertEqual(states[.systemJunk], .finished(metric: "1.5 GB of junk", caption: "to clean"))
+        XCTAssertEqual(states[.myClutter], .running)
+        XCTAssertEqual(states[.performance], .pending)
+    }
+
+    func test_finishing_promotionSkipsOverSkippedModules() {
+        var states = SmartScanViewModel.startingModuleStates(
+            enabled: Set(SmartScanModule.allCases).subtracting([.myClutter, .performance]),
+            clamAVAvailable: true
+        )
+        states = SmartScanViewModel.finishing(
+            .systemJunk, in: states, metric: "No junk", caption: "to clean"
+        )
+        // My Clutter and Performance are skipped, so Malware runs next.
+        XCTAssertEqual(states[.myClutter], .skipped)
+        XCTAssertEqual(states[.performance], .skipped)
+        XCTAssertEqual(states[.malware], .running)
+    }
+
+    func test_finishing_aSkippedModulesCollectionPointChangesNothing() {
+        let states = SmartScanViewModel.startingModuleStates(
+            enabled: Set(SmartScanModule.allCases).subtracting([.myClutter]),
+            clamAVAvailable: true
+        )
+        let after = SmartScanViewModel.finishing(
+            .myClutter, in: states, metric: "No duplicates", caption: "to review"
+        )
+        XCTAssertEqual(after, states)
+    }
+
+    func test_scan_finishesEveryModuleWithItsSummary() async {
+        let junkFile = makeFile(name: "cache.db", size: 1_500_000_000, category: .userCache)
+        let vm = makeViewModel(
+            junkScanner: { [junkFile] in ScanResult(items: [junkFile]) },
+            malwareScanner: { [] },
+            loginItemsLoader: {
+                [LoginItem(id: "com.example.helper", name: "Helper", isEnabled: true)]
+            },
+            duplicatesScanner: { [] },
+            updatesChecker: { [] }
+        )
+
+        await vm.scan()
+
+        guard case .finished(let junkMetric, let junkCaption) = vm.moduleScanStates[.systemJunk] else {
+            return XCTFail("System Junk should finish with a summary")
+        }
+        XCTAssertTrue(junkMetric.hasSuffix("of junk"), "got \(junkMetric)")
+        XCTAssertEqual(junkCaption, "to clean")
+        XCTAssertEqual(vm.moduleScanStates[.malware], .finished(metric: "No threats", caption: "to remove"))
+        XCTAssertEqual(vm.moduleScanStates[.performance], .finished(metric: "1 item", caption: "to review"))
+        XCTAssertEqual(vm.moduleScanStates[.applications], .finished(metric: "No vital updates", caption: "to install"))
+        XCTAssertEqual(vm.moduleScanStates[.myClutter], .finished(metric: "No duplicates", caption: "to review"))
+        // Nothing is left running once the results are in.
+        XCTAssertNil(vm.activeScanModule)
+    }
+
+    // MARK: - Factory helpers
+
     private func makeViewModel(
         junkScanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },

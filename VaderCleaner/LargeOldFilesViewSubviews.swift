@@ -75,7 +75,7 @@ struct LargeOldFilesProgressState: View {
     var phrases: [String]? = nil
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 28) {
             ScanProgressIndicator()
             ScanningStatusView(
                 phrases: phrases ?? [label],

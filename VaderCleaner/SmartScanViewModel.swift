@@ -39,6 +39,17 @@ enum SmartScanStage: Hashable {
     case checkingApps
 }
 
+/// One module's presentation state on the staged scanning screen: waiting its
+/// turn, the one whose results are being collected right now (the hero),
+/// finished with a short result summary, or skipped entirely (disabled in
+/// Customize Smart Care, or ClamAV absent for Malware).
+enum SmartScanModuleScanState: Equatable {
+    case pending
+    case running
+    case finished(metric: String, caption: String)
+    case skipped
+}
+
 /// One aggregated Smart Scan result, holding each sub-module's findings so the
 /// results screen can render a card per module. `clamAVAvailable` lets the
 /// Malware card hide its remove action when ClamAV is absent (the scan was
@@ -229,6 +240,72 @@ final class SmartScanViewModel {
     private(set) var junkWalkComplete = false
     private(set) var clutterWalkComplete = false
     private(set) var malwareScanComplete = false
+
+    /// Per-module presentation state for the staged scanning screen. Rebuilt
+    /// at the start of every scan; modules flip `.running` → `.finished` in
+    /// `Self.scanCollectionOrder` as `scan()` collects each sub-scan's
+    /// results, so the "one at a time" read tracks real checkpoints even
+    /// though the sub-scans run concurrently.
+    private(set) var moduleScanStates: [SmartScanModule: SmartScanModuleScanState] = [:]
+
+    /// The order the scanning screen walks the modules — the same order
+    /// `scan()` awaits the concurrently-running sub-scans.
+    static let scanCollectionOrder: [SmartScanModule] = [
+        .systemJunk, .myClutter, .performance, .malware, .applications,
+    ]
+
+    /// The module the scanning screen shows as its hero: the first still
+    /// running in collection order, or `nil` outside a scan.
+    var activeScanModule: SmartScanModule? {
+        Self.scanCollectionOrder.first { moduleScanStates[$0] == .running }
+    }
+
+    /// The staged screen's starting line-up: every module that will actually
+    /// run is `.pending` (Malware additionally requires ClamAV), the rest are
+    /// `.skipped`, and the first runnable module takes the hero slot.
+    static func startingModuleStates(
+        enabled: Set<SmartScanModule>,
+        clamAVAvailable: Bool
+    ) -> [SmartScanModule: SmartScanModuleScanState] {
+        var states: [SmartScanModule: SmartScanModuleScanState] = [:]
+        for module in scanCollectionOrder {
+            let runs = enabled.contains(module) && (module != .malware || clamAVAvailable)
+            states[module] = runs ? .pending : .skipped
+        }
+        if let first = scanCollectionOrder.first(where: { states[$0] == .pending }) {
+            states[first] = .running
+        }
+        return states
+    }
+
+    /// Records `module`'s result summary and hands the hero slot to the next
+    /// pending module in collection order. A skipped module's collection
+    /// point changes nothing — it never ran, so it must not surface a
+    /// summary or steal the hero.
+    static func finishing(
+        _ module: SmartScanModule,
+        in states: [SmartScanModule: SmartScanModuleScanState],
+        metric: String,
+        caption: String
+    ) -> [SmartScanModule: SmartScanModuleScanState] {
+        var updated = states
+        guard updated[module] == .running || updated[module] == .pending else { return updated }
+        updated[module] = .finished(metric: metric, caption: caption)
+        if let next = scanCollectionOrder.first(where: { updated[$0] == .pending }) {
+            updated[next] = .running
+        }
+        return updated
+    }
+
+    /// Shared `ByteCountFormatter` for the scanning screen's result
+    /// summaries ("33.4 GB of junk"). Static so the allocation happens once,
+    /// not per collection point.
+    private static let summaryByteFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.allowedUnits = .useAll
+        f.countStyle = .file
+        return f
+    }()
 
     /// Both file walks have finished enumerating the disk.
     private var fileWalksComplete: Bool { junkWalkComplete && clutterWalkComplete }
@@ -479,6 +556,10 @@ final class SmartScanViewModel {
         let mods = enabledModules()
         let cats = enabledJunkCategories()
 
+        // Line up the staged scanning screen: skipped modules are marked up
+        // front, and the first runnable module takes the hero slot.
+        moduleScanStates = Self.startingModuleStates(enabled: mods, clamAVAvailable: clamAVAvailable)
+
         async let junk = scanJunkIfEnabled(mods.contains(.systemJunk), onProgress: onJunkProgress)
         async let threats = scanForThreatsIfPossible(
             clamAVAvailable: clamAVAvailable && mods.contains(.malware),
@@ -500,14 +581,65 @@ final class SmartScanViewModel {
             // kept enabled in the Cleanup sub-tree. Done here (rather than in the
             // scanner) so the scanner stays category-agnostic and the same walk
             // serves every caller.
+            // Each collection point below also advances the staged scanning
+            // screen: the collected module flips to its result summary and
+            // the next runnable module takes the hero slot.
             let junkResult = Self.filteringJunkCategories(try await junk, to: cats)
             junkWalkComplete = true
+            moduleScanStates = Self.finishing(
+                .systemJunk, in: moduleScanStates,
+                metric: junkResult.totalSize > 0
+                    ? String(
+                        localized: "\(Self.summaryByteFormatter.string(fromByteCount: junkResult.totalSize)) of junk",
+                        comment: "Scanning-screen summary on the Cleanup tile; the interpolation is a byte count like '33.4 GB'."
+                    )
+                    : String(localized: "No junk", comment: "Zero-work scanning-screen summary on the Cleanup tile."),
+                caption: String(localized: "to clean", comment: "Caption under the Cleanup tile's scanning-screen summary.")
+            )
             let duplicates = await large
             clutterWalkComplete = true
+            let reclaimable = duplicates.reduce(Int64(0)) { $0 + $1.reclaimableBytes }
+            moduleScanStates = Self.finishing(
+                .myClutter, in: moduleScanStates,
+                metric: reclaimable > 0
+                    ? String(
+                        localized: "\(Self.summaryByteFormatter.string(fromByteCount: reclaimable)) of duplicates",
+                        comment: "Scanning-screen summary on the My Clutter tile; the interpolation is a byte count like '1.2 GB'."
+                    )
+                    : String(localized: "No duplicates", comment: "Zero-work scanning-screen summary on the My Clutter tile."),
+                caption: String(localized: "to review", comment: "Caption under the My Clutter tile's scanning-screen summary.")
+            )
             let loginItems = await login
+            moduleScanStates = Self.finishing(
+                .performance, in: moduleScanStates,
+                metric: loginItems.isEmpty
+                    ? String(localized: "No items", comment: "Zero-work scanning-screen summary on the Performance tile.")
+                    : loginItems.count == 1
+                        ? String(localized: "1 item", comment: "Singular scanning-screen summary on the Performance tile.")
+                        : String(localized: "\(loginItems.count) items", comment: "Plural scanning-screen summary on the Performance tile."),
+                caption: String(localized: "to review", comment: "Caption under the Performance tile's scanning-screen summary.")
+            )
             let foundThreats = await threats
             malwareScanComplete = true
+            moduleScanStates = Self.finishing(
+                .malware, in: moduleScanStates,
+                metric: foundThreats.isEmpty
+                    ? String(localized: "No threats", comment: "Zero-work scanning-screen summary on the Protection tile.")
+                    : foundThreats.count == 1
+                        ? String(localized: "1 threat", comment: "Singular scanning-screen summary on the Protection tile.")
+                        : String(localized: "\(foundThreats.count) threats", comment: "Plural scanning-screen summary on the Protection tile."),
+                caption: String(localized: "to remove", comment: "Caption under the Protection tile's scanning-screen summary.")
+            )
             let foundUpdates = await updates
+            moduleScanStates = Self.finishing(
+                .applications, in: moduleScanStates,
+                metric: foundUpdates.isEmpty
+                    ? String(localized: "No vital updates", comment: "Zero-work scanning-screen summary on the Applications tile.")
+                    : foundUpdates.count == 1
+                        ? String(localized: "1 update", comment: "Singular scanning-screen summary on the Applications tile.")
+                        : String(localized: "\(foundUpdates.count) updates", comment: "Plural scanning-screen summary on the Applications tile."),
+                caption: String(localized: "to install", comment: "Caption under the Applications tile's scanning-screen summary.")
+            )
 
             let result = SmartScanResult(
                 junkResult: junkResult,
@@ -917,6 +1049,7 @@ final class SmartScanViewModel {
         junkWalkComplete = false
         clutterWalkComplete = false
         malwareScanComplete = false
+        moduleScanStates = [:]
     }
 }
 

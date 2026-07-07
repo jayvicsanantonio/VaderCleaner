@@ -10,6 +10,7 @@ struct PerformanceView: View {
 
     private var viewModel: PerformanceViewModel
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Toggles the ready surface between the summary dashboard and the full
     /// "View All Tasks" Performance Manager.
     @State private var showAllTasks = false
@@ -20,6 +21,16 @@ struct PerformanceView: View {
     /// Selected task ids for the catalog's multi-select Run. Owned here so the
     /// selection persists across the progress screen and a completed run.
     @State private var selectedTaskIDs: Set<String> = []
+    /// Where the manager zoom anchors: the button that opened it, resolved
+    /// by `openCatalog`. Also the point Back zooms the manager back into.
+    @State private var managerAnchor: UnitPoint = .center
+    /// The transition host's frame in global space, for mapping the opening
+    /// click to `managerAnchor`.
+    @State private var paneFrame: CGRect = .zero
+    /// The title-bar safe-area inset the transition host permanently claims;
+    /// handed back to the dashboard as top padding so only the manager
+    /// extends under the title bar.
+    @State private var paneTopInset: CGFloat = 0
 
     init(viewModel: PerformanceViewModel) {
         self.viewModel = viewModel
@@ -95,53 +106,72 @@ struct PerformanceView: View {
         )
     }
 
+    /// The dashboard and the task catalog exchange inside a ZStack (a stable
+    /// transition host) with the shared manager motion: the catalog zooms up
+    /// from the button that opened it over the receding dashboard, and zooms
+    /// back into it on Back.
     @ViewBuilder
     private var readyContent: some View {
-        if showAllTasks {
-            // The manager owns its full-height card layout (header + nav + pane +
-            // footer), so it replaces the dashboard entirely rather than
-            // rendering inside it.
-            PerformanceTaskCatalogView(
-                pane: $catalogPane,
-                selectedTaskIDs: $selectedTaskIDs,
-                tasks: viewModel.tasks,
-                results: viewModel.taskResults,
-                loginItems: viewModel.loginItems,
-                userAgents: viewModel.userAgents,
-                systemAgents: viewModel.systemAgents,
-                onRunSelected: { tasks in Task { await viewModel.run(tasks) } },
-                onRemoveSelected: { loginIDs, agentIDs in
-                    Task { await viewModel.removeSelected(loginItemIDs: loginIDs, agentIDs: agentIDs) }
-                },
-                onBack: { showAllTasks = false }
-            )
-        } else {
-            PerformanceDashboardView(
-                loginItemCount: viewModel.loginItems.count,
-                loginItemBundleIDs: viewModel.loginItems.map(\.id),
-                backgroundItemCount: viewModel.userAgents.count + viewModel.systemAgents.count,
-                maintenanceTasksDue: viewModel.maintenanceTasksDue,
-                accent: NavigationSection.performance.theme.accent,
-                onViewAllTasks: {
-                    catalogPane = .maintenanceTasks
-                    showAllTasks = true
-                },
-                onReviewLoginItems: {
-                    catalogPane = .loginItems
-                    showAllTasks = true
-                },
-                onReviewBackgroundItems: {
-                    catalogPane = .backgroundItems
-                    showAllTasks = true
-                },
-                onReviewMaintenance: {
-                    catalogPane = .maintenanceTasks
-                    showAllTasks = true
-                }
-            )
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack {
+            if showAllTasks {
+                // The manager owns its full-height card layout (header + nav + pane +
+                // footer), so it replaces the dashboard entirely rather than
+                // rendering inside it.
+                PerformanceTaskCatalogView(
+                    pane: $catalogPane,
+                    selectedTaskIDs: $selectedTaskIDs,
+                    tasks: viewModel.tasks,
+                    results: viewModel.taskResults,
+                    loginItems: viewModel.loginItems,
+                    userAgents: viewModel.userAgents,
+                    systemAgents: viewModel.systemAgents,
+                    onRunSelected: { tasks in Task { await viewModel.run(tasks) } },
+                    onRemoveSelected: { loginIDs, agentIDs in
+                        Task { await viewModel.removeSelected(loginItemIDs: loginIDs, agentIDs: agentIDs) }
+                    },
+                    onBack: { showAllTasks = false }
+                )
+                .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
+                // Draw over the dashboard while the two overlap mid-swap.
+                .zIndex(1)
+            } else {
+                PerformanceDashboardView(
+                    loginItemCount: viewModel.loginItems.count,
+                    loginItemBundleIDs: viewModel.loginItems.map(\.id),
+                    backgroundItemCount: viewModel.userAgents.count + viewModel.systemAgents.count,
+                    maintenanceTasksDue: viewModel.maintenanceTasksDue,
+                    accent: NavigationSection.performance.theme.accent,
+                    onViewAllTasks: { openCatalog(pane: .maintenanceTasks) },
+                    onReviewLoginItems: { openCatalog(pane: .loginItems) },
+                    onReviewBackgroundItems: { openCatalog(pane: .backgroundItems) },
+                    onReviewMaintenance: { openCatalog(pane: .maintenanceTasks) }
+                )
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The dashboard keeps its usual place below the title bar:
+                // the host ZStack claims that inset permanently, so it is
+                // handed back here as explicit padding.
+                .padding(.top, paneTopInset)
+                .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
+            }
         }
+        // Claim the title-bar safe area on this stable container, never on a
+        // transitioning branch: safe-area changes anywhere inside a freshly
+        // inserted transition subtree are deferred until its spring fully
+        // settles, which read as the manager stuck below a title-bar-height
+        // gap for a beat after opening.
+        .ignoresSafeArea(.container, edges: .top)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
+        .animation(VaderMotion.managerZoom, value: showAllTasks)
+    }
+
+    /// Anchors the zoom to the button (or failing that, the click) being
+    /// handled, then raises the catalog on `pane`.
+    private func openCatalog(pane: PerformanceTaskCatalogView.Pane) {
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        catalogPane = pane
+        showAllTasks = true
     }
 }
 

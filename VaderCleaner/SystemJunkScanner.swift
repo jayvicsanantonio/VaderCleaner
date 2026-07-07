@@ -25,8 +25,12 @@ struct SystemJunkScanner {
     /// `FileScanner` and must come from the privileged helper — currently the
     /// root-owned Document Versions store. Async + `@Sendable` so production can
     /// wrap `DocumentVersionsScanner`; the default is a no-op so unit tests stay
-    /// hermetic (no XPC) unless they wire one in.
-    typealias PrivilegedEnumerator = @Sendable () async -> [ScannedFile]
+    /// hermetic (no XPC) unless they wire one in. `reportVisited` receives the
+    /// enumerator's own cumulative visited-item count so the scanning screen's
+    /// tally keeps climbing through these phases (see `PhaseProgressRelay`).
+    /// Optional rather than bare so implementations can forward it into other
+    /// escaping `onProgress` parameters.
+    typealias PrivilegedEnumerator = @Sendable (_ reportVisited: (@Sendable (Int) -> Void)?) async -> [ScannedFile]
 
     private let fileScanner: FileScanning
     private let pathProvider: SystemPathProviding
@@ -36,8 +40,8 @@ struct SystemJunkScanner {
     init(
         fileScanner: FileScanning = FileScanner(),
         pathProvider: SystemPathProviding = DefaultSystemPathProvider(),
-        documentVersionsEnumerator: @escaping PrivilegedEnumerator = { [] },
-        developerProjectEnumerator: @escaping PrivilegedEnumerator = { [] }
+        documentVersionsEnumerator: @escaping PrivilegedEnumerator = { _ in [] },
+        developerProjectEnumerator: @escaping PrivilegedEnumerator = { _ in [] }
     ) {
         self.fileScanner = fileScanner
         self.pathProvider = pathProvider
@@ -57,8 +61,17 @@ struct SystemJunkScanner {
     static func live(projectScanRoots: [URL]? = nil) -> SystemJunkScanner {
         let roots = projectScanRoots ?? WebDevScanScopeStore().scanRoots
         return SystemJunkScanner(
-            documentVersionsEnumerator: { await DocumentVersionsScanner().scan() },
-            developerProjectEnumerator: { await DeveloperProjectScanner(roots: roots).scan() }
+            // The store is enumerated in one privileged XPC round trip, so
+            // the best available progress is a single bump by the returned
+            // count once it lands.
+            documentVersionsEnumerator: { reportVisited in
+                let files = await DocumentVersionsScanner().scan()
+                reportVisited?(files.count)
+                return files
+            },
+            developerProjectEnumerator: { reportVisited in
+                await DeveloperProjectScanner(roots: roots).scan(onProgress: reportVisited)
+            }
         )
     }
 
@@ -72,18 +85,66 @@ struct SystemJunkScanner {
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> ScanResult {
         let roots = pathProvider.roots()
-        let files = try await fileScanner.scan(roots: roots, excluding: excluding, onProgress: onProgress)
+        // One walked-count spans all three phases: the relay stacks each
+        // phase's own tally onto the finished phases' totals, so the count
+        // the scanning screen shows keeps climbing through the supplementary
+        // enumerations instead of freezing when the main walk completes.
+        let progress = PhaseProgressRelay(onProgress)
+        let files = try await fileScanner.scan(
+            roots: roots,
+            excluding: excluding,
+            onProgress: { progress.report($0) }
+        )
+        progress.finishPhase()
         // Document Versions live in a root-owned store the in-process walk can't
         // read, so they come from the privileged enumerator and are merged in.
         // The default enumerator returns nothing, so this is a no-op unless the
         // production scanner wired one in.
-        let documentVersions = await documentVersionsEnumerator()
+        let documentVersions = await documentVersionsEnumerator { progress.report($0) }
+        progress.finishPhase()
         // Scattered web/dev project artifacts (node_modules, dist, …) live at
         // arbitrary depths under the user's code directories, so they come from
         // the developer-project enumerator rather than a fixed scan root. The
         // default enumerator returns nothing, so this is a no-op unless the
         // production scanner wired one in.
-        let developerProjects = await developerProjectEnumerator()
+        let developerProjects = await developerProjectEnumerator { progress.report($0) }
         return ScanResult(items: files + documentVersions + developerProjects)
+    }
+}
+
+/// Stacks each scan phase's own cumulative walked-count onto the totals of
+/// the phases already finished, forwarding one ever-climbing number to the
+/// caller's `onProgress`. Each phase counts from zero in its own terms;
+/// without the relay, the hand-off from the main walk to the supplementary
+/// enumerators would reset (or freeze) the count the scanning screen shows.
+/// Thread-safe because phases report from their own tasks.
+private final class PhaseProgressRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completedPhasesTotal = 0
+    private var currentPhaseCount = 0
+    private let onProgress: (@Sendable (Int) -> Void)?
+
+    init(_ onProgress: (@Sendable (Int) -> Void)?) {
+        self.onProgress = onProgress
+    }
+
+    /// Reports the running phase's own cumulative count, forwarding the
+    /// all-phases total. Kept monotonic within the phase so an out-of-order
+    /// tick can't move the number backwards.
+    func report(_ count: Int) {
+        lock.lock()
+        currentPhaseCount = max(currentPhaseCount, count)
+        let total = completedPhasesTotal + currentPhaseCount
+        lock.unlock()
+        onProgress?(total)
+    }
+
+    /// Seals the finished phase's tally into the running base before the next
+    /// phase starts its own count from zero.
+    func finishPhase() {
+        lock.lock()
+        completedPhasesTotal += currentPhaseCount
+        currentPhaseCount = 0
+        lock.unlock()
     }
 }

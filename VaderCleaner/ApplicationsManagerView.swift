@@ -133,7 +133,8 @@ struct ApplicationsManagerView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
         .padding(14)
-        .ignoresSafeArea(.container, edges: .top)
+        // The title-bar safe-area extension is applied by ApplicationsView,
+        // outside the manager zoom transition — see ManagerSurfaceModifier.
         .tint(Self.accent)
         .environment(\.sectionAccent, Self.accent)
         .accessibilityIdentifier("applications.manager")

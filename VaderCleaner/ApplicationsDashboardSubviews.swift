@@ -488,14 +488,14 @@ struct ApplicationsDashboardCard: View {
 /// Centered spinner shown while the Applications scan runs.
 struct ApplicationsProgressState: View {
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 28) {
             ScanProgressIndicator()
-            Text(String(
+            // The shared status view, so this loader's type matches every
+            // other section's scan screen.
+            ScanningStatusView(phrases: [String(
                 localized: "Scanning your applications…",
                 comment: "Progress label shown while the Applications scan runs."
-            ))
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            )])
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("applications.loading")

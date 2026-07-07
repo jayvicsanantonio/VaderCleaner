@@ -10,11 +10,11 @@ struct PerformanceProgressState: View {
     let identifier: String
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 28) {
             ScanProgressIndicator()
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            // The shared status view, so this loader's type matches every
+            // other section's scan screen.
+            ScanningStatusView(phrases: [label])
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier(identifier)

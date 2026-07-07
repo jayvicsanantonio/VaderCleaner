@@ -9,11 +9,22 @@ import SwiftUI
 struct MyClutterView: View {
     @Bindable var viewModel: MyClutterViewModel
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let accent = NavigationSection.largeOldFiles.theme.accent
 
     /// Which review screen is up, or `nil` for the dashboard.
     @State private var review: ReviewTarget?
+    /// Where the manager zoom anchors: the button that opened it, resolved
+    /// by `openReview`. Also the point Back zooms the manager back into.
+    @State private var managerAnchor: UnitPoint = .center
+    /// The transition host's frame in global space, for mapping the opening
+    /// click to `managerAnchor`.
+    @State private var paneFrame: CGRect = .zero
+    /// The title-bar safe-area inset the transition host permanently claims;
+    /// handed back to the dashboard as top padding so only the manager
+    /// extends under the title bar.
+    @State private var paneTopInset: CGFloat = 0
 
     /// A review destination: one card's category, or every category at once.
     enum ReviewTarget: Equatable {
@@ -58,27 +69,57 @@ struct MyClutterView: View {
         case .failed(let message):
             LargeOldFilesFailedState(stage: .scanning, message: message, onTryAgain: viewModel.scanAgain)
         case .results:
-            if let review {
-                MyClutterManagerView(
-                    viewModel: viewModel,
-                    initialCategory: Self.category(for: review),
-                    onBack: { self.review = nil }
-                )
-            } else {
-                dashboard
+            // The dashboard and the review manager exchange inside a ZStack
+            // (a stable transition host) with the shared manager motion: the
+            // manager zooms up from the button that opened it over the
+            // receding dashboard, and zooms back into it on Back.
+            ZStack {
+                if let review {
+                    MyClutterManagerView(
+                        viewModel: viewModel,
+                        initialCategory: Self.category(for: review),
+                        onBack: { self.review = nil }
+                    )
+                    .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
+                    // Draw over the dashboard while the two overlap mid-swap.
+                    .zIndex(1)
+                } else {
+                    dashboard
+                        // The dashboard keeps its usual place below the title
+                        // bar: the host ZStack claims that inset permanently,
+                        // so it is handed back here as explicit padding.
+                        .padding(.top, paneTopInset)
+                        .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
+                }
             }
+            // Claim the title-bar safe area on this stable container, never
+            // on a transitioning branch: safe-area changes anywhere inside a
+            // freshly inserted transition subtree are deferred until its
+            // spring fully settles, which read as the manager stuck below a
+            // title-bar-height gap for a beat after opening.
+            .ignoresSafeArea(.container, edges: .top)
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+            .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
+            .animation(VaderMotion.managerZoom, value: review)
         }
+    }
+
+    /// Anchors the zoom to the button (or failing that, the click) being
+    /// handled, then raises the review.
+    private func openReview(_ target: ReviewTarget) {
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        review = target
     }
 
     private var dashboard: some View {
         MyClutterDashboardView(
             viewModel: viewModel,
             accent: accent,
-            onReviewAll: { review = .all },
-            onReviewDuplicates: { review = .duplicates },
-            onReviewSimilar: { review = .similar },
-            onReviewLargeOld: { review = .largeOld },
-            onReviewDownloads: { review = .downloads },
+            onReviewAll: { openReview(.all) },
+            onReviewDuplicates: { openReview(.duplicates) },
+            onReviewSimilar: { openReview(.similar) },
+            onReviewLargeOld: { openReview(.largeOld) },
+            onReviewDownloads: { openReview(.downloads) },
             onStartOver: viewModel.scanAgain
         )
     }

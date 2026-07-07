@@ -29,13 +29,28 @@ struct ProtectionDashboardView: View {
     /// through the shared `AppIconCache`.
     @State private var iconCache = AppIconCache()
     @State private var browserBundleURLs: [Browser: URL] = [:]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Where the manager zoom anchors: the button that opened it, resolved
+    /// by `openManager`. Also the point Back zooms the manager back into.
+    @State private var managerAnchor: UnitPoint = .center
+    /// The transition host's frame in global space, for mapping the opening
+    /// click to `managerAnchor`.
+    @State private var paneFrame: CGRect = .zero
+    /// The title-bar safe-area inset the transition host permanently claims;
+    /// handed back to the dashboard as top padding so only the manager
+    /// extends under the title bar.
+    @State private var paneTopInset: CGFloat = 0
 
     private var malware: MalwareViewModel { viewModel.malware }
     private var privacy: PrivacyViewModel { viewModel.privacy }
     private let accent = NavigationSection.malwareRemoval.theme.accent
 
     var body: some View {
-        Group {
+        // The dashboard and the Protection Manager exchange inside a ZStack
+        // (a stable transition host) with the shared manager motion: the
+        // manager zooms up from the button that opened it over the receding
+        // dashboard, and zooms back into it on Back.
+        ZStack {
             if detail == .manager {
                 ProtectionManagerView(
                     malware: malware,
@@ -44,10 +59,27 @@ struct ProtectionDashboardView: View {
                     bundleURL: { browserBundleURLs[$0] },
                     onBack: { detail = .dashboard }
                 )
+                .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
+                // Draw over the dashboard while the two overlap mid-swap.
+                .zIndex(1)
             } else {
                 dashboardSurface
+                    // The dashboard keeps its usual place below the title
+                    // bar: the host ZStack claims that inset permanently, so
+                    // it is handed back here as explicit padding.
+                    .padding(.top, paneTopInset)
+                    .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
             }
         }
+        // Claim the title-bar safe area on this stable container, never on a
+        // transitioning branch: safe-area changes anywhere inside a freshly
+        // inserted transition subtree are deferred until its spring fully
+        // settles, which read as the manager stuck below a title-bar-height
+        // gap for a beat after opening.
+        .ignoresSafeArea(.container, edges: .top)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
+        .animation(VaderMotion.managerZoom, value: detail)
         // The dashboard appears once a scan has begun. Ensure the privacy
         // preview is running too — covers the Smart Scan seed path, where
         // the dashboard shows without this view's own beginScan.
@@ -57,6 +89,13 @@ struct ProtectionDashboardView: View {
         // Resolve each detected browser's bundle URL + warm the icon cache for
         // the manager's rows.
         .task(id: privacy.detectedBrowsers) { await loadBrowserIcons() }
+    }
+
+    /// Anchors the zoom to the button (or failing that, the click) being
+    /// handled, then raises the manager.
+    private func openManager() {
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        detail = .manager
     }
 
     private var dashboardSurface: some View {
@@ -198,7 +237,7 @@ struct ProtectionDashboardView: View {
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
-            Button(action: { detail = .manager }) {
+            Button(action: openManager) {
                 Text(String(
                     localized: "Manage Privacy Items",
                     comment: "Protection dashboard button that opens the Privacy manager."
@@ -348,7 +387,7 @@ struct ProtectionDashboardView: View {
             metric: tile.metric,
             caption: tile.caption,
             systemImage: tile.systemImage,
-            onReview: { detail = .manager },
+            onReview: openManager,
             onRemove: { pendingPrivacyRemoval = tile.removal }
         )
         .accessibilityIdentifier("protection.privacyTile.\(tile.id)")
