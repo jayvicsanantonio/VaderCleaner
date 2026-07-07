@@ -260,6 +260,7 @@ struct VaderProminentButtonStyle: ButtonStyle {
         @Environment(\.sectionAccent) private var accent
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.controlSize) private var controlSize
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         /// Large/extra-large controls get a taller capsule so the primary
         /// action bars keep the heft of a `.controlSize(.large)` button.
@@ -273,8 +274,10 @@ struct VaderProminentButtonStyle: ButtonStyle {
                 .padding(.vertical, isLarge ? 9 : 6)
                 .background(Capsule().fill(accent.deepenedForWhite))
                 .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1.0) : 0.45)
+                .scaleEffect(VaderMotion.pressScale(isPressed: configuration.isPressed, reduceMotion: reduceMotion))
                 .contentShape(Capsule())
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .animation(VaderMotion.control, value: configuration.isPressed)
+                .recordsTriggerPress(isPressed: configuration.isPressed)
         }
     }
 }
@@ -309,6 +312,7 @@ struct VaderGlassButtonStyle: ButtonStyle {
         let configuration: Configuration
         let matchesTileSurface: Bool
         @Environment(\.controlSize) private var controlSize
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         /// Large/extra-large controls get the header pills' roomier capsule;
         /// the default size stays compact enough for two capsules to share a
@@ -329,8 +333,10 @@ struct VaderGlassButtonStyle: ButtonStyle {
                     in: .capsule
                 )
                 .opacity(configuration.isPressed ? 0.82 : 1.0)
+                .scaleEffect(VaderMotion.pressScale(isPressed: configuration.isPressed, reduceMotion: reduceMotion))
                 .contentShape(Capsule())
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .animation(VaderMotion.control, value: configuration.isPressed)
+                .recordsTriggerPress(isPressed: configuration.isPressed)
         }
     }
 }
@@ -355,6 +361,7 @@ struct VaderWhiteButtonStyle: ButtonStyle {
     private struct WhiteLabel: View {
         let configuration: Configuration
         @Environment(\.controlSize) private var controlSize
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         private var isLarge: Bool { controlSize == .large || controlSize == .extraLarge }
 
@@ -369,8 +376,10 @@ struct VaderWhiteButtonStyle: ButtonStyle {
                 .padding(.vertical, isLarge ? 9 : 6)
                 .background(Capsule().fill(.white))
                 .opacity(configuration.isPressed ? 0.82 : 1.0)
+                .scaleEffect(VaderMotion.pressScale(isPressed: configuration.isPressed, reduceMotion: reduceMotion))
                 .contentShape(Capsule())
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .animation(VaderMotion.control, value: configuration.isPressed)
+                .recordsTriggerPress(isPressed: configuration.isPressed)
         }
     }
 }

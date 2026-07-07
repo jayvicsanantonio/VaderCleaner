@@ -50,6 +50,10 @@ struct NavRow<Content: View>: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        // Ease the hover and selection fills in and out instead of snapping,
+        // so pointing along the pane reads as a soft glide.
+        .animation(VaderMotion.hover, value: hovered)
+        .animation(VaderMotion.hover, value: selected)
     }
 }
 
@@ -83,6 +87,9 @@ struct ManagerRowCard: ViewModifier {
                     .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
             )
             .onHover { hovered = $0 }
+            // Fade the hover fill in and out so rows light up softly as the
+            // pointer travels the list.
+            .animation(VaderMotion.hover, value: hovered)
     }
 }
 
@@ -100,6 +107,7 @@ struct ManagerRowCheckbox: View {
     let isOn: Bool
     let action: () -> Void
     @Environment(\.sectionAccent) private var accent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -109,6 +117,10 @@ struct ManagerRowCheckbox: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
+                        // The check pops in from a smaller scale with the
+                        // control spring, so ticking a row answers with a
+                        // little bounce; Reduce Motion keeps a plain fade.
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
                 } else {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .strokeBorder(accent.opacity(0.6), lineWidth: 1.5)
@@ -116,6 +128,7 @@ struct ManagerRowCheckbox: View {
             }
             .frame(width: 18, height: 18)
             .contentShape(Rectangle())
+            .animation(VaderMotion.control, value: isOn)
         }
         .buttonStyle(.plain)
     }
@@ -139,10 +152,11 @@ struct ManagerSurfaceModifier: ViewModifier {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
                 .padding(14)
-                // Extend up under the title-bar safe area so the top margin is
-                // as thin as the sides instead of leaving the toolbar's tall
-                // gradient band above the card.
-                .ignoresSafeArea(.container, edges: .top)
+                // The extension up under the title-bar safe area (so the top
+                // margin is as thin as the sides) is applied by the hosting
+                // section, outside the manager zoom transition — expansion
+                // requested from inside an in-flight transition is deferred
+                // until the spring settles, which read as a stuck top margin.
         } else {
             content
         }

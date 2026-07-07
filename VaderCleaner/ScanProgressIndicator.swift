@@ -14,8 +14,10 @@ import SwiftUI
 /// per-call wiring. Honors Reduce Motion: the spin and sonar drop to a calm,
 /// static glowing emblem.
 struct ScanProgressIndicator: View {
-    /// Overall diameter; every element scales from this.
-    var size: CGFloat = 132
+    /// Overall diameter; every element scales from this. Sized as a hero
+    /// element — the loader is the screen's sole occupant while a scan runs,
+    /// so it carries the space rather than floating in it.
+    var size: CGFloat = 220
     /// Explicit tint override. `nil` uses the active section accent so the
     /// loader matches the backdrop it sits on.
     var accent: Color? = nil
@@ -143,21 +145,23 @@ struct ScanningStatusView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        // Type is scaled to pair with the hero-sized indicator above: a
+        // title-weight phrase with the accent count a step below it.
+        VStack(spacing: 10) {
             ZStack {
                 Text(phrase)
                     .id(phrase)
                     .transition(.opacity)
             }
-            .font(.callout.weight(.medium))
+            .font(.title2.weight(.medium))
             .foregroundStyle(.primary)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: 460)
+            .frame(maxWidth: 560)
             .animation(.smooth(duration: 0.5), value: phrase)
 
             if let count {
                 Text(count)
-                    .font(.callout.monospacedDigit().weight(.semibold))
+                    .font(.title3.monospacedDigit().weight(.semibold))
                     .foregroundStyle(accent)
                     .contentTransition(.numericText())
                     .accessibilityIdentifier(countIdentifier ?? "")
@@ -292,7 +296,7 @@ enum ScanPhrases {
             count: "12,431 items"
         )
     }
-    .frame(width: 320, height: 360)
+    .frame(width: 520, height: 560)
     .environment(\.sectionAccent, Color(red: 0.13, green: 0.90, blue: 0.21))
     .background(Color.black)
 }
