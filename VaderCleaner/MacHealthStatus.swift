@@ -32,6 +32,20 @@ enum MacHealthStatus: Int, CaseIterable, Comparable {
         }
     }
 
+    /// Fraction the Health Monitor hero ring fills to (0–1), rising with the
+    /// verdict so the arc's length itself signals how healthy the Mac is.
+    /// Excellent fills the ring; each worse tier fills less, and even Critical
+    /// keeps a visible sliver rather than collapsing to a bare track.
+    var score: Double {
+        switch self {
+        case .critical:          return 0.16
+        case .requiresAttention: return 0.36
+        case .fair:              return 0.56
+        case .good:              return 0.78
+        case .excellent:         return 1.0
+        }
+    }
+
     /// One-line plain-language explanation shown beneath the title.
     var summary: String {
         switch self {

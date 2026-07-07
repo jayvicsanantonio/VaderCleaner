@@ -38,6 +38,19 @@ final class HealthMonitorViewModel {
     /// shows it on every render, so resolving it per-render would be wasteful.
     let diskVolumeName: String = HealthMonitorViewModel.rootVolumeName()
 
+    /// Apple Silicon chip name (e.g. "Apple M3 Max"), read once — it's fixed
+    /// hardware, shown in the hero's system snapshot.
+    let chipName: String = HealthMonitorViewModel.readChipName()
+
+    /// Running OS version (e.g. "macOS 26.1"), read once at creation.
+    let osVersion: String = HealthMonitorViewModel.osVersionString(
+        ProcessInfo.processInfo.operatingSystemVersion
+    )
+
+    /// Live system uptime as a compact string (e.g. "4d 3h") for the hero's
+    /// system snapshot.
+    var uptime: String { Self.uptimeString(ProcessInfo.processInfo.systemUptime) }
+
     // MARK: - Live-bound display values
 
     var cpuPercent: String { Self.cpuPercentString(service.cpuUsage) }
@@ -156,6 +169,40 @@ final class HealthMonitorViewModel {
         return String(format: format, used, total)
     }
 
+    /// Reads the Apple Silicon chip name from `sysctl` (e.g. "Apple M3 Max").
+    /// Returns an empty string if the query fails, so the caller can omit the
+    /// row rather than show a placeholder.
+    static func readChipName() -> String {
+        var size = 0
+        guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
+            return ""
+        }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
+            return ""
+        }
+        return String(cString: buffer)
+    }
+
+    /// Formats an OS version as `"macOS <major>.<minor>"` — the patch level is
+    /// dropped so the hero row stays short.
+    static func osVersionString(_ version: OperatingSystemVersion) -> String {
+        "macOS \(version.majorVersion).\(version.minorVersion)"
+    }
+
+    /// Formats an uptime interval as the two largest non-zero units, so the
+    /// hero row stays compact: days+hours, else hours+minutes, else minutes.
+    /// Negative inputs clamp to zero.
+    static func uptimeString(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
+    }
+
     /// Reads the boot volume's display name from the filesystem. Falls back to
     /// the conventional default if the lookup fails (it shouldn't for "/").
     static func rootVolumeName() -> String {
@@ -181,6 +228,15 @@ final class HealthMonitorViewModel {
     /// as "8,000 MB" on a non-en locale and so the card width stays stable.
     static func ramUsageString(_ stats: MemoryStats) -> String {
         SystemStatsFormatters.memoryUsageString(stats)
+    }
+
+    /// `usedBytes / totalBytes` clamped to `[0, 1]` for the Memory card's fill
+    /// ring. Returns `0` for zero-byte totals (pre-first-refresh) so the ring
+    /// stays empty rather than NaN.
+    static func ramUsageRatio(_ stats: MemoryStats) -> Double {
+        guard stats.totalBytes > 0 else { return 0.0 }
+        let raw = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return max(0.0, min(1.0, raw))
     }
 
     /// Formats disk byte counts identically to RAM — see `ramUsageString` for
@@ -264,6 +320,14 @@ final class HealthMonitorViewModel {
             // ambiguous, which is itself worth surfacing.
             return .yellow
         }
+    }
+
+    /// The present battery's capacity as a unit-interval value for the card's
+    /// fill ring, clamped to `[0, 1]`. Absent and unknown batteries report `0`
+    /// so the ring renders empty rather than implying a full charge.
+    static func batteryCapacityRatio(for availability: BatteryAvailability) -> Double {
+        guard case .present(let stats) = availability else { return 0.0 }
+        return max(0.0, min(1.0, stats.maxCapacityPercent))
     }
 
     /// Formats `maxCapacityPercent` (0.0–1.0) as an integer percentage.
