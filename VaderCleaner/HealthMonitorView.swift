@@ -41,6 +41,110 @@ struct HealthMonitorView: View {
         viewModel.macHealth?.accentColor ?? Color(white: 0.55)
     }
 
+    /// Drives the one-shot staggered entrance of the metric tiles when the
+    /// dashboard first appears, mirroring the Smart Scan results grid.
+    @State private var appeared = false
+
+    /// Per-metric health color for the Battery card — the battery's own
+    /// traffic-light verdict rather than the overall Mac Health tint, so the
+    /// tile's dot and gauge read that metric specifically.
+    private var batteryHealthColor: Color {
+        Self.color(for: HealthMonitorViewModel.batteryColor(for: viewModel.batteryAvailability))
+    }
+
+    /// Per-metric health color for the Disk Health card — the drive's own SMART
+    /// verdict, independent of the overall Mac Health tint.
+    private var smartHealthColor: Color {
+        Self.color(for: HealthMonitorViewModel.smartColor(for: viewModel.smartStatus))
+    }
+
+    /// Per-metric health color for the Memory card, from the current
+    /// memory-pressure level rather than the overall verdict.
+    private var ramHealthColor: Color {
+        Self.color(for: HealthMonitorViewModel.pressureColor(for: viewModel.ramPressureLevel))
+    }
+
+    /// Per-metric health color for the CPU card, from the current load.
+    private var cpuHealthColor: Color {
+        Self.color(for: HealthMonitorViewModel.cpuColor(for: viewModel.service.cpuUsage))
+    }
+
+    /// Per-metric health color for the Disk Space card, from current fullness.
+    private var diskHealthColor: Color {
+        Self.color(for: HealthMonitorViewModel.diskColor(for: viewModel.service.diskSpace))
+    }
+
+    /// Per-metric health color for the Disk Encryption card, so its dot tracks
+    /// FileVault's own state rather than the overall verdict.
+    private var fileVaultHealthColor: Color {
+        Self.color(for: HealthMonitorViewModel.fileVaultColor(for: viewModel.fileVaultState))
+    }
+
+    /// Live memory fullness as a rounded percentage for the Memory ring's eye.
+    private var ramUsagePercent: String {
+        Self.percentString(HealthMonitorViewModel.ramUsageRatio(viewModel.service.ramUsage))
+    }
+
+    /// Live disk fullness as a rounded percentage for the Disk Space ring's eye.
+    private var diskUsagePercent: String {
+        Self.percentString(viewModel.diskRatio)
+    }
+
+    /// Formats a unit-interval ratio as an integer percentage (e.g. `0.58` →
+    /// `"58%"`) for a gauge's center label.
+    private static func percentString(_ ratio: Double) -> String {
+        "\(Int((ratio * 100).rounded()))%"
+    }
+
+    /// The hero's system snapshot: device and OS context that appears nowhere
+    /// else on the dashboard, so the hero carries information the metric tiles
+    /// don't repeat. The chip row is omitted when the name can't be read.
+    private var systemDetails: [MacHealthDetail] {
+        var rows: [MacHealthDetail] = []
+        if !viewModel.chipName.isEmpty {
+            rows.append(MacHealthDetail(
+                icon: "cpu",
+                title: String(localized: "Chip"),
+                value: viewModel.chipName
+            ))
+        }
+        rows.append(MacHealthDetail(
+            icon: "apple.logo",
+            title: String(localized: "macOS"),
+            value: viewModel.osVersion
+        ))
+        rows.append(MacHealthDetail(
+            icon: "clock",
+            title: String(localized: "Uptime"),
+            value: viewModel.uptime
+        ))
+        return rows
+    }
+
+    /// Maps the view-model's framework-free `StatusColor` to a softened SwiftUI
+    /// color tuned for the dark glass tiles — the same warm-to-cool ramp the
+    /// Mac Health verdict uses, so a green battery and a green verdict read in
+    /// the same hue family.
+    private static func color(for status: StatusColor) -> Color {
+        switch status {
+        case .green:  return Color(red: 0.40, green: 0.85, blue: 0.66)
+        case .yellow: return Color(red: 0.99, green: 0.78, blue: 0.34)
+        case .red:    return Color(red: 1.00, green: 0.45, blue: 0.38)
+        case .gray:   return Color(white: 0.55)
+        }
+    }
+
+    /// SF Symbol shown in the Disk Health badge, chosen by the SMART verdict so
+    /// the glyph itself signals the state — a sealed shield when healthy, a
+    /// warning shield when failing, an indeterminate mark when unreadable.
+    private var smartBadgeSymbol: String {
+        switch viewModel.smartStatus {
+        case .good:    return "checkmark.shield.fill"
+        case .failing: return "exclamationmark.shield.fill"
+        case .unknown: return "questionmark.circle.fill"
+        }
+    }
+
     var body: some View {
         // The whole dashboard fills the detail pane without a scroll view: the
         // left hero stretches to the column height and the right tiles divide
@@ -52,6 +156,7 @@ struct HealthMonitorView: View {
             VStack(spacing: 16) {
                 MacHealthHero(
                     status: viewModel.macHealth,
+                    details: systemDetails,
                     volumeName: viewModel.diskVolumeName,
                     diskUsageDetail: viewModel.diskUsageDetail,
                     diskRatio: viewModel.diskRatio
@@ -69,14 +174,14 @@ struct HealthMonitorView: View {
             GlassEffectContainer(spacing: 16) {
                 VStack(spacing: 16) {
                     HStack(spacing: 16) {
-                        batteryCard
-                        smartCard
+                        batteryCard.staggeredEntrance(index: 0, appeared: appeared)
+                        smartCard.staggeredEntrance(index: 1, appeared: appeared)
                     }
                     HStack(spacing: 16) {
-                        ramCard
-                        cpuCard
+                        ramCard.staggeredEntrance(index: 2, appeared: appeared)
+                        cpuCard.staggeredEntrance(index: 3, appeared: appeared)
                     }
-                    diskCard
+                    diskCard.staggeredEntrance(index: 4, appeared: appeared)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -84,6 +189,7 @@ struct HealthMonitorView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(NavigationSection.healthMonitor.title)
+        .onAppear { appeared = true }
     }
 
     // MARK: - Cards
@@ -94,32 +200,48 @@ struct HealthMonitorView: View {
             title: "Battery Health",
             accent: sectionAccent,
             iconColor: heroTint,
-            statusColor: verdictAccent,
+            statusColor: batteryHealthColor,
             info: "Battery condition and capacity relative to when it was new, plus lifetime charge cycles."
         ) {
-            switch viewModel.batteryAvailability {
-            case .unknown:
-                Text("—")
-                    .font(.title.weight(.semibold))
-                Text("Checking battery")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            case .absent:
-                Text("—")
-                    .font(.title.weight(.semibold))
-                Text("No internal battery")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            case .present(let stats):
-                Text(HealthMonitorViewModel.batteryCapacityString(stats))
-                    .font(.title.weight(.semibold))
-                    .accessibilityIdentifier("health.battery.capacity")
-                Text(stats.condition)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("\(stats.cycleCount) cycles")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    switch viewModel.batteryAvailability {
+                    case .unknown:
+                        Text("—")
+                            .font(.title.weight(.semibold))
+                        Text("Checking battery")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    case .absent:
+                        Text("—")
+                            .font(.title.weight(.semibold))
+                        Text("No internal battery")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    case .present(let stats):
+                        Text(HealthMonitorViewModel.batteryCapacityString(stats))
+                            .font(.title.weight(.semibold))
+                            .contentTransition(.numericText())
+                            .accessibilityIdentifier("health.battery.capacity")
+                        Text(stats.condition)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Text("\(stats.cycleCount) cycles")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                // The capacity gauge only reads meaningfully for a real battery;
+                // desktops and the pre-measurement state omit it.
+                if case .present = viewModel.batteryAvailability {
+                    HealthGauge(
+                        ratio: HealthMonitorViewModel.batteryCapacityRatio(for: viewModel.batteryAvailability),
+                        color: batteryHealthColor,
+                        centerSymbol: "bolt.fill"
+                    )
+                    .frame(width: 74, height: 74)
+                }
             }
         }
         .accessibilityIdentifier("health.card.battery")
@@ -131,15 +253,22 @@ struct HealthMonitorView: View {
             title: "Disk Health",
             accent: sectionAccent,
             iconColor: heroTint,
-            statusColor: verdictAccent,
+            statusColor: smartHealthColor,
             info: "The drive's SMART self-assessment. \"Good\" means the disk reports no predicted failures."
         ) {
-            Text(viewModel.smartLabel)
-                .font(.title.weight(.semibold))
-                .accessibilityIdentifier("health.smart.label")
-            Text("Drive self-check")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.smartLabel)
+                        .font(.title.weight(.semibold))
+                        .accessibilityIdentifier("health.smart.label")
+                    Text("Drive self-check")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                HealthBadge(symbol: smartBadgeSymbol, color: smartHealthColor)
+                    .frame(width: 62, height: 62)
+            }
         }
         .accessibilityIdentifier("health.card.smart")
     }
@@ -150,15 +279,25 @@ struct HealthMonitorView: View {
             title: "Memory",
             accent: sectionAccent,
             iconColor: heroTint,
-            statusColor: verdictAccent,
+            statusColor: ramHealthColor,
             info: "How much memory your open apps are using right now, with the system's current memory-pressure level."
         ) {
-            Text(viewModel.ramUsage)
-                .font(.title.weight(.semibold))
-                .accessibilityIdentifier("health.ram.usage")
-            HStack(spacing: 8) {
-                PressureBadge(label: viewModel.ramPressureLabel, accent: sectionAccent)
-                Spacer()
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.ramUsage)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .accessibilityIdentifier("health.ram.usage")
+                    PressureBadge(label: viewModel.ramPressureLabel, accent: ramHealthColor)
+                }
+                Spacer(minLength: 8)
+                HealthGauge(
+                    ratio: HealthMonitorViewModel.ramUsageRatio(viewModel.service.ramUsage),
+                    color: ramHealthColor,
+                    centerText: ramUsagePercent
+                )
+                .frame(width: 74, height: 74)
             }
         }
         .accessibilityIdentifier("health.card.ram")
@@ -170,15 +309,27 @@ struct HealthMonitorView: View {
             title: "CPU",
             accent: sectionAccent,
             iconColor: heroTint,
-            statusColor: verdictAccent,
+            statusColor: cpuHealthColor,
             info: "How much of your processor's power is in use right now, across all cores."
         ) {
-            Text(viewModel.cpuPercent)
-                .font(.title.weight(.semibold))
-                .accessibilityIdentifier("health.cpu.percent")
-            ProgressView(value: viewModel.cpuRatio)
-                .progressViewStyle(.linear)
-                .tint(verdictAccent)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.cpuPercent)
+                        .font(.title.weight(.semibold))
+                        .contentTransition(.numericText())
+                        .accessibilityIdentifier("health.cpu.percent")
+                    Text("in use")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                HealthGauge(
+                    ratio: viewModel.cpuRatio,
+                    color: cpuHealthColor,
+                    centerText: viewModel.cpuPercent
+                )
+                .frame(width: 74, height: 74)
+            }
         }
         .accessibilityIdentifier("health.card.cpu")
     }
@@ -189,15 +340,26 @@ struct HealthMonitorView: View {
             title: "Disk Space",
             accent: sectionAccent,
             iconColor: heroTint,
-            statusColor: verdictAccent,
+            statusColor: diskHealthColor,
             info: "How full your startup disk is. Freeing up space keeps your Mac responsive."
         ) {
-            Text(viewModel.diskUsage)
-                .font(.title.weight(.semibold))
-                .accessibilityIdentifier("health.disk.usage")
-            ProgressView(value: viewModel.diskRatio)
-                .progressViewStyle(.linear)
-                .tint(verdictAccent)
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(viewModel.diskUsage)
+                        .font(.title.weight(.semibold))
+                        .accessibilityIdentifier("health.disk.usage")
+                    ProgressView(value: viewModel.diskRatio)
+                        .progressViewStyle(.linear)
+                        .tint(diskHealthColor)
+                }
+                Spacer(minLength: 8)
+                HealthGauge(
+                    ratio: viewModel.diskRatio,
+                    color: diskHealthColor,
+                    centerText: diskUsagePercent
+                )
+                .frame(width: 74, height: 74)
+            }
         }
         .accessibilityIdentifier("health.card.disk")
     }
@@ -225,7 +387,7 @@ struct HealthMonitorView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            StatusDot(color: verdictAccent)
+            StatusDot(color: fileVaultHealthColor)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -238,15 +400,28 @@ struct HealthMonitorView: View {
 
 // MARK: - Mac Health hero
 
+/// One row in the hero's system snapshot — an icon, a label, and a value (e.g.
+/// Chip · Apple M3 Max). Built in `HealthMonitorView` from the view-model so the
+/// hero stays a pure render of the data it's handed. Deliberately carries no
+/// health color: this is device/OS context, not another traffic-light metric.
+private struct MacHealthDetail: Identifiable {
+    let icon: String
+    let title: String
+    let value: String
+    var id: String { title }
+}
+
 /// The dashboard-style hero card: a glowing ring around a laptop, the single
-/// overall verdict, the boot volume's fill, and an info affordance. Always
-/// rendered dark (like the reference design) so it reads as the focal element
-/// regardless of system appearance; text colors are therefore pinned light
-/// rather than semantic.
+/// overall verdict, the contributing checks, the boot volume's fill, and an
+/// info affordance. Always rendered dark (like the reference design) so it
+/// reads as the focal element regardless of system appearance; text colors are
+/// therefore pinned light rather than semantic.
 private struct MacHealthHero: View {
     /// `nil` means the boot volume hasn't been measured yet — the card shows a
     /// neutral "Measuring…" state instead of a confident verdict.
     let status: MacHealthStatus?
+    /// Device/OS context rows shown in the hero's system snapshot.
+    let details: [MacHealthDetail]
     let volumeName: String
     let diskUsageDetail: String
     let diskRatio: Double
@@ -294,7 +469,11 @@ private struct MacHealthHero: View {
 
                 Spacer(minLength: 0)
 
-                HealthRing(color: accent, isMeasuring: status == nil)
+                HealthRing(
+                    color: accent,
+                    fillRatio: status?.score ?? 0,
+                    isMeasuring: status == nil
+                )
                     .frame(width: 140, height: 140)
                     .overlay { heroArt }
                     .accessibilityIdentifier("health.hero.ring")
@@ -305,7 +484,14 @@ private struct MacHealthHero: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
 
-            Spacer(minLength: 8)
+            // Device/OS context the metric tiles don't show. Hidden while
+            // measuring (status == nil) so it appears with the verdict.
+            if status != nil {
+                Spacer(minLength: 16)
+                detailList
+            }
+
+            Spacer(minLength: 12)
 
             // While measuring (status == nil) the disk reads zero bytes, so
             // hide the block rather than show "Zero KB of Zero KB used".
@@ -350,6 +536,43 @@ private struct MacHealthHero: View {
         .accessibilityHidden(true)
     }
 
+    /// Grouped system snapshot — an icon, a label, and a value per row (Chip,
+    /// macOS, Uptime). Sits in the hero's middle so the space carries device/OS
+    /// context the metric tiles don't, rather than a void. No status dots: this
+    /// is context, not another traffic-light reading.
+    private var detailList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(details.enumerated()), id: \.element.id) { index, detail in
+                if index > 0 {
+                    Divider().overlay(Color.white.opacity(0.08))
+                }
+                HStack(spacing: 10) {
+                    Image(systemName: detail.icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: 20)
+                    Text(detail.title)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.85))
+                    Spacer(minLength: 8)
+                    Text(detail.value)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .padding(.vertical, 9)
+            }
+        }
+        .padding(.horizontal, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.06))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("health.hero.system")
+    }
+
     /// Boot-volume name with its "used of total" fill below a slim bar.
     private var diskBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -370,13 +593,15 @@ private struct MacHealthHero: View {
         }
     }
 
-    /// The Smart Scan section's hero art centered inside the ring.
+    /// Health Monitor's own hero art centered inside the ring: the pink iMac
+    /// from the shared 3D family showing an ECG pulse on its screen, so the card
+    /// reads as Health Monitor rather than borrowing Smart Scan's art.
     private var heroArt: some View {
-        Image("smartScan")
+        Image("healthMonitor")
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fit)
-            .frame(width: 96, height: 96)
+            .frame(width: 108, height: 108)
             .accessibilityHidden(true)
     }
 
@@ -409,15 +634,20 @@ private struct MacHealthHero: View {
     }
 }
 
-/// The glowing health ring. Isolated to take only `color` and a measuring flag
-/// so its `.repeatForever` rotation keeps a stable identity and is not reset by
-/// the surrounding view re-evaluating on every system-telemetry tick.
+/// The glowing health ring — a score gauge whose bright arc fills to the
+/// verdict's `score`, so the arc length itself signals how healthy the Mac is.
+/// Isolated to take only `color`, the fill fraction, and a measuring flag so
+/// its fill animation keeps a stable identity and is not reset by the
+/// surrounding view re-evaluating on every system-telemetry tick. The arc grows
+/// from empty when a verdict first lands, then eases to each new value.
 private struct HealthRing: View {
     let color: Color
+    /// Fraction of the circle the bright arc fills, from `MacHealthStatus.score`.
+    let fillRatio: Double
     let isMeasuring: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var spin = false
+    @State private var fill: Double = 0
 
     var body: some View {
         ZStack {
@@ -428,52 +658,54 @@ private struct HealthRing: View {
             // Dim full-circle track.
             Circle()
                 .stroke(color.opacity(0.18), lineWidth: 6)
-            // Bright sweeping arc — hidden while measuring so the ring reads as
-            // neutral until a verdict lands.
+            // Bright scored arc — hidden while measuring so the ring reads as
+            // neutral until a verdict lands, then filling to the verdict score.
+            // Starts at 12 o'clock and sweeps clockwise like a gauge.
             Circle()
-                .trim(from: 0.0, to: 0.72)
+                .trim(from: 0.0, to: fill)
                 .stroke(
                     AngularGradient(
                         gradient: Gradient(colors: [
-                            color.opacity(0.0), color, .white.opacity(0.9), color, color.opacity(0.0)
+                            color.opacity(0.35), color, .white.opacity(0.9)
                         ]),
                         center: .center
                     ),
                     style: StrokeStyle(lineWidth: 6, lineCap: .round)
                 )
+                .rotationEffect(.degrees(-90))
                 .blur(radius: 0.5)
+                .shadow(color: color.opacity(0.5), radius: 6)
                 .opacity(isMeasuring ? 0.0 : 1.0)
-                .rotationEffect(.degrees(spin ? 360 : 0))
         }
-        .onAppear { startSpinIfNeeded() }
+        .onAppear { animateFill() }
         // The real app starts measuring (nil) and resolves on the first tick;
-        // kick off the rotation when the verdict arrives, not just on appear.
-        // NOTE: this `.repeatForever` rotation means the Health Monitor screen
-        // never reaches animation-idle — a UI test that taps an element on this
-        // screen will stall in wait-for-idle. Query/assert only (no taps here).
-        .onChange(of: isMeasuring) { _, _ in startSpinIfNeeded() }
+        // grow the arc when the verdict arrives, not just on appear.
+        .onChange(of: isMeasuring) { _, _ in animateFill() }
+        .onChange(of: fillRatio) { _, _ in animateFill() }
     }
 
-    private func startSpinIfNeeded() {
-        guard !isMeasuring, !reduceMotion, !spin else { return }
-        withAnimation(.linear(duration: 9).repeatForever(autoreverses: false)) {
-            spin = true
-        }
+    /// Eases the arc to the current verdict score; snaps immediately under
+    /// Reduce Motion. While measuring the arc stays empty (and hidden).
+    private func animateFill() {
+        let target = isMeasuring ? 0 : fillRatio
+        guard !reduceMotion else { fill = target; return }
+        withAnimation(.smooth(duration: 0.8)) { fill = target }
     }
 }
 
 extension MacHealthStatus {
-    /// Signature color per tier, matching the reference design's ramp from a
-    /// warm critical red through amber and teal to a confident blue. Shared by
-    /// the Health Monitor hero and the menu bar panel so the verdict reads in
-    /// the same colour in both places.
+    /// Signature color per tier — a traffic-light ramp from critical red through
+    /// orange and amber to a healthy green, so a healthy Mac reads in the same
+    /// green as the per-metric gauges and dots rather than a competing hue.
+    /// Shared by the Health Monitor hero and the menu bar panel so the verdict
+    /// reads in the same colour in both places.
     var accentColor: Color {
         switch self {
         case .critical:          return Color(red: 1.00, green: 0.45, blue: 0.38)
-        case .requiresAttention: return Color(red: 0.99, green: 0.78, blue: 0.34)
-        case .fair:              return Color(red: 0.40, green: 0.85, blue: 0.78)
-        case .good:              return Color(red: 0.52, green: 0.80, blue: 0.99)
-        case .excellent:         return Color(red: 0.34, green: 0.66, blue: 1.00)
+        case .requiresAttention: return Color(red: 1.00, green: 0.60, blue: 0.35)
+        case .fair:              return Color(red: 0.99, green: 0.80, blue: 0.36)
+        case .good:              return Color(red: 0.56, green: 0.85, blue: 0.55)
+        case .excellent:         return Color(red: 0.40, green: 0.85, blue: 0.66)
         }
     }
 }
@@ -586,6 +818,112 @@ private struct PressureBadge: View {
     }
 }
 
+/// Circular fill gauge for a single metric: a dim full-circle track under a
+/// bright arc trimmed to `ratio`, with a small glyph in the eye. Tinted by the
+/// metric's own health color so the instrument itself carries the verdict. The
+/// arc grows from empty on first appearance so the card reads as "filling in"
+/// rather than snapping to a static value.
+private struct HealthGauge: View {
+    let ratio: Double
+    let color: Color
+    /// SF Symbol shown small in the eye of the ring — used when there is no
+    /// live value worth repeating (e.g. Battery, whose % is already the metric).
+    var centerSymbol: String? = nil
+    /// Live value shown in the eye of the ring instead of a glyph, so the gauge
+    /// reads its own number (e.g. Memory "58%", CPU "30%") rather than echoing
+    /// the tile's icon.
+    var centerText: String? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var fill: Double = 0
+
+    private let lineWidth: CGFloat = 7
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(0.16), lineWidth: lineWidth)
+            Circle()
+                // A hair of minimum trim keeps the rounded cap visible even at
+                // a zero reading, so the ring never looks like a bare track.
+                .trim(from: 0, to: max(0.02, fill))
+                .stroke(
+                    color,
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .shadow(color: color.opacity(0.45), radius: 5)
+            if let centerText {
+                Text(centerText)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(color)
+                    .contentTransition(.numericText())
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+            } else if let centerSymbol {
+                Image(systemName: centerSymbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(color)
+            }
+        }
+        .onAppear {
+            guard !reduceMotion else { fill = ratio; return }
+            withAnimation(.smooth(duration: 0.7)) { fill = ratio }
+        }
+        .onChange(of: ratio) { _, newValue in
+            withAnimation(.smooth(duration: 0.4)) { fill = newValue }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Filled circular badge for a binary/verdict metric that has no continuous
+/// value to fill a gauge — Disk Health's SMART self-check. The glyph and its
+/// soft disc both take the metric's health color so the badge reads as the
+/// verdict at a glance.
+private struct HealthBadge: View {
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.16))
+            Circle()
+                .strokeBorder(color.opacity(0.35), lineWidth: 1)
+            Image(systemName: symbol)
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(color)
+                .shadow(color: color.opacity(0.4), radius: 5)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// One-shot entrance for the metric tiles: each fades and rises into place with
+/// a per-index delay so the grid assembles in a quick cascade rather than
+/// popping in all at once, matching the Smart Scan results grid.
+private struct StaggeredEntrance: ViewModifier {
+    let index: Int
+    let appeared: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .animation(
+                .smooth(duration: 0.4).delay(Double(index) * 0.08),
+                value: appeared
+            )
+    }
+}
+
+private extension View {
+    func staggeredEntrance(index: Int, appeared: Bool) -> some View {
+        modifier(StaggeredEntrance(index: index, appeared: appeared))
+    }
+}
+
 #Preview("Health Monitor") {
     HealthMonitorView(service: SystemStatsService(autostart: false))
         .frame(width: 900, height: 600)
@@ -595,14 +933,19 @@ private struct PressureBadge: View {
 /// without live telemetry (the live `SystemStatsService(autostart: false)`
 /// preview above only ever shows the "Measuring…" state off its empty disk).
 #Preview("Mac Health states") {
-    ScrollView {
+    let sampleDetails: [MacHealthDetail] = [
+        MacHealthDetail(icon: "cpu", title: "Chip", value: "Apple M3 Max"),
+        MacHealthDetail(icon: "apple.logo", title: "macOS", value: "macOS 26.1"),
+        MacHealthDetail(icon: "clock", title: "Uptime", value: "4d 3h")
+    ]
+    return ScrollView {
         VStack(spacing: 16) {
-            MacHealthHero(status: nil, volumeName: "Macintosh HD", diskUsageDetail: "", diskRatio: 0.0)
-            MacHealthHero(status: .excellent, volumeName: "Macintosh HD", diskUsageDetail: "121 GB of 494 GB used", diskRatio: 0.24)
-            MacHealthHero(status: .good, volumeName: "Macintosh HD", diskUsageDetail: "270 GB of 494 GB used", diskRatio: 0.55)
-            MacHealthHero(status: .fair, volumeName: "Macintosh HD", diskUsageDetail: "380 GB of 494 GB used", diskRatio: 0.77)
-            MacHealthHero(status: .requiresAttention, volumeName: "Macintosh HD", diskUsageDetail: "430 GB of 494 GB used", diskRatio: 0.87)
-            MacHealthHero(status: .critical, volumeName: "Macintosh HD", diskUsageDetail: "479 GB of 494 GB used", diskRatio: 0.97)
+            MacHealthHero(status: nil, details: sampleDetails, volumeName: "Macintosh HD", diskUsageDetail: "", diskRatio: 0.0)
+            MacHealthHero(status: .excellent, details: sampleDetails, volumeName: "Macintosh HD", diskUsageDetail: "121 GB of 494 GB used", diskRatio: 0.24)
+            MacHealthHero(status: .good, details: sampleDetails, volumeName: "Macintosh HD", diskUsageDetail: "270 GB of 494 GB used", diskRatio: 0.55)
+            MacHealthHero(status: .fair, details: sampleDetails, volumeName: "Macintosh HD", diskUsageDetail: "380 GB of 494 GB used", diskRatio: 0.77)
+            MacHealthHero(status: .requiresAttention, details: sampleDetails, volumeName: "Macintosh HD", diskUsageDetail: "430 GB of 494 GB used", diskRatio: 0.87)
+            MacHealthHero(status: .critical, details: sampleDetails, volumeName: "Macintosh HD", diskUsageDetail: "479 GB of 494 GB used", diskRatio: 0.97)
         }
         .frame(width: 360)
         .padding(20)

@@ -210,6 +210,87 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertEqual(HealthMonitorViewModel.batteryCapacityString(stats), "1%")
     }
 
+    /// `batteryCapacityRatio` exposes the present battery's capacity as a
+    /// unit-interval value for the card's fill ring. A present battery reports
+    /// its `maxCapacityPercent`; an absent or unknown battery reports `0` so the
+    /// ring renders empty rather than full.
+    func test_batteryCapacityRatio_returnsCapacityWhenPresent() {
+        let stats = BatteryStats(cycleCount: 237, maxCapacityPercent: 0.88, condition: "Normal")
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityRatio(for: .present(stats)), 0.88, accuracy: 0.0001)
+    }
+
+    func test_batteryCapacityRatio_isZeroWhenAbsentOrUnknown() {
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityRatio(for: .unknown), 0.0)
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityRatio(for: .absent), 0.0)
+    }
+
+    /// Out-of-range capacity clamps to `[0, 1]` so the ring's trim never
+    /// overshoots the circle.
+    func test_batteryCapacityRatio_clampsToUnitInterval() {
+        let over = BatteryStats(cycleCount: 0, maxCapacityPercent: 1.4, condition: "Good")
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityRatio(for: .present(over)), 1.0)
+
+        let under = BatteryStats(cycleCount: 0, maxCapacityPercent: -0.2, condition: "Good")
+        XCTAssertEqual(HealthMonitorViewModel.batteryCapacityRatio(for: .present(under)), 0.0)
+    }
+
+    /// `ramUsageRatio` exposes `usedBytes / totalBytes` as a unit-interval value
+    /// for the Memory card's fill ring, and returns `0` for the zero-total
+    /// pre-first-refresh state rather than dividing by zero.
+    func test_ramUsageRatio_returnsUsedOverTotal() {
+        let stats = MemoryStats(usedBytes: 8_000_000_000, totalBytes: 16_000_000_000)
+        XCTAssertEqual(HealthMonitorViewModel.ramUsageRatio(stats), 0.5, accuracy: 0.0001)
+    }
+
+    func test_ramUsageRatio_zeroTotalReturnsZero() {
+        XCTAssertEqual(HealthMonitorViewModel.ramUsageRatio(.empty), 0.0)
+    }
+
+    // MARK: - System snapshot (hero details)
+
+    /// Uptime renders as the two largest non-zero units so the hero row stays
+    /// compact: days+hours, else hours+minutes, else minutes.
+    func test_uptimeString_showsTwoLargestUnits() {
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(0), "0m")
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(90), "1m")            // 1m 30s
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(3600), "1h 0m")
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(3661), "1h 1m")
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(86400), "1d 0h")
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(90000), "1d 1h")      // 25h
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(4 * 86400 + 3 * 3600), "4d 3h")
+    }
+
+    /// Negative or garbage uptime clamps to zero rather than rendering a
+    /// negative duration.
+    func test_uptimeString_clampsNegative() {
+        XCTAssertEqual(HealthMonitorViewModel.uptimeString(-500), "0m")
+    }
+
+    /// The OS string is the major.minor of the running system, prefixed "macOS".
+    func test_osVersionString_formatsMajorMinor() {
+        let v = OperatingSystemVersion(majorVersion: 26, minorVersion: 1, patchVersion: 0)
+        XCTAssertEqual(HealthMonitorViewModel.osVersionString(v), "macOS 26.1")
+
+        let patched = OperatingSystemVersion(majorVersion: 15, minorVersion: 3, patchVersion: 2)
+        XCTAssertEqual(HealthMonitorViewModel.osVersionString(patched), "macOS 15.3")
+    }
+
+    // MARK: - Mac Health score (hero gauge fill)
+
+    /// The hero ring fills to a fraction that rises with the verdict, so the arc
+    /// itself communicates how healthy the Mac is. Best tier fills the ring;
+    /// each worse tier fills less, and the worst still shows a sliver.
+    func test_macHealthScore_risesWithVerdict() {
+        XCTAssertEqual(MacHealthStatus.excellent.score, 1.0, accuracy: 0.0001)
+        // Strictly decreasing across the tiers, ordered best-to-worst.
+        let ordered: [MacHealthStatus] = [.excellent, .good, .fair, .requiresAttention, .critical]
+        for (better, worse) in zip(ordered, ordered.dropFirst()) {
+            XCTAssertGreaterThan(better.score, worse.score)
+        }
+        // Even the worst verdict leaves a visible arc rather than an empty ring.
+        XCTAssertGreaterThan(MacHealthStatus.critical.score, 0.0)
+    }
+
     // MARK: - SMART color
 
     /// `.failing` is the only state that warrants a red dot — the user should
