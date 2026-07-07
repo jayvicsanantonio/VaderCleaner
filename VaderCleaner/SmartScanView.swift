@@ -89,18 +89,11 @@ struct SmartScanView: View {
             // so the detail view is never built in this phase. The arm stays
             // only to keep the switch exhaustive over `Phase`.
             EmptyView()
-        case .scanning(let phase):
-            // Key the progress view on the current stage so a stage change
-            // rebuilds ScanningStatusView with the new phrase set — it shuffles
-            // its phrases once at init, so a fresh identity is what swaps the
-            // voice from the broad sweep to threats to the app check.
-            SmartScanProgressState(
-                label: phase,
-                identifier: "smartScan.scanning",
-                detail: viewModel.scanProgressDetail,
-                phrases: ScanPhrases.smartScanStage(viewModel.currentStage)
-            )
-            .id(viewModel.currentStage)
+        case .scanning:
+            // The staged scanning screen: one module heroes at a time while
+            // the others fill in with result summaries as their sub-scans
+            // are collected.
+            SmartScanScanningView(viewModel: viewModel)
         case .results(let result):
             resultsContent(result: result)
         case .cleaning:

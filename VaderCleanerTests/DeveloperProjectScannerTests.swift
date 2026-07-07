@@ -130,4 +130,24 @@ final class DeveloperProjectScannerTests: XCTestCase {
         let results = await scanner.scan()
         XCTAssertTrue(results.isEmpty)
     }
+
+    // MARK: - Progress
+
+    /// The walk reports its cumulative visited tally — directory entries plus
+    /// every file sized inside matched artifact folders — so the Cleanup
+    /// scanning screen's count keeps moving through big `node_modules` trees.
+    func test_scan_reportsTheVisitedTallyThroughOnProgress() async throws {
+        let modules = try makeDir("app/node_modules/pkg")
+        try TestHelpers.createDummyFiles(count: 4, size: 8, in: modules)
+        let recorder = TestHelpers.ProgressRecorder()
+        let scanner = DeveloperProjectScanner(roots: [tempRoot])
+
+        _ = await scanner.scan(onProgress: { recorder.record($0) })
+
+        let values = recorder.snapshot
+        XCTAssertEqual(values, values.sorted(), "visited tally must be monotonic")
+        // At minimum the app dir, the node_modules match, and the four sized
+        // files inside it were visited; the final tick reports the total.
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(values.last), 6)
+    }
 }
