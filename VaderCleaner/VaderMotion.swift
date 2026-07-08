@@ -17,9 +17,14 @@ enum VaderMotion {
     /// Short fade for hover fills and selection pills — pointer feedback
     /// should ease in, not blink, and carries no bounce.
     static let hover: Animation = .easeOut(duration: 0.18)
+    /// Duration of the full-surface exchange spring. Shared so a caller that
+    /// must wait for a surface swap to land — Smart Scan holds a sub-scan until
+    /// its hero tile has arrived — stays in lockstep with the animation instead
+    /// of hard-coding a matching delay that could drift out of sync.
+    static let surfaceDuration: TimeInterval = 0.45
     /// Soft spring for full-surface exchanges — the sections' scan-phase
     /// swaps and the dashboard recede.
-    static let surface: Animation = .smooth(duration: 0.45)
+    static let surface: Animation = .smooth(duration: surfaceDuration)
     /// The manager zoom's clock: a quick snappy spring — fast enough to stay
     /// out of the way on the hundredth open, with just enough bounce to feel
     /// alive.

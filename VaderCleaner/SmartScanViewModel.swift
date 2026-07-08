@@ -1,5 +1,5 @@
 // SmartScanViewModel.swift
-// State machine behind the Smart Scan feature view — orchestrates the System Junk, Malware, and Performance sub-modules into one concurrent scan, aggregates their results, and drives a single junk+threats clean pass.
+// State machine behind the Smart Scan feature view — orchestrates the System Junk, Malware, and Performance sub-modules into one sequential scan, aggregates their results, and drives a single junk+threats clean pass.
 
 import AppKit
 import Foundation
@@ -24,11 +24,11 @@ enum SmartScanModule: String, Hashable, CaseIterable {
 }
 
 /// The phase the in-flight Smart Scan is currently focused on, derived from
-/// which sub-scans have finished. The five sub-scans run concurrently, so this
-/// reflects the most foundational work still running: the broad file sweep
-/// first, then the malware content scan, then the app-update probe — the same
-/// order in which they typically settle. The progress screen uses it to show a
-/// phrase set themed to whatever is actually being scanned right now.
+/// which sub-scans have finished. The five sub-scans run one at a time in
+/// collection order, so this reflects the most foundational phase not yet
+/// complete: the broad file sweep first, then the malware content scan, then
+/// the app-update probe. The progress screen uses it to show a phrase set
+/// themed to whatever is actually being scanned right now.
 enum SmartScanStage: Hashable {
     /// The two file-walk sub-scans (System Junk + My Clutter) are still
     /// enumerating the disk.
@@ -243,9 +243,9 @@ final class SmartScanViewModel {
 
     /// Per-module presentation state for the staged scanning screen. Rebuilt
     /// at the start of every scan; modules flip `.running` → `.finished` in
-    /// `Self.scanCollectionOrder` as `scan()` collects each sub-scan's
-    /// results, so the "one at a time" read tracks real checkpoints even
-    /// though the sub-scans run concurrently.
+    /// `Self.scanCollectionOrder` as `scan()` runs and collects each sub-scan's
+    /// results, so the "one at a time" read matches the order the sub-scans
+    /// actually run.
     private(set) var moduleScanStates: [SmartScanModule: SmartScanModuleScanState] = [:]
 
     /// The order the scanning screen walks the modules — the same order
@@ -409,6 +409,12 @@ final class SmartScanViewModel {
     /// has nothing to run, so it is not auto-selected and Run skips it.
     @ObservationIgnored private let maintenanceScriptsAvailable: Bool
 
+    /// Awaited before a module's sub-scan begins, once that module has taken the
+    /// hero slot, so scanning starts only after the hero hand-off has settled
+    /// into place. Defaults to a no-op (tests and previews don't wait);
+    /// `.live()` supplies a pause matching the hero swap's duration.
+    @ObservationIgnored private let heroSettle: @Sendable () async -> Void
+
     /// "Customize Smart Care" gate: the set of modules the user includes in
     /// Smart Scan. Read once per `scan()` (snapshot, like the exclusions store)
     /// so a preference change takes effect on the next scan. Defaults to all
@@ -436,6 +442,7 @@ final class SmartScanViewModel {
         updateOpener: @escaping UpdateOpener,
         largeFileDeleter: @escaping LargeFileDeleter,
         maintenanceScriptsAvailable: Bool = true,
+        heroSettle: @escaping @Sendable () async -> Void = {},
         enabledModules: @escaping () -> Set<SmartScanModule> = { Set(SmartScanModule.allCases) },
         enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) }
     ) {
@@ -452,16 +459,29 @@ final class SmartScanViewModel {
         self.updateOpener = updateOpener
         self.largeFileDeleter = largeFileDeleter
         self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
+        self.heroSettle = heroSettle
         self.enabledModules = enabledModules
         self.enabledJunkCategories = enabledJunkCategories
     }
 
     // MARK: - Scan
 
-    /// Runs the three sub-scans concurrently and lands `.results` (or
-    /// `.failed` if the junk scan throws). The ClamAV install check is read
-    /// once up front so the result can record whether the malware scan was
-    /// actually performed.
+    /// Holds a module's sub-scan until its hero hand-off has settled, so
+    /// scanning — and the hero's border animation reading its final size —
+    /// only begins once the tile has arrived in the hero slot. Only the module
+    /// currently occupying the hero waits; a skipped module is never the hero,
+    /// so it falls straight through without an idle pause.
+    private func settlingHero(_ module: SmartScanModule) async {
+        guard activeScanModule == module else { return }
+        await heroSettle()
+    }
+
+    /// Runs the five sub-scans one at a time, in `scanCollectionOrder`, and
+    /// lands `.results` (or `.failed` if the junk scan throws). Each sub-scan
+    /// runs to completion before the next begins, so the staged scanning
+    /// screen's hero advances in lockstep with the work genuinely running. The
+    /// ClamAV install check is read once up front so the result can record
+    /// whether the malware scan was actually performed.
     ///
     /// Re-entrant calls while a scan or clean is already in flight are
     /// ignored, so a double-tap (or a programmatic caller) can't leave two
@@ -492,10 +512,10 @@ final class SmartScanViewModel {
         clutterWalkComplete = false
         malwareScanComplete = false
 
-        // The two file-walk sub-scans run concurrently and each report their own
-        // monotonic walked count; sum them into one "Scanned N items…" tally.
-        // The scanners run off the main actor, so hop back before touching the
-        // observable count, and drop ticks from a superseded scan.
+        // The two file-walk sub-scans each report their own monotonic walked
+        // count; sum them into one "Scanned N items…" tally. The scanners run
+        // off the main actor, so hop back before touching the observable count,
+        // and drop ticks from a superseded scan.
         // These hops are unstructured, so they can land out of order; each
         // sub-scan's walked count is monotonic, so ignore any tick that would
         // move its counter backwards rather than let the combined total jitter.
@@ -560,31 +580,23 @@ final class SmartScanViewModel {
         // front, and the first runnable module takes the hero slot.
         moduleScanStates = Self.startingModuleStates(enabled: mods, clamAVAvailable: clamAVAvailable)
 
-        async let junk = scanJunkIfEnabled(mods.contains(.systemJunk), onProgress: onJunkProgress)
-        async let threats = scanForThreatsIfPossible(
-            clamAVAvailable: clamAVAvailable && mods.contains(.malware),
-            onProgress: onMalwareProgress
-        )
-        async let login = mods.contains(.performance) ? loginItemsLoader() : []
-        async let large = mods.contains(.myClutter) ? duplicatesScanner(onClutterProgress) : []
-        async let updates = mods.contains(.applications) ? updatesChecker(onUpdatesProgress) : []
-
         do {
-            // Await the two file walks first so their completion flags flip the
-            // moment the disk enumeration finishes — the malware content scan
-            // and app-update probe routinely outlast them, and the stage label
-            // must follow the work that is *actually* still running, not the
-            // textual order of these awaits. (`async let` already started all
-            // five concurrently, so collecting them in a different order is
-            // free.)
-            // Filter the System Junk findings down to the categories the user
-            // kept enabled in the Cleanup sub-tree. Done here (rather than in the
+            // The five sub-scans run one at a time, in collection order, so each
+            // hero on the staged scanning screen tracks the sub-scan genuinely
+            // running right now. Every collection point runs its sub-scan to
+            // completion, flips the matching completion flag, and advances the
+            // staged screen: the collected module flips to its result summary and
+            // the next runnable module takes the hero slot.
+            //
+            // The System Junk findings are filtered down to the categories the
+            // user kept enabled in the Cleanup sub-tree here (rather than in the
             // scanner) so the scanner stays category-agnostic and the same walk
             // serves every caller.
-            // Each collection point below also advances the staged scanning
-            // screen: the collected module flips to its result summary and
-            // the next runnable module takes the hero slot.
-            let junkResult = Self.filteringJunkCategories(try await junk, to: cats)
+            await settlingHero(.systemJunk)
+            let junkResult = Self.filteringJunkCategories(
+                try await scanJunkIfEnabled(mods.contains(.systemJunk), onProgress: onJunkProgress),
+                to: cats
+            )
             junkWalkComplete = true
             moduleScanStates = Self.finishing(
                 .systemJunk, in: moduleScanStates,
@@ -596,7 +608,8 @@ final class SmartScanViewModel {
                     : String(localized: "No junk", comment: "Zero-work scanning-screen summary on the Cleanup tile."),
                 caption: String(localized: "to clean", comment: "Caption under the Cleanup tile's scanning-screen summary.")
             )
-            let duplicates = await large
+            await settlingHero(.myClutter)
+            let duplicates = mods.contains(.myClutter) ? await duplicatesScanner(onClutterProgress) : []
             clutterWalkComplete = true
             let reclaimable = duplicates.reduce(Int64(0)) { $0 + $1.reclaimableBytes }
             moduleScanStates = Self.finishing(
@@ -609,7 +622,8 @@ final class SmartScanViewModel {
                     : String(localized: "No duplicates", comment: "Zero-work scanning-screen summary on the My Clutter tile."),
                 caption: String(localized: "to review", comment: "Caption under the My Clutter tile's scanning-screen summary.")
             )
-            let loginItems = await login
+            await settlingHero(.performance)
+            let loginItems = mods.contains(.performance) ? await loginItemsLoader() : []
             moduleScanStates = Self.finishing(
                 .performance, in: moduleScanStates,
                 metric: loginItems.isEmpty
@@ -619,7 +633,11 @@ final class SmartScanViewModel {
                         : String(localized: "\(loginItems.count) items", comment: "Plural scanning-screen summary on the Performance tile."),
                 caption: String(localized: "to review", comment: "Caption under the Performance tile's scanning-screen summary.")
             )
-            let foundThreats = await threats
+            await settlingHero(.malware)
+            let foundThreats = await scanForThreatsIfPossible(
+                clamAVAvailable: clamAVAvailable && mods.contains(.malware),
+                onProgress: onMalwareProgress
+            )
             malwareScanComplete = true
             moduleScanStates = Self.finishing(
                 .malware, in: moduleScanStates,
@@ -630,7 +648,8 @@ final class SmartScanViewModel {
                         : String(localized: "\(foundThreats.count) threats", comment: "Plural scanning-screen summary on the Protection tile."),
                 caption: String(localized: "to remove", comment: "Caption under the Protection tile's scanning-screen summary.")
             )
-            let foundUpdates = await updates
+            await settlingHero(.applications)
+            let foundUpdates = mods.contains(.applications) ? await updatesChecker(onUpdatesProgress) : []
             moduleScanStates = Self.finishing(
                 .applications, in: moduleScanStates,
                 metric: foundUpdates.isEmpty
@@ -1168,6 +1187,13 @@ extension SmartScanViewModel {
             // Performance tile's maintenance action is skipped rather than
             // erroring with "The file 'periodic' doesn't exist."
             maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic"),
+            // Hold each sub-scan until its hero tile has animated into the hero
+            // slot, so scanning starts only once the module is the settled hero.
+            // Matched to the hero swap's duration so the pause ends as the tile
+            // arrives, not before or well after.
+            heroSettle: {
+                try? await Task.sleep(for: .seconds(VaderMotion.surfaceDuration))
+            },
             // Snapshot the "Customize Smart Care" choices per scan so a toggle in
             // Settings → Scanning takes effect on the next run, mirroring the
             // exclusions snapshot above.

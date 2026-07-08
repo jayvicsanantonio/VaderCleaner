@@ -6,13 +6,17 @@ import SwiftUI
 /// The `.scanning` surface for Smart Scan: one module at a time takes the
 /// hero card (headline, artwork in the module's accent wash, live progress
 /// line) while the other modules wait as compact tiles that fill in with
-/// result summaries the moment their sub-scan is collected. The five
-/// sub-scans actually run concurrently — the staging follows the real
-/// collection checkpoints in `SmartScanViewModel.scan()`, so every hand-off
-/// the user sees corresponds to results genuinely landing.
+/// result summaries the moment their sub-scan is collected. The five sub-scans
+/// run one at a time in collection order, so the staging follows the work
+/// genuinely running: at each hand-off the finishing hero recedes into its
+/// strip slot and the next module's tile flies down into the hero slot, the
+/// two swapping in place via a shared `matchedGeometryEffect`.
 struct SmartScanScanningView: View {
     var viewModel: SmartScanViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Ties each module's compact strip tile to its hero card so the active
+    /// module's frame animates between the two slots instead of crossfading.
+    @Namespace private var heroNamespace
 
     var body: some View {
         VStack(spacing: 16) {
@@ -22,21 +26,26 @@ struct SmartScanScanningView: View {
                         module: module,
                         state: viewModel.moduleScanStates[module] ?? .pending
                     )
+                    .matchedGeometryEffect(id: module, in: heroNamespace)
                 }
             }
             .frame(height: 132)
 
             if let active = viewModel.activeScanModule {
                 SmartScanScanHero(module: active, viewModel: viewModel)
-                    // Fresh identity per module so the hand-off crossfades
-                    // between hero cards instead of morphing text in place.
+                    // Share the active module's identity with its strip tile so
+                    // the hero grows out of the tile's former slot; a fresh
+                    // `.id` per module makes each hand-off an insert/remove the
+                    // matched-geometry effect can fly rather than a text morph.
+                    .matchedGeometryEffect(id: active, in: heroNamespace)
                     .id(active)
-                    .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
+                    .transition(.opacity)
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(VaderMotion.surface, value: viewModel.activeScanModule)
+        // Reduce Motion drops the fly-into-place travel to a plain swap.
+        .animation(reduceMotion ? nil : VaderMotion.surface, value: viewModel.activeScanModule)
         .accessibilityIdentifier("smartScan.scanning")
     }
 
@@ -129,10 +138,11 @@ private struct SmartScanScanHero: View {
 private struct SmartScanScanBorder: View {
     let tint: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase = 0.0
 
     private let cornerRadius: CGFloat = 24
     private let lineWidth: CGFloat = 2
+    /// Seconds for the moving segment to travel one full loop of the edge.
+    private let period: TimeInterval = 4
 
     var body: some View {
         if reduceMotion {
@@ -146,38 +156,68 @@ private struct SmartScanScanBorder: View {
                 // so a single band travels the whole path and wraps through the
                 // start seam without a jump.
                 let segment = perimeter / 3
-                ZStack {
-                    // Steady dim ring so the edge is never dark.
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .strokeBorder(tint.opacity(0.3), lineWidth: lineWidth)
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .inset(by: lineWidth / 2)
-                        .stroke(
-                            tint,
-                            style: StrokeStyle(
-                                lineWidth: lineWidth,
-                                lineCap: .round,
-                                dash: [segment, perimeter - segment],
-                                dashPhase: phase
+                // Drive the travel from the animation clock, not an animatable
+                // `@State`. A `repeatForever` animation restarts whenever the
+                // hero re-renders, and the malware sub-scan re-renders it many
+                // times a second (one tick per file clamscan checks), which
+                // snapped the segment back mid-loop. A clock-derived phase is
+                // immune to re-renders — it always completes full revolutions —
+                // and multiplying by the live perimeter keeps it smooth as the
+                // hero grows into place.
+                let dash = [segment, perimeter - segment]
+                TimelineView(.animation) { context in
+                    let dashPhase = context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: period) / period * perimeter
+                    ZStack {
+                        // Steady dim ring so the edge is never dark.
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .strokeBorder(tint.opacity(0.3), lineWidth: lineWidth)
+                        // Soft halo behind the travelling segment: a wide,
+                        // translucent stroke fakes the glow. It replaces a
+                        // per-frame `.blur`, whose full-card offscreen pass over
+                        // the glass material every frame dropped frames on the
+                        // longest scan (Malware) and read as a stutter.
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .inset(by: lineWidth / 2)
+                            .stroke(
+                                tint.opacity(0.35),
+                                style: StrokeStyle(
+                                    lineWidth: lineWidth * 4,
+                                    lineCap: .round,
+                                    dash: dash,
+                                    dashPhase: dashPhase
+                                )
                             )
-                        )
-                        .blur(radius: 2)
-                }
-                .onAppear {
-                    withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) {
-                        phase = perimeter
+                        // Crisp core of the travelling segment.
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .inset(by: lineWidth / 2)
+                            .stroke(
+                                tint,
+                                style: StrokeStyle(
+                                    lineWidth: lineWidth,
+                                    lineCap: .round,
+                                    dash: dash,
+                                    dashPhase: dashPhase
+                                )
+                            )
                     }
                 }
             }
         }
     }
 
-    /// Length of the rounded-rect edge: the four straight runs plus the four
-    /// quarter-circle corners. Drives the dash pattern so exactly one segment
-    /// is visible and the phase animation loops seamlessly.
+    /// Length of the *stroked* edge — the rounded rect inset by `lineWidth / 2`,
+    /// which is the path `.strokeBorder` and `.inset(by:)` actually trace — not
+    /// the outer bounds. Measuring the outer rect makes the dash pattern
+    /// ~`π · lineWidth` longer than the real path, so the single travelling
+    /// segment fails to tile the closed path and visibly snaps back each time it
+    /// crosses the rounded-rect's seam. The four straight runs are unchanged by
+    /// the inset; only the corner arc radius shrinks by `lineWidth / 2`.
     private func perimeter(of size: CGSize) -> CGFloat {
-        let straight = 2 * (size.width - 2 * cornerRadius) + 2 * (size.height - 2 * cornerRadius)
-        let corners = 2 * .pi * cornerRadius
+        let insetRadius = cornerRadius - lineWidth / 2
+        let straight = 2 * (size.width - lineWidth - 2 * insetRadius)
+            + 2 * (size.height - lineWidth - 2 * insetRadius)
+        let corners = 2 * .pi * insetRadius
         return straight + corners
     }
 }

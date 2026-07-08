@@ -1,5 +1,5 @@
 // SmartScanViewModelTests.swift
-// Drives the SmartScanViewModel state machine — concurrent junk/malware/login orchestration, result aggregation, and the unified clean() delegation — through injected fakes.
+// Drives the SmartScanViewModel state machine — sequential junk/malware/login orchestration, result aggregation, and the unified clean() delegation — through injected fakes.
 
 import XCTest
 @testable import VaderCleaner
@@ -1151,10 +1151,123 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(output.contains("flushed DNS"), "Summary must include the DNS-flush line")
     }
 
+    // MARK: - Sequential execution
+
+    /// The five sub-scans must run one at a time, in `scanCollectionOrder`: a
+    /// later sub-scan must not start until the current one has fully finished,
+    /// and the start order must match the collection order.
+    func test_scan_runsSubScansSequentially() async {
+        let gate = AsyncGate()
+        let recorder = StartRecorder()
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in
+                recorder.record("systemJunk")
+                await gate.wait()
+                return ScanResult(items: [])
+            },
+            malwareInstalled: { true },
+            malwareScanner: { _ in recorder.record("malware"); return [] },
+            loginItemsLoader: { recorder.record("performance"); return [] },
+            duplicatesScanner: { _ in recorder.record("myClutter"); return [] },
+            updatesChecker: { _ in recorder.record("applications"); return [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] }
+        )
+
+        let scanTask = Task { await vm.scan() }
+        // Wait until the first sub-scan has started and parked on the gate.
+        await waitUntil { recorder.all == ["systemJunk"] }
+        // Give the runtime several turns to (wrongly) start other sub-scans if
+        // they were still running concurrently; the gate keeps the first parked.
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(
+            recorder.all, ["systemJunk"],
+            "No later sub-scan may start while the first is still running"
+        )
+
+        gate.open()
+        await scanTask.value
+        XCTAssertEqual(
+            recorder.all,
+            ["systemJunk", "myClutter", "performance", "malware", "applications"],
+            "Sub-scans must start one at a time in collection order"
+        )
+    }
+
+    /// Each module's sub-scan must be preceded by a hero-settle await, so
+    /// scanning only begins once the module has taken the hero slot.
+    func test_scan_settlesHeroBeforeEachModuleScan() async {
+        let events = StartRecorder()
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in events.record("scan:systemJunk"); return ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { _ in events.record("scan:malware"); return [] },
+            loginItemsLoader: { events.record("scan:performance"); return [] },
+            duplicatesScanner: { _ in events.record("scan:myClutter"); return [] },
+            updatesChecker: { _ in events.record("scan:applications"); return [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] },
+            heroSettle: { events.record("settle") }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(
+            events.all,
+            [
+                "settle", "scan:systemJunk",
+                "settle", "scan:myClutter",
+                "settle", "scan:performance",
+                "settle", "scan:malware",
+                "settle", "scan:applications",
+            ],
+            "Every module's scan must be immediately preceded by a hero settle"
+        )
+    }
+
+    /// A skipped module (disabled) is never the hero, so it must not trigger a
+    /// hero-settle pause — only the modules that actually take the hero wait.
+    func test_scan_doesNotSettleForSkippedModule() async {
+        let events = StartRecorder()
+        let vm = SmartScanViewModel(
+            junkScanner: { _ in events.record("scan:systemJunk"); return ScanResult(items: []) },
+            malwareInstalled: { true },
+            malwareScanner: { _ in events.record("scan:malware"); return [] },
+            loginItemsLoader: { events.record("scan:performance"); return [] },
+            duplicatesScanner: { _ in events.record("scan:myClutter"); return [] },
+            updatesChecker: { _ in events.record("scan:applications"); return [] },
+            junkCleaner: { _ in 0 },
+            threatRemover: { _ in [] },
+            maintenanceRunner: { "" },
+            updateOpener: { _ in },
+            largeFileDeleter: { _ in [] },
+            heroSettle: { events.record("settle") },
+            // My Clutter is excluded from this run, so it never takes the hero.
+            enabledModules: { [.systemJunk, .performance, .malware, .applications] }
+        )
+
+        await vm.scan()
+
+        XCTAssertFalse(
+            events.all.contains("scan:myClutter"),
+            "A disabled module's sub-scan must not run"
+        )
+        XCTAssertEqual(
+            events.all.filter { $0 == "settle" }.count, 4,
+            "Only the four modules that take the hero may trigger a settle"
+        )
+    }
+
     // MARK: - Scan progress count
 
     /// The combined "Scanned N items…" tally must sum the walked counts of the
-    /// two concurrent file-walk sub-scans (System Junk + My Clutter).
+    /// two file-walk sub-scans (System Junk + My Clutter).
     func test_scan_reportsCombinedScannedItemCountAcrossFileWalkSubScans() async {
         let vm = SmartScanViewModel(
             junkScanner: { progress in
@@ -1718,5 +1831,25 @@ private final class AsyncGate: @unchecked Sendable {
         continuation = nil
         lock.unlock()
         resume?.resume()
+    }
+}
+
+/// Records, in order, the name each fake sub-scan reports as it starts, so a
+/// test can assert the sub-scans run one at a time in collection order. The
+/// sub-scan closures run off the main actor, so the append is lock-guarded.
+private final class StartRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var started: [String] = []
+
+    func record(_ name: String) {
+        lock.lock()
+        started.append(name)
+        lock.unlock()
+    }
+
+    var all: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return started
     }
 }
