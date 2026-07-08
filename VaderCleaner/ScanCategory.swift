@@ -46,4 +46,29 @@ enum ScanCategory: String, CaseIterable, Codable, Hashable {
         case .webDevJunk: return "Web Development Junk"
         }
     }
+
+    /// Whether a one-tap clean may pre-check this category for removal — the
+    /// single source of truth shared by every cleanup surface (Smart Scan, the
+    /// standalone Cleanup Manager, and My Clutter) so their default selections
+    /// stay consistent.
+    ///
+    /// Safe categories are regenerable (caches, logs, dev build junk, document
+    /// autosave versions, unused app localizations) or already discarded
+    /// (Trash), so pre-checking them can never destroy data the user can't get
+    /// back. Categories holding real user files — mail attachments, iOS
+    /// backups, and the large/old personal files surfaced by My Clutter — are
+    /// still scanned and listed, but stay unchecked so removing them is an
+    /// explicit choice.
+    var isSafeToAutoRemove: Bool {
+        switch self {
+        case .systemCache, .userCache,
+             .systemLogs, .userLogs,
+             .languageFiles,
+             .xcodeJunk, .documentVersions, .webDevJunk,
+             .trash:
+            return true
+        case .mailAttachments, .iosBackups, .largeFile, .oldFile:
+            return false
+        }
+    }
 }

@@ -394,7 +394,7 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertTrue(vm.isJunkCategorySelected(.userCache))
     }
 
-    func test_scan_defaultsJunkFileSelectionToAllScannedFiles() async {
+    func test_scan_defaultsJunkFileSelectionToSafeCategoryFiles() async {
         let a = makeFile(name: "a", size: 1, category: .userCache)
         let b = makeFile(name: "b", size: 2, category: .userLogs)
         let vm = makeViewModel(
@@ -404,7 +404,34 @@ final class SmartScanViewModelTests: XCTestCase {
         await vm.scan()
 
         XCTAssertEqual(vm.junkFileSelection, [a.url, b.url],
-                       "Cleanup Manager opens with every junk file checked")
+                       "Cleanup Manager opens with every safe-category junk file checked")
+    }
+
+    /// The one-tap Scan→Run path must never pre-check user data: files in the
+    /// risky categories (mail attachments, iOS backups) are still found and
+    /// listed, but start unchecked so removing them is an explicit choice.
+    func test_scan_defaultsJunkFileSelectionExcludesRiskyCategories() async {
+        let safe = makeFile(name: "cache", size: 1, category: .userCache)
+        let mail = makeFile(name: "att", size: 2, category: .mailAttachments)
+        let backup = makeFile(name: "ios", size: 3, category: .iosBackups)
+        let vm = makeViewModel(
+            junkScanner: {
+                self.makeResult(
+                    (.userCache, [safe]),
+                    (.mailAttachments, [mail]),
+                    (.iosBackups, [backup])
+                )
+            }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.junkFileSelection, [safe.url],
+                       "Run must pre-check only safe-category files, never mail attachments or iOS backups")
+        XCTAssertFalse(vm.isJunkFileSelected(mail),
+                       "Mail attachments start unchecked — removing them is opt-in")
+        XCTAssertFalse(vm.isJunkFileSelected(backup),
+                       "iOS backups start unchecked — removing them is opt-in")
     }
 
     func test_toggleJunkFile_addsAndRemoves() async {
@@ -420,6 +447,63 @@ final class SmartScanViewModelTests: XCTestCase {
 
         vm.toggleJunkFile(a)
         XCTAssertTrue(vm.isJunkFileSelected(a))
+    }
+
+    // MARK: - Junk selection tallies (store-backed Cleanup Manager)
+
+    /// The per-category byte/count tallies and the running total are seeded from
+    /// the same safe-by-default selection, so the Cleanup Manager's badges are
+    /// correct the instant it opens — no re-walk of the file list.
+    func test_selectedJunkTallies_seededForSafeCategoriesOnly() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 30, category: .userCache)
+        let mail = makeFile(name: "m", size: 500, category: .mailAttachments)
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [cacheA, cacheB]), (.mailAttachments, [mail])) }
+        )
+        await vm.scan()
+
+        XCTAssertEqual(vm.selectedJunkBytes(in: .userCache), 130)
+        XCTAssertEqual(vm.selectedJunkCount(in: .userCache), 2)
+        XCTAssertEqual(vm.selectedJunkBytes(in: .mailAttachments), 0, "Risky category isn't pre-checked")
+        XCTAssertEqual(vm.selectedJunkCount(in: .mailAttachments), 0)
+        XCTAssertEqual(vm.selectedJunkBytes, 130, "Running total covers only the safe files")
+    }
+
+    /// A batched folder/category write keeps the tallies in lockstep and is
+    /// idempotent — re-selecting an already-selected file must not double-count.
+    func test_setJunkFiles_batchedUpdateMaintainsTallies() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let vm = makeViewModel(junkScanner: { self.makeResult((.userCache, [a, b])) })
+        await vm.scan()
+
+        vm.setJunkFiles([a, b], selected: false)   // clear the folder
+        XCTAssertEqual(vm.selectedJunkCount(in: .userCache), 0)
+        XCTAssertEqual(vm.selectedJunkBytes, 0)
+
+        vm.setJunkFiles([a, b], selected: true)
+        vm.setJunkFiles([a, b], selected: true)    // idempotent
+        XCTAssertEqual(vm.selectedJunkCount(in: .userCache), 2)
+        XCTAssertEqual(vm.selectedJunkBytes, 130)
+    }
+
+    /// A folder-row toggle is all-or-nothing: a fully-selected group clears, and
+    /// a partial or empty group fills in.
+    func test_toggleJunkFiles_folderToggleAllOrNothing() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let vm = makeViewModel(junkScanner: { self.makeResult((.userCache, [a, b])) })
+        await vm.scan()
+        XCTAssertTrue(vm.areAllJunkFilesSelected([a, b]), "Safe files start selected")
+
+        vm.toggleJunkFiles([a, b])   // all → clear
+        XCTAssertFalse(vm.areAllJunkFilesSelected([a, b]))
+        XCTAssertEqual(vm.selectedJunkCount(in: .userCache), 0)
+
+        vm.toggleJunkFiles([a, b])   // none → all
+        XCTAssertTrue(vm.areAllJunkFilesSelected([a, b]))
+        XCTAssertEqual(vm.selectedJunkCount(in: .userCache), 2)
     }
 
     /// A category facade toggle is a bulk op over its files: deselecting one
@@ -1066,6 +1150,44 @@ final class SmartScanViewModelTests: XCTestCase {
             vm.toggleModule(module)
         }
         XCTAssertFalse(vm.hasExecutableWork)
+    }
+
+    // MARK: - Floating Run disc visibility
+
+    func test_isRunDiscVisible_falseAtIdle() {
+        let vm = makeViewModel()
+        XCTAssertFalse(vm.isRunDiscVisible, "No Run disc before a scan lands on results")
+    }
+
+    func test_isRunDiscVisible_trueAtResultsWithWork() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        XCTAssertTrue(vm.isRunDiscVisible, "Run disc shows on the results dashboard with executable work")
+    }
+
+    /// Opening a tile's Review Manager must hide the floating Run disc — the
+    /// Manager owns the bottom bar, so an overlapping disc reads as clutter.
+    func test_isRunDiscVisible_falseWhileReviewing() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        XCTAssertTrue(vm.isRunDiscVisible)
+
+        vm.setReviewing(true)
+        XCTAssertFalse(vm.isRunDiscVisible, "Run disc hides while a Review Manager is open")
+        XCTAssertTrue(vm.isReviewing)
+
+        vm.setReviewing(false)
+        XCTAssertTrue(vm.isRunDiscVisible, "Run disc returns when the Review closes")
+    }
+
+    func test_reset_clearsIsReviewing() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        vm.setReviewing(true)
+
+        vm.reset()
+
+        XCTAssertFalse(vm.isReviewing, "A reset clears the in-flight Review flag")
     }
 
     func test_willExecute_systemJunkRespectsCategorySelection() async {

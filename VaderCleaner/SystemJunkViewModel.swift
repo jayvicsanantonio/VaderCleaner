@@ -221,9 +221,32 @@ final class SystemJunkViewModel {
         selectedCountByCategory = countByCategory
     }
 
+    /// Seed the default selection from a fresh result: pre-check every file in a
+    /// safe-to-auto-remove category (regenerable or already-discarded junk) and
+    /// leave user-data categories (mail attachments, iOS backups) unchecked.
+    /// Shared by `scan()` and `seed(with:)` so both land on the same
+    /// safe-by-default state as Smart Scan. The running byte/count tallies are
+    /// built in the same pass so the Cleanup Manager's per-category badges are
+    /// correct without a re-scan.
+    private func seedDefaultSelection(from result: ScanResult) {
+        var urls: Set<URL> = []
+        var total: Int64 = 0
+        var bytesByCategory: [ScanCategory: Int64] = [:]
+        var countByCategory: [ScanCategory: Int] = [:]
+        for file in result.items where file.category.isSafeToAutoRemove {
+            urls.insert(file.url)
+            total += file.size
+            bytesByCategory[file.category, default: 0] += file.size
+            countByCategory[file.category, default: 0] += 1
+        }
+        selectedURLs = urls
+        totalSelectedSize = total
+        selectedBytesByCategory = bytesByCategory
+        selectedCountByCategory = countByCategory
+    }
+
     /// Run the injected scanner and land in `.preview` (or `.failed`).
-    /// Selects every file present in the result so the user is at "select all"
-    /// by default.
+    /// Safe-by-default: pre-checks regenerable junk and leaves user data opt-in.
     func scan() async {
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -247,12 +270,8 @@ final class SystemJunkViewModel {
                 }
             }
             self.latestResult = result
-            // Nothing is selected by default — the user opts in to what to
-            // clean in the Cleanup Manager.
-            self.selectedURLs = []
-            self.totalSelectedSize = 0
-            self.selectedBytesByCategory = [:]
-            self.selectedCountByCategory = [:]
+            // Safe-by-default: pre-check regenerable junk, leave user data opt-in.
+            self.seedDefaultSelection(from: result)
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
@@ -268,15 +287,11 @@ final class SystemJunkViewModel {
     /// Adopt a result produced by a Smart Scan (same `SystemJunkScanner`, same
     /// scope) so the user lands on the preview without scanning again. No-op
     /// unless idle, so it never overwrites an in-progress or already-shown scan.
-    /// Mirrors `scan()`'s success path: select every file by default.
+    /// Mirrors `scan()`'s success path, including its safe-by-default selection.
     func seed(with result: ScanResult) {
         guard case .idle = phase else { return }
         latestResult = result
-        // Match `scan()`: start with nothing selected so the user opts in.
-        selectedURLs = []
-        totalSelectedSize = 0
-        selectedBytesByCategory = [:]
-        selectedCountByCategory = [:]
+        seedDefaultSelection(from: result)
         phase = .preview(result)
     }
 

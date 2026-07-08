@@ -269,12 +269,14 @@ final class MyClutterViewModel {
         self.downloads = downloads
 
         rebuildSizeMap()
-        // Nothing is selected by default — every Review / Review All Files opens
-        // with an empty selection so the user opts each item in deliberately.
-        selectedURLs = []
-        totalSelectedSize = 0
-        selectedBytesByCategory = [:]
-        selectedCountByCategory = [:]
+        // Safe-by-default: pre-check the redundant duplicate and near-duplicate
+        // copies (deleting one always leaves an original) and leave the large/old
+        // files and downloads — real user data — unchecked so removing them is an
+        // explicit choice. Mirrors Smart Scan and the app-wide safe-by-default
+        // rule (see `ScanCategory.isSafeToAutoRemove`).
+        selectedURLs = Set(duplicateCopies.map(\.url)).union(similarCopies.map(\.url))
+        totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
+        recomputeSelectedCategoryTotals()
 
         resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results

@@ -44,6 +44,38 @@ final class ScanCategoryTests: XCTestCase {
         }
     }
 
+    /// `isSafeToAutoRemove` is the single source of truth every cleanup surface
+    /// (Smart Scan, standalone Cleanup Manager, My Clutter) consults to seed its
+    /// default selection. Safe = regenerable or already-discarded; user-data
+    /// categories must stay opt-in.
+    func test_isSafeToAutoRemove_pinsTheSafeSet() {
+        let safe: Set<ScanCategory> = [
+            .systemCache, .userCache,
+            .systemLogs, .userLogs,
+            .languageFiles,
+            .xcodeJunk, .documentVersions, .webDevJunk,
+            .trash,
+        ]
+        for category in ScanCategory.allCases {
+            XCTAssertEqual(
+                category.isSafeToAutoRemove,
+                safe.contains(category),
+                "\(category) safe-to-auto-remove classification is wrong"
+            )
+        }
+    }
+
+    /// The risky categories — real user data that a one-tap clean must never
+    /// pre-check — are explicitly opt-in.
+    func test_isSafeToAutoRemove_excludesUserDataCategories() {
+        for category in [ScanCategory.mailAttachments, .iosBackups, .largeFile, .oldFile] {
+            XCTAssertFalse(
+                category.isSafeToAutoRemove,
+                "\(category) holds user data and must not be auto-removed"
+            )
+        }
+    }
+
     /// Raw values back persistence (preferences, JSON-encoded scan reports).
     /// Pinning them here guarantees a rename is accompanied by a test update.
     func test_rawValues_areStable() {

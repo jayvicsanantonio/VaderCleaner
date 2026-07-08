@@ -23,12 +23,10 @@ struct FloatingRunOverlay: View {
     }
 
     /// Whether the disc should currently be on screen — only when the
-    /// dashboard is up *and* at least one selected module would do work.
+    /// dashboard is up, at least one selected module would do work, and no
+    /// Review (Manager) screen is covering the dashboard.
     private var isShown: Bool {
-        if case .results = viewModel.phase {
-            return viewModel.hasExecutableWork
-        }
-        return false
+        viewModel.isRunDiscVisible
     }
 
     var body: some View {
