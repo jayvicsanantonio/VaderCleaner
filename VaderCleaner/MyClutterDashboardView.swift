@@ -520,6 +520,17 @@ struct ClutterThumbnailView: View {
     var contentMode: ContentMode = .fill
     @State private var image: NSImage?
 
+    init(url: URL, fallbackSymbol: String, pointSize: CGFloat = 92, contentMode: ContentMode = .fill) {
+        self.url = url
+        self.fallbackSymbol = fallbackSymbol
+        self.pointSize = pointSize
+        self.contentMode = contentMode
+        // Seed synchronously from the process-wide cache so a repeat visit to
+        // My Clutter paints the real thumbnail on the first frame — no fallback
+        // flash and no Quick Look work.
+        _image = State(initialValue: ClutterThumbnailCache.cached(url, pointSize: pointSize))
+    }
+
     var body: some View {
         Group {
             if let image {
@@ -534,7 +545,18 @@ struct ClutterThumbnailView: View {
             }
         }
         .task(id: url) {
-            image = await Self.thumbnail(for: url, pointSize: pointSize)
+            // Cache-first: a hit resolves instantly (also covers a `url` change
+            // on a reused view instance); a miss generates once and caches the
+            // result for the next visit.
+            if let cached = ClutterThumbnailCache.cached(url, pointSize: pointSize) {
+                image = cached
+                return
+            }
+            let generated = await Self.thumbnail(for: url, pointSize: pointSize)
+            if let generated {
+                ClutterThumbnailCache.store(generated, for: url, pointSize: pointSize)
+            }
+            image = generated
         }
     }
 
