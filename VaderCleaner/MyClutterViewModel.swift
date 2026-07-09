@@ -98,30 +98,49 @@ final class MyClutterViewModel {
 
     // MARK: - Derived totals
 
+    // Derived read-model for the dashboard, memoized so a render never pays an
+    // O(all-files) cost. Each value is recomputed once, in `recomputeDerived()`,
+    // whenever the result set changes (scan completion or a deletion prune) —
+    // never on a view render. Before this, the dashboard rebuilt the full
+    // `flatMap` copy arrays (hundreds of thousands of elements on a large scan)
+    // several times per frame during the section-open animation, which read as
+    // a beach-balled main thread before the grid appeared.
+
     /// Redundant copies across the duplicate groups — the deletion candidates.
-    var duplicateCopies: [ScannedFile] { duplicateGroups.flatMap { $0.redundantCopies } }
+    private(set) var duplicateCopies: [ScannedFile] = []
     /// Redundant near-duplicates across the similar-image groups.
-    var similarCopies: [ScannedFile] { similarGroups.flatMap { $0.redundantCopies } }
-
+    private(set) var similarCopies: [ScannedFile] = []
     /// Total files the user can sort through — the count shown in the header.
-    var totalFileCount: Int {
-        duplicateCopies.count + similarCopies.count + largeOldFiles.count + downloads.count
-    }
-
-    var duplicateReclaimableBytes: Int64 { duplicateGroups.reduce(0) { $0 + $1.reclaimableBytes } }
-    var similarReclaimableBytes: Int64 { similarGroups.reduce(0) { $0 + $1.reclaimableBytes } }
-    var largeOldBytes: Int64 { largeOldFiles.reduce(0) { $0 + $1.size } }
-    var downloadsBytes: Int64 { downloads.reduce(0) { $0 + $1.file.size } }
-
+    private(set) var totalFileCount: Int = 0
+    private(set) var duplicateReclaimableBytes: Int64 = 0
+    private(set) var similarReclaimableBytes: Int64 = 0
+    private(set) var largeOldBytes: Int64 = 0
+    private(set) var downloadsBytes: Int64 = 0
     /// The browser/app that contributed the most download bytes, for the card
     /// title (e.g. "Google Chrome"), or `nil` for a generic label.
-    var dominantDownloadSource: String? { DownloadsScanner.dominantSource(of: downloads) }
-
+    private(set) var dominantDownloadSource: String? = nil
     /// The bundle id of the dominant download source, for its app icon on the
     /// dashboard card.
-    var dominantDownloadBundleID: String? {
-        guard let name = dominantDownloadSource else { return nil }
-        return downloads.first { $0.sourceApp == name }?.sourceBundleID
+    private(set) var dominantDownloadBundleID: String? = nil
+
+    /// Rebuild the memoized dashboard read-model from the current result set.
+    /// Called only when the source groups/arrays change (scan completion or a
+    /// prune), so the O(all-files) work happens once per result change rather
+    /// than once per render.
+    private func recomputeDerived() {
+        duplicateCopies = duplicateGroups.flatMap { $0.redundantCopies }
+        similarCopies = similarGroups.flatMap { $0.redundantCopies }
+        totalFileCount = duplicateCopies.count + similarCopies.count
+            + largeOldFiles.count + downloads.count
+        duplicateReclaimableBytes = duplicateGroups.reduce(0) { $0 + $1.reclaimableBytes }
+        similarReclaimableBytes = similarGroups.reduce(0) { $0 + $1.reclaimableBytes }
+        largeOldBytes = largeOldFiles.reduce(0) { $0 + $1.size }
+        downloadsBytes = downloads.reduce(0) { $0 + $1.file.size }
+        let source = DownloadsScanner.dominantSource(of: downloads)
+        dominantDownloadSource = source
+        dominantDownloadBundleID = source.flatMap { name in
+            downloads.first { $0.sourceApp == name }?.sourceBundleID
+        }
     }
 
     // MARK: - Selection
@@ -255,6 +274,7 @@ final class MyClutterViewModel {
         selectedCountByCategory = [:]
         sizeByURL = [:]
         categoriesByURL = [:]
+        recomputeDerived()
     }
 
     private func applyResults(
@@ -268,6 +288,9 @@ final class MyClutterViewModel {
         self.largeOldFiles = largeOld
         self.downloads = downloads
 
+        // Rebuild the memoized read-model first: both `rebuildSizeMap()` and the
+        // selection seeding below read `duplicateCopies` / `similarCopies`.
+        recomputeDerived()
         rebuildSizeMap()
         // Safe-by-default: pre-check the redundant duplicate and near-duplicate
         // copies (deleting one always leaves an original) and leave the large/old
@@ -333,6 +356,9 @@ final class MyClutterViewModel {
         largeOldFiles.removeAll { deleted.contains($0.url) }
         downloads.removeAll { deleted.contains($0.file.url) }
 
+        // Rebuild the memoized read-model before `rebuildSizeMap()` (which reads
+        // `duplicateCopies` / `similarCopies`) and the phase check below.
+        recomputeDerived()
         rebuildSizeMap()
         selectedURLs.subtract(deleted)
         totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }

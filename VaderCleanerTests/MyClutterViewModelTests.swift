@@ -227,6 +227,22 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertTrue(vm.selectedURLs.isEmpty)
     }
 
+    /// The memoized dashboard read-model (recomputed only on scan/prune, never
+    /// per render) must reflect the survivors after a partial delete.
+    func test_derivedTotalsRecomputeAfterPartialDelete() async {
+        let large = [file("/big/a.mov", size: 100), file("/big/b.mov", size: 200)]
+        let vm = makeViewModel(largeOld: large)
+        await vm.scan()
+        XCTAssertEqual(vm.largeOldBytes, 300)
+        XCTAssertEqual(vm.totalFileCount, 2)
+
+        vm.setSelection([URL(fileURLWithPath: "/big/a.mov")], selected: true)
+        await vm.deleteSelected()
+
+        XCTAssertEqual(vm.largeOldBytes, 200, "Memoized totals recompute after a prune")
+        XCTAssertEqual(vm.totalFileCount, 1)
+    }
+
     func test_scanCoordinatingMapping() async {
         let vm = makeViewModel(largeOld: [file("/big/a.mov", size: 1)])
         XCTAssertEqual(vm.scanPresentation, .intro)
