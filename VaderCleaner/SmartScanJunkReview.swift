@@ -1,67 +1,80 @@
 // SmartScanJunkReview.swift
-// System Junk "Cleanup Manager" for Smart Scan — a three-pane (sections → categories → files) manager with per-file selection, search, sort, and a live selected-count footer. The file model is built off the main thread so huge junk scans open without blocking the UI.
+// System Junk "Cleanup Manager" for Smart Scan — a store-backed three-pane (sections → categories → folder tree) manager with per-folder selection, search, sort, and a live selected-count footer. Panes paint instantly from a cheap shell and each category's rows load lazily, so huge junk scans open without blocking the UI.
 
 import SwiftUI
 
-/// System Junk Review, rendered through the shared `SmartScanReviewManager`.
-/// The section/category/file hierarchy is built off the main actor; selection
-/// callbacks bridge to the view model's per-file junk selection.
-/// Holds the id→file and url→size lookups the selection callbacks need. Built
-/// once on the same background task as the section model (so nothing O(N) runs
-/// on the main thread) and read on the main actor afterward; the manager only
-/// renders interactive rows once that build has finished, so there is no race.
-private final class JunkReviewLookups: @unchecked Sendable {
-    var filesByID: [String: ScannedFile] = [:]
-    var sizeByURL: [URL: Int64] = [:]
-}
-
+/// System Junk Review, rendered through the shared `SmartScanReviewManager` and
+/// served by the same `CleanupManagerStore` the standalone Cleanup Manager uses:
+/// the panes paint from a cheap section/category shell and each category's folder
+/// tree is built (and cached) lazily off the main thread. Selection is batched
+/// per folder through the view model's `junkFileSelection`, with the manager's
+/// per-category badges and bulk-select menu reading the view model's O(1)
+/// tallies.
 struct SmartScanJunkReview: View {
     var viewModel: SmartScanViewModel
     let result: SmartScanResult
+    let store: CleanupManagerStore
     let onBack: () -> Void
 
-    @State private var lookups = JunkReviewLookups()
-
     var body: some View {
-        let lookups = self.lookups
-        let items = result.junkResult.items
+        let store = self.store
         let itemsByCategory = result.junkResult.itemsByCategory
-        let sizeByCategory = result.junkResult.sizeByCategory
         SmartScanReviewManager(
             title: String(
                 localized: "Cleanup Manager",
                 comment: "Title on the Smart Scan System Junk Review screen."
             ),
-            buildSections: {
-                // Build the selection lookups in the same off-main pass as the
-                // section model, so the main thread never does O(all-files) work.
-                lookups.filesByID = Dictionary(items.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
-                lookups.sizeByURL = Dictionary(items.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
-                return CleanupManagerModel.build(
-                    itemsByCategory: itemsByCategory,
-                    sizeByCategory: sizeByCategory,
-                    includeEmptySections: false,
-                    hierarchical: false
-                )
-            },
+            // Cheap shell: sections + category sizes, no file trees (warmed in
+            // the background when the scan landed on `.results`).
+            buildSections: { store.sections() },
             isSelected: { id in
-                guard let file = lookups.filesByID[id] else { return false }
-                return viewModel.isJunkFileSelected(file)
+                // Checked when every file beneath the row is selected. The files
+                // are gathered under one store lock, and `areAllJunkFilesSelected`
+                // short-circuits, so an unchecked folder is cheap to answer.
+                viewModel.areAllJunkFilesSelected(store.files(forRowID: id))
             },
             onToggle: { id in
-                guard let file = lookups.filesByID[id] else { return }
-                viewModel.toggleJunkFile(file)
+                // Whole-folder toggle in one batched pass: gather the row's files
+                // under a single lock, then flip them together so a folder over
+                // tens of thousands of files fires one UI update, not one per file.
+                viewModel.toggleJunkFiles(store.files(forRowID: id))
             },
             onSetCategory: { category, selected in
+                // Operate on the whole scan category (by id), independent of
+                // whether its rows are loaded yet — one batched selection pass.
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return }
-                viewModel.setJunkCategory(scanCategory, selected: selected)
+                viewModel.setJunkFiles(itemsByCategory[scanCategory] ?? [], selected: selected)
+            },
+            categorySelectedBytes: { category in
+                // O(1) read of the view model's incrementally-maintained
+                // per-category total, instead of reducing over every file in the
+                // category on every render.
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
+                return viewModel.selectedJunkBytes(in: scanCategory)
+            },
+            categorySelectionTally: { category in
+                // O(1) None/All/Some for the bulk-select menu: the view model's
+                // incrementally-maintained per-category selected count against the
+                // scan's file count for that category.
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return nil }
+                let total = itemsByCategory[scanCategory]?.count ?? 0
+                return (selected: viewModel.selectedJunkCount(in: scanCategory), total: total)
+            },
+            loadItems: { id in
+                // Off-main: a cache hit (usually, thanks to the prebuild) returns
+                // instantly; a miss builds that one category's tree without
+                // blocking the UI.
+                await Task.detached(priority: .userInitiated) { store.items(forCategoryID: id) }.value
             },
             onBack: onBack,
             accessibilityPrefix: "smartScan.review.junk",
+            lightSurface: true,
+            showsSparkle: true,
             selectionSummary: {
-                let selection = viewModel.junkFileSelection
-                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.sizeByURL[$1] ?? 0) }
-                return ManagerSelectionSummary(count: selection.count, bytes: bytes)
+                ManagerSelectionSummary(
+                    count: viewModel.junkFileSelection.count,
+                    bytes: viewModel.selectedJunkBytes
+                )
             }
         )
     }

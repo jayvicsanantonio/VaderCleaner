@@ -55,6 +55,8 @@ struct SmartScanMyClutterReview: View {
             },
             onBack: onBack,
             accessibilityPrefix: "smartScan.review.myClutter",
+            lightSurface: true,
+            showsSparkle: true,
             selectionSummary: {
                 let selection = viewModel.largeFileSelection
                 let bytes = selection.reduce(Int64(0)) { $0 + (lookups.sizeByURL[$1] ?? 0) }

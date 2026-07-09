@@ -34,7 +34,10 @@ final class ProtectionSettingsStoreTests: XCTestCase {
         XCTAssertTrue(sut.scanEmailAttachments)
         XCTAssertTrue(sut.scanArchives)
         XCTAssertTrue(sut.excludeDownloadedICloudFiles)
-        XCTAssertEqual(sut.scanMode, .deep)
+        // Quick by default — the high-risk home subdirectories only, matching
+        // Smart Scan's threat scope, so a first scan is fast rather than a
+        // whole-$HOME Deep pass.
+        XCTAssertEqual(sut.scanMode, .quick)
     }
 
     // MARK: - Persistence
@@ -73,6 +76,6 @@ final class ProtectionSettingsStoreTests: XCTestCase {
     func test_scanMode_unknownPersistedValueFallsBackToDefault() {
         defaults.set("nonsense", forKey: "protection.scanMode")
         let sut = ProtectionSettingsStore(defaults: defaults)
-        XCTAssertEqual(sut.scanMode, .deep)
+        XCTAssertEqual(sut.scanMode, .quick)
     }
 }

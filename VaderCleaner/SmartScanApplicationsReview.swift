@@ -36,7 +36,9 @@ struct SmartScanApplicationsReview: View {
                 viewModel.setAllUpdates(selected: selected)
             },
             onBack: onBack,
-            accessibilityPrefix: "smartScan.review.applications"
+            accessibilityPrefix: "smartScan.review.applications",
+            lightSurface: true,
+            showsSparkle: true
         )
     }
 

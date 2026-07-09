@@ -191,7 +191,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
             }
         )
         await vm.scan()
-        vm.toggleSelection(file) // opt the file in so clean() runs.
+        // The safe-category file is selected by default, so clean() runs.
 
         let task = Task { await vm.clean() }
         await yieldUntil({ vm.phase == .cleaning }, ".cleaning")
@@ -208,7 +208,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
             deleter: { _ in 100 }
         )
         await vm.scan()
-        vm.toggleSelection(file) // opt in before cleaning
+        // The safe-category file is selected by default, so clean() runs.
         await vm.clean()
         if case .complete = vm.phase {} else { XCTFail("expected .complete, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)

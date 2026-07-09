@@ -342,12 +342,32 @@ final class SmartScanViewModel {
     /// deselected tile is skipped entirely.
     private(set) var tileSelection: Set<SmartScanModule> = []
 
+    /// Whether a tile's Review (Manager) screen is currently open over the
+    /// results dashboard. Owned by `SmartScanView`'s local navigation state and
+    /// mirrored here so the floating Run disc — hosted in a separate panel that
+    /// only sees the view model — can hide itself while a Review is up. Reset
+    /// whenever the scan leaves `.results`.
+    private(set) var isReviewing = false
+
     /// Per-file gate inside the System Junk tile's Cleanup Manager, keyed by
     /// `ScannedFile.url`. This is the source of truth for which junk files Run
     /// removes — seeded to every scanned file (default-all-on) so the manager
     /// opens fully checked. Category-level state is derived from it (see
     /// `junkCategorySelection`).
     private(set) var junkFileSelection: Set<URL> = []
+
+    /// Running total of selected junk bytes, maintained in lockstep with
+    /// `junkFileSelection`, so the Cleanup Manager footer reads it in O(1)
+    /// instead of reducing over the selection on every render.
+    private(set) var selectedJunkBytes: Int64 = 0
+
+    /// Per-category running totals of selected junk bytes and count, maintained
+    /// in lockstep with `junkFileSelection`. Back the store-backed Cleanup
+    /// Manager's per-category selected-size badge and its "Select: None/All/Some"
+    /// menu without walking a category's (potentially huge) file list per render
+    /// — the same O(1) contract the standalone Cleanup Manager relies on.
+    private(set) var selectedJunkBytesByCategory: [ScanCategory: Int64] = [:]
+    private(set) var selectedJunkCountByCategory: [ScanCategory: Int] = [:]
 
     /// Per-category view of `junkFileSelection`: a category counts as selected
     /// when every one of its files is selected. Kept as a derived facade so the
@@ -672,7 +692,10 @@ final class SmartScanViewModel {
             // never comes back auto-selected — notably Performance, which
             // otherwise always auto-selects (its DNS flush always has work).
             tileSelection = Self.defaultTileSelection(for: result).intersection(mods)
-            junkFileSelection = Set(result.junkResult.items.map(\.url))
+            // Pre-check only the safe (regenerable / already-discarded) junk
+            // categories so a one-tap Run never removes user data. Risky
+            // categories are still listed in the Cleanup Manager, just unchecked.
+            seedJunkSelection(from: result.junkResult)
             threatSelection = Set(foundThreats.map(\.filePath))
             updateSelection = Set(foundUpdates.map(\.bundleID))
             // Seed every redundant copy (every duplicate except the kept
@@ -864,22 +887,38 @@ final class SmartScanViewModel {
 
     // MARK: - Sub-selections (per-tile Review screens)
 
+    /// Seed the junk selection and its running tallies from a fresh scan:
+    /// pre-check every file in a safe-to-auto-remove category and leave user-data
+    /// categories unchecked, building the per-category byte/count totals in the
+    /// same pass so the Cleanup Manager's badges are correct without a re-walk.
+    private func seedJunkSelection(from result: ScanResult) {
+        var urls: Set<URL> = []
+        var total: Int64 = 0
+        var bytes: [ScanCategory: Int64] = [:]
+        var counts: [ScanCategory: Int] = [:]
+        for file in result.items where file.category.isSafeToAutoRemove {
+            urls.insert(file.url)
+            total += file.size
+            bytes[file.category, default: 0] += file.size
+            counts[file.category, default: 0] += 1
+        }
+        junkFileSelection = urls
+        selectedJunkBytes = total
+        selectedJunkBytesByCategory = bytes
+        selectedJunkCountByCategory = counts
+    }
+
     func isJunkCategorySelected(_ category: ScanCategory) -> Bool {
         junkCategorySelection.contains(category)
     }
 
     /// Toggling a category is a bulk operation over its files: if every file is
-    /// currently selected, clear them all; otherwise select them all. Done as a
-    /// single write to `junkFileSelection` so SwiftUI sees one publish.
+    /// currently selected, clear them all; otherwise select them all. Routed
+    /// through the batched setter so the per-category tallies stay in sync.
     func toggleJunkCategory(_ category: ScanCategory) {
         guard case .results(let result) = phase,
               let files = result.junkResult.itemsByCategory[category] else { return }
-        let urls = files.map(\.url)
-        if urls.allSatisfy({ junkFileSelection.contains($0) }) {
-            junkFileSelection.subtract(urls)
-        } else {
-            junkFileSelection.formUnion(urls)
-        }
+        setJunkFiles(files, selected: !areAllJunkFilesSelected(files))
     }
 
     /// Whether an individual junk file is checked for removal in the Cleanup
@@ -888,27 +927,74 @@ final class SmartScanViewModel {
         junkFileSelection.contains(file.url)
     }
 
+    /// Selected junk bytes in one category — an O(1) read backing the store-
+    /// backed Cleanup Manager's per-category selected-size badge.
+    func selectedJunkBytes(in category: ScanCategory) -> Int64 {
+        selectedJunkBytesByCategory[category] ?? 0
+    }
+
+    /// Selected junk file count in one category — an O(1) read backing the
+    /// bulk-select menu's None/All/Some state.
+    func selectedJunkCount(in category: ScanCategory) -> Int {
+        selectedJunkCountByCategory[category] ?? 0
+    }
+
+    /// Whether every file in `files` is currently selected. Short-circuits on the
+    /// first unselected file, so the common "nothing selected yet" case is O(1).
+    /// Backs the Cleanup Manager folder-row checkbox's checked state.
+    func areAllJunkFilesSelected(_ files: [ScannedFile]) -> Bool {
+        !files.isEmpty && files.allSatisfy { junkFileSelection.contains($0.url) }
+    }
+
     /// Flips a single junk file's checked state.
     func toggleJunkFile(_ file: ScannedFile) {
-        if junkFileSelection.contains(file.url) {
-            junkFileSelection.remove(file.url)
-        } else {
-            junkFileSelection.insert(file.url)
+        setJunkFiles([file], selected: !junkFileSelection.contains(file.url))
+    }
+
+    /// Toggle a whole group of files as one unit — the Cleanup Manager's folder-
+    /// row checkbox, covering every file beneath a folder. A fully-selected group
+    /// clears; otherwise the whole group is selected (a partial folder fills in).
+    func toggleJunkFiles(_ files: [ScannedFile]) {
+        setJunkFiles(files, selected: !areAllJunkFilesSelected(files))
+    }
+
+    /// Select or clear a whole group of junk files in a single pass, writing each
+    /// observable property exactly once. Toggling a folder that covers tens of
+    /// thousands of files one-at-a-time re-hashes each URL and fires an
+    /// observation mutation per file — the work that froze the Cleanup Manager on
+    /// large folders. Building the new values on local copies and assigning once
+    /// collapses that to a handful of mutations total.
+    func setJunkFiles(_ files: [ScannedFile], selected: Bool) {
+        guard !files.isEmpty else { return }
+        var urls = junkFileSelection
+        var total = selectedJunkBytes
+        var bytes = selectedJunkBytesByCategory
+        var counts = selectedJunkCountByCategory
+        for file in files {
+            if selected {
+                guard urls.insert(file.url).inserted else { continue }
+                total += file.size
+                bytes[file.category, default: 0] += file.size
+                counts[file.category, default: 0] += 1
+            } else {
+                guard urls.remove(file.url) != nil else { continue }
+                total -= file.size
+                bytes[file.category, default: 0] -= file.size
+                counts[file.category, default: 0] -= 1
+            }
         }
+        junkFileSelection = urls
+        selectedJunkBytes = total
+        selectedJunkBytesByCategory = bytes
+        selectedJunkCountByCategory = counts
     }
 
     /// Check or uncheck every file in a category in one write — backs the
-    /// Cleanup Manager's "Select: All / None" menu. A single set mutation so
-    /// SwiftUI sees one publish rather than one per file.
+    /// Cleanup Manager's "Select: All / None" menu.
     func setJunkCategory(_ category: ScanCategory, selected: Bool) {
         guard case .results(let result) = phase,
               let files = result.junkResult.itemsByCategory[category] else { return }
-        let urls = files.map(\.url)
-        if selected {
-            junkFileSelection.formUnion(urls)
-        } else {
-            junkFileSelection.subtract(urls)
-        }
+        setJunkFiles(files, selected: selected)
     }
 
     func isThreatSelected(_ threat: MalwareThreat) -> Bool {
@@ -1032,6 +1118,21 @@ final class SmartScanViewModel {
         SmartScanModule.allCases.contains { willExecute($0) }
     }
 
+    /// Whether the floating Run disc should be on screen: only on the results
+    /// dashboard, only when a selected module would do work, and never while a
+    /// Review (Manager) screen is up — the Review owns the bottom bar and the
+    /// Run disc would overlap it.
+    var isRunDiscVisible: Bool {
+        guard case .results = phase else { return false }
+        return hasExecutableWork && !isReviewing
+    }
+
+    /// Records whether a tile's Review screen is open, so the floating Run disc
+    /// can hide while the user is inside a Manager. Driven by `SmartScanView`.
+    func setReviewing(_ isReviewing: Bool) {
+        self.isReviewing = isReviewing
+    }
+
     /// Default tile-selection seed for a freshly-landed `.results` payload.
     /// A module starts checked iff it has actionable work for Run. Performance
     /// always starts on because its DNS-cache flush always has work (the
@@ -1057,7 +1158,11 @@ final class SmartScanViewModel {
     func reset() {
         phase = .idle
         tileSelection = []
+        isReviewing = false
         junkFileSelection = []
+        selectedJunkBytes = 0
+        selectedJunkBytesByCategory = [:]
+        selectedJunkCountByCategory = [:]
         threatSelection = []
         updateSelection = []
         largeFileSelection = []

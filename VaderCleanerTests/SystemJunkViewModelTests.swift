@@ -89,26 +89,32 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTFail("Timed out waiting for: \(message)", file: file, line: line)
     }
 
-    /// Every file in the scan result must be selected by default — the user
-    /// opts out of files rather than opting in, matching how cleaner UIs treat
-    /// safe-to-remove junk (and the section's prior "all categories checked"
-    /// behaviour, now expressed per file).
-    func test_scan_selectsNothingByDefault() async {
-        let a = makeFile(name: "a", size: 100, category: .userCache)
-        let b = makeFile(name: "b", size: 200, category: .systemLogs)
-        let c = makeFile(name: "c", size: 300, category: .trash)
+    /// Safe-by-default: a fresh scan pre-checks every file in a regenerable /
+    /// already-discarded category (caches, logs, Trash) but leaves user-data
+    /// categories (mail attachments, iOS backups) unchecked — the same rule
+    /// Smart Scan applies, so the two surfaces stay consistent.
+    func test_scan_selectsSafeCategoriesByDefault() async {
+        let cache = makeFile(name: "a", size: 100, category: .userCache)
+        let log = makeFile(name: "b", size: 200, category: .systemLogs)
+        let trash = makeFile(name: "c", size: 300, category: .trash)
+        let mail = makeFile(name: "d", size: 400, category: .mailAttachments)
+        let backup = makeFile(name: "e", size: 500, category: .iosBackups)
         let result = makeResult(
-            (.userCache, [a]),
-            (.systemLogs, [b]),
-            (.trash, [c])
+            (.userCache, [cache]),
+            (.systemLogs, [log]),
+            (.trash, [trash]),
+            (.mailAttachments, [mail]),
+            (.iosBackups, [backup])
         )
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
 
         await vm.scan()
 
-        // Selection is opt-in: the user chooses what to clean in the manager.
-        XCTAssertTrue(vm.selectedURLs.isEmpty)
-        XCTAssertEqual(vm.totalSelectedSize, 0)
+        XCTAssertEqual(vm.selectedURLs, [cache.url, log.url, trash.url],
+                       "Only safe-category files are pre-checked")
+        XCTAssertFalse(vm.selectedURLs.contains(mail.url), "Mail attachments stay opt-in")
+        XCTAssertFalse(vm.selectedURLs.contains(backup.url), "iOS backups stay opt-in")
+        XCTAssertEqual(vm.totalSelectedSize, 600, "Selected total covers only the safe files")
     }
 
     /// A scanner that throws must surface a `.failed` phase rather than leave
@@ -145,6 +151,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
         await vm.scan()
+        clearSelection(vm, a, b)  // start from an empty baseline
         XCTAssertEqual(vm.totalSelectedSize, 0)
 
         vm.toggleSelection(a)
@@ -178,7 +185,9 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
 
         await vm.scan()
-        vm.toggleSelection(userFile)  // select only the user-cache file
+        // Both safe-category files are selected by default; deselect the log
+        // file so only the user-cache file remains for the deleter.
+        vm.toggleSelection(logFile)
         await vm.clean()
 
         let received = await recorded.value
@@ -200,7 +209,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
 
         await vm.scan()
-        vm.toggleSelection(file)  // opt the file in before cleaning
+        // The cache file is selected by default (safe category); clean it.
         await vm.clean()
 
         XCTAssertEqual(vm.phase, .complete(bytesFreed: 1_024))
@@ -220,7 +229,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
 
         await vm.scan()
-        vm.toggleSelection(file)  // select so clean reaches the deleter
+        // The cache file is selected by default (safe category); clean reaches the deleter.
         await vm.clean()
 
         if case .failed = vm.phase {
@@ -246,7 +255,8 @@ final class SystemJunkViewModelTests: XCTestCase {
         )
 
         await vm.scan()
-        // Nothing is selected by default.
+        // Deselect the safe-by-default file so nothing is selected.
+        clearSelection(vm, file)
         await vm.clean()
 
         let didInvoke = await invoked.value
@@ -287,6 +297,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let result = makeResult((.userCache, [cacheA, cacheB]), (.userLogs, [log]))
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
         await vm.scan()
+        clearSelection(vm, cacheA, cacheB, log)  // start from an empty baseline
 
         vm.toggleSelection(cacheA)
         vm.toggleSelection(log)
@@ -309,6 +320,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let result = makeResult((.userCache, [cacheA]), (.userLogs, [log]))
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
         await vm.scan()
+        clearSelection(vm, cacheA, log)  // start from an empty baseline
 
         vm.toggleSelection(cacheA)
         vm.toggleSelection(log)
@@ -340,18 +352,20 @@ final class SystemJunkViewModelTests: XCTestCase {
     /// A fresh scan and `scanAgain()` must drop the per-category totals so the
     /// badge never carries a previous run's selection forward.
     func test_selectedBytesPerCategory_clearedOnScanAndScanAgain() async {
-        let file = makeFile(name: "a", size: 100, category: .userCache)
-        let result = makeResult((.userCache, [file]))
+        // A risky (opt-in) category so a fresh scan leaves it unselected, keeping
+        // the focus on scanAgain() clearing the running total.
+        let file = makeFile(name: "a", size: 100, category: .mailAttachments)
+        let result = makeResult((.mailAttachments, [file]))
         let vm = makeViewModel(scanner: { result }, deleter: { _ in 100 })
 
         await vm.scan()
-        XCTAssertEqual(vm.selectedBytes(in: .userCache), 0, "A fresh scan selects nothing")
+        XCTAssertEqual(vm.selectedBytes(in: .mailAttachments), 0, "A risky category isn't pre-checked")
 
         vm.toggleSelection(file)
-        XCTAssertEqual(vm.selectedBytes(in: .userCache), 100)
+        XCTAssertEqual(vm.selectedBytes(in: .mailAttachments), 100)
 
         vm.scanAgain()
-        XCTAssertEqual(vm.selectedBytes(in: .userCache), 0)
+        XCTAssertEqual(vm.selectedBytes(in: .mailAttachments), 0)
     }
 
     // MARK: - Per-category selected count (bulk-select menu)
@@ -366,6 +380,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let result = makeResult((.userCache, [cacheA, cacheB]), (.userLogs, [log]))
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
         await vm.scan()
+        clearSelection(vm, cacheA, cacheB, log)  // start from an empty baseline
 
         vm.toggleSelection(cacheA)
         vm.toggleSelection(log)
@@ -402,18 +417,20 @@ final class SystemJunkViewModelTests: XCTestCase {
     /// A fresh scan and `scanAgain()` must drop the per-category counts so the
     /// menu never carries a previous run's selection forward.
     func test_selectedCountPerCategory_clearedOnScanAndScanAgain() async {
-        let file = makeFile(name: "a", size: 100, category: .userCache)
-        let result = makeResult((.userCache, [file]))
+        // A risky (opt-in) category so a fresh scan leaves it unselected, keeping
+        // the focus on scanAgain() clearing the running count.
+        let file = makeFile(name: "a", size: 100, category: .mailAttachments)
+        let result = makeResult((.mailAttachments, [file]))
         let vm = makeViewModel(scanner: { result }, deleter: { _ in 100 })
 
         await vm.scan()
-        XCTAssertEqual(vm.selectedCount(in: .userCache), 0, "A fresh scan selects nothing")
+        XCTAssertEqual(vm.selectedCount(in: .mailAttachments), 0, "A risky category isn't pre-checked")
 
         vm.toggleSelection(file)
-        XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
+        XCTAssertEqual(vm.selectedCount(in: .mailAttachments), 1)
 
         vm.scanAgain()
-        XCTAssertEqual(vm.selectedCount(in: .userCache), 0)
+        XCTAssertEqual(vm.selectedCount(in: .mailAttachments), 0)
     }
 
     // MARK: - Bulk selection (folder-row / category toggle)
@@ -478,6 +495,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let b = makeFile(name: "b", size: 30, category: .userCache)
         let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b])) }, deleter: noopDeleter)
         await vm.scan()
+        clearSelection(vm, a, b)  // start from an empty baseline
 
         vm.toggleSelection([a, b]) // nothing selected → select all
         XCTAssertTrue(vm.areAllSelected([a, b]))
@@ -495,6 +513,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let b = makeFile(name: "b", size: 30, category: .userCache)
         let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b])) }, deleter: noopDeleter)
         await vm.scan()
+        clearSelection(vm, a, b)  // start from an empty baseline
         vm.setSelection([a], selected: true) // only one of two selected
 
         vm.toggleSelection([a, b])
@@ -587,7 +606,7 @@ final class SystemJunkViewModelTests: XCTestCase {
             deleter: { _ in 100 }
         )
         await vm.scan()
-        vm.toggleSelection(file)  // select before cleaning
+        // The cache file is selected by default (safe category); clean it.
         await vm.clean()
         XCTAssertEqual(vm.phase, .complete(bytesFreed: 100))
 
@@ -647,16 +666,18 @@ final class SystemJunkViewModelTests: XCTestCase {
 
     // MARK: - Seed (from Smart Scan)
 
-    func test_seed_fromIdle_landsInPreviewWithNothingSelected() {
+    func test_seed_fromIdle_landsInPreviewWithSafeCategoriesSelected() {
         let vm = makeViewModel()
-        let file = makeFile(name: "a", size: 100, category: .userCache)
-        let result = makeResult((.userCache, [file]))
+        let cache = makeFile(name: "a", size: 100, category: .userCache)
+        let mail = makeFile(name: "b", size: 400, category: .mailAttachments)
+        let result = makeResult((.userCache, [cache]), (.mailAttachments, [mail]))
 
         vm.seed(with: result)
 
         XCTAssertEqual(vm.phase, .preview(result))
-        XCTAssertTrue(vm.selectedURLs.isEmpty)
-        XCTAssertEqual(vm.totalSelectedSize, 0)
+        XCTAssertEqual(vm.selectedURLs, [cache.url],
+                       "A seeded result lands on the same safe-by-default selection as scan()")
+        XCTAssertEqual(vm.totalSelectedSize, 100)
     }
 
     func test_seed_whenNotIdle_isIgnored() async {
@@ -699,6 +720,12 @@ final class SystemJunkViewModelTests: XCTestCase {
 
     /// Default no-op deleter for tests that don't exercise the clean path.
     private let noopDeleter: ([ScannedFile]) async throws -> Int64 = { _ in 0 }
+
+    /// Deselects `files` so a selection-mechanics test starts from an empty
+    /// baseline, independent of the safe-by-default seed a scan now applies.
+    private func clearSelection(_ vm: SystemJunkViewModel, _ files: ScannedFile...) {
+        vm.setSelection(files, selected: false)
+    }
 }
 
 /// Small actor wrapper that lets test deleter closures record values without

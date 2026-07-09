@@ -24,6 +24,9 @@ struct SmartScanPerformanceReview: View {
             onBack: onBack,
             accessibilityPrefix: "smartScan.review.performance",
             showsSelection: false,
+            // Read-only tile: white surface for consistency, but no
+            // "smart suggestion" sparkle — its rows carry no clean action.
+            lightSurface: true,
             secondaryActionTitle: String(
                 localized: "Open Performance",
                 comment: "Button on the Smart Scan Performance Review that jumps to the standalone Performance screen."

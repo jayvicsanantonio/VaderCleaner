@@ -17,6 +17,12 @@ final class MyClutterViewModelTests: XCTestCase {
         )
     }
 
+    /// Clears the safe-by-default selection (the redundant duplicate/similar
+    /// copies) so a selection-mechanics test starts from an empty baseline.
+    private func clearSelection(_ vm: MyClutterViewModel) {
+        vm.setSelection(Array(vm.selectedURLs), selected: false)
+    }
+
     /// Builds a VM whose scans return fixed fixtures and whose deleter reports
     /// every requested URL as trashed.
     private func makeViewModel(
@@ -58,19 +64,25 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertEqual(vm.dominantDownloadSource, "Google Chrome")
     }
 
-    func test_scanSelectsNothingByDefault() async {
+    func test_scanSelectsRedundantCopiesByDefault() async {
         let dup = DuplicateGroup(files: [file("/a/orig.txt", size: 10), file("/a/copy.txt", size: 10)])
         let sim = SimilarImageGroup(files: [file("/p/a.jpg", size: 50), file("/p/b.jpg", size: 40)])
         let large = [file("/big/movie.mov", size: 1000)]
-        let vm = makeViewModel(duplicates: [dup], similar: [sim], largeOld: large)
+        let dl = [DownloadItem(file: file("/d/app.dmg", size: 500), sourceApp: "Google Chrome")]
+        let vm = makeViewModel(duplicates: [dup], similar: [sim], largeOld: large, downloads: dl)
 
         await vm.scan()
 
-        // A scan leaves every item unselected — Review opens with a clean slate.
-        XCTAssertTrue(vm.selectedURLs.isEmpty)
-        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/a/copy.txt")))
-        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/p/b.jpg")))
-        XCTAssertEqual(vm.totalSelectedSize, 0)
+        // Safe-by-default: the redundant duplicate and near-duplicate copies are
+        // pre-checked (deleting one always leaves an original), while large/old
+        // files and downloads — real user data — stay opt-in.
+        let redundant = Set(vm.duplicateCopies.map(\.url)).union(vm.similarCopies.map(\.url))
+        XCTAssertEqual(vm.selectedURLs, redundant)
+        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/big/movie.mov")), "Large/old files stay opt-in")
+        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/d/app.dmg")), "Downloads stay opt-in")
+        let expectedBytes = vm.duplicateCopies.reduce(Int64(0)) { $0 + $1.size }
+            + vm.similarCopies.reduce(Int64(0)) { $0 + $1.size }
+        XCTAssertEqual(vm.totalSelectedSize, expectedBytes)
     }
 
     func test_emptyWhenNothingFound() async {
@@ -107,6 +119,7 @@ final class MyClutterViewModelTests: XCTestCase {
         let large = [file("/big/a.mov", size: 100), file("/big/b.mov", size: 200)]
         let vm = makeViewModel(duplicates: [dup], largeOld: large)
         await vm.scan()
+        clearSelection(vm)  // start from an empty baseline
 
         vm.toggleSelection(url: URL(fileURLWithPath: "/big/a.mov"))
         vm.toggleSelection(url: URL(fileURLWithPath: "/a/copy.txt"))
@@ -134,6 +147,7 @@ final class MyClutterViewModelTests: XCTestCase {
         let large = [file(shared, size: 50)]
         let vm = makeViewModel(duplicates: [dup], largeOld: large)
         await vm.scan()
+        clearSelection(vm)  // start from an empty baseline
 
         vm.toggleSelection(url: URL(fileURLWithPath: shared))
 
@@ -194,11 +208,13 @@ final class MyClutterViewModelTests: XCTestCase {
         let vm = makeViewModel(duplicates: [dup], largeOld: large) { trashed = $0 }
 
         await vm.scan()
-        // Nothing is selected by default; select the duplicate copy and the
-        // large file explicitly.
-        vm.toggleSelection(url: URL(fileURLWithPath: "/a/copy.txt"))
+        // The duplicate copy is safe-by-default (already pre-selected); add the
+        // large file explicitly so both categories have a deletion pending.
         vm.toggleSelection(url: URL(fileURLWithPath: "/big/movie.mov"))
-        XCTAssertEqual(vm.selectedURLs.count, 2)
+        XCTAssertEqual(vm.selectedURLs, [
+            URL(fileURLWithPath: "/a/copy.txt"),
+            URL(fileURLWithPath: "/big/movie.mov"),
+        ])
 
         await vm.deleteSelected()
 
@@ -209,6 +225,22 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertEqual(vm.totalFileCount, 0)
         XCTAssertEqual(vm.phase, .empty)
         XCTAssertTrue(vm.selectedURLs.isEmpty)
+    }
+
+    /// The memoized dashboard read-model (recomputed only on scan/prune, never
+    /// per render) must reflect the survivors after a partial delete.
+    func test_derivedTotalsRecomputeAfterPartialDelete() async {
+        let large = [file("/big/a.mov", size: 100), file("/big/b.mov", size: 200)]
+        let vm = makeViewModel(largeOld: large)
+        await vm.scan()
+        XCTAssertEqual(vm.largeOldBytes, 300)
+        XCTAssertEqual(vm.totalFileCount, 2)
+
+        vm.setSelection([URL(fileURLWithPath: "/big/a.mov")], selected: true)
+        await vm.deleteSelected()
+
+        XCTAssertEqual(vm.largeOldBytes, 200, "Memoized totals recompute after a prune")
+        XCTAssertEqual(vm.totalFileCount, 1)
     }
 
     func test_scanCoordinatingMapping() async {

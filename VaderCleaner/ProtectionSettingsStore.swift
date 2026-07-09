@@ -94,7 +94,11 @@ final class ProtectionSettingsStore {
     /// On by default: iCloud Drive's local copy mirrors a store Apple already
     /// scans, so skipping it trims scan time with little detection cost.
     static let defaultExcludeDownloadedICloudFiles = true
-    static let defaultScanMode: ScanMode = .deep
+    /// Quick by default: the high-risk home subdirectories
+    /// (Downloads/Desktop/Documents) only, matching Smart Scan's threat scope,
+    /// so a first Protection scan is fast rather than a whole-$HOME Deep pass.
+    /// Balanced and Deep stay one tap away in Protection settings.
+    static let defaultScanMode: ScanMode = .quick
 
     // MARK: - Tracked state
 

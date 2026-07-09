@@ -26,6 +26,16 @@ struct SmartScanView: View {
     /// The transition host's frame in global space, for mapping the opening
     /// click to `managerAnchor`.
     @State private var paneFrame: CGRect = .zero
+    /// The title-bar safe-area inset, claimed permanently by the results
+    /// container and handed back to the dashboard as explicit padding so a
+    /// Review Manager can extend up under the title bar (a thin, even top
+    /// margin) while the dashboard keeps its usual place below it.
+    @State private var paneTopInset: CGFloat = 0
+    /// Prebuilt, cached model behind the System Junk Review so its three panes
+    /// paint instantly (cheap shell) and each category's folder tree loads
+    /// lazily — warmed in the background the moment a scan lands on `.results`.
+    /// The same store the standalone Cleanup Manager uses.
+    @State private var junkManagerStore = CleanupManagerStore()
 
     init(
         viewModel: SmartScanViewModel,
@@ -52,13 +62,30 @@ struct SmartScanView: View {
             // Without this a stale `.review` value would re-emerge the next
             // time we land back on `.results`.
             .onChange(of: viewModel.phase) { _, newPhase in
-                if case .results = newPhase {
+                if case .results(let result) = newPhase {
+                    // Warm the Cleanup Manager's model in the background so
+                    // opening the System Junk Review paints its panes instantly.
+                    junkManagerStore.load(result: result.junkResult)
                     // Preserve user's Review choice if any only while we
                     // remain in `.results` — re-entering results from a
                     // fresh scan should start on the dashboard.
                     return
                 }
                 review = nil
+            }
+            // Mirror the local Review navigation onto the view model so the
+            // floating Run disc (hosted in a separate panel) can hide while a
+            // Review Manager is open.
+            .onChange(of: review) { _, newReview in
+                viewModel.setReviewing(newReview != nil)
+            }
+            .task {
+                // Catch the case where results are already present on first
+                // appear (e.g. returning to the section), so the Review's panes
+                // are still warm.
+                if case .results(let result) = viewModel.phase {
+                    junkManagerStore.load(result: result.junkResult)
+                }
             }
     }
 
@@ -137,10 +164,21 @@ struct SmartScanView: View {
                     onRequestReview: openReview,
                     onStartOver: { viewModel.reset() }
                 )
+                // The dashboard keeps its usual place below the title bar: the
+                // host ZStack claims that inset permanently, so it is handed
+                // back here as explicit padding.
+                .padding(.top, paneTopInset)
                 .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
             }
         }
+        // Claim the title-bar safe area on this stable container, never on a
+        // transitioning branch: safe-area changes anywhere inside a freshly
+        // inserted transition subtree are deferred until its spring fully
+        // settles, which read as the Review Manager stuck below a title-bar-
+        // height gap for a beat after opening.
+        .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
         .animation(VaderMotion.managerZoom, value: review)
     }
 
@@ -159,6 +197,7 @@ struct SmartScanView: View {
             SmartScanJunkReview(
                 viewModel: viewModel,
                 result: result,
+                store: junkManagerStore,
                 onBack: { self.review = nil }
             )
         case .malware:
