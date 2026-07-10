@@ -150,7 +150,9 @@ struct ContentView: View {
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
         smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, spaceLensViewModel, applicationsViewModel, performanceViewModel, protectionDashboardViewModel] result in
-            systemJunkViewModel.seed(with: result.junkResult)
+            // Seeding walks the whole junk result off the main actor, so it
+            // runs as its own task rather than blocking this completion hop.
+            Task { await systemJunkViewModel.seed(with: result.junkResult) }
             // Seeds Protection's malware tile from the Smart Scan results and
             // kicks off the privacy preview, without re-running the malware scan.
             protectionDashboardViewModel.prewarmFromSmartScan(

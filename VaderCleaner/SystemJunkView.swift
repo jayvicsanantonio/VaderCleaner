@@ -174,16 +174,24 @@ struct SystemJunkView: View {
             tiles: CleanupDashboardTile.recommended(from: result),
             accent: NavigationSection.systemJunk.theme.accent,
             onReview: { group in
-                // Pre-select this card's whole group so the right pane opens
-                // all-checked and the selected total matches the card's size.
-                viewModel.selectOnly(categories: Set(group.categories))
+                // The zoom anchor and deep-link state resolve synchronously in
+                // the click (the anchor reads the press/click event), before
+                // the selection walk hops off the main actor.
+                managerAnchor = TriggerAnchor.resolve(in: paneFrame)
                 // Deep link: open the manager at this card's section and the
                 // sub-category the card maps to.
                 let category = group.managerCategory
                 managerInitialSection = category.flatMap(CleanupManagerModel.sectionID(containing:))
                     ?? CleanupManagerModel.groups.first?.id
                 managerInitialCategory = category?.rawValue
-                openManager()
+                Task {
+                    // Pre-select this card's whole group so the right pane opens
+                    // all-checked and the selected total matches the card's size.
+                    // The manager raises only once the selection has landed, so
+                    // it never opens on a half-applied selection.
+                    await viewModel.selectOnly(categories: Set(group.categories))
+                    showingManager = true
+                }
             },
             onClean: { group in
                 Task { await viewModel.clean(categories: Set(group.categories)) }
