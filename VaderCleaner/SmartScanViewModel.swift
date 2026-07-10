@@ -695,7 +695,7 @@ final class SmartScanViewModel {
             // Pre-check only the safe (regenerable / already-discarded) junk
             // categories so a one-tap Run never removes user data. Risky
             // categories are still listed in the Cleanup Manager, just unchecked.
-            seedJunkSelection(from: result.junkResult)
+            await seedJunkSelection(from: result.junkResult)
             threatSelection = Set(foundThreats.map(\.filePath))
             updateSelection = Set(foundUpdates.map(\.bundleID))
             // Seed every redundant copy (every duplicate except the kept
@@ -891,21 +891,15 @@ final class SmartScanViewModel {
     /// pre-check every file in a safe-to-auto-remove category and leave user-data
     /// categories unchecked, building the per-category byte/count totals in the
     /// same pass so the Cleanup Manager's badges are correct without a re-walk.
-    private func seedJunkSelection(from result: ScanResult) {
-        var urls: Set<URL> = []
-        var total: Int64 = 0
-        var bytes: [ScanCategory: Int64] = [:]
-        var counts: [ScanCategory: Int] = [:]
-        for file in result.items where file.category.isSafeToAutoRemove {
-            urls.insert(file.url)
-            total += file.size
-            bytes[file.category, default: 0] += file.size
-            counts[file.category, default: 0] += 1
-        }
-        junkFileSelection = urls
-        selectedJunkBytes = total
-        selectedJunkBytesByCategory = bytes
-        selectedJunkCountByCategory = counts
+    /// Async because the walk runs off the main actor (see `ScanSelectionSeed`)
+    /// — hashing a large result's URLs into the selection set on the main
+    /// thread froze the scan-complete transition for seconds.
+    private func seedJunkSelection(from result: ScanResult) async {
+        let seed = await ScanSelectionSeed.safeDefaults(from: result)
+        junkFileSelection = seed.urls
+        selectedJunkBytes = seed.totalBytes
+        selectedJunkBytesByCategory = seed.bytesByCategory
+        selectedJunkCountByCategory = seed.countByCategory
     }
 
     func isJunkCategorySelected(_ category: ScanCategory) -> Bool {

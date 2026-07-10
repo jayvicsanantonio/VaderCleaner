@@ -202,47 +202,29 @@ final class SystemJunkViewModel {
     /// Replace the selection with every file in `categories` — backs a
     /// dashboard card's "Review", which opens the manager with that card's whole
     /// group pre-selected. The resulting `totalSelectedSize` therefore matches
-    /// the card's displayed size.
-    func selectOnly(categories: Set<ScanCategory>) {
+    /// the card's displayed size. Async because the walk over a large group runs
+    /// off the main actor (see `ScanSelectionSeed`); the result is dropped if
+    /// the preview it was built from is gone by the time it lands.
+    func selectOnly(categories: Set<ScanCategory>) async {
         guard let result = latestResult else { return }
-        var urls: Set<URL> = []
-        var total: Int64 = 0
-        var bytesByCategory: [ScanCategory: Int64] = [:]
-        var countByCategory: [ScanCategory: Int] = [:]
-        for file in result.items where categories.contains(file.category) {
-            urls.insert(file.url)
-            total += file.size
-            bytesByCategory[file.category, default: 0] += file.size
-            countByCategory[file.category, default: 0] += 1
-        }
-        selectedURLs = urls
-        totalSelectedSize = total
-        selectedBytesByCategory = bytesByCategory
-        selectedCountByCategory = countByCategory
+        let generation = scanGeneration
+        let seed = await ScanSelectionSeed.selection(of: categories, from: result)
+        // Only apply to the same preview the walk started from: a new scan
+        // (generation bump) or leaving the preview (Start Over, cleaning)
+        // makes the computed selection stale.
+        guard scanGeneration == generation, case .preview = phase else { return }
+        apply(seed)
     }
 
-    /// Seed the default selection from a fresh result: pre-check every file in a
-    /// safe-to-auto-remove category (regenerable or already-discarded junk) and
-    /// leave user-data categories (mail attachments, iOS backups) unchecked.
-    /// Shared by `scan()` and `seed(with:)` so both land on the same
-    /// safe-by-default state as Smart Scan. The running byte/count tallies are
-    /// built in the same pass so the Cleanup Manager's per-category badges are
-    /// correct without a re-scan.
-    private func seedDefaultSelection(from result: ScanResult) {
-        var urls: Set<URL> = []
-        var total: Int64 = 0
-        var bytesByCategory: [ScanCategory: Int64] = [:]
-        var countByCategory: [ScanCategory: Int] = [:]
-        for file in result.items where file.category.isSafeToAutoRemove {
-            urls.insert(file.url)
-            total += file.size
-            bytesByCategory[file.category, default: 0] += file.size
-            countByCategory[file.category, default: 0] += 1
-        }
-        selectedURLs = urls
-        totalSelectedSize = total
-        selectedBytesByCategory = bytesByCategory
-        selectedCountByCategory = countByCategory
+    /// Land a precomputed selection in the four observable properties in one
+    /// write each. The seed itself is built off the main actor (see
+    /// `ScanSelectionSeed`) — walking a large result's URLs into a `Set` on
+    /// the main thread froze the scan-complete transition for seconds.
+    private func apply(_ seed: ScanSelectionSeed) {
+        selectedURLs = seed.urls
+        totalSelectedSize = seed.totalBytes
+        selectedBytesByCategory = seed.bytesByCategory
+        selectedCountByCategory = seed.countByCategory
     }
 
     /// Run the injected scanner and land in `.preview` (or `.failed`).
@@ -271,7 +253,9 @@ final class SystemJunkViewModel {
             }
             self.latestResult = result
             // Safe-by-default: pre-check regenerable junk, leave user data opt-in.
-            self.seedDefaultSelection(from: result)
+            // The seed walk runs off the main actor; the scanning screen keeps
+            // animating while a large result's selection is built.
+            self.apply(await ScanSelectionSeed.safeDefaults(from: result))
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
@@ -288,10 +272,14 @@ final class SystemJunkViewModel {
     /// scope) so the user lands on the preview without scanning again. No-op
     /// unless idle, so it never overwrites an in-progress or already-shown scan.
     /// Mirrors `scan()`'s success path, including its safe-by-default selection.
-    func seed(with result: ScanResult) {
+    /// Async because the selection walk runs off the main actor; idleness is
+    /// re-checked after the walk so a scan the user started meanwhile wins.
+    func seed(with result: ScanResult) async {
+        guard case .idle = phase else { return }
+        let seed = await ScanSelectionSeed.safeDefaults(from: result)
         guard case .idle = phase else { return }
         latestResult = result
-        seedDefaultSelection(from: result)
+        apply(seed)
         phase = .preview(result)
     }
 

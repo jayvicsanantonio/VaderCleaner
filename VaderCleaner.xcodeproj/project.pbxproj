@@ -169,6 +169,7 @@
 		65E3F8EED4FBFCF0631AD84B /* AssociatedFileFinderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C444E0CC178C7E559BC3F7CD /* AssociatedFileFinderTests.swift */; };
 		667CDB738F03027C97828C68 /* HungAppMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 603884BF695008972AC925C8 /* HungAppMonitorTests.swift */; };
 		67B6E2F0F779AF28BBBA00C1 /* ScanDiscHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3655EDEA0B38D11EFCE61986 /* ScanDiscHostView.swift */; };
+		684A605E630D12399E322C87 /* ScanSelectionSeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2328CD0C88FCF0B17773A1D /* ScanSelectionSeedTests.swift */; };
 		688FEF65720EAF3D51754EC6 /* MyClutterManagerModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE4CEE105776395ED808C7A /* MyClutterManagerModelTests.swift */; };
 		6902C7298B34C1DD1DFABCCF /* CleanupCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AE1D0804B8FCB3DD9A50123 /* CleanupCardTests.swift */; };
 		6A34CA9DF4F4B0D1326A965C /* performance.usdz in Resources */ = {isa = PBXBuildFile; fileRef = B51321F0F77F5813E6777822 /* performance.usdz */; };
@@ -285,6 +286,7 @@
 		BACC269ED04FA26D7003F449 /* MyClutterThumbnailStripItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */; };
 		BB6D9635C62A1D0635E2799F /* AppUpdaterError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C76CE861C998A697164C552 /* AppUpdaterError.swift */; };
 		BB9A4CF2FD2F04CD567D4F4F /* PerformanceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C485B2B12D9A5E260323AB89 /* PerformanceViewModel.swift */; };
+		BC418A76CFFC18CFA6043BDF /* ScanSelectionSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEF15F03C44736F01598323 /* ScanSelectionSeed.swift */; };
 		BC4853DC6F31E89C7A1017C5 /* DatabaseUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 232219D61C4B82F4675EF95A /* DatabaseUpdater.swift */; };
 		BCFA47EF8B1FBC4B3A67E4B5 /* NavigationSectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133467A06193C406B027D97C /* NavigationSectionTests.swift */; };
 		BD3B6E6F3732BC07EAEC9FA1 /* SystemPathProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CC391B523110720320AD89 /* SystemPathProviding.swift */; };
@@ -566,6 +568,7 @@
 		58B48ACB80B7FBBFB944A3AE /* ClutterThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClutterThumbnailCache.swift; sourceTree = "<group>"; };
 		5B8CDD8E97F29FEEB9E1F20C /* DownloadSourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadSourceResolver.swift; sourceTree = "<group>"; };
 		5BAC4E977A664B7A960F1C77 /* FullDiskAccessPromptCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessPromptCard.swift; sourceTree = "<group>"; };
+		5BEF15F03C44736F01598323 /* ScanSelectionSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanSelectionSeed.swift; sourceTree = "<group>"; };
 		5CC50A90E584320709971BCB /* ScanCategoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCategoryTests.swift; sourceTree = "<group>"; };
 		5E978BB01AD677AEDE122B1C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5F498579A77E1DAED6AC00AF /* SmartScanMyClutterReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanMyClutterReview.swift; sourceTree = "<group>"; };
@@ -665,6 +668,7 @@
 		9F2BB8E9DD31E37B171CC32D /* BrowserPrivacyRemover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPrivacyRemover.swift; sourceTree = "<group>"; };
 		9FF2C4CE1BE29B227FEB57CA /* TriggerAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerAnchor.swift; sourceTree = "<group>"; };
 		A1B0ABA8AA490286024757B9 /* MalwareUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareUITests.swift; sourceTree = "<group>"; };
+		A2328CD0C88FCF0B17773A1D /* ScanSelectionSeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanSelectionSeedTests.swift; sourceTree = "<group>"; };
 		A25BE525CD287D91EE80A6CF /* VaderCleanerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaderCleanerApp.swift; sourceTree = "<group>"; };
 		A3852658DC221FB8B03631D1 /* HelperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProtocol.swift; sourceTree = "<group>"; };
 		A457B6C8523278A91D85120D /* SimilarImageScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarImageScannerTests.swift; sourceTree = "<group>"; };
@@ -1001,6 +1005,7 @@
 				14A3AE9EED81844B80CF3A1A /* ScanProgressFormatting.swift */,
 				FF3BFBAF09EA79BE34F2ABCF /* ScanProgressIndicator.swift */,
 				92759EA8E508BD5B87FCAAD6 /* ScanResult.swift */,
+				5BEF15F03C44736F01598323 /* ScanSelectionSeed.swift */,
 				9EFF573646C7B3E43AD2A96E /* SectionIntroView.swift */,
 				2FA0DB8537E6A360F24AB03E /* SectionPresentation.swift */,
 				AE9F703D11227A0065BFDEE7 /* SectionRecommendation.swift */,
@@ -1229,6 +1234,7 @@
 				BC72C9CBA70B1BBF45D6B8C1 /* ScanDiscWindowFrameTests.swift */,
 				A9F0F84AC9D6DC3F18F29AD5 /* ScanProgressIndicatorTests.swift */,
 				0D4E92A146A223EA836C156D /* ScanResultTests.swift */,
+				A2328CD0C88FCF0B17773A1D /* ScanSelectionSeedTests.swift */,
 				6A5715B3661CBF62AACA4206 /* SectionIntroViewTests.swift */,
 				732FA87F80DF686871220B50 /* SectionPresentationTests.swift */,
 				D04B389DB9840D533358345D /* SectionRecommendationSelectorTests.swift */,
@@ -1574,6 +1580,7 @@
 				F106EE57A074D89D42E2872B /* ScanDiscWindowFrameTests.swift in Sources */,
 				E77456FD775F682539451AFA /* ScanProgressIndicatorTests.swift in Sources */,
 				EF713E6D274DD7207EEB61FD /* ScanResultTests.swift in Sources */,
+				684A605E630D12399E322C87 /* ScanSelectionSeedTests.swift in Sources */,
 				A984D7D055DE9296AFE8DF4D /* SectionIntroViewTests.swift in Sources */,
 				1275DA924536C11023DB360E /* SectionPresentationTests.swift in Sources */,
 				52D10BA2CB08E461B2A87A7D /* SectionRecommendationSelectorTests.swift in Sources */,
@@ -1783,6 +1790,7 @@
 				45825BEE32AC83FC8B685E28 /* ScanProgressFormatting.swift in Sources */,
 				DE57DC92B2179CB856E0D558 /* ScanProgressIndicator.swift in Sources */,
 				8340A2D44E8B2BCD2500B867 /* ScanResult.swift in Sources */,
+				BC418A76CFFC18CFA6043BDF /* ScanSelectionSeed.swift in Sources */,
 				80111FB2EC8ED204B993FC21 /* ScannableSectionContent.swift in Sources */,
 				494DBF4AEF6D8730DF44147E /* ScannedFile.swift in Sources */,
 				9D44F12D7502363B814F2DF9 /* SectionIntroView.swift in Sources */,

@@ -279,7 +279,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         await vm.scan()
         vm.toggleSelection(trash) // a pre-existing selection that must be cleared
 
-        vm.selectOnly(categories: [.userCache, .systemCache])
+        await vm.selectOnly(categories: [.userCache, .systemCache])
 
         XCTAssertEqual(vm.selectedURLs, [cacheA.url, cacheB.url])
         XCTAssertEqual(vm.totalSelectedSize, 300)
@@ -342,7 +342,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         await vm.scan()
         vm.toggleSelection(trash) // a pre-existing selection outside the group
 
-        vm.selectOnly(categories: [.userCache, .systemCache])
+        await vm.selectOnly(categories: [.userCache, .systemCache])
 
         XCTAssertEqual(vm.selectedBytes(in: .userCache), 100)
         XCTAssertEqual(vm.selectedBytes(in: .systemCache), 200)
@@ -407,7 +407,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         await vm.scan()
         vm.toggleSelection(trash) // a pre-existing selection outside the group
 
-        vm.selectOnly(categories: [.userCache, .systemCache])
+        await vm.selectOnly(categories: [.userCache, .systemCache])
 
         XCTAssertEqual(vm.selectedCount(in: .userCache), 1)
         XCTAssertEqual(vm.selectedCount(in: .systemCache), 1)
@@ -666,13 +666,13 @@ final class SystemJunkViewModelTests: XCTestCase {
 
     // MARK: - Seed (from Smart Scan)
 
-    func test_seed_fromIdle_landsInPreviewWithSafeCategoriesSelected() {
+    func test_seed_fromIdle_landsInPreviewWithSafeCategoriesSelected() async {
         let vm = makeViewModel()
         let cache = makeFile(name: "a", size: 100, category: .userCache)
         let mail = makeFile(name: "b", size: 400, category: .mailAttachments)
         let result = makeResult((.userCache, [cache]), (.mailAttachments, [mail]))
 
-        vm.seed(with: result)
+        await vm.seed(with: result)
 
         XCTAssertEqual(vm.phase, .preview(result))
         XCTAssertEqual(vm.selectedURLs, [cache.url],
@@ -685,7 +685,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         await vm.scan() // leaves .idle for .preview(empty)
 
         let file = makeFile(name: "a", size: 100, category: .userCache)
-        vm.seed(with: makeResult((.userCache, [file])))
+        await vm.seed(with: makeResult((.userCache, [file])))
 
         // The seed is dropped because the section already left idle.
         XCTAssertEqual(vm.phase, .preview(ScanResult(items: [])))
