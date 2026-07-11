@@ -345,6 +345,9 @@ struct VaderCleanerApp: App {
                 .environment(systemStats)
                 .environment(connectedDevices)
                 .environment(malwareViewModel)
+                // The panel's Protection card narrates a running Smart Scan
+                // (whose results seed protection status).
+                .environment(smartScanViewModel)
                 .environment(menuRouter)
         } label: {
             // A compact health-pulse glyph by default. A wide text label gets

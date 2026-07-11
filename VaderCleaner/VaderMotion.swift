@@ -17,6 +17,9 @@ enum VaderMotion {
     /// Short fade for hover fills and selection pills — pointer feedback
     /// should ease in, not blink, and carries no bounce.
     static let hover: Animation = .easeOut(duration: 0.18)
+    /// Gentle ease for live telemetry ticks — numeric rolls and capacity-bar
+    /// nudges on the menu panel's 2-second refresh should glide, not blink.
+    static let telemetry: Animation = .easeOut(duration: 0.3)
     /// Duration of the full-surface exchange spring. Shared so a caller that
     /// must wait for a surface swap to land — Smart Scan holds a sub-scan until
     /// its hero tile has arrived — stays in lockstep with the animation instead

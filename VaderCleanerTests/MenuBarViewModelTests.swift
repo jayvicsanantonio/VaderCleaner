@@ -335,6 +335,57 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.protected), "Protected")
         XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.threatsFound), "Threats found")
         XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.notScanned), "Not scanned")
+        XCTAssertEqual(MenuBarViewModel.protectionStatusLabel(.scanning), "Scanning…")
+    }
+
+    /// A running scan outranks every other protection state — mid-scan the
+    /// card must acknowledge the activity rather than keep claiming "Not
+    /// scanned" or "Threats found" from stale results.
+    func test_protectionStatus_scanningOutranksOtherStates() {
+        XCTAssertEqual(
+            MenuBarViewModel.protectionStatus(hasThreats: false, hasScanned: false, isScanning: true),
+            .scanning
+        )
+        XCTAssertEqual(
+            MenuBarViewModel.protectionStatus(hasThreats: true, hasScanned: true, isScanning: true),
+            .scanning
+        )
+        // The default keeps the non-scanning derivation unchanged.
+        XCTAssertEqual(
+            MenuBarViewModel.protectionStatus(hasThreats: false, hasScanned: false),
+            .notScanned
+        )
+    }
+
+    /// The card reads "Smart Scan" — its resting identity and the scan it
+    /// launches — and renames only while Protection's threat-only scanner is
+    /// what's actually running, so the title never contradicts the activity.
+    func test_protectionCardTitle_matchesTheRunningScan() {
+        XCTAssertEqual(MenuBarViewModel.protectionCardTitle(for: .smartScan), "Smart Scan")
+        XCTAssertEqual(MenuBarViewModel.protectionCardTitle(for: .threatScan), "Threat Scan")
+        XCTAssertEqual(MenuBarViewModel.protectionCardTitle(for: nil), "Smart Scan")
+    }
+
+    /// The scanning detail line names what the running scan actually covers:
+    /// Smart Scan checks junk, large files, and threats; Protection's own
+    /// scanner checks threats only.
+    func test_scanningDetail_describesTheRunningScan() {
+        XCTAssertEqual(
+            MenuBarViewModel.scanningDetail(for: .smartScan),
+            "Looking for junk, large files, and threats…"
+        )
+        XCTAssertEqual(
+            MenuBarViewModel.scanningDetail(for: .threatScan),
+            "Checking this Mac for threats…"
+        )
+    }
+
+    /// While a scan runs the recommendation card stays hidden — the
+    /// Protection card is already narrating the activity.
+    func test_recommendation_isNilWhileScanning() {
+        XCTAssertNil(MenuBarViewModel.recommendation(
+            protection: .scanning, disk: healthyDisk, pressure: .nominal, lastScanDate: nil, now: now
+        ))
     }
 
     /// No scan date reads as "No scans yet"; a real date produces a non-empty
@@ -344,5 +395,158 @@ final class MenuBarViewModelTests: XCTestCase {
         let recent = MenuBarViewModel.lastScanString(Date(timeIntervalSinceNow: -3_600))
         XCTAssertFalse(recent.isEmpty)
         XCTAssertNotEqual(recent, "No scans yet")
+    }
+
+    // MARK: - Storage tile formatters
+
+    /// The storage tile's headline rounds to whole GB — "670 GB", not
+    /// "670.49 GB". Two decimals is false precision at menu-glance size.
+    func test_availableDiskString_roundsToWholeGB() {
+        // 1 TB total − 329.51 GB used = 670.49 GB free.
+        let stats = DiskStats(usedBytes: 329_510_000_000, totalBytes: 1_000_000_000_000)
+        let formatted = MenuBarViewModel.availableDiskString(stats)
+        XCTAssertTrue(formatted.contains("670"), "Expected whole-GB value, got \(formatted)")
+        XCTAssertFalse(formatted.contains("670.49") || formatted.contains("670,49"),
+                       "Expected no fractional GB, got \(formatted)")
+    }
+
+    /// Below one GB the whole-GB rounding would render a useless "0 GB", so
+    /// the formatter falls back to the shared byte formatter, which keeps the
+    /// GB unit with a fraction ("0.5 GB") for layout stability.
+    func test_availableDiskString_showsSubGBFraction() {
+        let stats = DiskStats(usedBytes: 999_500_000_000, totalBytes: 1_000_000_000_000)
+        let formatted = MenuBarViewModel.availableDiskString(stats)
+        XCTAssertTrue(formatted.contains("0.5") || formatted.contains("0,5"),
+                      "Expected fractional sub-GB value, got \(formatted)")
+    }
+
+    /// Used fraction drives the storage tile's capacity bar: used/total,
+    /// clamped, and 0 for the zero-total pre-first-refresh state (not NaN).
+    func test_diskUsedFraction_isUsedOverTotalClamped() {
+        let stats = DiskStats(usedBytes: 600_000_000_000, totalBytes: 1_000_000_000_000)
+        XCTAssertEqual(MenuBarViewModel.diskUsedFraction(stats), 0.6, accuracy: 0.001)
+        XCTAssertEqual(MenuBarViewModel.diskUsedFraction(.empty), 0)
+        let overfull = DiskStats(usedBytes: 2_000_000_000_000, totalBytes: 1_000_000_000_000)
+        XCTAssertEqual(MenuBarViewModel.diskUsedFraction(overfull), 1.0)
+    }
+
+    // MARK: - Battery tile symbol + status
+
+    private func makeCharge(percent: Int, isCharging: Bool = false, isPluggedIn: Bool = false) -> BatteryCharge {
+        BatteryCharge(percent: percent, isCharging: isCharging, isPluggedIn: isPluggedIn,
+                      timeRemainingMinutes: nil, temperatureCelsius: nil)
+    }
+
+    /// The battery tile's icon tracks the actual charge level instead of a
+    /// hardcoded full battery.
+    func test_batterySymbolName_bucketsChargeLevel() {
+        XCTAssertEqual(MenuBarViewModel.batterySymbolName(makeCharge(percent: 5)), "battery.0percent")
+        XCTAssertEqual(MenuBarViewModel.batterySymbolName(makeCharge(percent: 30)), "battery.25percent")
+        XCTAssertEqual(MenuBarViewModel.batterySymbolName(makeCharge(percent: 50)), "battery.50percent")
+        XCTAssertEqual(MenuBarViewModel.batterySymbolName(makeCharge(percent: 79)), "battery.75percent")
+        XCTAssertEqual(MenuBarViewModel.batterySymbolName(makeCharge(percent: 95)), "battery.100percent")
+    }
+
+    /// Charging overlays the bolt regardless of level.
+    func test_batterySymbolName_showsBoltWhileCharging() {
+        XCTAssertEqual(
+            MenuBarViewModel.batterySymbolName(makeCharge(percent: 40, isCharging: true, isPluggedIn: true)),
+            "battery.100percent.bolt"
+        )
+    }
+
+    /// No battery (desktop Macs) falls back to the generic full symbol the
+    /// tile pairs with its "No battery" text.
+    func test_batterySymbolName_fallsBackWithoutBattery() {
+        XCTAssertEqual(MenuBarViewModel.batterySymbolName(nil), "battery.100percent")
+    }
+
+    /// The battery status dot mirrors the memory tile's traffic-light system:
+    /// green while charging or comfortable, yellow when low, red when nearly
+    /// empty, and absent without a battery.
+    func test_batteryStatusColor_trafficLights() {
+        XCTAssertEqual(MenuBarViewModel.batteryStatusColor(makeCharge(percent: 79)), .green)
+        XCTAssertEqual(MenuBarViewModel.batteryStatusColor(makeCharge(percent: 15)), .yellow)
+        XCTAssertEqual(MenuBarViewModel.batteryStatusColor(makeCharge(percent: 8)), .red)
+        XCTAssertEqual(MenuBarViewModel.batteryStatusColor(makeCharge(percent: 8, isCharging: true, isPluggedIn: true)), .green)
+        XCTAssertNil(MenuBarViewModel.batteryStatusColor(nil))
+    }
+
+    /// The CPU status dot buckets load: comfortable, busy, saturated.
+    func test_cpuLoadColor_bucketsLoad() {
+        XCTAssertEqual(MenuBarViewModel.cpuLoadColor(0.2), .green)
+        XCTAssertEqual(MenuBarViewModel.cpuLoadColor(0.75), .yellow)
+        XCTAssertEqual(MenuBarViewModel.cpuLoadColor(0.95), .red)
+    }
+
+    // MARK: - Recommendation
+
+    private let healthyDisk = DiskStats(usedBytes: 400_000_000_000, totalBytes: 1_000_000_000_000)
+    private let lowDisk = DiskStats(usedBytes: 950_000_000_000, totalBytes: 1_000_000_000_000)
+    private let now = Date(timeIntervalSince1970: 1_750_000_000)
+
+    /// Low disk is the cleaner app's most urgent recommendation — it outranks
+    /// every other state, including an unscanned Mac (whose scan CTA lives on
+    /// the Protection card).
+    func test_recommendation_lowDiskOutranksEverything() {
+        let rec = MenuBarViewModel.recommendation(
+            protection: .notScanned, disk: lowDisk, pressure: .critical, lastScanDate: nil, now: now
+        )
+        XCTAssertEqual(rec?.target, .cleanup)
+        XCTAssertEqual(rec?.startsScan, false)
+        XCTAssertFalse(rec?.title.isEmpty ?? true)
+        XCTAssertFalse(rec?.message.isEmpty ?? true)
+        XCTAssertFalse(rec?.actionLabel.isEmpty ?? true)
+    }
+
+    /// Critical memory pressure recommends the Performance section when disk
+    /// is comfortable.
+    func test_recommendation_criticalMemoryWhenDiskComfortable() {
+        let rec = MenuBarViewModel.recommendation(
+            protection: .protected, disk: healthyDisk, pressure: .critical,
+            lastScanDate: now.addingTimeInterval(-3_600), now: now
+        )
+        XCTAssertEqual(rec?.target, .performance)
+    }
+
+    /// When the Mac has never been scanned (or has live threats) the
+    /// Protection card carries the scan CTA, so the recommendation card stays
+    /// out of the way rather than duplicating the same button.
+    func test_recommendation_isNilWhenProtectionCardOwnsTheCTA() {
+        XCTAssertNil(MenuBarViewModel.recommendation(
+            protection: .notScanned, disk: healthyDisk, pressure: .nominal, lastScanDate: nil, now: now
+        ))
+        XCTAssertNil(MenuBarViewModel.recommendation(
+            protection: .threatsFound, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-3_600), now: now
+        ))
+    }
+
+    /// A protected Mac whose last scan is over a week old is nudged toward a
+    /// fresh Smart Scan.
+    func test_recommendation_staleScanAfterSevenDays() {
+        let rec = MenuBarViewModel.recommendation(
+            protection: .protected, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-8 * 86_400), now: now
+        )
+        XCTAssertEqual(rec?.target, .smartScan)
+        XCTAssertEqual(rec?.startsScan, true)
+    }
+
+    /// Everything healthy and recently scanned reads as all clear — an honest
+    /// "nothing to do" instead of a manufactured plea, with Smart Scan still
+    /// offered as the panel's habitual action.
+    func test_recommendation_allClearWhenHealthyAndRecentlyScanned() {
+        let stale = MenuBarViewModel.recommendation(
+            protection: .protected, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-8 * 86_400), now: now
+        )
+        let rec = MenuBarViewModel.recommendation(
+            protection: .protected, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-2 * 86_400), now: now
+        )
+        XCTAssertEqual(rec?.target, .smartScan)
+        XCTAssertEqual(rec?.startsScan, true)
+        XCTAssertNotEqual(rec?.title, stale?.title, "All-clear copy must differ from the stale-scan nudge")
     }
 }
