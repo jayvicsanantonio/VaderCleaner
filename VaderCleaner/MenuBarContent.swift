@@ -14,8 +14,14 @@ struct MenuBarContent: View {
     @Environment(MenuBarViewModel.self) private var menuBar
     @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
     @Environment(MalwareViewModel.self) private var malware
+    @Environment(SmartScanViewModel.self) private var smartScan
     @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.openWindow) private var openWindow
+
+    /// Hover state for the two card-sized deep-link buttons. Local state keeps
+    /// pointer movement re-rendering only the hovered surface.
+    @State private var headerHovered = false
+    @State private var protectionHovered = false
 
     private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
@@ -65,36 +71,49 @@ struct MenuBarContent: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("Mac Health:")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.85))
-                    Text(verdictTitle)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(verdictColor)
+        Button {
+            openSection(.healthMonitor)
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Mac Health:")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text(verdictTitle)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(verdictColor)
+                        // Chevron affordance: the header deep-links into the
+                        // Health Monitor, and brightens under the pointer.
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white.opacity(headerHovered ? 0.8 : 0.35))
+                    }
+                    Text("\(menuBar.deviceName) · \(menuBar.systemUptimeString)")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
-                Text(menuBar.deviceName)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-            Spacer()
-            Image(systemName: "laptopcomputer")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.white.opacity(0.95), healthAccent.opacity(0.9)],
-                        startPoint: .top,
-                        endPoint: .bottom
+                Spacer()
+                Image(systemName: "laptopcomputer")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.white.opacity(0.95), healthAccent.opacity(0.9)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(headerBackground)
+            .overlay(Color.white.opacity(headerHovered ? 0.05 : 0).allowsHitTesting(false))
+            .contentShape(Rectangle())
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(headerBackground)
-        .contentShape(Rectangle())
-        .onTapGesture { openSection(.healthMonitor) }
+        .buttonStyle(.plain)
+        .onHover { headerHovered = $0 }
+        .animation(VaderMotion.hover, value: headerHovered)
+        .help("Open Health Monitor")
     }
 
     private var headerBackground: some View {
@@ -124,8 +143,23 @@ struct MenuBarContent: View {
         return false
     }
 
+    /// The scanner currently running, if any — Smart Scan (whose results seed
+    /// this card) or Protection's own scanner, including its install check
+    /// and database update. `nil` when no scan is in flight.
+    private var scanActivity: MenuBarViewModel.ScanActivity? {
+        if case .scanning = smartScan.phase { return .smartScan }
+        switch malware.phase {
+        case .checkingClamAV, .updatingDatabase, .scanning: return .threatScan
+        default: return nil
+        }
+    }
+
     private var protectionStatus: MenuBarViewModel.ProtectionStatus {
-        MenuBarViewModel.protectionStatus(hasThreats: hasThreats, hasScanned: malware.lastScanDate != nil)
+        MenuBarViewModel.protectionStatus(
+            hasThreats: hasThreats,
+            hasScanned: malware.lastScanDate != nil,
+            isScanning: scanActivity != nil
+        )
     }
 
     private var protectionColor: Color {
@@ -133,6 +167,7 @@ struct MenuBarContent: View {
         case .protected: return .green
         case .threatsFound: return .red
         case .notScanned: return .secondary
+        case .scanning: return healthAccent
         }
     }
 
@@ -140,34 +175,106 @@ struct MenuBarContent: View {
         switch protectionStatus {
         case .protected: return "checkmark.shield.fill"
         case .threatsFound: return "exclamationmark.shield.fill"
-        case .notScanned: return "shield"
+        case .notScanned, .scanning: return "shield"
+        }
+    }
+
+    /// Detail line under the Protection title. A never-scanned Mac explains
+    /// what a first scan buys instead of repeating the "Not scanned" status
+    /// label; a running scan narrates the activity; otherwise it shows scan
+    /// recency.
+    private var protectionDetail: String {
+        switch protectionStatus {
+        case .notScanned:
+            return String(
+                localized: "Run your first scan to enable protection.",
+                comment: "Protection card detail before any scan has run."
+            )
+        case .scanning:
+            // `scanActivity` is non-nil whenever the status is `.scanning`;
+            // the fallback only satisfies exhaustiveness.
+            return MenuBarViewModel.scanningDetail(for: scanActivity ?? .threatScan)
+        case .protected, .threatsFound:
+            return MenuBarViewModel.lastScanString(malware.lastScanDate)
+        }
+    }
+
+    /// The Protection card's action button when the status needs the user to
+    /// act: first scan for a never-scanned Mac (Smart Scan covers threats and
+    /// seeds this card), review for live threats, nothing while protected or
+    /// mid-scan.
+    private var protectionCTA: (label: String, run: () -> Void)? {
+        switch protectionStatus {
+        case .notScanned:
+            return (
+                String(localized: "Scan Now", comment: "Protection card button that starts a first scan."),
+                { openSection(.smartScan, startScan: true) }
+            )
+        case .threatsFound:
+            return (
+                String(localized: "Review Threats", comment: "Protection card button that opens the threats list."),
+                { openSection(.malwareRemoval) }
+            )
+        case .protected, .scanning:
+            return nil
         }
     }
 
     private var protectionCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: protectionIcon)
-                .font(.title2)
-                .foregroundStyle(protectionColor)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text("Protection")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text(MenuBarViewModel.protectionStatusLabel(protectionStatus))
-                        .font(.caption.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            // The informational area is its own button (sibling of the CTA,
+            // never its ancestor) so each control resolves clicks cleanly.
+            // It deep-links to the Smart Scan section the card is named for,
+            // except mid-threat-scan when the activity lives in Protection.
+            Button {
+                openSection(scanActivity == .threatScan ? .malwareRemoval : .smartScan)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: protectionIcon)
+                        .font(.title2)
                         .foregroundStyle(protectionColor)
+                        // Motion as meaning: the shield breathes only while a
+                        // scan is actually running.
+                        .symbolEffect(.pulse, isActive: protectionStatus == .scanning)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(MenuBarViewModel.protectionCardTitle(for: scanActivity))
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            if protectionStatus == .scanning {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                            Text(MenuBarViewModel.protectionStatusLabel(protectionStatus))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(protectionColor)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(protectionDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Text(MenuBarViewModel.lastScanString(malware.lastScanDate))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(scanActivity == .threatScan ? "Open Protection" : "Open Smart Scan")
+            if let protectionCTA {
+                HStack {
+                    Spacer()
+                    Button(protectionCTA.label, action: protectionCTA.run)
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
-        .contentShape(Rectangle())
-        .onTapGesture { openSection(.malwareRemoval) }
+        .background(.white.opacity(protectionHovered ? 0.08 : 0.05), in: .rect(cornerRadius: 12))
+        .onHover { protectionHovered = $0 }
+        .animation(VaderMotion.hover, value: protectionHovered)
     }
 
     // MARK: - Tiles
@@ -177,7 +284,8 @@ struct MenuBarContent: View {
             icon: "internaldrive",
             title: menuBar.bootVolumeName,
             primary: availableLine,
-            action: (String(localized: "Free Up"), { openSection(.systemJunk) })
+            usedFraction: menuBar.diskUsedFraction,
+            action: (String(localized: "Clean Up"), { openSection(.systemJunk) })
         )
     }
 
@@ -195,7 +303,7 @@ struct MenuBarContent: View {
             title: String(localized: "Memory"),
             primary: memoryLine,
             statusColor: swiftUIColor(for: menuBar.ramPressureColor),
-            action: (String(localized: "Free Up"), { openSection(.performance) })
+            action: (String(localized: "Free Memory"), { openSection(.performance) })
         )
     }
 
@@ -209,10 +317,11 @@ struct MenuBarContent: View {
 
     private var batteryTile: some View {
         MenuTile(
-            icon: "battery.100",
+            icon: menuBar.batterySymbolName,
             title: String(localized: "Battery"),
             primary: batteryPrimary,
-            secondary: batterySecondary
+            secondary: batterySecondary,
+            statusColor: menuBar.batteryStatusColor.map { swiftUIColor(for: $0) }
         )
     }
 
@@ -228,12 +337,14 @@ struct MenuBarContent: View {
         return MenuBarViewModel.batteryTemperatureString(temp)
     }
 
+    // Uptime lives in the panel header next to the device name — it is a
+    // machine-level fact, not CPU telemetry.
     private var cpuTile: some View {
         MenuTile(
             icon: "cpu",
             title: cpuTitle,
             primary: cpuLine,
-            secondary: menuBar.systemUptimeString
+            statusColor: swiftUIColor(for: menuBar.cpuLoadColor)
         )
     }
 
@@ -256,33 +367,44 @@ struct MenuBarContent: View {
 
     // MARK: - Network tile
 
+    // Titled "Network" like the other tiles' category names; the SSID (raw
+    // router noise like "ATTQ3gAepM") reads as the detail line instead.
     private var networkTile: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "wifi")
                     .font(.callout)
                     .foregroundStyle(.tint)
-                Text(menuBar.wifiNetworkName)
+                Text("Network")
                     .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(menuBar.networkDownString)
-                    .font(.caption)
-                    .monospacedDigit()
-            }
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(menuBar.networkUpString)
-                    .font(.caption)
-                    .monospacedDigit()
+            Text(menuBar.wifiNetworkName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            HStack(spacing: 10) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(menuBar.networkDownString)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(VaderMotion.telemetry, value: menuBar.networkDownString)
+                }
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.up")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(menuBar.networkUpString)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(VaderMotion.telemetry, value: menuBar.networkUpString)
+                }
             }
             HStack {
                 Spacer()
@@ -331,6 +453,8 @@ struct MenuBarContent: View {
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // Long names middle-truncate; the tooltip carries the full name.
+                .help(device.name)
             Spacer(minLength: 0)
             if let battery = device.batteryPercent {
                 Text("\(battery)%")
@@ -355,67 +479,86 @@ struct MenuBarContent: View {
     private var speedTestControl: some View {
         switch menuBar.speedTestState {
         case .idle:
-            Button(String(localized: "Test Speed")) { Task { await menuBar.runSpeedTest() } }
-                .buttonStyle(.plain)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tint)
+            MenuActionLink(label: String(localized: "Test Speed")) { Task { await menuBar.runSpeedTest() } }
         case .running:
             ProgressView().controlSize(.small)
         case .result(let mbps):
-            Button(MenuBarViewModel.speedTestResultString(mbps)) { Task { await menuBar.runSpeedTest() } }
-                .buttonStyle(.plain)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tint)
+            MenuActionLink(label: MenuBarViewModel.speedTestResultString(mbps)) { Task { await menuBar.runSpeedTest() } }
+                .help("Measured download speed — click to test again")
         case .failed:
-            Button(String(localized: "Retry")) { Task { await menuBar.runSpeedTest() } }
-                .buttonStyle(.plain)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+            MenuActionLink(label: String(localized: "Retry"), color: .orange) { Task { await menuBar.runSpeedTest() } }
         }
     }
 
     // MARK: - Recommendation
 
+    /// State-driven recommendation, or `nil` when the Protection card already
+    /// carries the panel's call to action (see `MenuBarViewModel.recommendation`).
+    private var recommendation: MenuBarViewModel.Recommendation? {
+        MenuBarViewModel.recommendation(
+            protection: protectionStatus,
+            disk: menuBar.diskStats,
+            pressure: menuBar.ramPressureLevel,
+            lastScanDate: malware.lastScanDate
+        )
+    }
+
+    @ViewBuilder
     private var recommendationCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.title2)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Today's Recommendation")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                Text("It's time to care for your Mac!")
-                    .font(.subheadline.weight(.semibold))
-                Text("Run Smart Scan to find junk, large files, and threats in one pass.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Spacer()
-                    Button(String(localized: "Run Smart Scan")) {
-                        openSection(.smartScan, startScan: true)
+        if let recommendation {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Today's Recommendation")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    Text(recommendation.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(recommendation.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button(recommendation.actionLabel) {
+                            open(recommendation)
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
                     }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
                 }
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    /// Maps the view-model's framework-free recommendation target onto the
+    /// app's navigation sections and deep-links there.
+    private func open(_ recommendation: MenuBarViewModel.Recommendation) {
+        let section: NavigationSection
+        switch recommendation.target {
+        case .smartScan:   section = .smartScan
+        case .cleanup:     section = .systemJunk
+        case .performance: section = .performance
+        }
+        openSection(section, startScan: recommendation.startsScan)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 14) {
             Button(action: openMainWindow) {
                 Text("Open VaderCleaner")
             }
             .buttonStyle(.plain)
             .keyboardShortcut("o")
+            .help("Open the main window (⌘O)")
 
             Spacer()
 
@@ -423,15 +566,16 @@ struct MenuBarContent: View {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
+            .help("Settings")
 
-            Button {
+            // An explicit word rather than a power glyph — next to system
+            // telemetry a power symbol reads as "shut down the Mac".
+            Button("Quit") {
                 NSApp.terminate(nil)
-            } label: {
-                Image(systemName: "power")
             }
             .buttonStyle(.plain)
             .keyboardShortcut("q")
-            .help("Quit VaderCleaner")
+            .help("Quit VaderCleaner (⌘Q)")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -473,14 +617,18 @@ struct MenuBarContent: View {
 }
 
 /// One monitor tile: an icon + title row, a primary metric line, an optional
-/// secondary line, an optional status dot, and an optional trailing action link.
+/// capacity bar, an optional secondary line, an optional status dot, and an
+/// optional trailing action link.
 private struct MenuTile: View {
     let icon: String
     let title: String
     let primary: String
     var secondary: String?
     var statusColor: Color?
-    /// Optional trailing link, e.g. ("Free Up", action).
+    /// Used fraction (0…1) rendered as a thin capacity bar under the primary
+    /// line, e.g. the storage tile's disk usage.
+    var usedFraction: Double?
+    /// Optional trailing link, e.g. ("Clean Up", action).
     var action: (label: String, run: () -> Void)?
 
     var body: some View {
@@ -503,6 +651,13 @@ private struct MenuTile: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+                // Live values roll to their next reading instead of blinking
+                // on the 2-second refresh.
+                .contentTransition(.numericText())
+                .animation(VaderMotion.telemetry, value: primary)
+            if let usedFraction {
+                capacityBar(usedFraction)
+            }
             if let secondary {
                 Text(secondary)
                     .font(.caption)
@@ -511,10 +666,7 @@ private struct MenuTile: View {
             if let action {
                 HStack {
                     Spacer()
-                    Button(action.label, action: action.run)
-                        .buttonStyle(.plain)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tint)
+                    MenuActionLink(label: action.label, action: action.run)
                 }
             }
         }
@@ -522,17 +674,60 @@ private struct MenuTile: View {
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
         .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
     }
+
+    private func capacityBar(_ fraction: Double) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.12))
+                Capsule()
+                    .fill(.tint)
+                    .frame(width: max(4, geo.size.width * fraction))
+                    .animation(VaderMotion.telemetry, value: fraction)
+            }
+        }
+        .frame(height: 4)
+        .padding(.vertical, 2)
+    }
+}
+
+/// Caption-weight link used for tile actions ("Clean Up", "Test Speed"):
+/// underlines under the pointer and pads its hit target beyond the bare text.
+private struct MenuActionLink: View {
+    let label: String
+    var color: Color?
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.tint))
+                .underline(hovered)
+                .padding(.vertical, 3)
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(VaderMotion.hover, value: hovered)
+    }
 }
 
 #Preview {
-    let prefs = PreferencesStore(defaults: UserDefaults(suiteName: "menu-preview")!)
+    let previewDefaults = UserDefaults(suiteName: "menu-preview")!
+    let prefs = PreferencesStore(defaults: previewDefaults)
     return MenuBarContent()
         .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
         .environment(ConnectedDevicesMonitor(autoRefresh: false))
         .environment(MalwareViewModel.live(
             dispatcher: NotificationManager(),
             preferences: prefs,
-            settings: ProtectionSettingsStore(defaults: UserDefaults(suiteName: "menu-preview")!)
+            settings: ProtectionSettingsStore(defaults: previewDefaults)
+        ))
+        .environment(SmartScanViewModel.live(
+            exclusions: ExclusionsStore(defaults: previewDefaults),
+            settings: SmartScanSettingsStore(defaults: previewDefaults)
         ))
         .environment(MenuRouter())
 }

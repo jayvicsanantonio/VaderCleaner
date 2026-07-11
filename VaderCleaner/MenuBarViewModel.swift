@@ -65,9 +65,25 @@ final class MenuBarViewModel {
     /// Free space on the boot volume — the storage tile's headline number.
     var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
 
+    /// Used fraction of the boot volume for the storage tile's capacity bar.
+    var diskUsedFraction: Double { Self.diskUsedFraction(service.diskSpace) }
+
+    /// Raw disk snapshot, exposed so the view can feed the pure
+    /// `recommendation` derivation alongside malware state it owns.
+    var diskStats: DiskStats { service.diskSpace }
+
     /// Live charge snapshot for the battery tile, or `nil` when there is no
     /// internal battery.
     var batteryCharge: BatteryCharge? { service.batteryCharge }
+
+    /// Battery tile SF Symbol tracking the live charge level.
+    var batterySymbolName: String { Self.batterySymbolName(service.batteryCharge) }
+
+    /// Battery tile status dot, or `nil` without a battery.
+    var batteryStatusColor: StatusColor? { Self.batteryStatusColor(service.batteryCharge) }
+
+    /// CPU tile status dot for the live load.
+    var cpuLoadColor: StatusColor { Self.cpuLoadColor(service.cpuUsage) }
 
     /// Download throughput for the network tile, e.g. "513 bytes/s".
     var networkDownString: String { Self.speedString(service.networkThroughput.bytesInPerSec) }
@@ -179,11 +195,36 @@ final class MenuBarViewModel {
         return SystemStatsFormatters.batteryCapacityString(stats)
     }
 
-    /// Free space on the boot volume, e.g. "434.3 GB" — the number the storage
-    /// tile leads with ("how much room is left?").
+    /// Free space on the boot volume, e.g. "670 GB" — the number the storage
+    /// tile leads with ("how much room is left?"). Rounds to whole GB: decimal
+    /// precision is noise at menu-glance size and would thrash across the
+    /// 2-second refresh. Below one GB it falls back to the shared byte
+    /// formatter ("0.5 GB") so a nearly-full disk doesn't read as a useless
+    /// "0 GB".
     static func availableDiskString(_ stats: DiskStats) -> String {
         let free = stats.totalBytes > stats.usedBytes ? stats.totalBytes - stats.usedBytes : 0
-        return SystemStatsFormatters.byteString(free)
+        guard free >= bytesPerGB else { return SystemStatsFormatters.byteString(free) }
+        let measurement = Measurement(value: Double(free), unit: UnitInformationStorage.bytes)
+            .converted(to: .gigabytes)
+        return wholeGBFormatter.string(from: measurement)
+    }
+
+    /// Allocated once, like `relativeFormatter`: formatter construction is not
+    /// cheap enough for a per-render rebuild on the 2-second refresh.
+    private static let wholeGBFormatter: MeasurementFormatter = {
+        let formatter = MeasurementFormatter()
+        formatter.unitOptions = .providedUnit
+        formatter.numberFormatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    /// Used portion of the boot volume as a unit fraction, clamped to 0…1 —
+    /// drives the storage tile's capacity bar. `0` for the zero-total
+    /// pre-first-refresh state rather than NaN.
+    static func diskUsedFraction(_ stats: DiskStats) -> Double {
+        guard stats.totalBytes > 0 else { return 0 }
+        let ratio = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return max(0.0, min(1.0, ratio))
     }
 
     /// Memory in use as a whole percentage, clamped to 0…100. `0%` for the
@@ -216,6 +257,45 @@ final class MenuBarViewModel {
     /// Battery temperature rounded to a whole degree, e.g. "30°C".
     static func batteryTemperatureString(_ celsius: Double) -> String {
         "\(Int(celsius.rounded()))°C"
+    }
+
+    /// SF Symbol for the battery tile, tracking the real charge level instead
+    /// of a hardcoded full battery. Charging shows the bolt variant; the
+    /// no-battery fallback pairs with the tile's "No battery" text. Levels
+    /// bucket to the nearest of SF Symbols' five battery steps.
+    static func batterySymbolName(_ charge: BatteryCharge?) -> String {
+        guard let charge else { return "battery.100percent" }
+        if charge.isCharging { return "battery.100percent.bolt" }
+        switch charge.percent {
+        case ..<13:   return "battery.0percent"
+        case ..<38:   return "battery.25percent"
+        case ..<63:   return "battery.50percent"
+        case ..<88:   return "battery.75percent"
+        default:      return "battery.100percent"
+        }
+    }
+
+    /// Status dot for the battery tile, matching the memory tile's traffic
+    /// lights: green while charging or comfortable, yellow when low, red when
+    /// nearly empty. `nil` (no dot) without a battery.
+    static func batteryStatusColor(_ charge: BatteryCharge?) -> StatusColor? {
+        guard let charge else { return nil }
+        if charge.isCharging { return .green }
+        switch charge.percent {
+        case ..<10:  return .red
+        case ..<20:  return .yellow
+        default:     return .green
+        }
+    }
+
+    /// Status dot for the CPU tile: comfortable under 70% load, busy under
+    /// 90%, saturated above.
+    static func cpuLoadColor(_ usage: Double) -> StatusColor {
+        switch usage {
+        case ..<0.7: return .green
+        case ..<0.9: return .yellow
+        default:     return .red
+        }
     }
 
     /// Formats a bytes-per-second rate for the network tile, e.g. "2 KB/s".
@@ -251,12 +331,55 @@ final class MenuBarViewModel {
         case protected
         case threatsFound
         case notScanned
+        case scanning
     }
 
-    /// Derives protection status from the malware scan state: threats outrank
-    /// everything; otherwise a Mac that has been scarred at least once reads as
-    /// protected, and one that never has reads as not-yet-scanned.
-    static func protectionStatus(hasThreats: Bool, hasScanned: Bool) -> ProtectionStatus {
+    /// Which scanner is currently driving the card's `.scanning` state. The
+    /// card renames itself to match, so the popup never claims a threat check
+    /// while the main window is visibly sweeping junk.
+    enum ScanActivity: Equatable {
+        /// Smart Scan is running (junk, large files, and threats in one pass).
+        case smartScan
+        /// Protection's own scanner is running (threats only).
+        case threatScan
+    }
+
+    /// Card title for the current activity. "Smart Scan" is the card's
+    /// resting identity — it reports the last scan and launches the next one
+    /// — so the title only changes while Protection's threat-only scanner is
+    /// what's actually running.
+    static func protectionCardTitle(for activity: ScanActivity?) -> String {
+        switch activity {
+        case .smartScan, nil:
+            return String(localized: "Smart Scan", comment: "Scan card title.")
+        case .threatScan:
+            return String(localized: "Threat Scan", comment: "Scan card title while a threat-only scan is running.")
+        }
+    }
+
+    /// Detail line while a scan runs, naming what that scan actually covers.
+    static func scanningDetail(for activity: ScanActivity) -> String {
+        switch activity {
+        case .smartScan:
+            return String(
+                localized: "Looking for junk, large files, and threats…",
+                comment: "Protection card detail while Smart Scan is running."
+            )
+        case .threatScan:
+            return String(
+                localized: "Checking this Mac for threats…",
+                comment: "Protection card detail while a threat scan is running."
+            )
+        }
+    }
+
+    /// Derives protection status from the malware scan state: a scan in
+    /// flight outranks everything (the card narrates the activity instead of
+    /// showing stale results), then threats; otherwise a Mac that has been
+    /// scanned at least once reads as protected, and one that never has reads
+    /// as not-yet-scanned.
+    static func protectionStatus(hasThreats: Bool, hasScanned: Bool, isScanning: Bool = false) -> ProtectionStatus {
+        if isScanning { return .scanning }
         if hasThreats { return .threatsFound }
         return hasScanned ? .protected : .notScanned
     }
@@ -270,6 +393,8 @@ final class MenuBarViewModel {
             return String(localized: "Threats found", comment: "Protection card status when threats are present.")
         case .notScanned:
             return String(localized: "Not scanned", comment: "Protection card status when no scan has run yet.")
+        case .scanning:
+            return String(localized: "Scanning…", comment: "Protection card status while a scan is running.")
         }
     }
 
@@ -289,6 +414,97 @@ final class MenuBarViewModel {
         let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
         let format = String(localized: "Last scan %@", comment: "Protection card detail; %@ is a relative date.")
         return String(format: format, relative)
+    }
+
+    // MARK: - Recommendation
+
+    /// One state-driven suggestion for the panel's "Today's Recommendation"
+    /// card: what to say, what the button reads, and where it deep-links.
+    struct Recommendation: Equatable {
+        /// Destination the card's action deep-links to. A view-model-local
+        /// enum (rather than `NavigationSection`) keeps this type framework-
+        /// free and pinnable in unit tests; the view maps it to a section.
+        enum Target: Equatable {
+            case smartScan
+            case cleanup
+            case performance
+        }
+
+        let title: String
+        let message: String
+        let actionLabel: String
+        let target: Target
+        /// Whether the deep-link should also start the target's scan.
+        let startsScan: Bool
+    }
+
+    /// Free-space fraction below which the disk counts as running low.
+    private static let lowDiskFreeThreshold = 0.10
+
+    /// Last-scan age beyond which a protected Mac is nudged to scan again.
+    private static let staleScanInterval: TimeInterval = 7 * 86_400
+
+    /// Derives the recommendation card's content from live panel state.
+    ///
+    /// Priority: a nearly-full disk outranks everything (it is the one state
+    /// a cleaner app must never sit on), then critical memory pressure, then
+    /// scan hygiene. Returns `nil` when protection is unscanned or has live
+    /// threats and nothing else is urgent — in those states the Protection
+    /// card carries the scan CTA, and repeating it here would just add noise.
+    static func recommendation(
+        protection: ProtectionStatus,
+        disk: DiskStats,
+        pressure: MemoryPressureLevel,
+        lastScanDate: Date?,
+        now: Date = Date()
+    ) -> Recommendation? {
+        if disk.totalBytes > 0, 1.0 - diskUsedFraction(disk) < lowDiskFreeThreshold {
+            return Recommendation(
+                title: String(localized: "Storage is running low",
+                              comment: "Recommendation title when free disk space is under 10%."),
+                message: String(localized: "Less than 10% of your disk is free. Clear out junk to reclaim space.",
+                                comment: "Recommendation message when free disk space is under 10%."),
+                actionLabel: String(localized: "Clean Up",
+                                    comment: "Recommendation button that opens the Cleanup section."),
+                target: .cleanup,
+                startsScan: false
+            )
+        }
+        if pressure == .critical {
+            return Recommendation(
+                title: String(localized: "Memory pressure is critical",
+                              comment: "Recommendation title when memory pressure is critical."),
+                message: String(localized: "Your Mac is low on memory. Free some up to keep apps responsive.",
+                                comment: "Recommendation message when memory pressure is critical."),
+                actionLabel: String(localized: "Free Memory",
+                                    comment: "Recommendation button that opens the Performance section."),
+                target: .performance,
+                startsScan: false
+            )
+        }
+        guard protection == .protected else { return nil }
+        if lastScanDate.map({ now.timeIntervalSince($0) > staleScanInterval }) ?? true {
+            return Recommendation(
+                title: String(localized: "Time for a fresh scan",
+                              comment: "Recommendation title when the last scan is over a week old."),
+                message: String(localized: "It's been over a week since your last Smart Scan.",
+                                comment: "Recommendation message when the last scan is over a week old."),
+                actionLabel: String(localized: "Run Smart Scan",
+                                    comment: "Recommendation button that starts a Smart Scan."),
+                target: .smartScan,
+                startsScan: true
+            )
+        }
+        return Recommendation(
+            title: String(localized: "You're all set",
+                          comment: "Recommendation title when nothing needs attention."),
+            message: String(localized: "No issues need your attention. A periodic Smart Scan keeps it that way.",
+                            comment: "Recommendation message when nothing needs attention."),
+            actionLabel: String(localized: "Run Smart Scan",
+                                comment: "Recommendation button that starts a Smart Scan."),
+            target: .smartScan,
+            startsScan: true
+        )
     }
 
     /// Compact uptime, e.g. "up 3d 4h", "up 4h 12m", or "up 8m". Drops to the
