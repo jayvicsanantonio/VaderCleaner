@@ -23,21 +23,19 @@ struct MenuBarContent: View {
     @State private var headerHovered = false
     @State private var protectionHovered = false
 
-    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-
     var body: some View {
         VStack(spacing: 0) {
             header
             VStack(spacing: 10) {
                 protectionCard
-                LazyVGrid(columns: columns, spacing: 10) {
-                    storageTile
-                    memoryTile
-                    batteryTile
-                    cpuTile
-                    networkTile
-                    connectedDevicesTile
-                }
+                // Fixed rows rather than a grid: each row's tiles stretch to
+                // the height of the taller one (`fixedSize` sets the row to
+                // its ideal height, `maxHeight: .infinity` inside the tiles
+                // fills it), so a short tile never floats centered beside a
+                // tall neighbour with ragged gaps.
+                tileRow { storageTile } trailing: { memoryTile }
+                tileRow { batteryTile } trailing: { cpuTile }
+                tileRow { networkTile } trailing: { connectedDevicesTile }
                 recommendationCard
             }
             .padding(14)
@@ -288,6 +286,20 @@ struct MenuBarContent: View {
 
     // MARK: - Tiles
 
+    /// One two-tile row. `fixedSize` keeps the row at its ideal height (the
+    /// taller tile's), which the tiles' `maxHeight: .infinity` then fills, so
+    /// both cards in a row are always the same height.
+    private func tileRow<Leading: View, Trailing: View>(
+        @ViewBuilder _ leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            leading()
+            trailing()
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     // Titled "Storage" like the other tiles' category names; the volume name
     // reads as the unit line under the headline number instead.
     private var storageTile: some View {
@@ -420,13 +432,16 @@ struct MenuBarContent: View {
                         .animation(VaderMotion.telemetry, value: menuBar.networkUpString)
                 }
             }
+            // Pinned to the tile's bottom edge, level with the row's other
+            // action links.
+            Spacer(minLength: 0)
             HStack {
                 Spacer()
                 speedTestControl
             }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 78, maxHeight: .infinity, alignment: .topLeading)
         .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
     }
 
@@ -464,7 +479,7 @@ struct MenuBarContent: View {
             }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 78, maxHeight: .infinity, alignment: .topLeading)
         .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
     }
 
@@ -735,6 +750,9 @@ private struct MenuTile: View {
             .buttonStyle(.plain)
             .help(helpText)
             if let action {
+                // Pinned to the tile's bottom edge so the action links sit
+                // level across a row regardless of each tile's content height.
+                Spacer(minLength: 0)
                 HStack {
                     Spacer()
                     MenuActionLink(label: action.label, action: action.run)
@@ -742,7 +760,7 @@ private struct MenuTile: View {
             }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 78, maxHeight: .infinity, alignment: .topLeading)
         .background(.white.opacity(hovered ? 0.08 : 0.05), in: .rect(cornerRadius: 12))
         .onHover { hovered = $0 }
         .animation(VaderMotion.hover, value: hovered)
