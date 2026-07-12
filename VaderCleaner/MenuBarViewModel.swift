@@ -62,6 +62,16 @@ final class MenuBarViewModel {
         )
     }
 
+    /// The verdict the panel header actually renders: the shared derivation,
+    /// capped at Good until the Mac has been scanned once. "Excellent" directly
+    /// above a "Not scanned — run your first scan" card contradicts itself, so
+    /// pre-first-scan the header claims no more than Good. Forwards to the
+    /// Health Monitor's rule — the hero renders through the same one — so the
+    /// menu and the main window can never disagree about the same Mac.
+    static func displayedHealth(_ base: MacHealthStatus?, hasScanned: Bool) -> MacHealthStatus? {
+        HealthMonitorViewModel.displayedHealth(base, hasScanned: hasScanned)
+    }
+
     /// Free space on the boot volume — the storage tile's headline number.
     var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
 
@@ -288,6 +298,34 @@ final class MenuBarViewModel {
         }
     }
 
+    /// Status dot for the storage tile. Derived from the Health Monitor's
+    /// disk-space tiers so the dot, the capacity bar, and the overall verdict
+    /// never tell contradictory stories: comfortable is green, ≥90% used is
+    /// yellow, ≥95% is red. Gray while the volume is still unmeasured.
+    static func diskStatusColor(_ stats: DiskStats) -> StatusColor {
+        guard stats.totalBytes > 0 else { return .gray }
+        switch HealthMonitorViewModel.diskSpaceTier(for: stats) {
+        case .critical, .requiresAttention: return .red
+        case .fair:                         return .yellow
+        case .good, .excellent:             return .green
+        }
+    }
+
+    /// Spoken description for a tile's status dot — the 7pt dots are
+    /// color-only, so VoiceOver needs words to carry the same meaning.
+    static func statusAccessibilityLabel(for color: StatusColor) -> String {
+        switch color {
+        case .green:
+            return String(localized: "OK", comment: "VoiceOver label for a green status dot.")
+        case .yellow:
+            return String(localized: "Needs attention", comment: "VoiceOver label for a yellow status dot.")
+        case .red:
+            return String(localized: "Critical", comment: "VoiceOver label for a red status dot.")
+        case .gray:
+            return String(localized: "Not available", comment: "VoiceOver label for a gray status dot.")
+        }
+    }
+
     /// Status dot for the CPU tile: comfortable under 70% load, busy under
     /// 90%, saturated above.
     static func cpuLoadColor(_ usage: Double) -> StatusColor {
@@ -507,8 +545,22 @@ final class MenuBarViewModel {
         )
     }
 
-    /// Compact uptime, e.g. "up 3d 4h", "up 4h 12m", or "up 8m". Drops to the
-    /// two most significant units so the CPU tile stays one short line.
+    /// "+2 more" line for the Connected Devices tile when more devices exist
+    /// than the tile shows, or `nil` when everything fits — the tile must
+    /// never truncate the list silently.
+    static func hiddenDevicesLabel(total: Int, shown: Int) -> String? {
+        let hidden = total - shown
+        guard hidden > 0 else { return nil }
+        let format = String(
+            localized: "+%d more",
+            comment: "Connected Devices tile overflow line; %d is how many devices are not shown."
+        )
+        return String(format: format, hidden)
+    }
+
+    /// Compact uptime, e.g. "on for 3d 4h", "on for 4h 12m", or "on for 8m".
+    /// Drops to the two most significant units so the header stays one short
+    /// line.
     static func uptimeString(_ interval: TimeInterval) -> String {
         let total = max(0, Int(interval))
         let days = total / 86_400
@@ -522,7 +574,10 @@ final class MenuBarViewModel {
         } else {
             value = "\(minutes)m"
         }
-        let format = String(localized: "up %@", comment: "CPU tile uptime line; %@ is a duration like 3d 4h")
+        let format = String(
+            localized: "on for %@",
+            comment: "Header uptime line; %@ is a duration like 3d 4h. Reads as plain language, not server-style 'up'."
+        )
         return String(format: format, value)
     }
 

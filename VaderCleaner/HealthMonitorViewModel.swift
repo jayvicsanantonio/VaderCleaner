@@ -117,6 +117,19 @@ final class HealthMonitorViewModel {
         return tiers.min() ?? .excellent
     }
 
+    /// The verdict a surface actually renders: the shared derivation, capped
+    /// at Good until the Mac has been scanned once. "Excellent" alongside a
+    /// "run your first scan" prompt contradicts itself, so pre-first-scan no
+    /// surface claims more than Good. The cap only ever lowers — a real
+    /// problem (Fair or worse) passes through untouched — and the measuring
+    /// state (`nil`) is preserved. Both the hero and the menu bar panel render
+    /// through this one rule so they can never disagree about the same Mac.
+    static func displayedHealth(_ base: MacHealthStatus?, hasScanned: Bool) -> MacHealthStatus? {
+        guard let base else { return nil }
+        guard !hasScanned else { return base }
+        return min(base, .good)
+    }
+
     /// Low-disk-space contribution to the verdict. A disk under the card's
     /// warning threshold is not a problem at all (Excellent); only a genuinely
     /// full disk escalates. The 0.80 / 0.95 edges line up with

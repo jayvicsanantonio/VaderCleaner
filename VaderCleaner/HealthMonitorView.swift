@@ -17,8 +17,19 @@ struct HealthMonitorView: View {
 
     @State private var viewModel: HealthMonitorViewModel
 
-    init(service: SystemStatsService) {
+    /// Whether the Mac has completed at least one scan. Pre-first-scan the
+    /// hero caps its verdict at Good (see `displayedHealth`), matching the
+    /// menu bar panel so the two surfaces never disagree.
+    private let hasScanned: Bool
+
+    init(service: SystemStatsService, hasScanned: Bool) {
         _viewModel = State(initialValue: HealthMonitorViewModel(service: service))
+        self.hasScanned = hasScanned
+    }
+
+    /// The verdict the hero renders: the live derivation capped by scan state.
+    private var displayedHealth: MacHealthStatus? {
+        HealthMonitorViewModel.displayedHealth(viewModel.macHealth, hasScanned: hasScanned)
     }
 
     /// Fixed width of the left hero column, so the hero and its disk bar keep a
@@ -38,7 +49,7 @@ struct HealthMonitorView: View {
     /// The overall Mac Health verdict color (gray while measuring). Drives the
     /// status dots and progress bars so they track the Mac's health at a glance.
     private var verdictAccent: Color {
-        viewModel.macHealth?.accentColor ?? Color(white: 0.55)
+        displayedHealth?.accentColor ?? Color(white: 0.55)
     }
 
     /// Drives the one-shot staggered entrance of the metric tiles when the
@@ -155,7 +166,7 @@ struct HealthMonitorView: View {
             // mirroring the reference dashboard's hero-and-card stack.
             VStack(spacing: 16) {
                 MacHealthHero(
-                    status: viewModel.macHealth,
+                    status: displayedHealth,
                     details: systemDetails,
                     volumeName: viewModel.diskVolumeName,
                     diskUsageDetail: viewModel.diskUsageDetail,
@@ -925,7 +936,7 @@ private extension View {
 }
 
 #Preview("Health Monitor") {
-    HealthMonitorView(service: SystemStatsService(autostart: false))
+    HealthMonitorView(service: SystemStatsService(autostart: false), hasScanned: true)
         .frame(width: 900, height: 600)
 }
 

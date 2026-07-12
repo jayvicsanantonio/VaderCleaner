@@ -306,11 +306,12 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.cpuTemperatureString(49.6), "50°C")
     }
 
-    /// Uptime collapses to the two most significant units, by magnitude.
+    /// Uptime collapses to the two most significant units, by magnitude, and
+    /// reads as plain language ("on for …") rather than server-style "up …".
     func test_uptimeString_picksTwoMostSignificantUnits() {
-        XCTAssertEqual(MenuBarViewModel.uptimeString(3 * 86_400 + 4 * 3_600 + 30 * 60), "up 3d 4h")
-        XCTAssertEqual(MenuBarViewModel.uptimeString(4 * 3_600 + 12 * 60), "up 4h 12m")
-        XCTAssertEqual(MenuBarViewModel.uptimeString(8 * 60 + 30), "up 8m")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(3 * 86_400 + 4 * 3_600 + 30 * 60), "on for 3d 4h")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(4 * 3_600 + 12 * 60), "on for 4h 12m")
+        XCTAssertEqual(MenuBarViewModel.uptimeString(8 * 60 + 30), "on for 8m")
     }
 
     /// The compact menu bar reading forwards to the available-disk formatter.
@@ -531,6 +532,78 @@ final class MenuBarViewModelTests: XCTestCase {
         )
         XCTAssertEqual(rec?.target, .smartScan)
         XCTAssertEqual(rec?.startsScan, true)
+    }
+
+    // MARK: - Displayed health verdict
+
+    /// A never-scanned Mac caps the panel's verdict at Good: "Excellent" right
+    /// above a "Not scanned — run your first scan" card contradicts itself.
+    /// One scan restores the full verdict range.
+    func test_displayedHealth_capsAtGoodUntilFirstScan() {
+        XCTAssertEqual(MenuBarViewModel.displayedHealth(.excellent, hasScanned: false), .good)
+        XCTAssertEqual(MenuBarViewModel.displayedHealth(.excellent, hasScanned: true), .excellent)
+    }
+
+    /// The cap only lowers the verdict — a real problem (Fair or worse) must
+    /// never be *raised* toward Good by the scan rule.
+    func test_displayedHealth_neverRaisesAWorseVerdict() {
+        XCTAssertEqual(MenuBarViewModel.displayedHealth(.fair, hasScanned: false), .fair)
+        XCTAssertEqual(MenuBarViewModel.displayedHealth(.critical, hasScanned: false), .critical)
+        XCTAssertEqual(MenuBarViewModel.displayedHealth(.good, hasScanned: false), .good)
+    }
+
+    /// The measuring state (nil verdict) passes through untouched.
+    func test_displayedHealth_preservesMeasuringState() {
+        XCTAssertNil(MenuBarViewModel.displayedHealth(nil, hasScanned: false))
+        XCTAssertNil(MenuBarViewModel.displayedHealth(nil, hasScanned: true))
+    }
+
+    // MARK: - Storage status dot
+
+    /// The storage tile's dot mirrors the Health Monitor's disk-space tiers so
+    /// the dot and the overall verdict never tell contradictory stories:
+    /// comfortable is green, ≥90% used is yellow, ≥95% used is red.
+    func test_diskStatusColor_bucketsUsage() {
+        func stats(usedFraction: Double) -> DiskStats {
+            DiskStats(usedBytes: UInt64(usedFraction * 1_000_000_000_000), totalBytes: 1_000_000_000_000)
+        }
+        XCTAssertEqual(MenuBarViewModel.diskStatusColor(stats(usedFraction: 0.50)), .green)
+        XCTAssertEqual(MenuBarViewModel.diskStatusColor(stats(usedFraction: 0.85)), .green)
+        XCTAssertEqual(MenuBarViewModel.diskStatusColor(stats(usedFraction: 0.92)), .yellow)
+        XCTAssertEqual(MenuBarViewModel.diskStatusColor(stats(usedFraction: 0.96)), .red)
+    }
+
+    /// Pre-first-refresh (zero total) shows a neutral gray dot, not a false
+    /// green — the disk hasn't been measured yet.
+    func test_diskStatusColor_isGrayWhileUnmeasured() {
+        XCTAssertEqual(MenuBarViewModel.diskStatusColor(.empty), .gray)
+    }
+
+    // MARK: - Status dot accessibility
+
+    /// The 7pt status dots are color-only; VoiceOver needs words. Each color
+    /// maps to a stable spoken description.
+    func test_statusAccessibilityLabel_describesEveryColor() {
+        XCTAssertEqual(MenuBarViewModel.statusAccessibilityLabel(for: .green), "OK")
+        XCTAssertEqual(MenuBarViewModel.statusAccessibilityLabel(for: .yellow), "Needs attention")
+        XCTAssertEqual(MenuBarViewModel.statusAccessibilityLabel(for: .red), "Critical")
+        XCTAssertEqual(MenuBarViewModel.statusAccessibilityLabel(for: .gray), "Not available")
+    }
+
+    // MARK: - Connected devices overflow
+
+    /// The devices tile shows at most three devices; beyond that it must say
+    /// how many were hidden instead of truncating silently.
+    func test_hiddenDevicesLabel_countsTheOverflow() {
+        XCTAssertEqual(MenuBarViewModel.hiddenDevicesLabel(total: 5, shown: 3), "+2 more")
+        XCTAssertEqual(MenuBarViewModel.hiddenDevicesLabel(total: 4, shown: 3), "+1 more")
+    }
+
+    /// No overflow, no label — three or fewer devices all fit.
+    func test_hiddenDevicesLabel_isNilWhenEverythingFits() {
+        XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 3, shown: 3))
+        XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 0, shown: 0))
+        XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 2, shown: 2))
     }
 
     /// Everything healthy and recently scanned reads as all clear — an honest

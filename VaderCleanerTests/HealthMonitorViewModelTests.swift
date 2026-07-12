@@ -498,4 +498,42 @@ final class HealthMonitorViewModelTests: XCTestCase {
         XCTAssertTrue(MacHealthStatus.good.summary.contains("good shape"))
         XCTAssertEqual(MacHealthStatus.excellent.title, "Excellent")
     }
+
+    // MARK: - Displayed health verdict
+
+    /// A never-scanned Mac caps the rendered verdict at Good — "Excellent"
+    /// alongside a "run your first scan" prompt contradicts itself. This rule
+    /// is shared with the menu bar panel (which forwards to it) so the hero
+    /// and the menu can never disagree about the same Mac.
+    func test_displayedHealth_capsAtGoodUntilFirstScan() {
+        XCTAssertEqual(HealthMonitorViewModel.displayedHealth(.excellent, hasScanned: false), .good)
+        XCTAssertEqual(HealthMonitorViewModel.displayedHealth(.excellent, hasScanned: true), .excellent)
+    }
+
+    /// The cap only lowers the verdict — a real problem (Fair or worse) must
+    /// never be *raised* toward Good by the scan rule.
+    func test_displayedHealth_neverRaisesAWorseVerdict() {
+        XCTAssertEqual(HealthMonitorViewModel.displayedHealth(.fair, hasScanned: false), .fair)
+        XCTAssertEqual(HealthMonitorViewModel.displayedHealth(.critical, hasScanned: false), .critical)
+        XCTAssertEqual(HealthMonitorViewModel.displayedHealth(.good, hasScanned: false), .good)
+    }
+
+    /// The measuring state (nil verdict) passes through untouched.
+    func test_displayedHealth_preservesMeasuringState() {
+        XCTAssertNil(HealthMonitorViewModel.displayedHealth(nil, hasScanned: false))
+        XCTAssertNil(HealthMonitorViewModel.displayedHealth(nil, hasScanned: true))
+    }
+
+    /// The menu bar panel's forwarding stays in lockstep with the hero's rule
+    /// — one implementation, two surfaces.
+    func test_displayedHealth_menuBarForwardsToTheSameRule() {
+        for hasScanned in [true, false] {
+            for status in MacHealthStatus.allCases {
+                XCTAssertEqual(
+                    MenuBarViewModel.displayedHealth(status, hasScanned: hasScanned),
+                    HealthMonitorViewModel.displayedHealth(status, hasScanned: hasScanned)
+                )
+            }
+        }
+    }
 }
