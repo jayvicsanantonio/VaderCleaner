@@ -404,7 +404,12 @@ struct ContentView: View {
                 )
             }
         case .healthMonitor:
-            HealthMonitorView(service: systemStats)
+            // Scan state caps the hero's verdict pre-first-scan; reading it
+            // here keeps the section re-rendering when the first scan lands.
+            HealthMonitorView(
+                service: systemStats,
+                hasScanned: protectionDashboardViewModel.malware.lastScanDate != nil
+            )
         case .systemJunk:
             ScannableSectionContent(coordinator: systemJunkViewModel, section: section) {
                 SystemJunkView(viewModel: systemJunkViewModel)

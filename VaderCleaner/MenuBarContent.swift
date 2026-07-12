@@ -63,11 +63,18 @@ struct MenuBarContent: View {
     private var healthTheme: SectionTheme { NavigationSection.healthMonitor.theme }
     private var healthAccent: Color { healthTheme.accent }
 
+    /// The verdict the header renders: the shared derivation capped at Good
+    /// until a first scan exists, so "Excellent" never sits directly above the
+    /// Protection card's "Not scanned — run your first scan".
+    private var displayedHealth: MacHealthStatus? {
+        MenuBarViewModel.displayedHealth(menuBar.macHealth, hasScanned: malware.lastScanDate != nil)
+    }
+
     /// The verdict's signature colour (gray while still measuring).
-    private var verdictColor: Color { menuBar.macHealth?.accentColor ?? Color(white: 0.6) }
+    private var verdictColor: Color { displayedHealth?.accentColor ?? Color(white: 0.6) }
 
     private var verdictTitle: String {
-        menuBar.macHealth?.title ?? String(localized: "Measuring…")
+        displayedHealth?.title ?? String(localized: "Measuring…")
     }
 
     private var header: some View {
@@ -262,11 +269,13 @@ struct MenuBarContent: View {
             .buttonStyle(.plain)
             .help(scanActivity == .threatScan ? "Open Protection" : "Open Smart Scan")
             if let protectionCTA {
+                // Leading placement keeps the button visually attached to the
+                // detail text it acts on, instead of floating bottom-right.
                 HStack {
-                    Spacer()
                     Button(protectionCTA.label, action: protectionCTA.run)
                         .controlSize(.small)
                         .buttonStyle(.borderedProminent)
+                    Spacer()
                 }
             }
         }
@@ -279,57 +288,67 @@ struct MenuBarContent: View {
 
     // MARK: - Tiles
 
+    // Titled "Storage" like the other tiles' category names; the volume name
+    // reads as the unit line under the headline number instead.
     private var storageTile: some View {
         MenuTile(
             icon: "internaldrive",
-            title: menuBar.bootVolumeName,
-            primary: availableLine,
+            title: String(localized: "Storage"),
+            value: menuBar.availableDiskSpace,
+            label: storageLabel,
+            status: MenuBarViewModel.diskStatusColor(menuBar.diskStats),
             usedFraction: menuBar.diskUsedFraction,
-            action: (String(localized: "Clean Up"), { openSection(.systemJunk) })
+            action: (String(localized: "Clean Up"), { openSection(.systemJunk) }),
+            open: { openSection(.systemJunk) },
+            helpText: String(localized: "Open Cleanup")
         )
     }
 
-    private var availableLine: String {
+    /// "available on Macintosh HD" — the unit line under the storage tile's
+    /// headline number, carrying the volume name the title used to show.
+    private var storageLabel: String {
         let format = String(
-            localized: "Available: %@",
-            comment: "Storage tile line; %@ is free space, e.g. Available: 434.3 GB"
+            localized: "available on %@",
+            comment: "Storage tile line under the free-space number; %@ is the volume name."
         )
-        return String(format: format, menuBar.availableDiskSpace)
+        return String(format: format, menuBar.bootVolumeName)
     }
 
     private var memoryTile: some View {
         MenuTile(
             icon: "memorychip",
             title: String(localized: "Memory"),
-            primary: memoryLine,
-            statusColor: swiftUIColor(for: menuBar.ramPressureColor),
-            action: (String(localized: "Free Memory"), { openSection(.performance) })
+            value: menuBar.ramPressureLabel,
+            label: String(localized: "pressure", comment: "Memory tile line under the pressure level."),
+            status: menuBar.ramPressureColor,
+            action: (String(localized: "Free Memory"), { openSection(.performance) }),
+            open: { openSection(.performance) },
+            helpText: String(localized: "Open Performance")
         )
-    }
-
-    private var memoryLine: String {
-        let format = String(
-            localized: "Pressure: %@",
-            comment: "Memory tile line; %@ is the memory-pressure level, e.g. Pressure: Nominal"
-        )
-        return String(format: format, menuBar.ramPressureLabel)
     }
 
     private var batteryTile: some View {
         MenuTile(
             icon: menuBar.batterySymbolName,
             title: String(localized: "Battery"),
-            primary: batteryPrimary,
+            value: batteryValue,
+            label: batteryLabel,
             secondary: batterySecondary,
-            statusColor: menuBar.batteryStatusColor.map { swiftUIColor(for: $0) }
+            status: menuBar.batteryStatusColor,
+            open: { openSection(.healthMonitor) },
+            helpText: String(localized: "Open Health Monitor")
         )
     }
 
-    private var batteryPrimary: String {
+    private var batteryValue: String {
         guard let charge = menuBar.batteryCharge else {
             return String(localized: "No battery")
         }
-        return "\(MenuBarViewModel.batteryChargeString(charge)) · \(MenuBarViewModel.batteryStateString(charge))"
+        return MenuBarViewModel.batteryChargeString(charge)
+    }
+
+    private var batteryLabel: String? {
+        menuBar.batteryCharge.map { MenuBarViewModel.batteryStateString($0) }
     }
 
     private var batterySecondary: String? {
@@ -343,8 +362,11 @@ struct MenuBarContent: View {
         MenuTile(
             icon: "cpu",
             title: cpuTitle,
-            primary: cpuLine,
-            statusColor: swiftUIColor(for: menuBar.cpuLoadColor)
+            value: menuBar.formattedCPU,
+            label: String(localized: "load", comment: "CPU tile line under the load percent."),
+            status: menuBar.cpuLoadColor,
+            open: { openSection(.healthMonitor) },
+            helpText: String(localized: "Open Health Monitor")
         )
     }
 
@@ -355,14 +377,6 @@ struct MenuBarContent: View {
             return "\(String(localized: "CPU")) · \(temp)"
         }
         return String(localized: "CPU")
-    }
-
-    private var cpuLine: String {
-        let format = String(
-            localized: "Load: %@",
-            comment: "CPU tile line; %@ is processor load percent, e.g. Load: 20%"
-        )
-        return String(format: format, menuBar.formattedCPU)
     }
 
     // MARK: - Network tile
@@ -434,8 +448,18 @@ struct MenuBarContent: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(connectedDevices.devices.prefix(3)) { device in
+                let shown = connectedDevices.devices.prefix(3)
+                ForEach(shown) { device in
                     deviceRow(device)
+                }
+                // Never truncate silently: name how many devices didn't fit.
+                if let overflow = MenuBarViewModel.hiddenDevicesLabel(
+                    total: connectedDevices.devices.count,
+                    shown: shown.count
+                ) {
+                    Text(overflow)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -554,7 +578,14 @@ struct MenuBarContent: View {
     private var footer: some View {
         HStack(spacing: 14) {
             Button(action: openMainWindow) {
-                Text("Open VaderCleaner")
+                // The shortcut glyph rides along in secondary weight so the
+                // binding is discoverable without hunting for the tooltip.
+                HStack(spacing: 6) {
+                    Text("Open VaderCleaner")
+                    Text(verbatim: "⌘O")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .buttonStyle(.plain)
             .keyboardShortcut("o")
@@ -570,8 +601,15 @@ struct MenuBarContent: View {
 
             // An explicit word rather than a power glyph — next to system
             // telemetry a power symbol reads as "shut down the Mac".
-            Button("Quit") {
+            Button {
                 NSApp.terminate(nil)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Quit")
+                    Text(verbatim: "⌘Q")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .buttonStyle(.plain)
             .keyboardShortcut("q")
@@ -591,16 +629,6 @@ struct MenuBarContent: View {
         )
     }
 
-    /// Maps the view-model's framework-free `StatusColor` to a SwiftUI `Color`.
-    private func swiftUIColor(for status: StatusColor) -> Color {
-        switch status {
-        case .green: return .green
-        case .yellow: return .yellow
-        case .red: return .red
-        case .gray: return .gray
-        }
-    }
-
     private func openMainWindow() {
         // Brings the existing main window forward, or opens one if it was
         // closed, then activates the process so it surfaces over other apps.
@@ -616,53 +644,96 @@ struct MenuBarContent: View {
     }
 }
 
-/// One monitor tile: an icon + title row, a primary metric line, an optional
-/// capacity bar, an optional secondary line, an optional status dot, and an
-/// optional trailing action link.
+/// Maps the view-model's framework-free `StatusColor` to a SwiftUI `Color`.
+/// File-level so both the panel and its private tiles share one mapping.
+private func swiftUIColor(for status: StatusColor) -> Color {
+    switch status {
+    case .green: return .green
+    case .yellow: return .yellow
+    case .red: return .red
+    case .gray: return .gray
+    }
+}
+
+/// One monitor tile: an icon + title row, a headline value over a small unit
+/// label, an optional capacity bar, an optional secondary line, an optional
+/// status dot, and an optional trailing action link. The whole tile is a
+/// button that deep-links into the section owning the reading; the action
+/// link is a sibling of that button (never its descendant) so each control
+/// resolves clicks cleanly, matching the Protection card's pattern.
 private struct MenuTile: View {
     let icon: String
     let title: String
-    let primary: String
+    /// Headline reading, shown large — the number the user glances for
+    /// ("679 GB", "23%").
+    let value: String
+    /// Small unit line under the value ("available on Macintosh HD", "load").
+    var label: String?
     var secondary: String?
-    var statusColor: Color?
-    /// Used fraction (0…1) rendered as a thin capacity bar under the primary
-    /// line, e.g. the storage tile's disk usage.
+    var status: StatusColor?
+    /// Used fraction (0…1) rendered as a thin capacity bar under the value,
+    /// e.g. the storage tile's disk usage.
     var usedFraction: Double?
     /// Optional trailing link, e.g. ("Clean Up", action).
     var action: (label: String, run: () -> Void)?
+    /// Whole-tile deep link into the section that owns this reading.
+    let open: () -> Void
+    let helpText: String
+
+    @State private var hovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.callout)
-                    .foregroundStyle(.tint)
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-                if let statusColor {
-                    Circle().fill(statusColor).frame(width: 7, height: 7)
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: icon)
+                            .font(.callout)
+                            .foregroundStyle(.tint)
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                        if let status {
+                            Circle()
+                                .fill(swiftUIColor(for: status))
+                                .frame(width: 7, height: 7)
+                                // The dot is color-only; VoiceOver speaks its
+                                // meaning instead.
+                                .accessibilityLabel(MenuBarViewModel.statusAccessibilityLabel(for: status))
+                        }
+                    }
+                    Text(value)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        // Live values roll to their next reading instead of
+                        // blinking on the 2-second refresh.
+                        .contentTransition(.numericText())
+                        .animation(VaderMotion.telemetry, value: value)
+                    if let label {
+                        Text(label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    if let usedFraction {
+                        capacityBar(usedFraction)
+                    }
+                    if let secondary {
+                        Text(secondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .contentShape(Rectangle())
             }
-            Text(primary)
-                .font(.callout)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                // Live values roll to their next reading instead of blinking
-                // on the 2-second refresh.
-                .contentTransition(.numericText())
-                .animation(VaderMotion.telemetry, value: primary)
-            if let usedFraction {
-                capacityBar(usedFraction)
-            }
-            if let secondary {
-                Text(secondary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .buttonStyle(.plain)
+            .help(helpText)
             if let action {
                 HStack {
                     Spacer()
@@ -672,7 +743,20 @@ private struct MenuTile: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+        .background(.white.opacity(hovered ? 0.08 : 0.05), in: .rect(cornerRadius: 12))
+        .onHover { hovered = $0 }
+        .animation(VaderMotion.hover, value: hovered)
+    }
+
+    /// The capacity bar shares the tile's accent while the reading is
+    /// comfortable and switches to the status color once it needs attention,
+    /// so a nearly-full disk's bar and dot agree.
+    private var barFill: AnyShapeStyle {
+        switch status {
+        case .yellow: return AnyShapeStyle(Color.yellow)
+        case .red:    return AnyShapeStyle(Color.red)
+        default:      return AnyShapeStyle(.tint)
+        }
     }
 
     private func capacityBar(_ fraction: Double) -> some View {
@@ -680,7 +764,7 @@ private struct MenuTile: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.12))
                 Capsule()
-                    .fill(.tint)
+                    .fill(barFill)
                     .frame(width: max(4, geo.size.width * fraction))
                     .animation(VaderMotion.telemetry, value: fraction)
             }
