@@ -26,8 +26,20 @@ final class MenuBarViewModel {
     /// from it, so the strong reference does not extend its lifetime.
     let service: SystemStatsService
 
-    init(service: SystemStatsService) {
+    /// Privileged RAM purge, injected so tests can pin the flush state machine
+    /// without an XPC helper. Main-actor-typed: the production call is safe to
+    /// await from the main actor, and confining test spies to it keeps their
+    /// captured state race-free.
+    typealias FlushMemory = @MainActor () async throws -> Void
+
+    @ObservationIgnored private let flushMemoryAction: FlushMemory
+
+    init(
+        service: SystemStatsService,
+        flushMemory: @escaping FlushMemory = { try await RAMManager().flush() }
+    ) {
         self.service = service
+        self.flushMemoryAction = flushMemory
     }
 
     /// Boot-volume display name ("Macintosh HD"), resolved once — it never
@@ -148,6 +160,50 @@ final class MenuBarViewModel {
             speedTestState = .result(downloadMbps: Self.megabitsPerSecond(bytes: data.count, seconds: seconds))
         } catch {
             speedTestState = .failed
+        }
+    }
+
+    // MARK: - Inline memory flush
+
+    /// State of the Memory tile's inline RAM purge. Mirrors `SpeedTestState`'s
+    /// shape: the tile renders a link at rest, a spinner in flight, and a
+    /// confirmation or retry afterwards.
+    enum MemoryFlushState: Equatable {
+        case idle
+        case running
+        case flushed
+        case failed
+    }
+
+    private(set) var memoryFlushState: MemoryFlushState = .idle
+
+    /// Runs the privileged purge from the panel. Idempotent while a flush is
+    /// in flight. A failure (most likely an unreachable helper) resolves to
+    /// `.failed` so the tile can offer a retry rather than hang or lie.
+    func flushMemory() async {
+        guard memoryFlushState != .running else { return }
+        memoryFlushState = .running
+        do {
+            try await flushMemoryAction()
+            memoryFlushState = .flushed
+        } catch {
+            memoryFlushState = .failed
+        }
+    }
+
+    /// Link copy for a flush state, or `nil` while running (the tile swaps
+    /// the link for a spinner). "Memory freed" stays clickable so the user
+    /// can purge again without hunting for a reset.
+    static func memoryFlushLabel(for state: MemoryFlushState) -> String? {
+        switch state {
+        case .idle:
+            return String(localized: "Free Memory", comment: "Memory tile link that purges inactive RAM.")
+        case .running:
+            return nil
+        case .flushed:
+            return String(localized: "Memory freed", comment: "Memory tile link label after a successful purge.")
+        case .failed:
+            return String(localized: "Retry", comment: "Memory tile link label after a failed purge.")
         }
     }
 
@@ -396,13 +452,24 @@ final class MenuBarViewModel {
     }
 
     /// Detail line while a scan runs, naming what that scan actually covers.
-    static func scanningDetail(for activity: ScanActivity) -> String {
+    /// Once Smart Scan's file walks start reporting, the line narrates the
+    /// live item tally instead — visible motion that proves the scan is
+    /// advancing. The tally belongs to Smart Scan; the threat scan keeps its
+    /// own copy regardless of the parameter.
+    static func scanningDetail(for activity: ScanActivity, itemsScanned: Int = 0) -> String {
         switch activity {
         case .smartScan:
-            return String(
-                localized: "Looking for junk, large files, and threats…",
-                comment: "Protection card detail while Smart Scan is running."
+            guard itemsScanned > 0 else {
+                return String(
+                    localized: "Looking for junk, large files, and threats…",
+                    comment: "Protection card detail while Smart Scan is running."
+                )
+            }
+            let format = String(
+                localized: "Checked %@ items so far…",
+                comment: "Protection card detail while Smart Scan walks the disk; %@ is a formatted item count."
             )
+            return String(format: format, itemsScanned.formatted())
         case .threatScan:
             return String(
                 localized: "Checking this Mac for threats…",
