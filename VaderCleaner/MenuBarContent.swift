@@ -1,14 +1,16 @@
 // MenuBarContent.swift
-// The menu bar panel — a Mac Health header, a grid of live system tiles (Storage, Memory, Battery, CPU), a recommendation card, and a footer, driven by MenuBarViewModel / SystemStatsService.
+// The menu bar panel — a Mac Health header with a verdict ring, a Smart Scan card, compact vitals (Storage, Memory, Battery, CPU), a connectivity card, a recommendation, and a section launcher, driven by MenuBarViewModel / SystemStatsService.
 
 import SwiftUI
 import AppKit
 
-/// Wide panel presented when the user clicks the menu bar icon. Mirrors the
-/// CleanMyMac menu's shape — a Mac Health verdict header, a 2-column grid of
-/// monitor tiles, a "Today's Recommendation" card, and a footer — while showing
-/// only VaderCleaner's real telemetry. Values refresh on the same 2-second
-/// cadence as the Health Monitor.
+/// Wide panel presented when the user clicks the menu bar icon. Reads top to
+/// bottom as glance → act → dive: a Mac Health verdict header with a score
+/// ring, a Smart Scan card, a 2×2 grid of monitor tiles with inline actions
+/// (memory purge, cleanup deep-link), a full-width connectivity card (network
+/// + connected devices), a "Today's Recommendation" card, a launcher covering
+/// every main-window section, and a footer. Values refresh on the same
+/// 2-second cadence as the Health Monitor.
 struct MenuBarContent: View {
 
     @Environment(MenuBarViewModel.self) private var menuBar
@@ -35,8 +37,9 @@ struct MenuBarContent: View {
                 // tall neighbour with ragged gaps.
                 tileRow { storageTile } trailing: { memoryTile }
                 tileRow { batteryTile } trailing: { cpuTile }
-                tileRow { networkTile } trailing: { connectedDevicesTile }
+                connectivityCard
                 recommendationCard
+                launcherGrid
             }
             .padding(14)
             Divider()
@@ -79,7 +82,7 @@ struct MenuBarContent: View {
         Button {
             openSection(.healthMonitor)
         } label: {
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text("Mac Health:")
@@ -99,15 +102,7 @@ struct MenuBarContent: View {
                         .foregroundStyle(.white.opacity(0.7))
                 }
                 Spacer()
-                Image(systemName: "laptopcomputer")
-                    .font(.system(size: 34, weight: .light))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.white.opacity(0.95), healthAccent.opacity(0.9)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                verdictRing
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,6 +114,29 @@ struct MenuBarContent: View {
         .onHover { headerHovered = $0 }
         .animation(VaderMotion.hover, value: headerHovered)
         .help("Open Health Monitor")
+    }
+
+    /// Miniature of the Health Monitor hero ring: the arc fills with
+    /// `MacHealthStatus.score` in the verdict's colour, so the header carries
+    /// the verdict as a shape as well as a word and the two surfaces rhyme.
+    /// A bare track while still measuring.
+    private var verdictRing: some View {
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.15), lineWidth: 4)
+            Circle()
+                .trim(from: 0, to: displayedHealth?.score ?? 0)
+                .stroke(verdictColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(VaderMotion.telemetry, value: displayedHealth?.score)
+            Image(systemName: "laptopcomputer")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+        }
+        .frame(width: 46, height: 46)
+        // The ring is decorative alongside the verdict text; VoiceOver reads
+        // the header's words instead of a second copy of the same fact.
+        .accessibilityHidden(true)
     }
 
     private var headerBackground: some View {
@@ -186,8 +204,8 @@ struct MenuBarContent: View {
 
     /// Detail line under the Protection title. A never-scanned Mac explains
     /// what a first scan buys instead of repeating the "Not scanned" status
-    /// label; a running scan narrates the activity; otherwise it shows scan
-    /// recency.
+    /// label; a running scan narrates the activity (Smart Scan's file walks
+    /// report a live item tally); otherwise it shows scan recency.
     private var protectionDetail: String {
         switch protectionStatus {
         case .notScanned:
@@ -198,7 +216,10 @@ struct MenuBarContent: View {
         case .scanning:
             // `scanActivity` is non-nil whenever the status is `.scanning`;
             // the fallback only satisfies exhaustiveness.
-            return MenuBarViewModel.scanningDetail(for: scanActivity ?? .threatScan)
+            return MenuBarViewModel.scanningDetail(
+                for: scanActivity ?? .threatScan,
+                itemsScanned: smartScan.scannedItemCount
+            )
         case .protected, .threatsFound:
             return MenuBarViewModel.lastScanString(malware.lastScanDate)
         }
@@ -260,6 +281,11 @@ struct MenuBarContent: View {
                         Text(protectionDetail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            // The live item tally rolls instead of blinking
+                            // as the walks report progress.
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(VaderMotion.telemetry, value: protectionDetail)
                     }
                 }
                 .contentShape(Rectangle())
@@ -326,17 +352,77 @@ struct MenuBarContent: View {
         return String(format: format, menuBar.bootVolumeName)
     }
 
+    // Hand-rolled rather than a `MenuTile` because its trailing action is the
+    // stateful inline purge control, not a plain link. The informational area
+    // is its own button (sibling of the purge control, never its ancestor) so
+    // each control resolves clicks cleanly, matching the Protection card.
     private var memoryTile: some View {
-        MenuTile(
-            icon: "memorychip",
-            title: String(localized: "Memory"),
-            value: menuBar.ramPressureLabel,
-            label: String(localized: "pressure", comment: "Memory tile line under the pressure level."),
-            status: menuBar.ramPressureColor,
-            action: (String(localized: "Free Memory"), { openSection(.performance) }),
-            open: { openSection(.performance) },
-            helpText: String(localized: "Open Performance")
-        )
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                openSection(.performance)
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "memorychip")
+                            .font(.callout)
+                            .foregroundStyle(.tint)
+                        Text("Memory")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Circle()
+                            .fill(swiftUIColor(for: menuBar.ramPressureColor))
+                            .frame(width: 7, height: 7)
+                            .accessibilityLabel(MenuBarViewModel.statusAccessibilityLabel(for: menuBar.ramPressureColor))
+                    }
+                    Text(menuBar.ramPressureLabel)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .contentTransition(.numericText())
+                        .animation(VaderMotion.telemetry, value: menuBar.ramPressureLabel)
+                    Text("pressure", comment: "Memory tile line under the pressure level.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Performance")
+            // Pinned to the tile's bottom edge, level with the row's other
+            // action links.
+            Spacer(minLength: 0)
+            HStack {
+                Spacer()
+                memoryFlushControl
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 78, maxHeight: .infinity, alignment: .topLeading)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    /// The Memory tile's inline action: purges inactive RAM through the
+    /// privileged helper right from the panel — no main-window round trip —
+    /// with a spinner in flight, a confirmation once done (clickable to purge
+    /// again), and an orange retry after a failure.
+    @ViewBuilder
+    private var memoryFlushControl: some View {
+        switch menuBar.memoryFlushState {
+        case .running:
+            ProgressView().controlSize(.small)
+        case .idle, .flushed, .failed:
+            if let label = MenuBarViewModel.memoryFlushLabel(for: menuBar.memoryFlushState) {
+                MenuActionLink(
+                    label: label,
+                    color: menuBar.memoryFlushState == .failed ? .orange : nil
+                ) {
+                    Task { await menuBar.flushMemory() }
+                }
+                .help("Purge inactive memory")
+            }
+        }
     }
 
     private var batteryTile: some View {
@@ -391,78 +477,36 @@ struct MenuBarContent: View {
         return String(localized: "CPU")
     }
 
-    // MARK: - Network tile
+    // MARK: - Connectivity card
 
-    // Titled "Network" like the other tiles' category names; the SSID (raw
-    // router noise like "ATTQ3gAepM") reads as the detail line instead.
-    private var networkTile: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    // Network and connected devices share one full-width card: both are
+    // "what's attached to this Mac" facts, and a single card gives the SSID,
+    // the throughput pair, and the device list room to breathe that two
+    // half-width tiles never had.
+    private var connectivityCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "wifi")
                     .font(.callout)
                     .foregroundStyle(.tint)
                 Text("Network")
                     .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 0)
-            }
-            Text(menuBar.wifiNetworkName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            HStack(spacing: 10) {
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.down")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(menuBar.networkDownString)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .animation(VaderMotion.telemetry, value: menuBar.networkDownString)
-                }
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.up")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(menuBar.networkUpString)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .animation(VaderMotion.telemetry, value: menuBar.networkUpString)
-                }
-            }
-            // Pinned to the tile's bottom edge, level with the row's other
-            // action links.
-            Spacer(minLength: 0)
-            HStack {
-                Spacer()
-                speedTestControl
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 78, maxHeight: .infinity, alignment: .topLeading)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
-    }
-
-    // MARK: - Connected devices tile
-
-    private var connectedDevicesTile: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "cable.connector")
-                    .font(.callout)
-                    .foregroundStyle(.tint)
-                Text("Connected Devices")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            if connectedDevices.devices.isEmpty {
-                Text("None connected")
+                Text(menuBar.wifiNetworkName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                speedTestControl
+            }
+            HStack(spacing: 10) {
+                throughputReading(symbol: "arrow.down", value: menuBar.networkDownString)
+                throughputReading(symbol: "arrow.up", value: menuBar.networkUpString)
+                Spacer(minLength: 0)
+            }
+            if !connectedDevices.devices.isEmpty {
+                Divider()
+                    .overlay(.white.opacity(0.08))
                 let shown = connectedDevices.devices.prefix(3)
                 ForEach(shown) { device in
                     deviceRow(device)
@@ -479,8 +523,21 @@ struct MenuBarContent: View {
             }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 78, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
+    }
+
+    private func throughputReading(symbol: String, value: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(VaderMotion.telemetry, value: value)
+        }
     }
 
     private func deviceRow(_ device: ConnectedDevice) -> some View {
@@ -586,6 +643,31 @@ struct MenuBarContent: View {
         case .performance: section = .performance
         }
         openSection(section, startScan: recommendation.startsScan)
+    }
+
+    // MARK: - Section launcher
+
+    /// Every main-window section as a tappable chip, in the rail's order and
+    /// each tinted with its section hue — a complete map of the app so no
+    /// feature is more than one click from the menu bar. Some sections are
+    /// also reachable through the cards above; the launcher stays exhaustive
+    /// anyway so the grid position of each destination never shifts.
+    private var launcherGrid: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Jump to Section")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4),
+                spacing: 6
+            ) {
+                ForEach(NavigationSection.allCases) { section in
+                    LauncherChip(section: section) { openSection(section) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Footer
@@ -789,6 +871,40 @@ private struct MenuTile: View {
         }
         .frame(height: 4)
         .padding(.vertical, 2)
+    }
+}
+
+/// One launcher chip: the section's SF Symbol in its own hue over a short
+/// label, deep-linking into that section. The chip brightens under the
+/// pointer like the panel's other card surfaces.
+private struct LauncherChip: View {
+    let section: NavigationSection
+    let open: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: open) {
+            VStack(spacing: 4) {
+                Image(systemName: section.icon)
+                    .font(.callout)
+                    .foregroundStyle(section.iconAccent)
+                Text(section.title)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 2)
+            .background(.white.opacity(hovered ? 0.1 : 0.05), in: .rect(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(VaderMotion.hover, value: hovered)
+        .help(section.title)
     }
 }
 

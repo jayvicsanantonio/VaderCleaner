@@ -622,4 +622,94 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(rec?.startsScan, true)
         XCTAssertNotEqual(rec?.title, stale?.title, "All-clear copy must differ from the stale-scan nudge")
     }
+
+    // MARK: - Live scan narration
+
+    /// While Smart Scan walks the disk the card narrates the live item tally —
+    /// visible motion instead of a static sentence — falling back to the
+    /// generic sentence before the first count arrives. The threat scan keeps
+    /// its own copy; the tally parameter belongs to Smart Scan's file walks.
+    func test_scanningDetail_narratesLiveItemTallyForSmartScan() {
+        XCTAssertEqual(
+            MenuBarViewModel.scanningDetail(for: .smartScan, itemsScanned: 12_405),
+            "Checked \(12_405.formatted()) items so far…"
+        )
+        XCTAssertEqual(
+            MenuBarViewModel.scanningDetail(for: .smartScan, itemsScanned: 0),
+            "Looking for junk, large files, and threats…"
+        )
+        XCTAssertEqual(
+            MenuBarViewModel.scanningDetail(for: .threatScan, itemsScanned: 500),
+            "Checking this Mac for threats…"
+        )
+    }
+
+    // MARK: - Inline memory flush
+
+    /// The Memory tile's action really flushes RAM (via the injected helper
+    /// call) and lands in `.flushed` so the tile can confirm the purge without
+    /// deep-linking into the main window.
+    func test_flushMemory_callsHelperAndLandsInFlushed() async {
+        var flushed = false
+        let vm = MenuBarViewModel(
+            service: SystemStatsService(autostart: false),
+            flushMemory: { flushed = true }
+        )
+        XCTAssertEqual(vm.memoryFlushState, .idle)
+
+        await vm.flushMemory()
+
+        XCTAssertTrue(flushed, "flushMemory() must invoke the injected helper call")
+        XCTAssertEqual(vm.memoryFlushState, .flushed)
+    }
+
+    /// A dropped helper connection surfaces as `.failed` so the tile can offer
+    /// a retry rather than pretending the purge happened.
+    func test_flushMemory_failureLandsInFailed() async {
+        struct Boom: Error {}
+        let vm = MenuBarViewModel(
+            service: SystemStatsService(autostart: false),
+            flushMemory: { throw Boom() }
+        )
+
+        await vm.flushMemory()
+
+        XCTAssertEqual(vm.memoryFlushState, .failed)
+    }
+
+    /// A second click while the purge is in flight must not start a second
+    /// helper call — mirrors `runSpeedTest`'s in-flight guard.
+    func test_flushMemory_ignoresReentrantCalls() async {
+        var calls = 0
+        // Holds the first flush observably mid-flight (the action can't
+        // finish until the test releases it), so the re-entrant call below is
+        // guaranteed to arrive while the state is `.running`.
+        var release = false
+        let vm = MenuBarViewModel(
+            service: SystemStatsService(autostart: false),
+            flushMemory: {
+                calls += 1
+                while !release { await Task.yield() }
+            }
+        )
+
+        let first = Task { await vm.flushMemory() }
+        while vm.memoryFlushState != .running { await Task.yield() }
+        await vm.flushMemory()
+        release = true
+        await first.value
+
+        XCTAssertEqual(calls, 1, "A flush in flight must swallow re-entrant calls")
+        XCTAssertEqual(vm.memoryFlushState, .flushed)
+    }
+
+    /// Link copy for each flush state: an inviting verb at rest, a
+    /// confirmation once purged, a retry after a failure, and `nil` while
+    /// running (the tile shows a spinner instead of a label).
+    func test_memoryFlushLabel_coversEveryState() {
+        XCTAssertEqual(MenuBarViewModel.memoryFlushLabel(for: .idle), "Free Memory")
+        XCTAssertNil(MenuBarViewModel.memoryFlushLabel(for: .running))
+        XCTAssertEqual(MenuBarViewModel.memoryFlushLabel(for: .flushed), "Memory freed")
+        XCTAssertEqual(MenuBarViewModel.memoryFlushLabel(for: .failed), "Retry")
+    }
 }
