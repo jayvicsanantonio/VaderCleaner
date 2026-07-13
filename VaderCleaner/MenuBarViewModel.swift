@@ -91,7 +91,7 @@ final class MenuBarViewModel {
     var diskUsedFraction: Double { Self.diskUsedFraction(service.diskSpace) }
 
     /// Raw disk snapshot, exposed so the view can feed the pure
-    /// `recommendation` derivation alongside malware state it owns.
+    /// `nextStep` derivation alongside malware state it owns.
     var diskStats: DiskStats { service.diskSpace }
 
     /// Live charge snapshot for the battery tile, or `nil` when there is no
@@ -521,96 +521,173 @@ final class MenuBarViewModel {
         return String(format: format, relative)
     }
 
-    // MARK: - Recommendation
+    // MARK: - Hero headline
 
-    /// One state-driven suggestion for the panel's "Today's Recommendation"
-    /// card: what to say, what the button reads, and where it deep-links.
-    struct Recommendation: Equatable {
-        /// Destination the card's action deep-links to. A view-model-local
-        /// enum (rather than `NavigationSection`) keeps this type framework-
-        /// free and pinnable in unit tests; the view maps it to a section.
+    /// Plain-language headline for the panel hero — a sentence an ordinary
+    /// person reads as an answer ("Your Mac is in good shape"), not a metric
+    /// label. `nil` (still measuring) reads as an in-progress check rather
+    /// than a verdict.
+    static func heroHeadline(for status: MacHealthStatus?) -> String {
+        guard let status else {
+            return String(localized: "Checking your Mac…",
+                          comment: "Panel hero headline while health is still being measured.")
+        }
+        switch status {
+        case .critical:
+            return String(localized: "Your Mac needs help now",
+                          comment: "Panel hero headline for a Critical verdict.")
+        case .requiresAttention:
+            return String(localized: "Your Mac needs attention",
+                          comment: "Panel hero headline for a Requires Attention verdict.")
+        case .fair:
+            return String(localized: "Your Mac is doing OK",
+                          comment: "Panel hero headline for a Fair verdict.")
+        case .good:
+            return String(localized: "Your Mac is in good shape",
+                          comment: "Panel hero headline for a Good verdict.")
+        case .excellent:
+            return String(localized: "Your Mac is at its best",
+                          comment: "Panel hero headline for an Excellent verdict.")
+        }
+    }
+
+    // MARK: - Next step
+
+    /// The panel's single primary action: what to say, what the button reads,
+    /// where it deep-links, and how loudly it should be styled. One derivation
+    /// so the popup always offers exactly one next best step instead of a
+    /// protection CTA and a recommendation competing for the same click.
+    struct NextStep: Equatable {
+        /// Destination the action deep-links to. View-model-local (rather
+        /// than `NavigationSection`) so the type stays framework-free and
+        /// pinnable in unit tests; the view maps it to a section.
         enum Target: Equatable {
             case smartScan
             case cleanup
             case performance
+            case threats
+        }
+
+        /// How loudly the card should present the step: `.urgent` conditions
+        /// tint the card in the alert hue, `.suggested` uses the accent, and
+        /// `.allClear` renders calm.
+        enum Urgency: Equatable {
+            case urgent
+            case suggested
+            case allClear
         }
 
         let title: String
-        let message: String
+        let detail: String
         let actionLabel: String
         let target: Target
         /// Whether the deep-link should also start the target's scan.
         let startsScan: Bool
+        let urgency: Urgency
     }
+
+    /// Derives the panel's one next step from live state, or `nil` while a
+    /// scan runs (the card narrates the scan instead of stacking a second
+    /// action on top of it).
+    ///
+    /// Priority: live threats outrank everything (the single button must say
+    /// "Review Threats" no matter what else is going on), then a nearly-full
+    /// disk, then critical memory pressure, then scan hygiene — first scan
+    /// for a never-scanned Mac, the stale-scan nudge past a week, and an
+    /// honest all-clear otherwise.
+    static func nextStep(
+        protection: ProtectionStatus,
+        disk: DiskStats,
+        pressure: MemoryPressureLevel,
+        lastScanDate: Date?,
+        now: Date = Date()
+    ) -> NextStep? {
+        if protection == .scanning { return nil }
+        if protection == .threatsFound {
+            return NextStep(
+                title: String(localized: "Threats found on this Mac",
+                              comment: "Next-step title when the last scan surfaced threats."),
+                detail: String(localized: "Review what turned up and remove it to stay protected.",
+                               comment: "Next-step detail when the last scan surfaced threats."),
+                actionLabel: String(localized: "Review Threats",
+                                    comment: "Next-step button that opens the threats list."),
+                target: .threats,
+                startsScan: false,
+                urgency: .urgent
+            )
+        }
+        if disk.totalBytes > 0, 1.0 - diskUsedFraction(disk) < lowDiskFreeThreshold {
+            return NextStep(
+                title: String(localized: "Storage is running low",
+                              comment: "Next-step title when free disk space is under 10%."),
+                detail: String(localized: "Less than 10% of your disk is free. Clear out junk to reclaim space.",
+                               comment: "Next-step detail when free disk space is under 10%."),
+                actionLabel: String(localized: "Clean Up",
+                                    comment: "Next-step button that opens the Cleanup section."),
+                target: .cleanup,
+                startsScan: false,
+                urgency: .urgent
+            )
+        }
+        if pressure == .critical {
+            return NextStep(
+                title: String(localized: "Memory pressure is critical",
+                              comment: "Next-step title when memory pressure is critical."),
+                detail: String(localized: "Your Mac is low on memory. Free some up to keep apps responsive.",
+                               comment: "Next-step detail when memory pressure is critical."),
+                actionLabel: String(localized: "Free Memory",
+                                    comment: "Next-step button that opens the Performance section."),
+                target: .performance,
+                startsScan: false,
+                urgency: .urgent
+            )
+        }
+        if protection == .notScanned {
+            return NextStep(
+                title: String(localized: "Give your Mac its first checkup",
+                              comment: "Next-step title before any scan has run."),
+                detail: String(localized: "One Smart Scan finds junk, large files, and threats in a single pass.",
+                               comment: "Next-step detail before any scan has run."),
+                actionLabel: String(localized: "Scan Now",
+                                    comment: "Next-step button that starts a first Smart Scan."),
+                target: .smartScan,
+                startsScan: true,
+                urgency: .suggested
+            )
+        }
+        if lastScanDate.map({ now.timeIntervalSince($0) > staleScanInterval }) ?? true {
+            return NextStep(
+                title: String(localized: "Time for a fresh scan",
+                              comment: "Next-step title when the last scan is over a week old."),
+                detail: String(localized: "It's been over a week since your last Smart Scan.",
+                               comment: "Next-step detail when the last scan is over a week old."),
+                actionLabel: String(localized: "Run Smart Scan",
+                                    comment: "Next-step button that starts a Smart Scan."),
+                target: .smartScan,
+                startsScan: true,
+                urgency: .suggested
+            )
+        }
+        return NextStep(
+            title: String(localized: "You're all set",
+                          comment: "Next-step title when nothing needs attention."),
+            detail: String(localized: "Nothing needs your attention right now.",
+                           comment: "Next-step detail when nothing needs attention."),
+            actionLabel: String(localized: "Run Smart Scan",
+                                comment: "Next-step button that starts a Smart Scan."),
+            target: .smartScan,
+            startsScan: true,
+            urgency: .allClear
+        )
+    }
+
+    // MARK: - Shared thresholds
 
     /// Free-space fraction below which the disk counts as running low.
     private static let lowDiskFreeThreshold = 0.10
 
     /// Last-scan age beyond which a protected Mac is nudged to scan again.
     private static let staleScanInterval: TimeInterval = 7 * 86_400
-
-    /// Derives the recommendation card's content from live panel state.
-    ///
-    /// Priority: a nearly-full disk outranks everything (it is the one state
-    /// a cleaner app must never sit on), then critical memory pressure, then
-    /// scan hygiene. Returns `nil` when protection is unscanned or has live
-    /// threats and nothing else is urgent — in those states the Protection
-    /// card carries the scan CTA, and repeating it here would just add noise.
-    static func recommendation(
-        protection: ProtectionStatus,
-        disk: DiskStats,
-        pressure: MemoryPressureLevel,
-        lastScanDate: Date?,
-        now: Date = Date()
-    ) -> Recommendation? {
-        if disk.totalBytes > 0, 1.0 - diskUsedFraction(disk) < lowDiskFreeThreshold {
-            return Recommendation(
-                title: String(localized: "Storage is running low",
-                              comment: "Recommendation title when free disk space is under 10%."),
-                message: String(localized: "Less than 10% of your disk is free. Clear out junk to reclaim space.",
-                                comment: "Recommendation message when free disk space is under 10%."),
-                actionLabel: String(localized: "Clean Up",
-                                    comment: "Recommendation button that opens the Cleanup section."),
-                target: .cleanup,
-                startsScan: false
-            )
-        }
-        if pressure == .critical {
-            return Recommendation(
-                title: String(localized: "Memory pressure is critical",
-                              comment: "Recommendation title when memory pressure is critical."),
-                message: String(localized: "Your Mac is low on memory. Free some up to keep apps responsive.",
-                                comment: "Recommendation message when memory pressure is critical."),
-                actionLabel: String(localized: "Free Memory",
-                                    comment: "Recommendation button that opens the Performance section."),
-                target: .performance,
-                startsScan: false
-            )
-        }
-        guard protection == .protected else { return nil }
-        if lastScanDate.map({ now.timeIntervalSince($0) > staleScanInterval }) ?? true {
-            return Recommendation(
-                title: String(localized: "Time for a fresh scan",
-                              comment: "Recommendation title when the last scan is over a week old."),
-                message: String(localized: "It's been over a week since your last Smart Scan.",
-                                comment: "Recommendation message when the last scan is over a week old."),
-                actionLabel: String(localized: "Run Smart Scan",
-                                    comment: "Recommendation button that starts a Smart Scan."),
-                target: .smartScan,
-                startsScan: true
-            )
-        }
-        return Recommendation(
-            title: String(localized: "You're all set",
-                          comment: "Recommendation title when nothing needs attention."),
-            message: String(localized: "No issues need your attention. A periodic Smart Scan keeps it that way.",
-                            comment: "Recommendation message when nothing needs attention."),
-            actionLabel: String(localized: "Run Smart Scan",
-                                comment: "Recommendation button that starts a Smart Scan."),
-            target: .smartScan,
-            startsScan: true
-        )
-    }
 
     /// "+2 more" line for the Connected Devices tile when more devices exist
     /// than the tile shows, or `nil` when everything fits — the tile must

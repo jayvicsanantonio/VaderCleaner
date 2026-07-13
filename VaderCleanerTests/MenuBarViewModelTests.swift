@@ -381,14 +381,6 @@ final class MenuBarViewModelTests: XCTestCase {
         )
     }
 
-    /// While a scan runs the recommendation card stays hidden — the
-    /// Protection card is already narrating the activity.
-    func test_recommendation_isNilWhileScanning() {
-        XCTAssertNil(MenuBarViewModel.recommendation(
-            protection: .scanning, disk: healthyDisk, pressure: .nominal, lastScanDate: nil, now: now
-        ))
-    }
-
     /// No scan date reads as "No scans yet"; a real date produces a non-empty
     /// relative phrase.
     func test_lastScanString_handlesNilAndDate() {
@@ -480,59 +472,11 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.cpuLoadColor(0.95), .red)
     }
 
-    // MARK: - Recommendation
+    // MARK: - Shared fixtures
 
     private let healthyDisk = DiskStats(usedBytes: 400_000_000_000, totalBytes: 1_000_000_000_000)
     private let lowDisk = DiskStats(usedBytes: 950_000_000_000, totalBytes: 1_000_000_000_000)
     private let now = Date(timeIntervalSince1970: 1_750_000_000)
-
-    /// Low disk is the cleaner app's most urgent recommendation — it outranks
-    /// every other state, including an unscanned Mac (whose scan CTA lives on
-    /// the Protection card).
-    func test_recommendation_lowDiskOutranksEverything() {
-        let rec = MenuBarViewModel.recommendation(
-            protection: .notScanned, disk: lowDisk, pressure: .critical, lastScanDate: nil, now: now
-        )
-        XCTAssertEqual(rec?.target, .cleanup)
-        XCTAssertEqual(rec?.startsScan, false)
-        XCTAssertFalse(rec?.title.isEmpty ?? true)
-        XCTAssertFalse(rec?.message.isEmpty ?? true)
-        XCTAssertFalse(rec?.actionLabel.isEmpty ?? true)
-    }
-
-    /// Critical memory pressure recommends the Performance section when disk
-    /// is comfortable.
-    func test_recommendation_criticalMemoryWhenDiskComfortable() {
-        let rec = MenuBarViewModel.recommendation(
-            protection: .protected, disk: healthyDisk, pressure: .critical,
-            lastScanDate: now.addingTimeInterval(-3_600), now: now
-        )
-        XCTAssertEqual(rec?.target, .performance)
-    }
-
-    /// When the Mac has never been scanned (or has live threats) the
-    /// Protection card carries the scan CTA, so the recommendation card stays
-    /// out of the way rather than duplicating the same button.
-    func test_recommendation_isNilWhenProtectionCardOwnsTheCTA() {
-        XCTAssertNil(MenuBarViewModel.recommendation(
-            protection: .notScanned, disk: healthyDisk, pressure: .nominal, lastScanDate: nil, now: now
-        ))
-        XCTAssertNil(MenuBarViewModel.recommendation(
-            protection: .threatsFound, disk: healthyDisk, pressure: .nominal,
-            lastScanDate: now.addingTimeInterval(-3_600), now: now
-        ))
-    }
-
-    /// A protected Mac whose last scan is over a week old is nudged toward a
-    /// fresh Smart Scan.
-    func test_recommendation_staleScanAfterSevenDays() {
-        let rec = MenuBarViewModel.recommendation(
-            protection: .protected, disk: healthyDisk, pressure: .nominal,
-            lastScanDate: now.addingTimeInterval(-8 * 86_400), now: now
-        )
-        XCTAssertEqual(rec?.target, .smartScan)
-        XCTAssertEqual(rec?.startsScan, true)
-    }
 
     // MARK: - Displayed health verdict
 
@@ -604,23 +548,6 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 3, shown: 3))
         XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 0, shown: 0))
         XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 2, shown: 2))
-    }
-
-    /// Everything healthy and recently scanned reads as all clear — an honest
-    /// "nothing to do" instead of a manufactured plea, with Smart Scan still
-    /// offered as the panel's habitual action.
-    func test_recommendation_allClearWhenHealthyAndRecentlyScanned() {
-        let stale = MenuBarViewModel.recommendation(
-            protection: .protected, disk: healthyDisk, pressure: .nominal,
-            lastScanDate: now.addingTimeInterval(-8 * 86_400), now: now
-        )
-        let rec = MenuBarViewModel.recommendation(
-            protection: .protected, disk: healthyDisk, pressure: .nominal,
-            lastScanDate: now.addingTimeInterval(-2 * 86_400), now: now
-        )
-        XCTAssertEqual(rec?.target, .smartScan)
-        XCTAssertEqual(rec?.startsScan, true)
-        XCTAssertNotEqual(rec?.title, stale?.title, "All-clear copy must differ from the stale-scan nudge")
     }
 
     // MARK: - Live scan narration
@@ -711,5 +638,111 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertNil(MenuBarViewModel.memoryFlushLabel(for: .running))
         XCTAssertEqual(MenuBarViewModel.memoryFlushLabel(for: .flushed), "Memory freed")
         XCTAssertEqual(MenuBarViewModel.memoryFlushLabel(for: .failed), "Retry")
+    }
+
+    // MARK: - Hero headline
+
+    /// The panel hero speaks plain language ("Your Mac is in good shape"),
+    /// not a jargon label. Every verdict tier gets its own sentence, all
+    /// distinct, and the pre-measurement state reads as an in-progress check
+    /// rather than a verdict.
+    func test_heroHeadline_coversEveryVerdictWithDistinctCopy() {
+        var seen = Set<String>()
+        for status in MacHealthStatus.allCases {
+            let headline = MenuBarViewModel.heroHeadline(for: status)
+            XCTAssertFalse(headline.isEmpty, "Empty headline for \(status)")
+            XCTAssertTrue(seen.insert(headline).inserted, "Duplicate headline for \(status): \(headline)")
+        }
+        let measuring = MenuBarViewModel.heroHeadline(for: nil)
+        XCTAssertFalse(measuring.isEmpty)
+        XCTAssertFalse(seen.contains(measuring), "Measuring copy must differ from every verdict")
+    }
+
+    // MARK: - Next step (single primary action)
+
+    /// While a scan runs there is no next step — the panel narrates the scan
+    /// instead of offering a second action on top of it.
+    func test_nextStep_isNilWhileScanning() {
+        XCTAssertNil(MenuBarViewModel.nextStep(
+            protection: .scanning, disk: lowDisk, pressure: .critical, lastScanDate: nil, now: now
+        ))
+    }
+
+    /// Live threats outrank every other condition, including a nearly-full
+    /// disk — the one state where the panel's single button must say "Review
+    /// Threats" no matter what else is going on.
+    func test_nextStep_threatsOutrankEverything() {
+        let step = MenuBarViewModel.nextStep(
+            protection: .threatsFound, disk: lowDisk, pressure: .critical, lastScanDate: nil, now: now
+        )
+        XCTAssertEqual(step?.target, .threats)
+        XCTAssertEqual(step?.urgency, .urgent)
+        XCTAssertEqual(step?.startsScan, false)
+        XCTAssertFalse(step?.title.isEmpty ?? true)
+        XCTAssertFalse(step?.detail.isEmpty ?? true)
+        XCTAssertFalse(step?.actionLabel.isEmpty ?? true)
+    }
+
+    /// With no threats, a nearly-full disk is the cleaner app's most urgent
+    /// call to action.
+    func test_nextStep_lowDiskIsUrgentCleanup() {
+        let step = MenuBarViewModel.nextStep(
+            protection: .protected, disk: lowDisk, pressure: .critical,
+            lastScanDate: now.addingTimeInterval(-3_600), now: now
+        )
+        XCTAssertEqual(step?.target, .cleanup)
+        XCTAssertEqual(step?.urgency, .urgent)
+        XCTAssertEqual(step?.startsScan, false)
+    }
+
+    /// Critical memory pressure takes over once the disk is comfortable.
+    func test_nextStep_criticalMemoryWhenDiskComfortable() {
+        let step = MenuBarViewModel.nextStep(
+            protection: .protected, disk: healthyDisk, pressure: .critical,
+            lastScanDate: now.addingTimeInterval(-3_600), now: now
+        )
+        XCTAssertEqual(step?.target, .performance)
+        XCTAssertEqual(step?.urgency, .urgent)
+    }
+
+    /// A never-scanned Mac with no urgent condition is invited to its first
+    /// Smart Scan — a suggestion, not an alarm.
+    func test_nextStep_firstScanWhenNeverScanned() {
+        let step = MenuBarViewModel.nextStep(
+            protection: .notScanned, disk: healthyDisk, pressure: .nominal, lastScanDate: nil, now: now
+        )
+        XCTAssertEqual(step?.target, .smartScan)
+        XCTAssertEqual(step?.startsScan, true)
+        XCTAssertEqual(step?.urgency, .suggested)
+    }
+
+    /// A protected Mac whose last scan is over a week old gets the stale-scan
+    /// nudge.
+    func test_nextStep_staleScanIsSuggested() {
+        let step = MenuBarViewModel.nextStep(
+            protection: .protected, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-8 * 86_400), now: now
+        )
+        XCTAssertEqual(step?.target, .smartScan)
+        XCTAssertEqual(step?.startsScan, true)
+        XCTAssertEqual(step?.urgency, .suggested)
+    }
+
+    /// Everything healthy and recently scanned reads as all clear: the calm
+    /// tier with its own copy, still offering Smart Scan as the habitual
+    /// action.
+    func test_nextStep_allClearWhenHealthyAndRecentlyScanned() {
+        let stale = MenuBarViewModel.nextStep(
+            protection: .protected, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-8 * 86_400), now: now
+        )
+        let step = MenuBarViewModel.nextStep(
+            protection: .protected, disk: healthyDisk, pressure: .nominal,
+            lastScanDate: now.addingTimeInterval(-2 * 86_400), now: now
+        )
+        XCTAssertEqual(step?.target, .smartScan)
+        XCTAssertEqual(step?.startsScan, true)
+        XCTAssertEqual(step?.urgency, .allClear)
+        XCTAssertNotEqual(step?.title, stale?.title, "All-clear copy must differ from the stale-scan nudge")
     }
 }
