@@ -259,6 +259,66 @@ final class SystemJunkDeleterTests: XCTestCase {
         XCTAssertEqual(bytesFreed, 75)
         XCTAssertFalse(FileManager.default.fileExists(atPath: userURL.path))
     }
+
+    /// A large clean can route hundreds of thousands of paths through the
+    /// helper. Sending them in one giant XPC message risks the transport's size
+    /// limits, so the paths are split into batches of at most `helperBatchSize`.
+    func test_delete_chunksHelperPathsToBatchSize() async throws {
+        let files = (0..<5).map { index in
+            ScannedFile(
+                url: URL(fileURLWithPath: "/Library/Caches/com.bogus/f\(index).bin"),
+                size: 10, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache
+            )
+        }
+
+        let fakeHelper = FakeHelper(replyError: nil)
+        let deleter = SystemJunkDeleter(
+            helperProvider: { _ in fakeHelper },
+            trashItem: sandboxedTrash,
+            helperBatchSize: 2
+        )
+        let bytesFreed = try await deleter.delete(files)
+
+        XCTAssertEqual(
+            fakeHelper.receivedBatches.map(\.count), [2, 2, 1],
+            "paths must be split into XPC calls of at most the batch size"
+        )
+        XCTAssertEqual(
+            Set(fakeHelper.receivedPaths), Set(files.map { $0.url.path }),
+            "every helper path must be sent exactly once across the batches"
+        )
+        XCTAssertEqual(bytesFreed, 50, "all bytes are credited when every chunk succeeds")
+    }
+
+    /// Per-chunk crediting degrades better than all-or-nothing: a mid-clean
+    /// chunk failure must not stop the later chunks, and only the chunks that
+    /// succeeded contribute to the freed total.
+    func test_delete_creditsSucceededChunksWhenOneChunkFails() async throws {
+        let files = (0..<5).map { index in
+            ScannedFile(
+                url: URL(fileURLWithPath: "/Library/Caches/com.bogus/f\(index).bin"),
+                size: 10, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache
+            )
+        }
+
+        // Batches with size 2: [f0,f1], [f2,f3], [f4]. Fail only the middle one.
+        let helper = BatchFailingHelper(
+            failingBatchIndex: 1,
+            error: NSError(domain: "test", code: 1)
+        )
+        let deleter = SystemJunkDeleter(
+            helperProvider: { _ in helper },
+            trashItem: sandboxedTrash,
+            helperBatchSize: 2
+        )
+        let bytesFreed = try await deleter.delete(files)
+
+        XCTAssertEqual(helper.receivedBatches.count, 3, "a failed chunk must not abort the remaining chunks")
+        XCTAssertEqual(
+            bytesFreed, 30,
+            "only the two succeeded chunks (2 + 1 files × 10 bytes) are credited; the failed middle chunk is not"
+        )
+    }
 }
 
 // MARK: - Test doubles
@@ -268,14 +328,19 @@ final class SystemJunkDeleterTests: XCTestCase {
 /// Inherits from `NSObject` because the underlying protocol is `@objc`.
 private final class FakeHelper: NSObject, VaderCleanerHelperProtocol {
     private let replyError: Error?
-    private(set) var receivedPaths: [String] = []
+    /// Every `deleteFiles` call's paths, in order — one entry per XPC message,
+    /// so chunking tests can assert how the paths were split.
+    private(set) var receivedBatches: [[String]] = []
+    /// Flattened view of all received paths, for callers that don't care about
+    /// batch boundaries.
+    var receivedPaths: [String] { receivedBatches.flatMap { $0 } }
 
     init(replyError: Error?) {
         self.replyError = replyError
     }
 
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        receivedPaths = paths
+        receivedBatches.append(paths)
         reply(replyError)
     }
 
@@ -305,4 +370,33 @@ private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol {
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
     func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
+}
+
+/// Helper stand-in that replies with an error only for the batch at
+/// `failingBatchIndex` (0-based call order), so a partial-failure test can
+/// verify the remaining chunks still run and succeeded chunks are credited.
+private final class BatchFailingHelper: NSObject, VaderCleanerHelperProtocol {
+    private let failingBatchIndex: Int
+    private let error: Error
+    private(set) var receivedBatches: [[String]] = []
+
+    init(failingBatchIndex: Int, error: Error) {
+        self.failingBatchIndex = failingBatchIndex
+        self.error = error
+    }
+
+    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
+        let index = receivedBatches.count
+        receivedBatches.append(paths)
+        reply(index == failingBatchIndex ? error : nil)
+    }
+
+    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
+    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
+    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }

@@ -1,11 +1,17 @@
 // CleanupManagerStore.swift
-// Persistent, prebuilt cache behind the Cleanup Manager so opening Review paints instantly: it serves the cheap section/category shell, builds and caches each category's folder tree off the main thread, prebuilds everything in the background as soon as a scan finishes, and holds the path→file / row→paths lookups the selection callbacks need.
+// Cache behind the Cleanup Manager so opening Review paints instantly: it serves the cheap section/category shell, warms the path index a scan finishes with, builds and caches each category's folder tree off the main thread on first open, and holds the path→file / row→paths lookups the selection callbacks need.
 
 import Foundation
 
 /// Caches the Cleanup Manager's model across opens and warms it in the
-/// background after a scan, so the panes and right-pane rows appear without the
-/// per-open rebuild that used to gate them behind a spinner.
+/// background after a scan, so the panes appear without a per-open rebuild.
+///
+/// The shell (section/category panes) and the path index are warmed eagerly;
+/// each category's folder tree is built lazily on first open. Prewarming every
+/// category's tree up front held a full folder tree in memory even for the
+/// many categories a user never opens — on a large scan that dominated the
+/// app's retained footprint — so the trees now build on demand (the manager's
+/// `loadItems` already builds off-main without blocking the UI).
 ///
 /// Thread-safe via a lock (`@unchecked Sendable`): the manager's `@Sendable`
 /// build closures call in from background tasks while the selection callbacks
@@ -24,16 +30,22 @@ final class CleanupManagerStore: @unchecked Sendable {
     private var itemsCache: [String: [ManagerItem]] = [:]
     /// Leaf file path → file, for toggling selection. Built off-main.
     private var filesByPath: [String: ScannedFile] = [:]
-    /// Row id (folder or file) → the leaf file paths it covers, populated as
-    /// each category's tree is built.
+    /// Childless row id → the leaf file paths it covers, populated as each
+    /// category's tree is built. Expandable folders are absent here; they
+    /// resolve through `childRowIDsByRowID` instead, so a path is stored once
+    /// (in its childless node) rather than once per ancestor.
     private var pathsByRowID: [String: [String]] = [:]
+    /// Expandable-folder row id → its child row ids, so a folder's covered
+    /// paths are the union of its children (resolved on demand).
+    private var childRowIDsByRowID: [String: [String]] = [:]
 
     /// Bumped on every `load` so a stale background prebuild stops early.
     private var token = 0
 
-    /// Point the store at a new scan result: reset the caches and warm them
-    /// (path index, shell, every category tree) on a background task so the
-    /// model is ready by the time the user opens Review.
+    /// Point the store at a new scan result: reset the caches and warm the
+    /// path index and section shell on a background task, so selection works
+    /// and the panes paint the moment Review opens. Category folder trees are
+    /// left to build lazily on first open.
     func load(result: ScanResult) {
         lock.lock()
         itemsByCategory = result.itemsByCategory
@@ -42,10 +54,10 @@ final class CleanupManagerStore: @unchecked Sendable {
         itemsCache = [:]
         filesByPath = [:]
         pathsByRowID = [:]
+        childRowIDsByRowID = [:]
         token += 1
         let myToken = token
         let allItems = result.items
-        let categories = itemsByCategory.keys.map { $0 }
         lock.unlock()
 
         Task.detached(priority: .utility) { [weak self] in
@@ -56,12 +68,13 @@ final class CleanupManagerStore: @unchecked Sendable {
             if self.token == myToken { self.filesByPath = map }
             self.lock.unlock()
 
+            // Warm the cheap shell so the panes paint instantly on open. Each
+            // category's folder tree is built lazily on first open (see
+            // `items(forCategoryID:)`) rather than prebuilt here — holding a
+            // full tree per category, opened or not, dominated the retained
+            // memory of a large scan.
             guard self.isCurrent(myToken) else { return }
             _ = self.sections()
-            for category in categories {
-                guard self.isCurrent(myToken) else { return }
-                _ = self.items(forCategoryID: category.rawValue)
-            }
         }
     }
 
@@ -112,12 +125,29 @@ final class CleanupManagerStore: @unchecked Sendable {
         return tree
     }
 
-    /// Records each row's covered leaf paths. Call under `lock`.
+    /// Records each row's selection index. A childless row stores the leaf paths
+    /// it covers; an expandable folder stores its child row ids so its covered
+    /// paths resolve as the union of its children — keeping a path out of every
+    /// ancestor's storage. Call under `lock`.
     private func indexRows(_ rows: [ManagerItem]) {
         for row in rows {
-            pathsByRowID[row.id] = row.selectionPaths.isEmpty ? [row.id] : row.selectionPaths
+            if row.children.isEmpty {
+                pathsByRowID[row.id] = row.selectionPaths.isEmpty ? [row.id] : row.selectionPaths
+            } else {
+                childRowIDsByRowID[row.id] = row.children.map(\.id)
+            }
             indexRows(row.children)
         }
+    }
+
+    /// Resolves a row's covered leaf paths. A childless row returns its stored
+    /// paths; an expandable folder unions its children. Call under `lock`.
+    private func resolvePaths(forRowID id: String) -> [String] {
+        if let paths = pathsByRowID[id] { return paths }
+        if let children = childRowIDsByRowID[id] {
+            return children.flatMap { resolvePaths(forRowID: $0) }
+        }
+        return [id]
     }
 
     // MARK: - Selection lookups (read from the main actor)
@@ -125,7 +155,7 @@ final class CleanupManagerStore: @unchecked Sendable {
     /// The leaf paths a row covers (a folder's subtree, or a single file).
     func selectionPaths(forRowID id: String) -> [String] {
         lock.lock(); defer { lock.unlock() }
-        return pathsByRowID[id] ?? [id]
+        return resolvePaths(forRowID: id)
     }
 
     /// The scanned file at `path`, once the background index has it.
@@ -141,7 +171,6 @@ final class CleanupManagerStore: @unchecked Sendable {
     /// lock round-trips just to gather its files.
     func files(forRowID id: String) -> [ScannedFile] {
         lock.lock(); defer { lock.unlock() }
-        let paths = pathsByRowID[id] ?? [id]
-        return paths.compactMap { filesByPath[$0] }
+        return resolvePaths(forRowID: id).compactMap { filesByPath[$0] }
     }
 }

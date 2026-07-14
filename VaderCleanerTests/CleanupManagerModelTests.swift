@@ -88,11 +88,14 @@ final class CleanupManagerModelTests: XCTestCase {
         XCTAssertTrue(google.children.allSatisfy { !$0.isExpandable })
     }
 
-    /// A folder node's selectionPaths cover every leaf file beneath it, so its
-    /// checkbox can select the whole subtree.
-    func test_buildHierarchy_selectionPathsCoverAllDescendants() {
+    /// A file's path is stored once, not duplicated at every ancestor level: an
+    /// expandable folder node delegates its covered paths to its children (the
+    /// store unions them on demand), while a childless node carries the paths it
+    /// covers directly. This keeps a deep tree over hundreds of thousands of
+    /// files from holding each path once per ancestor.
+    func test_buildHierarchy_folderNodesDelegatePathsToChildren() {
         // A second top-level folder keeps the common ancestor at Caches, so
-        // Google stays a folder node aggregating its two files.
+        // Google stays a folder node disclosing its Chrome child.
         let files = [
             file("/Users/me/Library/Caches/Google/Chrome/a", 1, .userCache),
             file("/Users/me/Library/Caches/Google/Chrome/b", 1, .userCache),
@@ -101,8 +104,18 @@ final class CleanupManagerModelTests: XCTestCase {
 
         let google = CleanupManagerModel.buildHierarchy(files).first { $0.title == "Google" }!
 
+        // The expandable folder does not copy its descendants' paths.
+        XCTAssertTrue(google.isExpandable)
+        XCTAssertTrue(
+            google.selectionPaths.isEmpty,
+            "An expandable folder must delegate its covered paths to its children rather than copy them"
+        )
+
+        // Its childless child carries the paths it covers.
+        let chrome = google.children.first { $0.title == "Chrome" }!
+        XCTAssertTrue(chrome.children.isEmpty)
         XCTAssertEqual(
-            Set(google.selectionPaths),
+            Set(chrome.selectionPaths),
             ["/Users/me/Library/Caches/Google/Chrome/a", "/Users/me/Library/Caches/Google/Chrome/b"]
         )
     }

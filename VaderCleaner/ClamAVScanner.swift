@@ -128,7 +128,12 @@ struct ClamAVScanner {
     }
 
     /// Scans `paths` recursively, reporting infected files only. `progress`
-    /// receives each `clamscan` output line as it streams.
+    /// receives a streamed `clamscan` output line together with the running
+    /// count of files checked so far — `clamscan` prints one line per file, so
+    /// the count is the true files-checked total. The line is throttled (see
+    /// `progressThrottleInterval`), but the count is tallied on *every* line at
+    /// the source, so a fast clean stretch reports the real total rather than
+    /// the number of throttled updates.
     ///
     /// `clamscan` exits 0 when nothing is found and 1 when at least one
     /// infection is found — both are *successful* scans. Only exit code 2
@@ -136,7 +141,7 @@ struct ClamAVScanner {
     func scan(
         paths: [URL],
         options: ScanOptions = ScanOptions(),
-        progress: @escaping (String) -> Void
+        progress: @escaping (_ line: String, _ filesScanned: Int) -> Void
     ) async throws -> [MalwareThreat] {
         guard let binary = detector.path() else {
             throw NSError(
@@ -179,6 +184,7 @@ struct ClamAVScanner {
 
         let collector = ThreatCollector()
         let throttle = ProgressThrottle(interval: progressThrottleInterval)
+        let counter = LineCounter()
         let status = try await runner(binary, arguments) { line in
             // Every line is parsed for threats so the throttle below
             // can't silently lose detections inside a tight burst of
@@ -186,13 +192,27 @@ struct ClamAVScanner {
             if let threat = ClamAVOutputParser.parseLine(line) {
                 collector.append(threat)
             }
-            // The progress callback hops to the main actor in
-            // `MalwareViewModel` and feeds an @Published phase; without
-            // the throttle, a fast clean stretch would spam millions
-            // of Tasks per scan.
+            // Count every line (one file each) at the source, so the reported
+            // total is truthful even across a fast stretch. The throttle only
+            // limits how often we *report* that total — the progress callback
+            // hops to the main actor in `MalwareViewModel` and feeds an
+            // @Published phase, so without the throttle a fast clean stretch
+            // would spam millions of Tasks per scan.
+            let scanned = counter.record(line)
             if throttle.shouldEmit() {
-                progress(line)
+                counter.markReported()
+                progress(line, scanned)
             }
+        }
+
+        // Flush the exact terminal total when the tail of the stream fell inside
+        // a throttle window and was never reported — otherwise leading-edge
+        // throttling would leave the readout short of the true files-checked
+        // count at scan end. Skipped when the last line already emitted, so a
+        // reported line is never sent twice. Safe to read the counter here: the
+        // runner has returned, so its background read loop is done mutating it.
+        if counter.hasUnreportedLines, let lastLine = counter.lastLine {
+            progress(lastLine, counter.count)
         }
 
         // 0 = clean, 1 = virus(es) found, 2 = error. Anything else (or a
@@ -260,6 +280,36 @@ private final class ProgressThrottle: @unchecked Sendable {
         }
         lastEmit = now
         return true
+    }
+}
+
+/// Counts the lines the scan streams — one per file `clamscan` checks — so the
+/// reported files-checked total is truthful regardless of how the progress
+/// callback is throttled, and remembers the last line so the scan can flush the
+/// exact terminal total once the stream ends. Like `ProgressThrottle`, it relies
+/// on `ProcessLineStreamer`'s single background read loop for serialization and
+/// is marked `@unchecked Sendable` only so the runner closure can capture it.
+private final class LineCounter: @unchecked Sendable {
+    private(set) var count = 0
+    private(set) var lastLine: String?
+    private var reportedCount = 0
+
+    /// Records a streamed line and returns the new running total.
+    func record(_ line: String) -> Int {
+        count += 1
+        lastLine = line
+        return count
+    }
+
+    /// Marks the current total as reported through the progress callback.
+    func markReported() {
+        reportedCount = count
+    }
+
+    /// Whether lines have been counted since the last reported total — i.e. the
+    /// tail of the stream fell inside a throttle window and needs a flush.
+    var hasUnreportedLines: Bool {
+        count > reportedCount
     }
 }
 

@@ -555,7 +555,14 @@ extension AppUninstallerViewModel {
             associatedURLs: associatedURLs,
             recycle: { urls in await workspaceRecycle(urls) },
             escalate: { paths in await escalateToHelper(paths) },
-            sizeFor: { sizes(for: $0) },
+            // The snapshot walks the whole bundle tree — for an Xcode-class
+            // app that's 100k+ files, which must never run on the main
+            // actor where it would beach-ball the confirmation click.
+            sizeFor: { urls in
+                await Task.detached(priority: .userInitiated) {
+                    sizes(for: urls)
+                }.value
+            },
             exists: { FileManager.default.fileExists(atPath: $0) }
         )
     }
@@ -584,11 +591,14 @@ extension AppUninstallerViewModel {
         associatedURLs: [URL],
         recycle: (_ urls: [URL]) async -> (moved: Set<String>, error: Error?),
         escalate: (_ paths: [String]) async -> Error?,
-        sizeFor: (_ urls: [URL]) -> [String: Int64],
+        // `@Sendable` is load-bearing: a plain closure would inherit this
+        // function's main-actor isolation and run the bundle walk on the
+        // main thread anyway. Sendable + async makes the snapshot hop off.
+        sizeFor: @Sendable (_ urls: [URL]) async -> [String: Int64],
         exists: (_ path: String) -> Bool
     ) async throws -> RecycleOutcome {
         let allURLs = [bundleURL] + associatedURLs
-        let sizesByPath = sizeFor(allURLs)
+        let sizesByPath = await sizeFor(allURLs)
 
         let (moved, recycleError) = await recycle(allURLs)
 
@@ -669,8 +679,10 @@ extension AppUninstallerViewModel {
     }
 
     /// Pre-recycle size snapshot keyed by absolute path. Directories sum
-    /// their regular-file children; missing items contribute 0.
-    private static func sizes(for urls: [URL]) -> [String: Int64] {
+    /// their regular-file children; missing items contribute 0. `nonisolated`
+    /// so the production wiring can run the walk on a detached task — it
+    /// touches only `FileManager`, never view-model state.
+    nonisolated static func sizes(for urls: [URL]) -> [String: Int64] {
         var result: [String: Int64] = [:]
         let fileManager = FileManager.default
         for url in urls {

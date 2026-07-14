@@ -775,10 +775,11 @@ final class SmartScanViewModel {
 
         if tileSelection.contains(.systemJunk) {
             // Per-file selection: clean exactly the files the user left checked
-            // in the Cleanup Manager. Capture the selection once so the filter
-            // isn't re-evaluating the observable set per element.
+            // in the Cleanup Manager. The full junk result is a million files on
+            // a busy Mac, so filter it against the selection off the main actor —
+            // hashing that many URLs on the main thread froze the Run tap.
             let selected = junkFileSelection
-            let selectedJunk = result.junkResult.items.filter { selected.contains($0.url) }
+            let selectedJunk = await ScanFileFilter.selected(from: result.junkResult.items) { selected.contains($0.url) }
             if !selectedJunk.isEmpty {
                 do {
                     bytesFreed = try await junkCleaner(selectedJunk)
@@ -1221,15 +1222,14 @@ extension SmartScanViewModel {
             // dashboard waits for every sub-scan before it can render.
             malwareScanner: { onProgress in
                 let quickPaths = MalwareViewModel.defaultQuickScanPaths()
-                // clamscan prints one line per file it checks, so counting the
-                // streamed lines is a faithful "files checked" tally — the same
-                // derivation the standalone Malware screen uses. The count is
-                // maintained here (off the main actor) and forwarded as a
-                // running total to the view model's monotonic progress sink.
-                let counter = ScanLineCounter()
+                // clamscan prints one line per file it checks and reports the
+                // running files-checked total (counted at the source, delivered
+                // through its progress throttle), which we forward to the view
+                // model's monotonic progress sink — the same derivation the
+                // standalone Malware screen uses.
                 do {
-                    return try await scanner.scan(paths: quickPaths, progress: { _ in
-                        onProgress(counter.increment())
+                    return try await scanner.scan(paths: quickPaths, progress: { _, filesScanned in
+                        onProgress(filesScanned)
                     })
                 } catch {
                     log.error("Smart Scan malware sub-scan failed, treating as no threats: \(String(describing: error), privacy: .public)")
@@ -1349,23 +1349,6 @@ extension SmartScanViewModel {
             }
         }
         return deleted
-    }
-}
-
-/// Thread-safe monotonic counter for the malware sub-scan's line stream.
-/// `ClamAVScanner` invokes its progress closure from a single background read
-/// loop, but the closure is `@escaping` and may outlive the call, so the
-/// counter is guarded the same way as `ClamAVScanner`'s own `ThreatCollector`.
-private final class ScanLineCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-
-    /// Bumps the count and returns the new running total.
-    func increment() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        count += 1
-        return count
     }
 }
 

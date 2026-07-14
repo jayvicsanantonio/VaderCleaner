@@ -79,6 +79,7 @@
 		2F51A4899ADB02926013032A /* PerformanceViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED6A45D880D8C5A7D7E9D9B8 /* PerformanceViewSubviews.swift */; };
 		2FDD22EAC3092664A7E78857 /* ApplicationsManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55F34852E7D3F67A164EF3DE /* ApplicationsManagerView.swift */; };
 		31EFCE4D53489E6214ED2F82 /* SpaceLensProtection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF0B27A00FBA3C858C203BF /* SpaceLensProtection.swift */; };
+		320BDF4C18108301633BEF67 /* BloomField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7839479824D4A88B31585252 /* BloomField.swift */; };
 		3328707476CC1411FA1270D0 /* Browser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D92F45290B56030CBFA83D3 /* Browser.swift */; };
 		3333EAE03C7A7783D12F68D7 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6697CA6EEE719B2E2D46CE /* AppState.swift */; };
 		3446A3502329D7AB0F41B0BE /* CleanupManagerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4982BBDB43C7E3F9323EACE /* CleanupManagerStore.swift */; };
@@ -143,6 +144,7 @@
 		567D2B366B03261E808DA1B2 /* RecentFilesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A932AAC115A2ADB167D59F8 /* RecentFilesManager.swift */; };
 		56E0A50749CEFC070968439D /* SMCReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12A2F1D83447E7306463614 /* SMCReader.swift */; };
 		57C68CCCE577CE52AC3F0DE2 /* LanguageFileLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE0B536A27CFB7B30895829 /* LanguageFileLocatorTests.swift */; };
+		58284DD98895EB3A9CE678E8 /* ScanFileFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BA9A8EC9268B8D35F6F63F /* ScanFileFilter.swift */; };
 		5B37ECDBF03FBACFBE099816 /* MenuRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */; };
 		5B5767BC82C24D92B50032FE /* MalwareOnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E177C5757BB8E0E39F5A0DE1 /* MalwareOnboardingViewModel.swift */; };
 		5CA2A4BED5346B2FD4ADE096 /* MachOHeaderReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E49583606C1454E9F0AF2C /* MachOHeaderReaderTests.swift */; };
@@ -227,6 +229,7 @@
 		8EFA63D6FAE69C6904BCF32D /* applications.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 809A23EF3C57AC0FD862A0C5 /* applications.usdz */; };
 		90CEF79E082F50E5AB75C886 /* SpaceLensBubbleLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE4B778A9C7809CCF464005 /* SpaceLensBubbleLayoutTests.swift */; };
 		92BA2AB6A76731911DB04EF2 /* HealthMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE43D4A4C7D499E8C2889832 /* HealthMonitorView.swift */; };
+		9371F072A9332C91941D21ED /* MyClutterSelectionSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C23E937ECB567C70B9A6BEEC /* MyClutterSelectionSeed.swift */; };
 		9465DF6DC888BECC125DCF01 /* ScanCoordinating.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC931DDB859DD0025BB352EA /* ScanCoordinating.swift */; };
 		95DF391560155E2EB9EE94D0 /* DeviceBatteryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F68C06D676F1E9305250846 /* DeviceBatteryMonitor.swift */; };
 		9686BE4A7CD0C6399070CC1B /* ApplicationsDashboardSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC2C4931BAD804306463545 /* ApplicationsDashboardSubviews.swift */; };
@@ -286,6 +289,7 @@
 		BACC269ED04FA26D7003F449 /* MyClutterThumbnailStripItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */; };
 		BB6D9635C62A1D0635E2799F /* AppUpdaterError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C76CE861C998A697164C552 /* AppUpdaterError.swift */; };
 		BB9A4CF2FD2F04CD567D4F4F /* PerformanceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C485B2B12D9A5E260323AB89 /* PerformanceViewModel.swift */; };
+		BBBA66D40DC8BFF14BBB1FBA /* MyClutterSelectionSeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D703C8A38A9E4676198BF225 /* MyClutterSelectionSeedTests.swift */; };
 		BC418A76CFFC18CFA6043BDF /* ScanSelectionSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEF15F03C44736F01598323 /* ScanSelectionSeed.swift */; };
 		BC4853DC6F31E89C7A1017C5 /* DatabaseUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 232219D61C4B82F4675EF95A /* DatabaseUpdater.swift */; };
 		BCFA47EF8B1FBC4B3A67E4B5 /* NavigationSectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133467A06193C406B027D97C /* NavigationSectionTests.swift */; };
@@ -308,6 +312,7 @@
 		C75E96295ED70F91F6B2A0F1 /* SectionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01EA1ADE2572F4772B89B1B1 /* SectionTheme.swift */; };
 		C789001CAAACBF6DE4388751 /* ManagerContentTokenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C763E0DB99A67C5F869339C6 /* ManagerContentTokenTests.swift */; };
 		C7CC2B5E09E8E3A89C39815E /* MacHealthStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32BF07D3C75C31A0EA7E9037 /* MacHealthStatus.swift */; };
+		C7F0C420D93B12093D439722 /* BloomFieldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF7A44789CDF160E65D36A9 /* BloomFieldTests.swift */; };
 		C848FD080F1DED2282ADC12E /* LocalSnapshotCounterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19C886F966A9E160780D16F /* LocalSnapshotCounterTests.swift */; };
 		C882EE0A16D160B09E59AC50 /* TrashSizeMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4578EA7CB74F883F99837D /* TrashSizeMonitor.swift */; };
 		C92E74A78ED42228B081950D /* ProtectionManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA431DBFA6491AFA47651BD /* ProtectionManagerView.swift */; };
@@ -319,6 +324,7 @@
 		D25319BADD929D75CA704136 /* MailReindexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2017911CF02D2B89E8BF865 /* MailReindexer.swift */; };
 		D478ECC4A65EA341DD21CCB7 /* SpaceLensVolumePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5347E39C28AE8B7F020B233 /* SpaceLensVolumePicker.swift */; };
 		D52B7FA3A74CF841E602953E /* LanguageFileLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06573FAC4E25FCAF7BD166AF /* LanguageFileLocator.swift */; };
+		D53C6E4DEBD4832A5BA40D5F /* ScanFileFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202F834AF06948B3AE41160E /* ScanFileFilterTests.swift */; };
 		D62E869A1721F311F4599726 /* SpaceLensVolumeUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C27EE261148D623AC319C6D /* SpaceLensVolumeUsage.swift */; };
 		D6C17A4A7EE7DABEBDE62F94 /* BrowserPrivacyRemoverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A4A9DC4B07D250A7F369C1 /* BrowserPrivacyRemoverTests.swift */; };
 		D6F3053273871EB277D1B523 /* DeviceBatteryMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A69F8127A8C664B222B5691 /* DeviceBatteryMonitorTests.swift */; };
@@ -477,6 +483,7 @@
 		1C87F03C4A172754EDFB75A0 /* UnsupportedAppScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsupportedAppScannerTests.swift; sourceTree = "<group>"; };
 		1CE0B536A27CFB7B30895829 /* LanguageFileLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageFileLocatorTests.swift; sourceTree = "<group>"; };
 		1E020B5C72CBAE8A7A11630C /* LoginItemManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemManagerTests.swift; sourceTree = "<group>"; };
+		202F834AF06948B3AE41160E /* ScanFileFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanFileFilterTests.swift; sourceTree = "<group>"; };
 		215EFDDDC81E5E7C6DBD72AB /* SmartScanApplicationsReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanApplicationsReview.swift; sourceTree = "<group>"; };
 		218E411D3045401D9A955CE7 /* ConnectedDevicesMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectedDevicesMonitor.swift; sourceTree = "<group>"; };
 		22401E5D2CFF7ED31D591C9B /* HelperRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperRegistration.swift; sourceTree = "<group>"; };
@@ -542,6 +549,7 @@
 		48F552ABB8AD311ED03743D9 /* ScanDiscWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanDiscWindowController.swift; sourceTree = "<group>"; };
 		49D62624319B764770F02292 /* AppUninstallerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUninstallerViewModel.swift; sourceTree = "<group>"; };
 		4ABAC3D4E20AD9AB7265338D /* AppVendor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVendor.swift; sourceTree = "<group>"; };
+		4AF7A44789CDF160E65D36A9 /* BloomFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomFieldTests.swift; sourceTree = "<group>"; };
 		4AF7C998C60CFE1A00C4549C /* ScanActivityAssertionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanActivityAssertionTests.swift; sourceTree = "<group>"; };
 		4B3FB5D1E4E24DA8CD36F774 /* ClamAVScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClamAVScanner.swift; sourceTree = "<group>"; };
 		4C0A3D2497CF28388945BB57 /* SystemJunkUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkUITests.swift; sourceTree = "<group>"; };
@@ -563,6 +571,7 @@
 		56B05E87FC3B6F889CABCCA6 /* SpaceLensListPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensListPanel.swift; sourceTree = "<group>"; };
 		5741874005D8A34BB7D82287 /* MalwareThreat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareThreat.swift; sourceTree = "<group>"; };
 		574D2DD309CA4FA07640FAA0 /* InstallationFileScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallationFileScanner.swift; sourceTree = "<group>"; };
+		57BA9A8EC9268B8D35F6F63F /* ScanFileFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanFileFilter.swift; sourceTree = "<group>"; };
 		57ECD8DBE475EA1D00DF8121 /* AssociatedFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssociatedFile.swift; sourceTree = "<group>"; };
 		588B33B31E27D3E193DF5889 /* ColorDeepenedForWhiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorDeepenedForWhiteTests.swift; sourceTree = "<group>"; };
 		58B48ACB80B7FBBFB944A3AE /* ClutterThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClutterThumbnailCache.swift; sourceTree = "<group>"; };
@@ -609,6 +618,7 @@
 		7322D2E167E70ED4D0FBFBA2 /* MenuRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuRouter.swift; sourceTree = "<group>"; };
 		732FA87F80DF686871220B50 /* SectionPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionPresentationTests.swift; sourceTree = "<group>"; };
 		74FE0A87F7A4FBC3866E5DB3 /* SmartCareReminderSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartCareReminderSchedulerTests.swift; sourceTree = "<group>"; };
+		7839479824D4A88B31585252 /* BloomField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomField.swift; sourceTree = "<group>"; };
 		785EECE3C6B84ECB7D0A3384 /* spaceLens.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = spaceLens.usdz; sourceTree = "<group>"; };
 		78BB283D2312DE0FFBF3C04D /* RAMManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RAMManagerTests.swift; sourceTree = "<group>"; };
 		7E800D4E6E10B7B99B2D1170 /* AppUninstallerViewModelMultiSelectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUninstallerViewModelMultiSelectTests.swift; sourceTree = "<group>"; };
@@ -708,6 +718,7 @@
 		BFF12BC1A8516C109492FA5B /* ExtensionsManagerViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionsManagerViewModelTests.swift; sourceTree = "<group>"; };
 		C0D4F328EFA6BEB382624507 /* ApplicationsManagerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationsManagerModelTests.swift; sourceTree = "<group>"; };
 		C19C886F966A9E160780D16F /* LocalSnapshotCounterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSnapshotCounterTests.swift; sourceTree = "<group>"; };
+		C23E937ECB567C70B9A6BEEC /* MyClutterSelectionSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterSelectionSeed.swift; sourceTree = "<group>"; };
 		C2A35775D85A4E890A04EE26 /* FloatingScanButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingScanButtonTests.swift; sourceTree = "<group>"; };
 		C2B32284509BF497C570E2FA /* ClamAVScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClamAVScannerTests.swift; sourceTree = "<group>"; };
 		C2D5840FAF0F143B4E943E0F /* ProtectionPrivacyModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectionPrivacyModel.swift; sourceTree = "<group>"; };
@@ -749,6 +760,7 @@
 		D2C2B92863509818189F46CD /* MenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarContent.swift; sourceTree = "<group>"; };
 		D2D81614C060D1B03E9922F3 /* SpaceLensProtectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensProtectionTests.swift; sourceTree = "<group>"; };
 		D631EBC782CB95D9221AD977 /* AppLeftover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLeftover.swift; sourceTree = "<group>"; };
+		D703C8A38A9E4676198BF225 /* MyClutterSelectionSeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterSelectionSeedTests.swift; sourceTree = "<group>"; };
 		D747E37C520E51FA10D0A08F /* ProtectionDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectionDashboardView.swift; sourceTree = "<group>"; };
 		D7D76FC5B20F88179DF40523 /* NavigationRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationRailView.swift; sourceTree = "<group>"; };
 		D7F3D78EB1ABBA9055137FCC /* VolumeMountMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeMountMonitor.swift; sourceTree = "<group>"; };
@@ -882,6 +894,7 @@
 				5E978BB01AD677AEDE122B1C /* Assets.xcassets */,
 				57ECD8DBE475EA1D00DF8121 /* AssociatedFile.swift */,
 				8B3E0FC7C1A4A1AA750255FF /* AssociatedFileFinder.swift */,
+				7839479824D4A88B31585252 /* BloomField.swift */,
 				4D92F45290B56030CBFA83D3 /* Browser.swift */,
 				9546ABE698D709FA5CB9ED29 /* BrowserDataClearer.swift */,
 				D9E9C1B2D0698E37C9F9E385 /* BrowserDataCounter.swift */,
@@ -961,6 +974,7 @@
 				558B0A2338BD9E61BDB7CE68 /* MyClutterManagerModel.swift */,
 				03DA725A728374ADDA906C40 /* MyClutterManagerView.swift */,
 				6298096AACFE956ABD8B9C36 /* MyClutterScanScopeStore.swift */,
+				C23E937ECB567C70B9A6BEEC /* MyClutterSelectionSeed.swift */,
 				7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */,
 				8B4703AF41629FA4FA05F270 /* MyClutterView.swift */,
 				973FCD99A18392D82D543907 /* MyClutterViewModel.swift */,
@@ -1000,6 +1014,7 @@
 				3655EDEA0B38D11EFCE61986 /* ScanDiscHostView.swift */,
 				48F552ABB8AD311ED03743D9 /* ScanDiscWindowController.swift */,
 				E75515819550B2B92260F57B /* ScanDiscWindowFrame.swift */,
+				57BA9A8EC9268B8D35F6F63F /* ScanFileFilter.swift */,
 				374A11FF89347AF05A14498B /* ScannableSectionContent.swift */,
 				B0B017EBC3CA11CE939B3362 /* ScannedFile.swift */,
 				14A3AE9EED81844B80CF3A1A /* ScanProgressFormatting.swift */,
@@ -1140,6 +1155,7 @@
 				42925F5D185AFC988AD68E43 /* AppUpdaterViewModelTests.swift */,
 				226E0F0A1BF7247823980DE5 /* AppVendorTests.swift */,
 				C444E0CC178C7E559BC3F7CD /* AssociatedFileFinderTests.swift */,
+				4AF7A44789CDF160E65D36A9 /* BloomFieldTests.swift */,
 				E9630D8D32B6A2B680E43B46 /* BrowserDataClearerTests.swift */,
 				15A5DB248E54F29283D8C9F3 /* BrowserDataCounterTests.swift */,
 				A77073103E6F462B0726CFD5 /* BrowserDataPathProviderTests.swift */,
@@ -1204,6 +1220,7 @@
 				CFCB5B73D26EDB0E1FB96805 /* MenuBarViewModelTests.swift */,
 				CFE4CEE105776395ED808C7A /* MyClutterManagerModelTests.swift */,
 				175A6E5DE9F8C11D0560DB04 /* MyClutterScanScopeStoreTests.swift */,
+				D703C8A38A9E4676198BF225 /* MyClutterSelectionSeedTests.swift */,
 				24633693DA0109BA4809355D /* MyClutterThumbnailStripItemTests.swift */,
 				183D94243CDA9FABBF5A22E5 /* MyClutterTileKindTests.swift */,
 				1BED81B0628BEACAB6B965B9 /* MyClutterViewModelTests.swift */,
@@ -1232,6 +1249,7 @@
 				3796DD772CDFBB89B773ED8F /* ScanCoordinatingConformanceTests.swift */,
 				2E60EAC4A5C2C229B5304C87 /* ScanCoordinatingTests.swift */,
 				BC72C9CBA70B1BBF45D6B8C1 /* ScanDiscWindowFrameTests.swift */,
+				202F834AF06948B3AE41160E /* ScanFileFilterTests.swift */,
 				A9F0F84AC9D6DC3F18F29AD5 /* ScanProgressIndicatorTests.swift */,
 				0D4E92A146A223EA836C156D /* ScanResultTests.swift */,
 				A2328CD0C88FCF0B17773A1D /* ScanSelectionSeedTests.swift */,
@@ -1486,6 +1504,7 @@
 				432BC8C050B5B2A703CBA01A /* ApplicationsManagerModelTests.swift in Sources */,
 				54CE70675B89E50A9CE2F24C /* ApplicationsViewModelTests.swift in Sources */,
 				65E3F8EED4FBFCF0631AD84B /* AssociatedFileFinderTests.swift in Sources */,
+				C7F0C420D93B12093D439722 /* BloomFieldTests.swift in Sources */,
 				F984A638A120B2D104F597EA /* BrowserDataClearerTests.swift in Sources */,
 				7DDE9CE6EC4C9CDDA62AA43C /* BrowserDataCounterTests.swift in Sources */,
 				B6493A8047381998C7892982 /* BrowserDataPathProviderTests.swift in Sources */,
@@ -1550,6 +1569,7 @@
 				C3F6768F9E7D9A36A7DA5801 /* MenuBarViewModelTests.swift in Sources */,
 				688FEF65720EAF3D51754EC6 /* MyClutterManagerModelTests.swift in Sources */,
 				BDAF9DD5414C50F4546C239B /* MyClutterScanScopeStoreTests.swift in Sources */,
+				BBBA66D40DC8BFF14BBB1FBA /* MyClutterSelectionSeedTests.swift in Sources */,
 				B099D858DA5FA94630094FFC /* MyClutterThumbnailStripItemTests.swift in Sources */,
 				8B988F3F94B085674B032A7B /* MyClutterTileKindTests.swift in Sources */,
 				AD3DF5C0E560EB93A7D89410 /* MyClutterViewModelTests.swift in Sources */,
@@ -1578,6 +1598,7 @@
 				1E293D15A978268B2E156C83 /* ScanCoordinatingConformanceTests.swift in Sources */,
 				102012265B908DDF367DE36A /* ScanCoordinatingTests.swift in Sources */,
 				F106EE57A074D89D42E2872B /* ScanDiscWindowFrameTests.swift in Sources */,
+				D53C6E4DEBD4832A5BA40D5F /* ScanFileFilterTests.swift in Sources */,
 				E77456FD775F682539451AFA /* ScanProgressIndicatorTests.swift in Sources */,
 				EF713E6D274DD7207EEB61FD /* ScanResultTests.swift in Sources */,
 				684A605E630D12399E322C87 /* ScanSelectionSeedTests.swift in Sources */,
@@ -1667,6 +1688,7 @@
 				652B6EC5C57CE9B03E4C85AE /* ApplicationsViewModel.swift in Sources */,
 				9BAB88FDC4D085FF175191FF /* AssociatedFile.swift in Sources */,
 				EAB0FCCF743586CB4273368C /* AssociatedFileFinder.swift in Sources */,
+				320BDF4C18108301633BEF67 /* BloomField.swift in Sources */,
 				3328707476CC1411FA1270D0 /* Browser.swift in Sources */,
 				85EAEABDF5D8CF95024CCD3C /* BrowserDataClearer.swift in Sources */,
 				E300A5469C97AE8F304FD051 /* BrowserDataCounter.swift in Sources */,
@@ -1747,6 +1769,7 @@
 				65B572321C38997952E456EF /* MyClutterManagerModel.swift in Sources */,
 				B810AA29ADEFD684916D89A8 /* MyClutterManagerView.swift in Sources */,
 				F3EF226A59824AE175B8B40F /* MyClutterScanScopeStore.swift in Sources */,
+				9371F072A9332C91941D21ED /* MyClutterSelectionSeed.swift in Sources */,
 				BACC269ED04FA26D7003F449 /* MyClutterThumbnailStripItem.swift in Sources */,
 				5505910EB98B1A0B51410171 /* MyClutterView.swift in Sources */,
 				EB09514D96CA8746124FFBE9 /* MyClutterViewModel.swift in Sources */,
@@ -1787,6 +1810,7 @@
 				67B6E2F0F779AF28BBBA00C1 /* ScanDiscHostView.swift in Sources */,
 				BA47B242AAAE6EAD08CC7D23 /* ScanDiscWindowController.swift in Sources */,
 				4ED4E093FE7E2ADB381708F4 /* ScanDiscWindowFrame.swift in Sources */,
+				58284DD98895EB3A9CE678E8 /* ScanFileFilter.swift in Sources */,
 				45825BEE32AC83FC8B685E28 /* ScanProgressFormatting.swift in Sources */,
 				DE57DC92B2179CB856E0D558 /* ScanProgressIndicator.swift in Sources */,
 				8340A2D44E8B2BCD2500B867 /* ScanResult.swift in Sources */,

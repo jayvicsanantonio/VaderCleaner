@@ -290,6 +290,13 @@ enum CleanupManagerModel {
         let children = (expandChildren && hasDeeper)
             ? groupedNodes(files, depth: depth + 1, indentLevel: indentLevel + 1, expandChildren: false)
             : []
+        // Only childless nodes carry the paths they cover. An expandable folder
+        // delegates to its children (the store unions them on demand), so a
+        // file's path isn't copied once per ancestor level — over hundreds of
+        // thousands of files that per-level duplication dominated the manager's
+        // memory footprint. The children partition the folder's files exactly,
+        // so unioning them reconstructs the folder's full set.
+        let selectionPaths = children.isEmpty ? files.map { $0.url.path } : []
         return ManagerItem(
             id: nodePath,
             title: name,
@@ -301,7 +308,7 @@ enum CleanupManagerModel {
             usesFileIcon: true,
             children: children,
             indentLevel: indentLevel,
-            selectionPaths: files.map { $0.url.path }
+            selectionPaths: selectionPaths
         )
     }
 
