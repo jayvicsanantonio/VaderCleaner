@@ -2,6 +2,7 @@
 // The reusable hero call-to-action: a large circular accent-filled disc with a white ring, a breathing glow, and press feedback.
 
 import SwiftUI
+import AppKit
 
 /// The hero / dashboard call to action — a circular button echoing the
 /// reference's Scan disc. A saturated `accent` fill (crimson by default, so
@@ -33,7 +34,7 @@ struct FloatingScanButton: View {
     let action: () -> Void
 
     @State private var hovering = false
-    @State private var pulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The label VoiceOver will announce — the caller's override, or the
     /// visible title when none was supplied. Exposed so the contract is
@@ -87,20 +88,22 @@ struct FloatingScanButton: View {
         // composites the cached blur on the GPU, whereas animating a shadow's
         // blur radius — the earlier approach — forced the gaussian blur to be
         // re-rasterized every frame for as long as the disc was on screen.
+        // The pulse itself is a Core Animation opacity animation on a
+        // layer-backed host (see PulsingGlowDisc below) so the render server
+        // drives it — a SwiftUI `repeatForever` here kept the hosting view in
+        // a per-frame render loop for as long as the disc was on screen.
         .background {
-            Circle()
-                .fill(accent)
-                .frame(width: diameter, height: diameter)
-                .blur(radius: 24)
-                .opacity(pulsing ? 0.65 : 0.4)
+            PulsingGlowDisc(accent: accent, diameter: diameter, animated: !reduceMotion)
+                .frame(
+                    width: diameter + 2 * GlowPulse.blurBleedMargin,
+                    height: diameter + 2 * GlowPulse.blurBleedMargin
+                )
                 .offset(y: 8)
                 .allowsHitTesting(false)
         }
         .scaleEffect(hovering ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.6), value: hovering)
-        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: pulsing)
         .onHover { hovering = $0 }
-        .onAppear { pulsing = true }
         .keyboardShortcut(.defaultAction)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(resolvedAccessibilityLabel)
@@ -115,5 +118,134 @@ private struct PressableCircleButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.93 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.55),
                        value: configuration.isPressed)
+    }
+}
+
+// MARK: - Glow pulse
+
+/// Parameters and the render-server animation for the disc's breathing glow.
+/// Split from the view so the cycle is assertable in unit tests.
+enum GlowPulse {
+    /// The glow's brightness between pulses — and its fixed brightness when
+    /// Reduce Motion parks the breathe.
+    static let restingOpacity: Float = 0.4
+    /// The brightness the breathe swells to.
+    static let peakOpacity: Float = 0.65
+    /// Seconds per half-cycle (dim → bright).
+    static let period: Double = 1.8
+    /// Canvas padding around the disc so the 24pt gaussian blur's tail is
+    /// never clipped by the hosting view's bounds.
+    static let blurBleedMargin: CGFloat = 72
+
+    /// The breathe as a Core Animation opacity animation. Once added, the
+    /// render server drives it — the main thread does no per-frame work to
+    /// keep the glow alive.
+    static func pulseAnimation() -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = restingOpacity
+        animation.toValue = peakOpacity
+        animation.duration = period
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.isRemovedOnCompletion = false
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        return animation
+    }
+}
+
+/// The glow disc itself — the same SwiftUI blurred circle as ever, rendered
+/// once into a hosting view whose *layer* opacity breathes via Core
+/// Animation. The SwiftUI content is static, so no per-frame render loop.
+final class PulsingGlowDiscView: NSView {
+
+    static let pulseAnimationKey = "pulse"
+
+    private let hosting: NSHostingView<GlowDiscContent>
+    private var isAnimated: Bool
+
+    init(accent: NSColor, diameter: CGFloat, animated: Bool) {
+        hosting = NSHostingView(rootView: GlowDiscContent(accent: Color(nsColor: accent), diameter: diameter))
+        isAnimated = animated
+        super.init(frame: .zero)
+
+        wantsLayer = true
+        layer?.masksToBounds = false
+        // The resting brightness is the layer's model value; the pulse
+        // animates above it and removal falls back to it.
+        layer?.opacity = GlowPulse.restingOpacity
+        // Opt out of intrinsic-size plumbing: the representable's frame is
+        // authoritative, and letting the hosting view push size constraints
+        // would re-enter window layout for a purely decorative backdrop.
+        hosting.sizingOptions = []
+        hosting.autoresizingMask = [.width, .height]
+        addSubview(hosting)
+        applyAnimation()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("PulsingGlowDiscView is built in code")
+    }
+
+    override func layout() {
+        super.layout()
+        hosting.frame = bounds
+    }
+
+    /// Recolours the glow for a new accent without rebuilding the view.
+    func setAccent(_ accent: NSColor, diameter: CGFloat) {
+        let content = GlowDiscContent(accent: Color(nsColor: accent), diameter: diameter)
+        if hosting.rootView != content {
+            hosting.rootView = content
+        }
+    }
+
+    /// Starts or parks the breathe. Parking removes the animation so Reduce
+    /// Motion leaves the glow at its resting brightness.
+    func setAnimated(_ animated: Bool) {
+        guard animated != isAnimated else { return }
+        isAnimated = animated
+        applyAnimation()
+    }
+
+    private func applyAnimation() {
+        if isAnimated {
+            if layer?.animation(forKey: Self.pulseAnimationKey) == nil {
+                layer?.add(GlowPulse.pulseAnimation(), forKey: Self.pulseAnimationKey)
+            }
+        } else {
+            layer?.removeAnimation(forKey: Self.pulseAnimationKey)
+        }
+    }
+}
+
+/// The static SwiftUI content of the glow: the accent disc under its fixed
+/// 24pt blur, centred in the padded canvas the caller sizes.
+struct GlowDiscContent: View, Equatable {
+    let accent: Color
+    let diameter: CGFloat
+
+    var body: some View {
+        Circle()
+            .fill(accent)
+            .frame(width: diameter, height: diameter)
+            .blur(radius: 24)
+    }
+}
+
+/// SwiftUI bridge for the glow. The caller gives it the padded canvas frame;
+/// accent and Reduce Motion changes update the existing view in place.
+private struct PulsingGlowDisc: NSViewRepresentable {
+    let accent: Color
+    let diameter: CGFloat
+    let animated: Bool
+
+    func makeNSView(context: Context) -> PulsingGlowDiscView {
+        PulsingGlowDiscView(accent: NSColor(accent), diameter: diameter, animated: animated)
+    }
+
+    func updateNSView(_ nsView: PulsingGlowDiscView, context: Context) {
+        nsView.setAccent(NSColor(accent), diameter: diameter)
+        nsView.setAnimated(animated)
     }
 }

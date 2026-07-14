@@ -149,4 +149,46 @@ final class FloatingScanButtonTests: XCTestCase {
             "A caller-supplied accessibility label must override the title"
         )
     }
+
+    // MARK: - Glow pulse
+
+    func test_pulseAnimationBreathesOpacityOnTheDocumentedCycle() {
+        // The 1.8s opacity breathe between the resting and peak values,
+        // running forever on the render server — the main thread does no
+        // per-frame work to keep the glow alive.
+        let animation = GlowPulse.pulseAnimation()
+        XCTAssertEqual(animation.keyPath, "opacity")
+        XCTAssertEqual(animation.duration, 1.8)
+        XCTAssertTrue(animation.autoreverses)
+        XCTAssertEqual(animation.repeatCount, .infinity)
+        XCTAssertFalse(animation.isRemovedOnCompletion)
+        XCTAssertEqual(animation.fromValue as? Float, GlowPulse.restingOpacity)
+        XCTAssertEqual(animation.toValue as? Float, GlowPulse.peakOpacity)
+    }
+
+    func test_pulseSpansTheOriginalOpacityRange() {
+        // Pinned to the values the SwiftUI implementation breathed between,
+        // so the CA-driven glow reads identically.
+        XCTAssertEqual(GlowPulse.restingOpacity, 0.4)
+        XCTAssertEqual(GlowPulse.peakOpacity, 0.65)
+    }
+
+    func test_animatedGlowViewCarriesThePulse() {
+        let view = PulsingGlowDiscView(accent: .systemRed, diameter: 130, animated: true)
+        XCTAssertNotNil(view.layer?.animation(forKey: PulsingGlowDiscView.pulseAnimationKey))
+    }
+
+    func test_reduceMotionGlowRestsAtTheDimOpacityWithNoPulse() {
+        // Honouring Reduce Motion: the glow parks at its resting brightness
+        // rather than breathing.
+        let view = PulsingGlowDiscView(accent: .systemRed, diameter: 130, animated: false)
+        XCTAssertNil(view.layer?.animation(forKey: PulsingGlowDiscView.pulseAnimationKey))
+        XCTAssertEqual(view.layer?.opacity, GlowPulse.restingOpacity)
+    }
+
+    func test_turningMotionOffRemovesThePulse() {
+        let view = PulsingGlowDiscView(accent: .systemRed, diameter: 130, animated: true)
+        view.setAnimated(false)
+        XCTAssertNil(view.layer?.animation(forKey: PulsingGlowDiscView.pulseAnimationKey))
+    }
 }

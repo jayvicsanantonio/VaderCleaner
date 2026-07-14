@@ -28,7 +28,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x"), URL(fileURLWithPath: "/tmp/y")],
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(capturedExecutable, binary)
@@ -54,7 +54,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(
@@ -82,7 +82,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(capturedArguments, ["--recursive", "--no-summary", "/Users/x"])
@@ -102,7 +102,7 @@ final class ClamAVScannerTests: XCTestCase {
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
             options: ClamAVScanner.ScanOptions(scanMail: false, scanArchives: false),
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(
@@ -116,13 +116,15 @@ final class ClamAVScannerTests: XCTestCase {
         // ProcessLineStreamer. On a clean machine that's millions of
         // lines; without throttling each one would spawn an async Task
         // to update the UI. The throttle drops calls that arrive within
-        // `interval` of the previous emit.
+        // `interval` of the previous emit — here the leading first line emits
+        // and the trailing flush reports the final total, so a three-line burst
+        // yields two callbacks (the middle line is dropped), not three.
         var progressCallCount = 0
         let scanner = makeScanner(
             installed: true,
             databaseDirectory: nil,
             excludedDirectories: [],
-            progressThrottleInterval: 10.0  // effectively only emit once
+            progressThrottleInterval: 10.0  // only the leading line emits
         ) { _, _, onLine in
             onLine("/Users/x/a: OK")
             onLine("/Users/x/b: OK")
@@ -132,11 +134,42 @@ final class ClamAVScannerTests: XCTestCase {
 
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _ in progressCallCount += 1 }
+            progress: { _, _ in progressCallCount += 1 }
         )
 
-        XCTAssertEqual(progressCallCount, 1,
-                       "second and third lines fall within the 10s window so progress must not fire again")
+        XCTAssertEqual(progressCallCount, 2,
+                       "the middle line is dropped by the throttle; the leading line and the terminal flush both emit")
+    }
+
+    /// The throttle limits how often progress is reported, but the reported
+    /// files-checked count is tallied on every line at the source — so the one
+    /// emitted callback in a throttled burst still carries the true total, not
+    /// the number of emissions. Without this, a fast clean stretch undercounts.
+    func test_scan_reportsTrueFileCountEvenWhenProgressIsThrottled() async throws {
+        var lastReportedCount = 0
+        var emissions = 0
+        let scanner = makeScanner(
+            installed: true,
+            databaseDirectory: nil,
+            excludedDirectories: [],
+            progressThrottleInterval: 10.0  // only the first line emits
+        ) { _, _, onLine in
+            onLine("/Users/x/a: OK")
+            onLine("/Users/x/b: OK")
+            onLine("/Users/x/c: OK")
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _, filesScanned in
+                emissions += 1
+                lastReportedCount = filesScanned
+            }
+        )
+
+        XCTAssertLessThan(emissions, 3, "the throttle must still drop mid-burst lines rather than emit per line")
+        XCTAssertEqual(lastReportedCount, 3, "the terminal flush must report every line scanned, not the number of emissions")
     }
 
     func test_scan_parsesEveryThreatRegardlessOfProgressThrottle() async throws {
@@ -158,7 +191,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         let threats = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(threats.map(\.threatName), ["Eicar-A", "Eicar-B", "Eicar-C"])
@@ -234,7 +267,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(
@@ -255,7 +288,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         let threats = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { progressLines.append($0) }
+            progress: { line, _ in progressLines.append(line) }
         )
 
         XCTAssertTrue(threats.isEmpty)
@@ -272,7 +305,7 @@ final class ClamAVScannerTests: XCTestCase {
 
         let threats = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _ in }
+            progress: { _, _ in }
         )
 
         XCTAssertEqual(threats.count, 1)
@@ -285,7 +318,7 @@ final class ClamAVScannerTests: XCTestCase {
         do {
             _ = try await scanner.scan(
                 paths: [URL(fileURLWithPath: "/Users/x")],
-                progress: { _ in }
+                progress: { _, _ in }
             )
             XCTFail("Expected scan() to throw on clamscan exit code 2")
         } catch {
@@ -298,7 +331,7 @@ final class ClamAVScannerTests: XCTestCase {
         do {
             _ = try await scanner.scan(
                 paths: [URL(fileURLWithPath: "/Users/x")],
-                progress: { _ in }
+                progress: { _, _ in }
             )
             XCTFail("Expected scan() to throw when clamscan is absent")
         } catch {

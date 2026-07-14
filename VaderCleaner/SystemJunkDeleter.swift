@@ -64,17 +64,27 @@ struct SystemJunkDeleter {
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "SystemJunkDeleter")
 
+    /// Paths per privileged-helper XPC call. A large clean can route hundreds of
+    /// thousands of paths through the helper; one giant `deleteFiles(_:)` message
+    /// risks the XPC transport's size limits and makes the helper process the
+    /// whole set as a single unit. Chunking bounds each message and lets a
+    /// partial failure cost only its own batch.
+    static let defaultHelperBatchSize = 10_000
+
     private let fileManager: FileManager
     private let helperProvider: HelperProvider
     private let trashItem: TrashItem
+    private let helperBatchSize: Int
 
     init(
         fileManager: FileManager = .default,
         helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider,
-        trashItem: TrashItem? = nil
+        trashItem: TrashItem? = nil,
+        helperBatchSize: Int = SystemJunkDeleter.defaultHelperBatchSize
     ) {
         self.fileManager = fileManager
         self.helperProvider = helperProvider
+        self.helperBatchSize = max(1, helperBatchSize)
         // `FileManager.trashItem` always targets the system Trash regardless of
         // the instance, so the trash destination is its own seam rather than a
         // property of the injected `fileManager`.
@@ -152,6 +162,20 @@ struct SystemJunkDeleter {
         path.contains("/.Trash/")
     }
 
+    /// Routes every helper-bound file through the privileged helper in bounded
+    /// batches (`helperBatchSize`), awaiting each in turn and summing the bytes
+    /// of the batches that succeeded. Chunking keeps a single clean of hundreds
+    /// of thousands of paths from serializing into one oversized XPC message,
+    /// and a failed batch costs only its own bytes: the remaining batches still
+    /// run, and each is credited on its own success.
+    private func deleteViaHelper(files: [ScannedFile]) async -> Int64 {
+        var bytesFreed: Int64 = 0
+        for chunk in files.chunked(into: helperBatchSize) where !chunk.isEmpty {
+            bytesFreed += await deleteChunkViaHelper(files: chunk)
+        }
+        return bytesFreed
+    }
+
     /// Attempts a single batched helper call. The XPC interface uses the
     /// classic reply-block style so we bridge through `withCheckedContinuation`.
     ///
@@ -163,12 +187,12 @@ struct SystemJunkDeleter {
     /// usual. Whichever path resumes first wins, the other becomes a no-op
     /// thanks to `Resumer.resume(with:)`'s once-only guarantee.
     ///
-    /// On any error from either path we treat the whole batch as failed and
-    /// return `0` — the helper has a best-effort contract (it deletes what
-    /// it can and returns the first error), but because the protocol does
-    /// not surface a per-path success vector, we do not credit byte counts
-    /// in the failure case.
-    private func deleteViaHelper(files: [ScannedFile]) async -> Int64 {
+    /// On any error from either path we treat this batch as failed and return
+    /// `0` — the helper has a best-effort contract (it deletes what it can and
+    /// returns the first error), but because the protocol does not surface a
+    /// per-path success vector, we do not credit byte counts for a failed
+    /// batch. Only this chunk is affected; the caller continues with the rest.
+    private func deleteChunkViaHelper(files: [ScannedFile]) async -> Int64 {
         let paths = files.map { $0.url.path }
         let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
 
@@ -234,5 +258,15 @@ private final class Resumer: @unchecked Sendable {
         continuation = nil
         lock.unlock()
         pending?.resume(returning: error)
+    }
+}
+
+private extension Array {
+    /// Splits the array into consecutive sub-arrays of at most `size` elements.
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }

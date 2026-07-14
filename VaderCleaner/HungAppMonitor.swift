@@ -22,7 +22,10 @@ struct RunningAppInfo: Equatable {
 final class HungAppMonitor {
 
     typealias AppLister = () -> [RunningAppInfo]
-    typealias ResponsivenessProbe = (pid_t) -> Bool
+    /// `@Sendable` so the probe pass can run on a detached task — each AX
+    /// probe can block up to its 0.5s messaging timeout, which on the main
+    /// thread read as a repeating micro-hang every poll.
+    typealias ResponsivenessProbe = @Sendable (pid_t) -> Bool
 
     private let preferences: PreferencesStore
     private let dispatcher: NotificationDispatching
@@ -34,6 +37,10 @@ final class HungAppMonitor {
 
     private var lastFired: [pid_t: Date] = [:]
     private var timer: Timer?
+    /// True while a probe pass is in flight. A pass over many hung apps can
+    /// outlast the poll interval (0.5s worst case per app), and an overlapping
+    /// pass would double-fire before the first records its cooldowns.
+    private var isProbing = false
 
     init(
         preferences: PreferencesStore,
@@ -53,14 +60,29 @@ final class HungAppMonitor {
         self.now = now
     }
 
-    /// Pure decision: fires for each unresponsive app whose per-process cooldown
-    /// has elapsed, and forgets apps that have since recovered or quit.
-    func evaluate() {
+    /// One poll pass: probes each running app exactly once — off the main
+    /// actor, since a hung app holds its probe for the full messaging
+    /// timeout — then fires for each unresponsive app whose per-process
+    /// cooldown has elapsed, and forgets apps that have since recovered or
+    /// quit. Overlapping passes are skipped rather than queued.
+    func evaluate() async {
         guard preferences.notifyHungApps else { return }
-        let apps = appLister()
-        let livePIDs = Set(apps.map(\.pid))
+        guard !isProbing else { return }
+        isProbing = true
+        defer { isProbing = false }
 
-        for app in apps where !isResponsive(app.pid) {
+        let apps = appLister()
+        let probe = isResponsive
+        let responsive: [pid_t: Bool] = await Task.detached(priority: .utility) {
+            var result: [pid_t: Bool] = [:]
+            for app in apps {
+                result[app.pid] = probe(app.pid)
+            }
+            return result
+        }.value
+
+        let livePIDs = Set(apps.map(\.pid))
+        for app in apps where responsive[app.pid] == false {
             if let last = lastFired[app.pid], now().timeIntervalSince(last) < cooldown { continue }
             dispatcher.sendHungAppNotification(appName: app.name)
             lastFired[app.pid] = now()
@@ -70,7 +92,7 @@ final class HungAppMonitor {
         for pid in lastFired.keys where !livePIDs.contains(pid) {
             lastFired[pid] = nil
         }
-        for app in apps where isResponsive(app.pid) {
+        for app in apps where responsive[app.pid] == true {
             lastFired[app.pid] = nil
         }
     }
@@ -78,7 +100,7 @@ final class HungAppMonitor {
     func start() {
         stop()
         let timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
+            Task { @MainActor in await self?.evaluate() }
         }
         self.timer = timer
     }

@@ -287,7 +287,10 @@ final class SystemJunkViewModel {
     /// `.complete(bytesFreed:)`. A no-op when nothing is selected.
     func clean() async {
         guard let result = latestResult, !selectedURLs.isEmpty else { return }
-        let toDelete = result.items.filter { selectedURLs.contains($0.url) }
+        // Filter the full result down to the selection off the main actor —
+        // hashing a million URLs on the main thread froze the Clean tap.
+        let selection = selectedURLs
+        let toDelete = await ScanFileFilter.selected(from: result.items) { selection.contains($0.url) }
         await performClean(toDelete)
     }
 
@@ -296,7 +299,9 @@ final class SystemJunkViewModel {
     /// on the whole group. A no-op when the group produced no files.
     func clean(categories: Set<ScanCategory>) async {
         guard let result = latestResult else { return }
-        let toDelete = result.items.filter { categories.contains($0.category) }
+        // Off the main actor, mirroring `clean()` — the same full result is
+        // walked, so keep both taps off the main thread for consistency.
+        let toDelete = await ScanFileFilter.selected(from: result.items) { categories.contains($0.category) }
         await performClean(toDelete)
     }
 

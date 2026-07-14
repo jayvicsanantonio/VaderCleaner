@@ -588,6 +588,61 @@ final class AppUninstallerViewModelTests: XCTestCase {
         XCTAssertFalse(outcome.bundlePermanentlyRemoved, "Bundle was Trashed by NSWorkspace, not escalated")
     }
 
+    /// The pre-recycle size snapshot walks whole `.app` bundles — on the main
+    /// thread that walk beach-balls the confirmation click for Xcode-class
+    /// apps. `sizeFor` must execute off the main thread; the flow awaits it.
+    func test_recycleWithEscalation_runsTheSizeSnapshotOffTheMainThread() async throws {
+        let bundle = URL(fileURLWithPath: "/Applications/Big.app")
+        let fs = FakeFilesystem(existing: [bundle.path])
+        let sawMainThread = SendableBox<Bool?>(nil)
+
+        _ = try await AppUninstallerViewModel.recycleWithEscalation(
+            bundleURL: bundle,
+            associatedURLs: [],
+            recycle: { urls in
+                for url in urls { fs.remove(url.path) }
+                return (Set(urls.map(\.path)), nil)
+            },
+            escalate: { _ in nil },
+            sizeFor: { _ in
+                sawMainThread.value = Thread.isMainThread
+                return [:]
+            },
+            exists: { fs.contains($0) }
+        )
+
+        XCTAssertEqual(
+            sawMainThread.value,
+            false,
+            "The size snapshot must run off the main thread so a huge bundle walk can't freeze the UI"
+        )
+    }
+
+    /// The production snapshot walk: a bare file contributes its own size, a
+    /// directory sums its regular-file descendants, and a missing path
+    /// contributes 0 rather than dropping the key.
+    func test_sizesFor_measuresFilesDirectoryTreesAndMissingPaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sizes-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let nested = root.appendingPathComponent("bundle", isDirectory: true)
+            .appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+
+        let file = root.appendingPathComponent("plain.txt")
+        try Data("12345".utf8).write(to: file)
+        let bundle = root.appendingPathComponent("bundle", isDirectory: true)
+        try Data("123".utf8).write(to: nested.appendingPathComponent("a.bin"))
+        try Data("1234".utf8).write(to: nested.appendingPathComponent("b.bin"))
+        let missing = root.appendingPathComponent("gone.app")
+
+        let sizes = AppUninstallerViewModel.sizes(for: [file, bundle, missing])
+
+        XCTAssertEqual(sizes[file.path], 5)
+        XCTAssertEqual(sizes[bundle.path], 7, "A directory must sum its regular-file descendants")
+        XCTAssertEqual(sizes[missing.path], 0, "A missing path must contribute zero, not lose its key")
+    }
+
     // MARK: - List metrics cache
 
     /// `loadListMetrics()` populates the session-scoped per-app size and
@@ -773,6 +828,14 @@ private final class FakeFilesystem {
 /// Mutable reference cell for capturing call counts / arguments from the
 /// non-escaping fakes passed to `recycleWithEscalation`.
 private final class Box<T> {
+    var value: T
+    init(_ value: T) { self.value = value }
+}
+
+/// Like `Box`, but capturable by the `@Sendable` size-snapshot fake. The
+/// unchecked conformance is safe here: the test awaits the flow before
+/// reading, so the write strictly precedes the read.
+private final class SendableBox<T>: @unchecked Sendable {
     var value: T
     init(_ value: T) { self.value = value }
 }

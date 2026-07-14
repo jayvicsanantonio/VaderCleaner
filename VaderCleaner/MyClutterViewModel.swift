@@ -229,7 +229,16 @@ final class MyClutterViewModel {
 
         let (d, s, l, w) = await (dups, sims, larges, dls)
         guard scanGeneration == generation else { return }
-        applyResults(duplicates: d, similar: s, largeOld: l, downloads: w)
+        // Build the selection + size/category read-model off the main actor —
+        // hashing every URL of a large result on main froze the scan-complete
+        // transition (see MyClutterSelectionSeed) — then re-check the
+        // generation: a scan restarted during the hop must not have its state
+        // clobbered by this one's seed.
+        let seed = await MyClutterSelectionSeed.safeDefaults(
+            duplicates: d, similar: s, largeOld: l, downloads: w
+        )
+        guard scanGeneration == generation else { return }
+        applyResults(duplicates: d, similar: s, largeOld: l, downloads: w, seed: seed)
     }
 
     /// Reset to `.idle`, dropping cached results and selection. Wired to "Start
@@ -281,25 +290,26 @@ final class MyClutterViewModel {
         duplicates: [DuplicateGroup],
         similar: [SimilarImageGroup],
         largeOld: [ScannedFile],
-        downloads: [DownloadItem]
+        downloads: [DownloadItem],
+        seed: MyClutterSelectionSeed
     ) {
         self.duplicateGroups = duplicates
         self.similarGroups = similar
         self.largeOldFiles = largeOld
         self.downloads = downloads
 
-        // Rebuild the memoized read-model first: both `rebuildSizeMap()` and the
-        // selection seeding below read `duplicateCopies` / `similarCopies`.
         recomputeDerived()
-        rebuildSizeMap()
-        // Safe-by-default: pre-check the redundant duplicate and near-duplicate
-        // copies (deleting one always leaves an original) and leave the large/old
-        // files and downloads — real user data — unchecked so removing them is an
-        // explicit choice. Mirrors Smart Scan and the app-wide safe-by-default
-        // rule (see `ScanCategory.isSafeToAutoRemove`).
-        selectedURLs = Set(duplicateCopies.map(\.url)).union(similarCopies.map(\.url))
-        totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
-        recomputeSelectedCategoryTotals()
+        // The selection and the size/category read-model were precomputed off
+        // the main actor from these same results (safe-by-default: redundant
+        // copies pre-checked, large/old files and downloads unchecked — see
+        // MyClutterSelectionSeed). Applying them here is O(1) per field, so
+        // scan completion costs no per-URL hashing on the main thread.
+        sizeByURL = seed.sizeByURL
+        categoriesByURL = seed.categoriesByURL
+        selectedURLs = seed.selectedURLs
+        totalSelectedSize = seed.totalSelectedSize
+        selectedBytesByCategory = seed.selectedBytesByCategory
+        selectedCountByCategory = seed.selectedCountByCategory
 
         resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results

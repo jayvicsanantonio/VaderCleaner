@@ -30,9 +30,6 @@ struct VaderBackground: View {
     /// this, so the caller crossfades it as the selection changes.
     let theme: SectionTheme
 
-    /// Flipped once on appear into a repeat-forever pulse that breathes the
-    /// bloom cluster's brightness.
-    @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -42,134 +39,17 @@ struct VaderBackground: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            GeometryReader { geo in
-                ZStack {
-                    // All three anchors hug (or overshoot) the window edges so
-                    // only a partial arc of each glow is ever visible — the
-                    // light reads as a wash coming in from the edge, never as
-                    // a travelling circle.
-                    //
-                    // Primary bloom — the section's classic glow, low on the
-                    // bottom edge where it still pools behind the floating
-                    // Scan disc.
-                    OrbitingBloom(
-                        color: theme.accent.opacity(0.45),
-                        falloff: 760,
-                        anchor: UnitPoint(x: 0.5, y: 0.9),
-                        orbitRadius: 160,
-                        period: 20,
-                        clockwise: true,
-                        animated: !reduceMotion,
-                        size: geo.size
-                    )
-                    // Secondary bloom — dimmer, wider orbit, counter-rotating
-                    // just past the left edge so it swells in and out of the
-                    // window as it circles.
-                    OrbitingBloom(
-                        color: theme.accent.opacity(0.26),
-                        falloff: 460,
-                        anchor: UnitPoint(x: -0.08, y: 0.3),
-                        orbitRadius: 220,
-                        period: 34,
-                        clockwise: false,
-                        animated: !reduceMotion,
-                        size: geo.size
-                    )
-                    // Tertiary bloom — small and faint in the upper-right
-                    // corner, on the fastest lap, adding a third phase.
-                    OrbitingBloom(
-                        color: theme.accent.opacity(0.2),
-                        falloff: 320,
-                        anchor: UnitPoint(x: 1.08, y: 0.08),
-                        orbitRadius: 140,
-                        period: 14,
-                        clockwise: true,
-                        animated: !reduceMotion,
-                        size: geo.size
-                    )
-                }
-                // A slow breathe over the whole cluster: brightness swells and
-                // relaxes on a cycle offset from every orbit period, so the
-                // combined motion never visibly repeats. Opacity is composited
-                // on the GPU like the orbits — no per-frame view redraws.
-                .opacity(breathing ? 0.86 : 1.0)
-                .animation(.easeInOut(duration: 8).repeatForever(autoreverses: true), value: breathing)
-            }
-        }
-        .ignoresSafeArea()
-        .onAppear {
+            // The bloom cluster lives in a layer-backed AppKit view whose
+            // orbits and breathe are Core Animation render-server animations
+            // (see BloomField.swift) — an idle window does no per-frame
+            // main-thread work to keep the backdrop alive. A SwiftUI
+            // `rotationEffect` here would re-run layout every frame.
+            //
             // Honour Reduce Motion: the blooms stay put at their resting
             // poses at full brightness.
-            guard !reduceMotion else { return }
-            breathing = true
+            BloomField(accent: theme.accent, animated: !reduceMotion)
         }
-    }
-}
-
-/// One accent bloom on a circular path: a radial glow displaced off the pivot
-/// of an oversized square layer that spins forever — the orbit trick. The
-/// gradient is radially symmetric, so the rotation itself is invisible; only
-/// the circular travel shows. Rotation is a GPU-composited transform, no
-/// per-frame view redraws.
-private struct OrbitingBloom: View {
-    /// The bloom's colour, opacity included.
-    let color: Color
-    /// Radius at which the glow fades to fully clear.
-    let falloff: CGFloat
-    /// Resting pose in window space — the top of the orbit, and where the
-    /// bloom stays when the orbit is not animated (Reduce Motion).
-    let anchor: UnitPoint
-    /// Radius of the circular path.
-    let orbitRadius: CGFloat
-    /// Seconds per revolution.
-    let period: Double
-    /// Direction of travel around the circle.
-    let clockwise: Bool
-    /// Whether the orbit runs; false parks the bloom at its anchor.
-    let animated: Bool
-    /// The hosting window's size, from the caller's `GeometryReader`.
-    let size: CGSize
-
-    /// Flipped once on appear into the repeat-forever linear rotation that
-    /// carries the bloom around its path.
-    @State private var orbiting = false
-
-    /// Side of the square layer the bloom is drawn on. Must contain the whole
-    /// falloff plus the orbit displacement, so the layer's rectangular bounds
-    /// always sit in the gradient's fully-clear region — a bounds cut inside
-    /// the falloff shows up as a hard seam when the layer moves.
-    private var layerSide: CGFloat { 2 * (falloff + orbitRadius) + 100 }
-
-    var body: some View {
-        RadialGradient(
-            // A white-hot core inside the accent glow: on themes whose accent
-            // sits close to the backdrop hue (Health Monitor's blue on blue),
-            // a pure accent bloom moves almost invisibly — the bright core is
-            // what keeps the motion legible on every section's palette.
-            stops: [
-                .init(color: .white.opacity(0.07), location: 0),
-                .init(color: color, location: 0.3),
-                .init(color: .clear, location: 1),
-            ],
-            center: .center,
-            startRadius: 0,
-            endRadius: falloff
-        )
-        .frame(width: layerSide, height: layerSide)
-        .offset(y: -orbitRadius)
-        .rotationEffect(.degrees(orbiting ? (clockwise ? 360 : -360) : 0))
-        .animation(.linear(duration: period).repeatForever(autoreverses: false), value: orbiting)
-        // The orbit's centre sits one radius below the anchor, so the
-        // path's top — and the Reduce Motion resting pose — is exactly
-        // the anchor.
-        .position(
-            x: size.width * anchor.x,
-            y: size.height * anchor.y + orbitRadius
-        )
-        .onAppear {
-            guard animated else { return }
-            orbiting = true
-        }
+        .ignoresSafeArea()
     }
 }
 

@@ -26,9 +26,58 @@ final class CleanupManagerStoreTests: XCTestCase {
         let rows = store.items(forCategoryID: "userCache")
         XCTAssertEqual(rows.map(\.title).sorted(), ["Google", "Homebrew"])
 
-        // Building the category indexed its rows' selection paths.
+        // Building the category indexed its rows. A folder row resolves to its
+        // descendant leaf paths through the store — the folder item no longer
+        // carries the path list itself (the store unions its children).
         let google = rows.first { $0.title == "Google" }!
-        XCTAssertEqual(store.selectionPaths(forRowID: google.id), google.selectionPaths)
+        XCTAssertTrue(google.isExpandable)
+        XCTAssertEqual(
+            store.selectionPaths(forRowID: google.id),
+            ["/Users/me/Library/Caches/Google/Chrome/a"]
+        )
+    }
+
+    /// A folder row's covered leaf paths are resolved by unioning its children,
+    /// so selecting the folder still selects its whole subtree even though the
+    /// item stores no paths of its own.
+    func test_selectionPaths_forFolderRow_unionsDescendants() {
+        let store = CleanupManagerStore()
+        let a = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        let b = file("/Users/me/Library/Caches/Google/Chrome/b", 200, .userCache)
+        let c = file("/Users/me/Library/Caches/Homebrew/d", 50, .userCache)
+        store.load(result: ScanResult(items: [a, b, c]))
+
+        let rows = store.items(forCategoryID: "userCache")
+        let google = rows.first { $0.title == "Google" }!
+
+        XCTAssertEqual(
+            Set(store.selectionPaths(forRowID: google.id)),
+            [a.url.path, b.url.path],
+            "A folder must resolve to every descendant leaf path"
+        )
+    }
+
+    /// The whole-subtree file resolution a folder checkbox relies on still works
+    /// once the background path index is warm.
+    func test_files_forFolderRow_resolveDescendantsAfterWarm() async {
+        let store = CleanupManagerStore()
+        let a = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        let b = file("/Users/me/Library/Caches/Google/Chrome/b", 200, .userCache)
+        // A divergent third file keeps the common ancestor at Caches, so Google
+        // stays a top-level folder disclosing its Chrome child.
+        let c = file("/Users/me/Library/Caches/Homebrew/d", 50, .userCache)
+        store.load(result: ScanResult(items: [a, b, c]))
+        _ = store.items(forCategoryID: "userCache")
+
+        // The path index warms on a background task; poll for it.
+        var resolved: [ScannedFile] = []
+        for _ in 0..<200 {
+            let google = store.items(forCategoryID: "userCache").first { $0.title == "Google" }!
+            resolved = store.files(forRowID: google.id)
+            if resolved.count == 2 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
+        }
+        XCTAssertEqual(Set(resolved), [a, b])
     }
 
     /// The background warm builds the path→file index; poll briefly for it.
