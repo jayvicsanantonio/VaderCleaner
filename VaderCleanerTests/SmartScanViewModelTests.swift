@@ -323,6 +323,61 @@ final class SmartScanViewModelTests: XCTestCase {
         XCTAssertEqual(vm.tileSelection, [])
     }
 
+    // MARK: - Junk manager store
+
+    /// A successful scan points the view-model's junk manager store at the
+    /// fresh junk result, so the System Junk Review's panes are warm before
+    /// the view asks.
+    func test_scan_loadsJunkManagerStore() async {
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 300, category: .userCache)])) }
+        )
+
+        await vm.scan()
+
+        XCTAssertFalse(vm.junkManagerStore.items(forCategoryID: "userCache").isEmpty,
+                       "scan() must load the junk manager store with the new junk result")
+    }
+
+    /// Start Over drops the junk manager store's content along with the rest
+    /// of the result state, so a multi-gigabyte index never outlives the
+    /// results it served.
+    func test_reset_unloadsJunkManagerStore() async {
+        let vm = makeViewModel(
+            junkScanner: { self.makeResult((.userCache, [self.makeFile(name: "a", size: 300, category: .userCache)])) }
+        )
+        await vm.scan()
+        XCTAssertFalse(vm.junkManagerStore.items(forCategoryID: "userCache").isEmpty)
+
+        vm.reset()
+
+        XCTAssertTrue(vm.junkManagerStore.items(forCategoryID: "userCache").isEmpty,
+                      "reset() must unload the junk manager store")
+    }
+
+    /// A failed scan clears the junk manager store alongside the phase moving
+    /// to `.failed`, so the Review can never serve results that no longer
+    /// exist.
+    func test_scanFailure_unloadsJunkManagerStore() async {
+        var calls = 0
+        let vm = makeViewModel(
+            junkScanner: {
+                calls += 1
+                if calls == 1 {
+                    return self.makeResult((.userCache, [self.makeFile(name: "a", size: 300, category: .userCache)]))
+                }
+                throw NSError(domain: "test", code: 1)
+            }
+        )
+        await vm.scan()
+        XCTAssertFalse(vm.junkManagerStore.items(forCategoryID: "userCache").isEmpty)
+
+        await vm.scan()
+
+        XCTAssertTrue(vm.junkManagerStore.items(forCategoryID: "userCache").isEmpty,
+                      "a failed scan must unload the junk manager store")
+    }
+
     // MARK: - Sub-selections
 
     func test_scan_defaultsJunkCategorySelectionToAllCategoriesWithItems() async {

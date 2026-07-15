@@ -212,6 +212,17 @@ final class SmartScanViewModel {
     /// and previews don't seed).
     var onScanCompleted: ((SmartScanResult) -> Void)?
 
+    /// Persistent, prebuilt model behind the System Junk Review — the same
+    /// store the standalone Cleanup Manager uses. Warmed in the background as
+    /// soon as a scan lands results, so the Review's panes paint instantly,
+    /// and reused across opens. Owned here — not as view `@State` — so it
+    /// survives section switches: dying with the view meant freeing its
+    /// per-file index (millions of entries on a large scan) on the main
+    /// thread mid-transition, which stalled every switch away from the
+    /// section. Loaded when a scan lands `.results`; unloaded on `reset()`
+    /// and scan failure.
+    @ObservationIgnored let junkManagerStore = CleanupManagerStore()
+
     /// Combined count of filesystem items walked by the two file-walk sub-scans
     /// (System Junk + My Clutter) during the in-flight Smart Scan. Reset to 0
     /// at scan start and surfaced as "Scanned N items…" beneath the stage label
@@ -688,6 +699,9 @@ final class SmartScanViewModel {
                 availableUpdates: foundUpdates,
                 clamAVAvailable: clamAVAvailable
             )
+            // Warm the System Junk Review's manager model in the background
+            // right away, so its panes are instant by the time results land.
+            junkManagerStore.load(result: junkResult)
             // Intersect with the enabled modules so a module the user excluded
             // never comes back auto-selected — notably Performance, which
             // otherwise always auto-selects (its DNS flush always has work).
@@ -710,6 +724,7 @@ final class SmartScanViewModel {
             onScanCompleted?(result)
         } catch {
             log.error("Smart Scan failed: \(String(describing: error), privacy: .public)")
+            junkManagerStore.unload()
             phase = .failed(message: error.localizedDescription)
         }
     }
@@ -1152,6 +1167,7 @@ final class SmartScanViewModel {
     /// deselections forward.
     func reset() {
         phase = .idle
+        junkManagerStore.unload()
         tileSelection = []
         isReviewing = false
         junkFileSelection = []

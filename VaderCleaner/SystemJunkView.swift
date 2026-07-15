@@ -39,11 +39,6 @@ struct SystemJunkView: View {
     /// extends under the title bar.
     @State private var paneTopInset: CGFloat = 0
 
-    /// Persistent, prebuilt model for the Cleanup Manager. Warmed in the
-    /// background as soon as a scan finishes so opening Review paints instantly,
-    /// and reused across opens.
-    @State private var managerStore = CleanupManagerStore()
-
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
     }
@@ -80,14 +75,6 @@ struct SystemJunkView: View {
             // A fresh scan always lands back on the dashboard grid, never a
             // stale manager from the previous run.
             if case .scanning = newPhase { showingManager = false }
-            // Warm the Cleanup Manager model in the background the moment a scan
-            // (or seed) produces results, so opening Review is instant.
-            if case .preview(let result) = newPhase { managerStore.load(result: result) }
-        }
-        .task {
-            // Catch the case where results are already present on first appear
-            // (e.g. seeded from a Smart Scan before this view existed).
-            if case .preview(let result) = viewModel.phase { managerStore.load(result: result) }
         }
     }
 
@@ -207,10 +194,11 @@ struct SystemJunkView: View {
     }
 
     /// The shared three-pane Cleanup Manager (sections → categories → files),
-    /// served by `managerStore` so the panes paint instantly and each category's
-    /// rows come from the store's (pre-built, cached) trees.
+    /// served by the view-model's `managerStore` so the panes paint instantly
+    /// and each category's rows come from the store's (pre-built, cached)
+    /// trees.
     private func managerScreen(result: ScanResult) -> some View {
-        let store = self.managerStore
+        let store = viewModel.managerStore
         let itemsByCategory = result.itemsByCategory
         return SmartScanReviewManager(
             title: String(
