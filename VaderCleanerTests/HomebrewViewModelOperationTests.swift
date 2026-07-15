@@ -67,6 +67,81 @@ final class HomebrewViewModelOperationTests: XCTestCase {
         XCTAssertEqual(vm.phase, .ready)
     }
 
+    func test_upgradeSelected_excludesPinned() async {
+        let runner = StubBrewRunner()
+        runner.captures["outdated --json=v2"] = BrewResult(terminationStatus: 0, standardOutput: outdatedJSON(), standardError: "")
+        let vm = makeViewModel(runner: runner)
+        await vm.load()
+        await vm.checkUpdates()
+
+        // node is pinned in the fixture; selecting it explicitly must not upgrade it.
+        await vm.upgrade(.some(["node", "wget"]))
+        XCTAssertEqual(runner.streamingCalls.first { $0.first == "upgrade" }, ["upgrade", "wget"])
+    }
+
+    func test_checkUpdates_surfacesUpdateFailureAsWarning() async {
+        let runner = StubBrewRunner()
+        runner.captures["update"] = BrewResult(terminationStatus: 1, standardOutput: "", standardError: "network down")
+        runner.captures["outdated --json=v2"] = BrewResult(terminationStatus: 0, standardOutput: outdatedJSON(), standardError: "")
+        let vm = makeViewModel(runner: runner)
+        await vm.load()
+        await vm.checkUpdates()
+
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertNotNil(vm.lastOperationError)          // failure surfaced (Req 4.5)
+        XCTAssertEqual(vm.availableUpdateCount, 2)       // but outdated still listed
+    }
+
+    func test_requestUninstall_treatsFailedUsesAsBlocking() async {
+        let runner = StubBrewRunner()
+        // `brew uses` exits non-zero — we must not read that as "no dependents".
+        runner.captures["uses --installed openssl@3"] = BrewResult(terminationStatus: 1, standardOutput: "", standardError: "error")
+        let vm = makeViewModel(runner: runner)
+        await vm.load()
+
+        let openssl = BrewPackage(name: "openssl@3", kind: .formula, installedVersions: ["3.2.0"], isLeaf: false)
+        await vm.requestUninstall([openssl])
+        XCTAssertEqual(vm.pendingUninstall?.hasBlockingDependents, true)
+    }
+
+    func test_confirmUninstall_formulaFailureNotMaskedByCaskSuccess() async {
+        let runner = StubBrewRunner()
+        runner.streams["uninstall git"] = .init(lines: ["Error: git failed"], status: 1)
+        runner.streams["uninstall --cask blender"] = .init(lines: ["done"], status: 0)
+        let vm = makeViewModel(runner: runner)
+        await vm.load()
+
+        let git = BrewPackage(name: "git", kind: .formula, installedVersions: ["2.43.0"], isLeaf: true)
+        let blender = BrewPackage(name: "blender", kind: .cask, installedVersions: ["4.0"], isLeaf: true)
+        await vm.requestUninstall([git, blender])
+        await vm.confirmUninstall()
+
+        XCTAssertNotNil(vm.lastOperationError)               // formula failure recorded
+        XCTAssertFalse(vm.postUninstallSweepAvailable)        // sweep withheld on any failure
+    }
+
+    func test_streamingError_surfacesAndReturnsReady() async {
+        let runner = StubBrewRunner()
+        runner.captures["outdated --json=v2"] = BrewResult(terminationStatus: 0, standardOutput: outdatedJSON(), standardError: "")
+        runner.throwingStreams = ["upgrade"]  // process launch/I/O failure, not cancellation
+        let vm = makeViewModel(runner: runner)
+        await vm.load()
+        await vm.checkUpdates()
+
+        await vm.upgrade(.some(["wget"]))
+        XCTAssertNotNil(vm.lastOperationError)
+        XCTAssertEqual(vm.phase, .ready)
+    }
+
+    func test_load_failsOnNonZeroInventoryStatus() async {
+        let runner = StubBrewRunner()
+        // brew present but a query exits non-zero — treat as failure, not empty.
+        runner.captures["leaves --installed-on-request"] = BrewResult(terminationStatus: 1, standardOutput: "", standardError: "boom")
+        let vm = makeViewModel(runner: runner)
+        await vm.load()
+        if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
+    }
+
     func test_requestUninstall_withDependentsStagesConfirmation() async {
         let runner = StubBrewRunner()
         runner.captures["uses --installed openssl@3"] = BrewResult(terminationStatus: 0, standardOutput: "curl\nwget\n", standardError: "")

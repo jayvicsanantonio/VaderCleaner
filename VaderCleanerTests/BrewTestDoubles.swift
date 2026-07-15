@@ -31,6 +31,9 @@ final class StubBrewRunner: BrewRunning, @unchecked Sendable {
     /// First-argument keys whose `runStreaming` hangs (honoring cancellation),
     /// used to exercise the stall watchdog.
     var hangingStreams: Set<String> = []
+    /// First-argument (or joined) keys whose `runStreaming` throws a
+    /// non-cancellation error, simulating a process launch/I/O failure.
+    var throwingStreams: Set<String> = []
 
     private let lock = NSLock()
     private var _capturingCalls: [[String]] = []
@@ -53,6 +56,9 @@ final class StubBrewRunner: BrewRunning, @unchecked Sendable {
         lock.lock(); _streamingCalls.append(arguments); lock.unlock()
         let joined = arguments.joined(separator: " ")
         let first = arguments.first ?? ""
+        if throwingStreams.contains(first) || throwingStreams.contains(joined) {
+            throw StubError.failed
+        }
         if hangingStreams.contains(first) || hangingStreams.contains(joined) {
             // Sleep long enough that only cancellation ends it.
             try await Task.sleep(nanoseconds: 10_000_000_000)

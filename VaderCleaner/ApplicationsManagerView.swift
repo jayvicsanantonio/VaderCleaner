@@ -203,22 +203,34 @@ struct ApplicationsManagerView: View {
                     .accessibilityIdentifier("applications.manager.search")
             }
 
-            Menu {
-                ForEach(AppManagerSort.allCases) { option in
-                    Button(option.label) { sort = option }
+            // The Homebrew facets order by name and don't honor the app sort
+            // options (they have no size/last-opened), so hide the control there
+            // rather than leave it silently ineffective.
+            if !isHomebrewFacetActive {
+                Menu {
+                    ForEach(AppManagerSort.allCases) { option in
+                        Button(option.label) { sort = option }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
+                        Text(sort.label).foregroundStyle(.tint)
+                    }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                    Text(sort.label).foregroundStyle(.tint)
-                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityIdentifier("applications.manager.sort")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityIdentifier("applications.manager.sort")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+    }
+
+    /// `true` when the visible pane is showing its Homebrew facet, whose lists
+    /// are a separate data source that the app Sort options don't apply to.
+    private var isHomebrewFacetActive: Bool {
+        (pane == .uninstaller && uninstallerFacet == .homebrew)
+            || (pane == .updater && updaterFacet == .homebrew)
     }
 
     // MARK: - Left nav

@@ -149,16 +149,12 @@ enum BrewOutputParser {
         let scanner = Scanner(string: line)
         scanner.charactersToBeSkipped = CharacterSet.whitespaces
         while !scanner.isAtEnd {
-            let startIndex = scanner.currentIndex
             if let value = scanner.scanDouble() {
                 // A number was found — check whether a size unit immediately
-                // follows it (allowing no intervening space).
+                // follows it. A successful `scanDouble()` always advances the
+                // index, so the loop makes progress without a manual bump here.
                 for unit in byteUnits where scanner.scanString(unit.suffix) != nil {
                     return Int64((value * unit.multiplier).rounded())
-                }
-                // Number wasn't a size; keep scanning from just past it.
-                if scanner.currentIndex == startIndex {
-                    scanner.currentIndex = line.index(after: startIndex)
                 }
             } else {
                 scanner.currentIndex = line.index(after: scanner.currentIndex)

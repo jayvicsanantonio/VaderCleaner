@@ -133,18 +133,32 @@ final class HomebrewViewModel {
     }
 
     private static func loadInventory(runner: BrewRunning) async throws -> [BrewPackage] {
-        let leavesResult = try await runner.runCapturing(["leaves", "--installed-on-request"])
-        let leaves = BrewOutputParser.parseLeaves(leavesResult.standardOutput)
+        // These are independent read-only queries that don't lock the Homebrew
+        // DB, so run them concurrently to cut inventory load time.
+        async let leavesResult = runner.runCapturing(["leaves", "--installed-on-request"])
+        async let formulaeResult = runner.runCapturing(["list", "--formula", "--versions"])
+        async let casksResult = runner.runCapturing(["list", "--cask", "--versions"])
+        let (leavesR, formulaeR, casksR) = try await (leavesResult, formulaeResult, casksResult)
 
-        let formulaeResult = try await runner.runCapturing(["list", "--formula", "--versions"])
-        let formulae = BrewOutputParser.parseListVersions(formulaeResult.standardOutput, kind: .formula, leaves: leaves)
-
-        let casksResult = try await runner.runCapturing(["list", "--cask", "--versions"])
-        let casks = BrewOutputParser.parseListVersions(casksResult.standardOutput, kind: .cask)
+        let leaves = BrewOutputParser.parseLeaves(try successfulOutput(leavesR, command: "brew leaves"))
+        let formulae = BrewOutputParser.parseListVersions(
+            try successfulOutput(formulaeR, command: "brew list --formula"), kind: .formula, leaves: leaves)
+        let casks = BrewOutputParser.parseListVersions(
+            try successfulOutput(casksR, command: "brew list --cask"), kind: .cask)
 
         return (formulae + casks).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+    }
+
+    /// Returns a command's stdout, or throws when brew exited non-zero — so a
+    /// failed query is never parsed as valid (empty) output. Most importantly
+    /// this keeps a failed `brew uses` from being read as "no dependents".
+    private static func successfulOutput(_ result: BrewResult, command: String) throws -> String {
+        guard result.terminationStatus == 0 else {
+            throw BrewCommandError(command: command, status: result.terminationStatus, standardError: result.standardError)
+        }
+        return result.standardOutput
     }
 
     // MARK: - Update check
@@ -155,8 +169,16 @@ final class HomebrewViewModel {
     func checkUpdates() async {
         guard let runner, !isBusy else { return }
         phase = .checkingUpdates
-        // Best-effort: an offline `brew update` must not blank the dashboard.
-        _ = try? await runner.runCapturing(["update"])
+        lastOperationError = nil
+        // Best-effort: an offline `brew update` must not blank the dashboard,
+        // but its failure is surfaced (Req 4.5) rather than silently swallowed.
+        let updateResult = try? await runner.runCapturing(["update"])
+        if updateResult == nil || updateResult?.terminationStatus != 0 {
+            lastOperationError = String(
+                localized: "Couldn't refresh Homebrew — showing locally known outdated packages.",
+                comment: "Non-blocking warning when `brew update` fails during the update check."
+            )
+        }
         do {
             try await reloadOutdated(runner: runner)
             phase = .ready
@@ -178,7 +200,8 @@ final class HomebrewViewModel {
 
     private func reloadOutdated(runner: BrewRunning) async throws {
         let result = try await runner.runCapturing(["outdated", "--json=v2"])
-        let items = try BrewOutputParser.parseOutdatedJSON(Data(result.standardOutput.utf8))
+        let json = try Self.successfulOutput(result, command: "brew outdated")
+        let items = try BrewOutputParser.parseOutdatedJSON(Data(json.utf8))
         outdated = items.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
@@ -190,15 +213,19 @@ final class HomebrewViewModel {
     /// selection, then refreshes the outdated dashboard.
     func upgrade(_ selection: UpgradeSelection) async {
         guard runner != nil, !isBusy else { return }
+        // Pinned formulae are held back from upgrades whether the caller asked
+        // for all outdated or an explicit selection.
+        let pinnedNames = Set(outdated.filter(\.isPinned).map(\.name))
         let names: [String]
         switch selection {
         case .all:
             names = outdated.filter { !$0.isPinned }.map(\.name)
         case .some(let selected):
-            names = selected
+            names = selected.filter { !pinnedNames.contains($0) }
         }
         guard !names.isEmpty else { return }
 
+        lastOperationError = nil
         let status = await stream(.upgrade, arguments: ["upgrade"] + names)
         recordFailureIfNeeded(status, verb: "upgrade")
         if let runner { try? await reloadOutdated(runner: runner) }
@@ -212,17 +239,28 @@ final class HomebrewViewModel {
     /// contribute blocking dependents.
     func requestUninstall(_ packages: [BrewPackage]) async {
         guard let runner, !isBusy, !packages.isEmpty else { return }
+        // Reverse-dependency checks are independent read-only queries; run them
+        // concurrently so the confirmation sheet isn't gated on a serial loop.
         var dependents: [String: [String]] = [:]
-        for package in packages {
-            guard package.kind == .formula else {
-                dependents[package.name] = []
-                continue
+        await withTaskGroup(of: (String, [String]).self) { group in
+            for package in packages {
+                group.addTask {
+                    // Casks have no formula dependency graph.
+                    guard package.kind == .formula else { return (package.name, []) }
+                    // A failed `brew uses` must NOT read as "no dependents" — that
+                    // would green-light an unsafe removal. Treat it as an unknown
+                    // (blocking) dependent so the user is warned.
+                    guard let result = try? await runner.runCapturing(["uses", "--installed", package.name]),
+                          result.terminationStatus == 0 else {
+                        return (package.name, [String(
+                            localized: "unknown (dependency check failed)",
+                            comment: "Placeholder dependent shown when `brew uses` couldn't be run."
+                        )])
+                    }
+                    return (package.name, BrewOutputParser.parseUses(result.standardOutput))
+                }
             }
-            if let result = try? await runner.runCapturing(["uses", "--installed", package.name]) {
-                dependents[package.name] = BrewOutputParser.parseUses(result.standardOutput)
-            } else {
-                dependents[package.name] = []
-            }
+            for await (name, deps) in group { dependents[name] = deps }
         }
         pendingUninstall = UninstallConfirmation(targets: packages, dependents: dependents)
     }
@@ -237,21 +275,29 @@ final class HomebrewViewModel {
     func confirmUninstall() async {
         guard let confirmation = pendingUninstall, !isBusy else { return }
         pendingUninstall = nil
+        lastOperationError = nil
 
         let formulae = confirmation.targets.filter { $0.kind == .formula }.map(\.name)
         let casks = confirmation.targets.filter { $0.kind == .cask }.map(\.name)
 
-        var lastStatus: Int32?
+        // Record each step's result independently so a formula failure can't be
+        // masked by a later cask success (and vice versa).
+        var allSucceeded = true
         if !formulae.isEmpty {
-            lastStatus = await stream(.uninstall, arguments: ["uninstall"] + formulae)
+            let status = await stream(.uninstall, arguments: ["uninstall"] + formulae)
+            recordFailureIfNeeded(status, verb: "uninstall")
+            if status != 0 { allSucceeded = false }
         }
         if !casks.isEmpty, manualHandling == nil {
-            lastStatus = await stream(.uninstall, arguments: ["uninstall", "--cask"] + casks)
+            let status = await stream(.uninstall, arguments: ["uninstall", "--cask"] + casks)
+            recordFailureIfNeeded(status, verb: "uninstall")
+            if status != 0 { allSucceeded = false }
         }
-        recordFailureIfNeeded(lastStatus, verb: "uninstall")
 
         if let runner { inventory = (try? await Self.loadInventory(runner: runner)) ?? inventory }
-        postUninstallSweepAvailable = true
+        // Only offer the cleanup sweep when every requested removal succeeded and
+        // nothing was routed to Terminal or cancelled.
+        postUninstallSweepAvailable = allSucceeded && manualHandling == nil
         phase = .ready
     }
 
@@ -275,6 +321,7 @@ final class HomebrewViewModel {
     /// Removes stale versions and cached downloads.
     func runCleanup() async {
         guard runner != nil, !isBusy else { return }
+        lastOperationError = nil
         let status = await stream(.cleanup, arguments: ["cleanup"])
         recordFailureIfNeeded(status, verb: "cleanup")
         reclaimablePreview = nil
@@ -285,6 +332,7 @@ final class HomebrewViewModel {
     /// records which were removed.
     func runAutoremove() async {
         guard runner != nil, !isBusy else { return }
+        lastOperationError = nil
         let status = await stream(.autoremove, arguments: ["autoremove"])
         recordFailureIfNeeded(status, verb: "autoremove")
         autoremovedNames = BrewOutputParser.parseAutoremove(liveLog.joined(separator: "\n"))
@@ -312,8 +360,10 @@ final class HomebrewViewModel {
     /// cancellation. Returns the termination status, or `nil` when cancelled.
     private func stream(_ operation: Operation, arguments: [String]) async -> Int32? {
         guard let runner else { return nil }
+        // Note: `lastOperationError` is intentionally NOT reset here — a caller
+        // that chains two streams (formula then cask uninstall) must not have the
+        // first step's failure wiped by the second. Callers reset it once up front.
         liveLog = []
-        lastOperationError = nil
         manualHandling = nil
         autoremovedNames = nil
         phase = .running(operation)
@@ -330,8 +380,13 @@ final class HomebrewViewModel {
         let status: Int32?
         do {
             status = try await streamTask.value
-        } catch {
+        } catch is CancellationError {
+            // Genuine cancellation — return to a stable state with no error.
             status = nil
+        } catch {
+            // A launch / I/O / runner failure, not a cancellation: surface it.
+            status = nil
+            lastOperationError = Self.message(for: error)
         }
         monitor.cancel()
         activeStreamTask = nil
@@ -386,7 +441,24 @@ final class HomebrewViewModel {
     }
 
     private static func message(for error: Error) -> String {
-        "Homebrew command failed: \(error.localizedDescription)"
+        if let brewError = error as? BrewCommandError {
+            return brewError.userFacingMessage
+        }
+        return "Homebrew command failed: \(error.localizedDescription)"
+    }
+}
+
+/// A brew command that exited non-zero. Carries the captured stderr so the
+/// failure can be surfaced instead of being parsed as valid (empty) output.
+struct BrewCommandError: Error {
+    let command: String
+    let status: Int32
+    let standardError: String
+
+    var userFacingMessage: String {
+        let detail = standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = "\(command) failed (status \(status))"
+        return detail.isEmpty ? base : "\(base): \(detail)"
     }
 }
 

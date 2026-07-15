@@ -20,6 +20,8 @@ struct HomebrewUninstallContent: View {
             )
             if case .notInstalled = viewModel.phase {
                 HomebrewChrome.notInstalled
+            } else if isInitiallyLoading {
+                HomebrewChrome.loading
             } else {
                 reclaimActions
                 HomebrewChrome.banner(viewModel)
@@ -33,6 +35,17 @@ struct HomebrewUninstallContent: View {
                 onCancel: viewModel.cancelUninstallRequest,
                 onConfirm: { Task { await viewModel.confirmUninstall() } }
             )
+        }
+    }
+
+    /// True while the initial inventory load is still in flight (it runs
+    /// concurrently with the Applications scan), so the facet shows progress
+    /// rather than a misleading "no packages" empty state.
+    private var isInitiallyLoading: Bool {
+        guard viewModel.inventory.isEmpty else { return false }
+        switch viewModel.phase {
+        case .idle, .loading: return true
+        default:              return false
         }
     }
 
@@ -152,9 +165,18 @@ struct HomebrewOutdatedContent: View {
         .overlay(alignment: .bottom) { HomebrewChrome.progressOverlay(viewModel) }
     }
 
+    /// True while the inventory or update check is still running, so the facet
+    /// shows progress rather than a premature "up to date" empty state.
+    private var isLoadingUpdates: Bool {
+        switch viewModel.phase {
+        case .idle, .loading, .checkingUpdates: return true
+        default:                                return false
+        }
+    }
+
     @ViewBuilder
     private var list: some View {
-        if case .checkingUpdates = viewModel.phase {
+        if isLoadingUpdates {
             HomebrewChrome.centered { ProgressView(String(localized: "Checking for updates…", comment: "Homebrew update-check progress.")) }
         } else {
             let items = filtered
@@ -180,10 +202,10 @@ struct HomebrewOutdatedContent: View {
     private func row(_ item: BrewOutdatedItem) -> some View {
         HStack(spacing: 12) {
             ApplicationsManagerCheckbox(selected: selection.contains(item.id)) {
-                guard !item.isPinned else { return }
                 if selection.contains(item.id) { selection.remove(item.id) }
                 else { selection.insert(item.id) }
             }
+            .disabled(item.isPinned)
             .opacity(item.isPinned ? 0.35 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
@@ -214,6 +236,10 @@ struct HomebrewOutdatedContent: View {
 /// because several read the `@MainActor`-isolated view model.
 @MainActor
 enum HomebrewChrome {
+
+    static var loading: some View {
+        centered { ProgressView(String(localized: "Loading Homebrew packages…", comment: "Homebrew initial-load progress.")) }
+    }
 
     static func kindLabel(_ kind: BrewPackageKind) -> some View {
         Text(kind == .cask

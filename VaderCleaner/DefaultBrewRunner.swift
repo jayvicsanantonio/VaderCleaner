@@ -76,7 +76,10 @@ struct DefaultBrewRunner: BrewRunning {
 
     private static func readToEnd(_ handle: FileHandle) async -> Data {
         await Task.detached(priority: .userInitiated) {
-            handle.readDataToEndOfFile()
+            // `readToEnd()` throws a catchable Swift error on I/O failure; the
+            // older `readDataToEndOfFile()` raises an uncatchable NSException
+            // that would crash the app if the pipe disconnects unexpectedly.
+            (try? handle.readToEnd()) ?? Data()
         }.value
     }
 }
