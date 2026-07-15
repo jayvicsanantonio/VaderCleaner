@@ -691,6 +691,69 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .preview(ScanResult(items: [])))
     }
 
+    // MARK: - Manager store
+
+    /// A successful scan points the view-model's manager store at the fresh
+    /// result, so the Cleanup Manager's panes are warm before the view asks.
+    func test_scan_loadsManagerStore() async {
+        let cache = makeFile(name: "a", size: 300, category: .userCache)
+        let result = makeResult((.userCache, [cache]))
+        let vm = makeViewModel(scanner: { result })
+
+        await vm.scan()
+
+        XCTAssertFalse(vm.managerStore.items(forCategoryID: "userCache").isEmpty,
+                       "scan() must load the manager store with the new result")
+    }
+
+    /// A seeded result (from Smart Scan) warms the manager store the same way
+    /// a direct scan does.
+    func test_seed_loadsManagerStore() async {
+        let cache = makeFile(name: "a", size: 300, category: .userCache)
+        let vm = makeViewModel()
+
+        await vm.seed(with: makeResult((.userCache, [cache])))
+
+        XCTAssertFalse(vm.managerStore.items(forCategoryID: "userCache").isEmpty,
+                       "seed(with:) must load the manager store with the seeded result")
+    }
+
+    /// "Scan Again" drops the manager store's content along with the cached
+    /// result, so a multi-gigabyte index never outlives the preview it served.
+    func test_scanAgain_unloadsManagerStore() async {
+        let cache = makeFile(name: "a", size: 300, category: .userCache)
+        let vm = makeViewModel()
+        await vm.seed(with: makeResult((.userCache, [cache])))
+
+        vm.scanAgain()
+
+        XCTAssertTrue(vm.managerStore.items(forCategoryID: "userCache").isEmpty,
+                      "scanAgain() must unload the manager store")
+    }
+
+    /// A failed scan clears the manager store alongside the rest of the
+    /// result state, so the manager can never serve a preview that no longer
+    /// exists.
+    func test_scanFailure_unloadsManagerStore() async {
+        let cache = makeFile(name: "a", size: 300, category: .userCache)
+        let result = makeResult((.userCache, [cache]))
+        let calls = ActorBox(0)
+        let vm = makeViewModel(scanner: {
+            let count = await calls.value
+            await calls.set(count + 1)
+            if count == 0 { return result }
+            throw NSError(domain: "test", code: 1)
+        })
+
+        await vm.scan()
+        XCTAssertFalse(vm.managerStore.items(forCategoryID: "userCache").isEmpty)
+
+        await vm.scan()
+
+        XCTAssertTrue(vm.managerStore.items(forCategoryID: "userCache").isEmpty,
+                      "a failed scan must unload the manager store")
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(

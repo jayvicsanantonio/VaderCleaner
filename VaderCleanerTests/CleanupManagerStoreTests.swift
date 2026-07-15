@@ -94,6 +94,25 @@ final class CleanupManagerStoreTests: XCTestCase {
         XCTAssertEqual(resolved, target)
     }
 
+    /// `unload()` drops everything the store serves: category trees come back
+    /// empty and the path index no longer resolves files — even if the
+    /// superseded load's background warm lands after the unload.
+    func test_unload_dropsServedContent() async {
+        let store = CleanupManagerStore()
+        let target = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        store.load(result: ScanResult(items: [target]))
+        XCTAssertFalse(store.items(forCategoryID: "userCache").isEmpty)
+
+        store.unload()
+
+        XCTAssertTrue(store.items(forCategoryID: "userCache").isEmpty)
+        // The unload bumps the load token, so the earlier load's background
+        // warm must be dropped rather than repopulating the path index; give
+        // it a beat to land before asserting.
+        try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
+        XCTAssertNil(store.file(forPath: target.url.path))
+    }
+
     private func file(_ path: String, _ size: Int64, _ category: ScanCategory) -> ScannedFile {
         ScannedFile(url: URL(fileURLWithPath: path), size: size, lastAccessDate: nil, lastModifiedDate: nil, category: category)
     }

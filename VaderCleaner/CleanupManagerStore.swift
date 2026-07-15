@@ -42,25 +42,61 @@ final class CleanupManagerStore: @unchecked Sendable {
     /// Bumped on every `load` so a stale background prebuild stops early.
     private var token = 0
 
-    /// Point the store at a new scan result: reset the caches and warm the
-    /// path index and section shell on a background task, so selection works
-    /// and the panes paint the moment Review opens. Category folder trees are
-    /// left to build lazily on first open.
-    func load(result: ScanResult) {
-        lock.lock()
-        itemsByCategory = result.itemsByCategory
-        sizeByCategory = result.sizeByCategory
+    /// The big containers a `load`/`unload` swaps out, bundled so the caller
+    /// can carry them into a background task: on a large scan they hold
+    /// millions of entries, and deallocating them on the main thread stalls
+    /// whatever UI update triggered the swap.
+    private struct SupersededContent: Sendable {
+        let itemsByCategory: [ScanCategory: [ScannedFile]]
+        let itemsCache: [String: [ManagerItem]]
+        let filesByPath: [String: ScannedFile]
+        let pathsByRowID: [String: [String]]
+        let childRowIDsByRowID: [String: [String]]
+    }
+
+    /// Swap in new inputs and empty caches, bump the token so in-flight
+    /// background warms stop, and return the superseded containers for the
+    /// caller to release off the main thread. Call under `lock`.
+    private func replaceContent(
+        itemsByCategory newItems: [ScanCategory: [ScannedFile]],
+        sizeByCategory newSizes: [ScanCategory: Int64]
+    ) -> SupersededContent {
+        let superseded = SupersededContent(
+            itemsByCategory: itemsByCategory,
+            itemsCache: itemsCache,
+            filesByPath: filesByPath,
+            pathsByRowID: pathsByRowID,
+            childRowIDsByRowID: childRowIDsByRowID
+        )
+        itemsByCategory = newItems
+        sizeByCategory = newSizes
         shellCache = nil
         itemsCache = [:]
         filesByPath = [:]
         pathsByRowID = [:]
         childRowIDsByRowID = [:]
         token += 1
+        return superseded
+    }
+
+    /// Point the store at a new scan result: reset the caches and warm the
+    /// path index and section shell on a background task, so selection works
+    /// and the panes paint the moment Review opens. Category folder trees are
+    /// left to build lazily on first open.
+    func load(result: ScanResult) {
+        lock.lock()
+        let superseded = replaceContent(
+            itemsByCategory: result.itemsByCategory,
+            sizeByCategory: result.sizeByCategory
+        )
         let myToken = token
         let allItems = result.items
         lock.unlock()
 
         Task.detached(priority: .utility) { [weak self] in
+            // The previous scan's containers die here, on this background
+            // task, rather than on the (main) thread that called `load`.
+            withExtendedLifetime(superseded) {}
             guard let self else { return }
             // The path index first, so selection works as soon as rows appear.
             let map = Dictionary(allItems.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
@@ -75,6 +111,21 @@ final class CleanupManagerStore: @unchecked Sendable {
             // memory of a large scan.
             guard self.isCurrent(myToken) else { return }
             _ = self.sections()
+        }
+    }
+
+    /// Drop everything the store serves — inputs, caches, and the path
+    /// index — releasing the superseded containers on a background task so a
+    /// large scan's index never deallocates on the main thread. The token
+    /// bump makes any in-flight background warm from an earlier `load` land
+    /// as a no-op instead of repopulating the store.
+    func unload() {
+        lock.lock()
+        let superseded = replaceContent(itemsByCategory: [:], sizeByCategory: [:])
+        lock.unlock()
+
+        Task.detached(priority: .utility) {
+            withExtendedLifetime(superseded) {}
         }
     }
 
