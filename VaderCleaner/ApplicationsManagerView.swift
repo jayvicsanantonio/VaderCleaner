@@ -14,6 +14,7 @@ struct ApplicationsManagerView: View {
     private var uninstallerViewModel: AppUninstallerViewModel
     private var updaterViewModel: AppUpdaterViewModel
     private var extensionsManagerViewModel: ExtensionsManagerViewModel
+    private var homebrewViewModel: HomebrewViewModel
     private let result: ApplicationsScanResult
     private var iconCache: AppIconCache
     private let onBack: () -> Void
@@ -58,6 +59,11 @@ struct ApplicationsManagerView: View {
     @State private var updateSelection: Set<UpdateInfo.ID> = []
     @State private var extensionSelection: Set<ExtensionItem.ID> = []
 
+    /// Batch selections for the Homebrew facet in each pane, owned here so the
+    /// shared footer's Uninstall / Upgrade actions can read them.
+    @State private var homebrewUninstallSelection: Set<BrewPackage.ID> = []
+    @State private var homebrewUpdateSelection: Set<BrewOutdatedItem.ID> = []
+
     /// App whose associated-files detail is open (chevron drill-in); `nil` shows
     /// the list.
     @State private var inspectingAppID: AppInfo.ID?
@@ -81,6 +87,7 @@ struct ApplicationsManagerView: View {
         uninstallerViewModel: AppUninstallerViewModel,
         updaterViewModel: AppUpdaterViewModel,
         extensionsManagerViewModel: ExtensionsManagerViewModel,
+        homebrewViewModel: HomebrewViewModel,
         result: ApplicationsScanResult,
         iconCache: AppIconCache,
         destination: Destination = .uninstaller,
@@ -90,6 +97,7 @@ struct ApplicationsManagerView: View {
         self.uninstallerViewModel = uninstallerViewModel
         self.updaterViewModel = updaterViewModel
         self.extensionsManagerViewModel = extensionsManagerViewModel
+        self.homebrewViewModel = homebrewViewModel
         self.result = result
         self.iconCache = iconCache
         self.onBack = onBack
@@ -195,22 +203,34 @@ struct ApplicationsManagerView: View {
                     .accessibilityIdentifier("applications.manager.search")
             }
 
-            Menu {
-                ForEach(AppManagerSort.allCases) { option in
-                    Button(option.label) { sort = option }
+            // The Homebrew facets order by name and don't honor the app sort
+            // options (they have no size/last-opened), so hide the control there
+            // rather than leave it silently ineffective.
+            if !isHomebrewFacetActive {
+                Menu {
+                    ForEach(AppManagerSort.allCases) { option in
+                        Button(option.label) { sort = option }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
+                        Text(sort.label).foregroundStyle(.tint)
+                    }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                    Text(sort.label).foregroundStyle(.tint)
-                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityIdentifier("applications.manager.sort")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityIdentifier("applications.manager.sort")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+    }
+
+    /// `true` when the visible pane is showing its Homebrew facet, whose lists
+    /// are a separate data source that the app Sort options don't apply to.
+    private var isHomebrewFacetActive: Bool {
+        (pane == .uninstaller && uninstallerFacet == .homebrew)
+            || (pane == .updater && updaterFacet == .homebrew)
     }
 
     // MARK: - Left nav
@@ -250,22 +270,26 @@ struct ApplicationsManagerView: View {
         case .uninstaller:
             UninstallerPaneView(
                 uninstallerViewModel: uninstallerViewModel,
+                homebrewViewModel: homebrewViewModel,
                 result: result,
                 iconCache: iconCache,
                 search: search,
                 sort: sort,
                 facet: $uninstallerFacet,
                 inspectingAppID: $inspectingAppID,
-                displayedApps: $displayedApps
+                displayedApps: $displayedApps,
+                homebrewSelection: $homebrewUninstallSelection
             )
         case .updater:
             UpdaterPaneView(
                 updaterViewModel: updaterViewModel,
+                homebrewViewModel: homebrewViewModel,
                 iconCache: iconCache,
                 search: search,
                 facet: $updaterFacet,
                 selection: $updateSelection,
-                displayed: $displayedUpdates
+                displayed: $displayedUpdates,
+                homebrewSelection: $homebrewUpdateSelection
             )
         case .extensions:
             ExtensionsPaneView(
@@ -296,6 +320,15 @@ struct ApplicationsManagerView: View {
     @ViewBuilder
     private var footer: some View {
         switch pane {
+        case .uninstaller where uninstallerFacet == .homebrew:
+            // The Homebrew facet removes brew packages via `brew uninstall`
+            // (with a dependency check), not the Trash recycler.
+            actionFooter(
+                summary: homebrewUninstallSummary,
+                actionLabel: String(localized: "Uninstall", comment: "Footer action removing the selected Homebrew packages."),
+                enabled: !selectedHomebrewPackages.isEmpty && !homebrewViewModel.isBusy,
+                identifier: "applications.manager.homebrew.uninstall"
+            ) { Task { await homebrewViewModel.requestUninstall(selectedHomebrewPackages) } }
         case .uninstaller:
             actionFooter(
                 summary: uninstallSummary,
@@ -303,6 +336,14 @@ struct ApplicationsManagerView: View {
                 enabled: uninstallerViewModel.canUninstallSelection,
                 identifier: "applications.manager.uninstall"
             ) { showUninstallConfirmation = true }
+        case .updater where updaterFacet == .homebrew:
+            // The Homebrew facet upgrades brew packages via `brew upgrade`.
+            actionFooter(
+                summary: homebrewUpgradeSummary,
+                actionLabel: String(localized: "Update", comment: "Footer action upgrading the selected Homebrew packages."),
+                enabled: !selectedHomebrewUpgradeNames.isEmpty && !homebrewViewModel.isBusy,
+                identifier: "applications.manager.homebrew.upgrade"
+            ) { Task { await homebrewViewModel.upgrade(.some(selectedHomebrewUpgradeNames)) } }
         case .updater:
             actionFooter(
                 summary: updaterSummary,
@@ -332,6 +373,40 @@ struct ApplicationsManagerView: View {
                 identifier: "applications.manager.unsupported.remove"
             ) { Task { await viewModel.deleteSelectedUnsupportedApps() } }
         }
+    }
+
+    /// The selected brew packages to uninstall, resolved from the inventory.
+    private var selectedHomebrewPackages: [BrewPackage] {
+        homebrewViewModel.inventory.filter { homebrewUninstallSelection.contains($0.id) }
+    }
+
+    /// The selected outdated brew package names to upgrade, excluding pinned.
+    private var selectedHomebrewUpgradeNames: [String] {
+        homebrewViewModel.outdated
+            .filter { homebrewUpdateSelection.contains($0.id) && !$0.isPinned }
+            .map(\.name)
+    }
+
+    private var homebrewUninstallSummary: String {
+        let count = selectedHomebrewPackages.count
+        guard count > 0 else {
+            return String(localized: "No Packages Selected", comment: "Homebrew uninstaller footer, nothing selected.")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "%lld Packages Selected", comment: "Homebrew uninstaller footer selected count."),
+            Int64(count)
+        )
+    }
+
+    private var homebrewUpgradeSummary: String {
+        let count = selectedHomebrewUpgradeNames.count
+        guard count > 0 else {
+            return String(localized: "No Packages Selected", comment: "Homebrew updater footer, nothing selected.")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "%lld Packages Selected", comment: "Homebrew updater footer selected count."),
+            Int64(count)
+        )
     }
 
     /// Opens the update URL for every selected update.
@@ -491,6 +566,7 @@ struct ApplicationsManagerView: View {
 /// parent, this pane just reads the resulting caches.
 private struct UninstallerPaneView: View {
     let uninstallerViewModel: AppUninstallerViewModel
+    let homebrewViewModel: HomebrewViewModel
     let result: ApplicationsScanResult
     let iconCache: AppIconCache
     let search: String
@@ -498,6 +574,7 @@ private struct UninstallerPaneView: View {
     @Binding var facet: AppManagerFacet
     @Binding var inspectingAppID: AppInfo.ID?
     @Binding var displayedApps: [AppInfo]
+    @Binding var homebrewSelection: Set<BrewPackage.ID>
 
     /// Confirmation for the single app open in the chevron detail.
     @State private var showSingleUninstallConfirmation = false
@@ -543,6 +620,8 @@ private struct UninstallerPaneView: View {
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Uninstaller facet group header."))
             facetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Uninstaller store facet."), stores.appStore)
             facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Uninstaller store facet."), stores.other)
+            facetRow(.homebrew, String(localized: "Homebrew", comment: "Uninstaller store facet."), homebrewViewModel.inventory.count)
+                .accessibilityIdentifier("applications.manager.uninstaller.facet.homebrew")
 
             if !vendors.isEmpty {
                 ApplicationsManagerFacetSectionHeader(title: String(localized: "Vendors", comment: "Uninstaller facet group header."))
@@ -580,6 +659,7 @@ private struct UninstallerPaneView: View {
         case .store(true):      return String(localized: "App Store", comment: "Uninstaller right pane title.")
         case .store(false):     return String(localized: "Other", comment: "Uninstaller right pane title.")
         case .vendor(let v):    return v.title
+        case .homebrew:         return String(localized: "Homebrew", comment: "Uninstaller right pane title.")
         }
     }
 
@@ -592,6 +672,7 @@ private struct UninstallerPaneView: View {
         case .store(true):      return String(localized: "Apps installed from the Mac App Store.", comment: "Uninstaller right pane description.")
         case .store(false):     return String(localized: "Apps installed outside the Mac App Store.", comment: "Uninstaller right pane description.")
         case .vendor(let v):    return String(localized: "Apps from \(v.title).", comment: "Uninstaller right pane description for a vendor.")
+        case .homebrew:         return String(localized: "Packages installed through Homebrew.", comment: "Uninstaller right pane description.")
         }
     }
 
@@ -599,7 +680,13 @@ private struct UninstallerPaneView: View {
 
     @ViewBuilder
     private var rightColumn: some View {
-        if let id = inspectingAppID {
+        if facet == .homebrew {
+            HomebrewUninstallContent(
+                viewModel: homebrewViewModel,
+                search: search,
+                selection: $homebrewSelection
+            )
+        } else if let id = inspectingAppID {
             appDetail(id)
         } else if uninstallerViewModel.apps.isEmpty, uninstallerViewModel.phase == .loading {
             ApplicationsManagerLoadingPane()
@@ -1091,6 +1178,9 @@ private enum UpdaterFacet: Hashable {
     case all
     case selected
     case store(isAppStore: Bool)
+    /// Outdated Homebrew packages — a parallel list under the Stores group,
+    /// upgraded through `brew upgrade` rather than opening an update URL.
+    case homebrew
 }
 
 /// The Updater pane — the facet column plus the available-updates list.
@@ -1099,11 +1189,13 @@ private enum UpdaterFacet: Hashable {
 /// and passed in as bindings.
 private struct UpdaterPaneView: View {
     let updaterViewModel: AppUpdaterViewModel
+    let homebrewViewModel: HomebrewViewModel
     let iconCache: AppIconCache
     let search: String
     @Binding var facet: UpdaterFacet
     @Binding var selection: Set<UpdateInfo.ID>
     @Binding var displayed: [UpdateInfo]
+    @Binding var homebrewSelection: Set<BrewOutdatedItem.ID>
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1135,6 +1227,8 @@ private struct UpdaterPaneView: View {
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Updater facet group header."))
             facetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Updater store facet."), appStore)
             facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Updater store facet."), updates.count - appStore)
+            facetRow(.homebrew, String(localized: "Homebrew", comment: "Updater store facet."), homebrewViewModel.availableUpdateCount)
+                .accessibilityIdentifier("applications.manager.updater.facet.homebrew")
         }
     }
 
@@ -1156,6 +1250,7 @@ private struct UpdaterPaneView: View {
         case .selected:         return String(localized: "Selected", comment: "Updater right pane title.")
         case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
         case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
+        case .homebrew:         return String(localized: "Homebrew", comment: "Updater right pane title.")
         }
     }
 
@@ -1165,15 +1260,25 @@ private struct UpdaterPaneView: View {
         case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
         case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
         case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
+        case .homebrew:         return String(localized: "Homebrew packages with a newer version.", comment: "Updater right pane description.")
         }
     }
 
     // MARK: Right (list)
 
+    @ViewBuilder
     private var rightColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
-            list
+        if facet == .homebrew {
+            HomebrewOutdatedContent(
+                viewModel: homebrewViewModel,
+                search: search,
+                selection: $homebrewSelection
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+                list
+            }
         }
     }
 
@@ -1184,6 +1289,8 @@ private struct UpdaterPaneView: View {
             case .all:                    matchesFacet = true
             case .selected:               matchesFacet = selection.contains(info.id)
             case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
+            // Homebrew is a separate list, not an app-update filter.
+            case .homebrew:               matchesFacet = false
             }
             guard matchesFacet else { return false }
             let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)

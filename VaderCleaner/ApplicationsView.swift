@@ -22,6 +22,9 @@ struct ApplicationsView: View {
     /// app's real icon instead of a generic glyph. Pre-loaded off the main
     /// thread by the review screens when they appear.
     @State private var iconCache = AppIconCache()
+    /// The Homebrew Manager's state, owned here so it survives the dashboard ↔
+    /// manager swap. Inert until its screen loads it.
+    @State private var homebrewViewModel = HomebrewViewModel.live()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Which screen the results surface is showing — the dashboard grid, or one
@@ -66,6 +69,42 @@ struct ApplicationsView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(NavigationSection.applications.title)
+            // Fold the Homebrew load into the Applications scan: kick it off the
+            // moment a scan starts (so it runs alongside the app scan) and when
+            // results land, so the Uninstaller's and Updater's Homebrew facets
+            // are already populated by the time the manager opens. Non-blocking —
+            // it never delays the app scan's own results — and idempotent, so the
+            // brew commands run only once per session.
+            .onChange(of: scanPhaseCase) { _, phase in
+                if phase == .scanning || phase == .results {
+                    Task { await preloadHomebrew() }
+                }
+            }
+            .task {
+                if scanPhaseCase == .scanning || scanPhaseCase == .results {
+                    await preloadHomebrew()
+                }
+            }
+    }
+
+    /// Coarse marker of the scan phase, so `onChange` fires on scan start and
+    /// completion without depending on `ApplicationsScanResult` being Equatable.
+    private enum ScanPhaseCase: Equatable { case idle, scanning, results, failed }
+
+    private var scanPhaseCase: ScanPhaseCase {
+        switch viewModel.phase {
+        case .idle:     return .idle
+        case .scanning: return .scanning
+        case .results:  return .results
+        case .failed:   return .failed
+        }
+    }
+
+    /// Loads the Homebrew inventory and outdated list. Guarded internally so it
+    /// runs the brew commands at most once per session.
+    private func preloadHomebrew() async {
+        await homebrewViewModel.loadIfNeeded()
+        await homebrewViewModel.checkUpdatesIfNeeded()
     }
 
     @ViewBuilder
@@ -138,6 +177,7 @@ struct ApplicationsView: View {
                     uninstallerViewModel: uninstallerViewModel,
                     updaterViewModel: updaterViewModel,
                     extensionsManagerViewModel: extensionsManagerViewModel,
+                    homebrewViewModel: homebrewViewModel,
                     result: result,
                     iconCache: iconCache,
                     destination: destination,
