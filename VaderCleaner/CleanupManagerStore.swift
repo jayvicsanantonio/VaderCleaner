@@ -47,7 +47,12 @@ final class CleanupManagerStore: @unchecked Sendable {
     /// and the panes paint the moment Review opens. Category folder trees are
     /// left to build lazily on first open.
     func load(result: ScanResult) {
+        // On a large scan the superseded containers hold millions of strings
+        // and files; swap them out under the lock but let their final release
+        // happen on the background task below — freeing them on the calling
+        // (main) thread stalled the UI for hundreds of milliseconds.
         lock.lock()
+        let superseded = (itemsByCategory, itemsCache, filesByPath, pathsByRowID, childRowIDsByRowID)
         itemsByCategory = result.itemsByCategory
         sizeByCategory = result.sizeByCategory
         shellCache = nil
@@ -61,6 +66,9 @@ final class CleanupManagerStore: @unchecked Sendable {
         lock.unlock()
 
         Task.detached(priority: .utility) { [weak self] in
+            // The superseded containers ride into this task so they deallocate
+            // here, off the main thread, once the capture goes away.
+            _ = superseded
             guard let self else { return }
             // The path index first, so selection works as soon as rows appear.
             let map = Dictionary(allItems.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
@@ -75,6 +83,28 @@ final class CleanupManagerStore: @unchecked Sendable {
             // memory of a large scan.
             guard self.isCurrent(myToken) else { return }
             _ = self.sections()
+        }
+    }
+
+    /// Drop the previous scan's data entirely: the shell, the trees, and the
+    /// lookups all return to their empty state, so a reset session doesn't
+    /// keep a large scan's index alive. Like `load`, the superseded containers
+    /// are released on a background task rather than the caller's thread.
+    func unload() {
+        lock.lock()
+        let superseded = (itemsByCategory, itemsCache, filesByPath, pathsByRowID, childRowIDsByRowID)
+        itemsByCategory = [:]
+        sizeByCategory = [:]
+        shellCache = nil
+        itemsCache = [:]
+        filesByPath = [:]
+        pathsByRowID = [:]
+        childRowIDsByRowID = [:]
+        token += 1
+        lock.unlock()
+
+        Task.detached(priority: .utility) {
+            _ = superseded
         }
     }
 

@@ -693,6 +693,50 @@ final class SystemJunkViewModelTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // MARK: - Cleanup Manager store ownership
+
+    /// A completed scan warms the view-model-owned Cleanup Manager store so
+    /// opening Review serves the fresh results without a per-open rebuild —
+    /// and without the view owning (and tearing down on every section switch)
+    /// the potentially huge cache.
+    func test_scan_warmsManagerStore() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        let vm = makeViewModel(scanner: { ScanResult(items: [junkFile]) })
+
+        await vm.scan()
+
+        XCTAssertFalse(
+            vm.managerStore.items(forCategoryID: ScanCategory.userCache.rawValue).isEmpty,
+            "The store must serve the completed scan's junk files"
+        )
+    }
+
+    /// The Smart Scan seed path warms the store the same way a direct scan
+    /// does — the section's Review must work without this view ever scanning.
+    func test_seed_warmsManagerStore() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        let vm = makeViewModel()
+
+        await vm.seed(with: ScanResult(items: [junkFile]))
+
+        XCTAssertFalse(
+            vm.managerStore.items(forCategoryID: ScanCategory.userCache.rawValue).isEmpty,
+            "Seeding must warm the store like a scan does"
+        )
+    }
+
+    /// Start Over releases the store's data alongside the rest of the scan
+    /// state, so a reset session doesn't keep a large scan's index alive.
+    func test_scanAgain_unloadsManagerStore() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        let vm = makeViewModel(scanner: { ScanResult(items: [junkFile]) })
+        await vm.scan()
+
+        vm.scanAgain()
+
+        XCTAssertTrue(vm.managerStore.items(forCategoryID: ScanCategory.userCache.rawValue).isEmpty)
+    }
+
     private func makeViewModel(
         scanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         deleter: @escaping ([ScannedFile]) async throws -> Int64 = { _ in 0 }

@@ -1870,6 +1870,36 @@ final class SmartScanViewModelTests: XCTestCase {
 
     // MARK: - Factory helpers
 
+    // MARK: - Cleanup Manager store ownership
+
+    /// A completed scan warms the view-model-owned Cleanup Manager store so
+    /// the junk Review's panes serve the fresh results without a per-open
+    /// rebuild — and without the view owning (and tearing down on every
+    /// section switch) the potentially huge cache.
+    func test_scan_warmsJunkManagerStore() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        let vm = makeViewModel(junkScanner: { ScanResult(items: [junkFile]) })
+
+        await vm.scan()
+
+        XCTAssertFalse(
+            vm.junkManagerStore.items(forCategoryID: ScanCategory.userCache.rawValue).isEmpty,
+            "The store must serve the completed scan's junk files"
+        )
+    }
+
+    /// Start Over releases the store's data alongside the rest of the scan
+    /// state, so a reset session doesn't keep a large scan's index alive.
+    func test_reset_unloadsJunkManagerStore() async {
+        let junkFile = makeFile(name: "a", size: 100, category: .userCache)
+        let vm = makeViewModel(junkScanner: { ScanResult(items: [junkFile]) })
+        await vm.scan()
+
+        vm.reset()
+
+        XCTAssertTrue(vm.junkManagerStore.items(forCategoryID: ScanCategory.userCache.rawValue).isEmpty)
+    }
+
     private func makeViewModel(
         junkScanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
         malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },

@@ -146,6 +146,10 @@ struct ContentView: View {
         // the per-browser privacy preview; and a full-volume disk map). Rather
         // than show partial data, kick off each section's own scan now so it
         // finishes in the background and is ready by the time the user opens it.
+        // The follow-up scans run one at a time (see `SeededSectionScans`):
+        // launching all four at once pegged every core and flooded the main
+        // actor with progress updates right as the user starts reviewing
+        // results, which janked every section switch in that window.
         //
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
@@ -160,10 +164,18 @@ struct ContentView: View {
                 clamAVAvailable: result.clamAVAvailable,
                 scannedAt: Date()
             )
-            if case .idle = myClutterViewModel.phase { myClutterViewModel.beginScan() }
-            if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
-            if case .idle = performanceViewModel.phase { performanceViewModel.beginScan() }
-            if case .idle = spaceLensViewModel.phase { spaceLensViewModel.beginScan() }
+            // Quick, light sections first so they're ready soonest; the
+            // full-volume Space Lens map — minutes of CPU and gigabytes of
+            // transient memory — goes last. The chain skips any section that
+            // is no longer idle.
+            Task {
+                await SeededSectionScans.run([
+                    performanceViewModel,
+                    applicationsViewModel,
+                    myClutterViewModel,
+                    spaceLensViewModel,
+                ])
+            }
         }
     }
 

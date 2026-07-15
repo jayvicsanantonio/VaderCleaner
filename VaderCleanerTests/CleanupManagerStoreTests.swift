@@ -94,6 +94,22 @@ final class CleanupManagerStoreTests: XCTestCase {
         XCTAssertEqual(resolved, target)
     }
 
+    /// `unload()` returns the store to its empty state: the shell, the
+    /// per-category trees, and the path lookups all stop serving the previous
+    /// scan's data, so a reset session doesn't retain a large scan's index.
+    func test_unload_dropsInputsAndCaches() {
+        let store = CleanupManagerStore()
+        let target = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        store.load(result: ScanResult(items: [target]))
+        _ = store.items(forCategoryID: "userCache")
+
+        store.unload()
+
+        XCTAssertTrue(store.items(forCategoryID: "userCache").isEmpty)
+        XCTAssertNil(store.file(forPath: target.url.path))
+        XCTAssertTrue(store.sections().allSatisfy { $0.categories.isEmpty })
+    }
+
     private func file(_ path: String, _ size: Int64, _ category: ScanCategory) -> ScannedFile {
         ScannedFile(url: URL(fileURLWithPath: path), size: size, lastAccessDate: nil, lastModifiedDate: nil, category: category)
     }

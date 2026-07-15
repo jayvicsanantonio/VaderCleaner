@@ -4,6 +4,18 @@
 import SwiftUI
 import AppKit
 
+/// Reference-type holder for a tracked frame. Views that follow their own
+/// global frame for `TriggerAnchor` keep it in one of these (held in `@State`
+/// so the instance survives view-struct re-creation) instead of a `CGRect`
+/// `@State`: the frame changes on every animation frame while a transition
+/// slides the pane, and a value-type `@State` write per frame re-renders the
+/// whole subtree, while writes into the box are invisible to SwiftUI. The
+/// stored rect is only ever read inside click handlers, which never need to
+/// drive rendering.
+final class FrameBox {
+    var rect: CGRect = .zero
+}
+
 /// Maps the interaction that opens a manager to the zoom's anchor point, so
 /// the manager scales up out of the control that was pressed and back into
 /// it on Back. Prefers the pressed button's center (recorded by the Vader
@@ -91,13 +103,17 @@ final class TriggerPressRegistry {
 /// which already know the press state.
 private struct TriggerPressRecorder: ViewModifier {
     let isPressed: Bool
-    @State private var frame: CGRect = .zero
+    /// Boxed rather than a `CGRect` `@State`: the global frame changes every
+    /// animation frame while a section transition slides the pane, and a
+    /// value-type write per frame would re-render every styled button for the
+    /// whole slide. The rect is only read on the press edge below.
+    @State private var frame = FrameBox()
 
     func body(content: Content) -> some View {
         content
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { frame = $0 })
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { frame.rect = $0 })
             .onChange(of: isPressed) { _, pressed in
-                if pressed { TriggerPressRegistry.shared.recordPress(frame: frame) }
+                if pressed { TriggerPressRegistry.shared.recordPress(frame: frame.rect) }
             }
     }
 }

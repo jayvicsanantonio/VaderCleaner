@@ -33,16 +33,11 @@ struct SystemJunkView: View {
     @State private var managerAnchor: UnitPoint = .center
     /// The transition host's frame in global space, for mapping the opening
     /// click to `managerAnchor`.
-    @State private var paneFrame: CGRect = .zero
+    @State private var paneFrame = FrameBox()
     /// The title-bar safe-area inset the transition host permanently claims;
     /// handed back to the dashboard as top padding so only the manager
     /// extends under the title bar.
     @State private var paneTopInset: CGFloat = 0
-
-    /// Persistent, prebuilt model for the Cleanup Manager. Warmed in the
-    /// background as soon as a scan finishes so opening Review paints instantly,
-    /// and reused across opens.
-    @State private var managerStore = CleanupManagerStore()
 
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
@@ -78,16 +73,10 @@ struct SystemJunkView: View {
         .navigationTitle(NavigationSection.systemJunk.title)
         .onChange(of: viewModel.phase) { _, newPhase in
             // A fresh scan always lands back on the dashboard grid, never a
-            // stale manager from the previous run.
+            // stale manager from the previous run. The Cleanup Manager model
+            // is warmed by the view model itself the moment a scan (or Smart
+            // Scan seed) produces results.
             if case .scanning = newPhase { showingManager = false }
-            // Warm the Cleanup Manager model in the background the moment a scan
-            // (or seed) produces results, so opening Review is instant.
-            if case .preview(let result) = newPhase { managerStore.load(result: result) }
-        }
-        .task {
-            // Catch the case where results are already present on first appear
-            // (e.g. seeded from a Smart Scan before this view existed).
-            if case .preview(let result) = viewModel.phase { managerStore.load(result: result) }
         }
     }
 
@@ -152,7 +141,7 @@ struct SystemJunkView: View {
         // settles, which read as the manager stuck below a title-bar-height
         // gap for a beat after opening.
         .ignoresSafeArea(.container, edges: .top)
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame.rect = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
         .animation(VaderMotion.managerZoom, value: showingManager)
     }
@@ -160,7 +149,7 @@ struct SystemJunkView: View {
     /// Anchors the zoom to the button (or failing that, the click) being
     /// handled, then raises the manager.
     private func openManager() {
-        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame.rect)
         showingManager = true
     }
 
@@ -177,7 +166,7 @@ struct SystemJunkView: View {
                 // The zoom anchor and deep-link state resolve synchronously in
                 // the click (the anchor reads the press/click event), before
                 // the selection walk hops off the main actor.
-                managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+                managerAnchor = TriggerAnchor.resolve(in: paneFrame.rect)
                 // Deep link: open the manager at this card's section and the
                 // sub-category the card maps to.
                 let category = group.managerCategory
@@ -207,10 +196,10 @@ struct SystemJunkView: View {
     }
 
     /// The shared three-pane Cleanup Manager (sections → categories → files),
-    /// served by `managerStore` so the panes paint instantly and each category's
-    /// rows come from the store's (pre-built, cached) trees.
+    /// served by the view model's store so the panes paint instantly and each
+    /// category's rows come from its (pre-built, cached) trees.
     private func managerScreen(result: ScanResult) -> some View {
-        let store = self.managerStore
+        let store = viewModel.managerStore
         let itemsByCategory = result.itemsByCategory
         return SmartScanReviewManager(
             title: String(

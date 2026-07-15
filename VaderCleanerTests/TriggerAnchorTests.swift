@@ -26,6 +26,16 @@ final class TriggerAnchorTests: XCTestCase {
         XCTAssertEqual(anchor.y, 0.1, accuracy: 0.0001)
     }
 
+    /// The box stores frame updates by reference: geometry callbacks write
+    /// into the same instance the click handlers read, so tracking a frame
+    /// never re-renders the view that owns it.
+    func testFrameBoxStoresLatestRect() {
+        let box = FrameBox()
+        XCTAssertEqual(box.rect, .zero)
+        box.rect = CGRect(x: 1, y: 2, width: 3, height: 4)
+        XCTAssertEqual(box.rect, CGRect(x: 1, y: 2, width: 3, height: 4))
+    }
+
     func testCornersMapToUnitCorners() {
         XCTAssertEqual(TriggerAnchor.unitPoint(for: CGPoint(x: 240, y: 0), in: pane), UnitPoint(x: 0, y: 0))
         XCTAssertEqual(TriggerAnchor.unitPoint(for: CGPoint(x: 1140, y: 700), in: pane), UnitPoint(x: 1, y: 1))

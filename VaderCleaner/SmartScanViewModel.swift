@@ -205,6 +205,15 @@ final class SmartScanViewModel {
 
     private(set) var phase: Phase = .idle
 
+    /// Prebuilt, cached model behind the System Junk tile's Review — the same
+    /// store the standalone Cleanup Manager uses. Warmed the moment a scan
+    /// lands on `.results` so the Review's panes paint instantly. Owned here,
+    /// not by the view: view-owned `@State` tore the potentially huge path
+    /// index down on the main thread on every section switch (and rebuilt it
+    /// on every return), a 100–300ms hitch mid-transition on large scans. The
+    /// store's lifetime now matches the results it serves.
+    @ObservationIgnored let junkManagerStore = CleanupManagerStore()
+
     /// Called with the aggregated result the moment a Smart Scan completes, so a
     /// host (ContentView) can seed the same-scope standalone sections (System
     /// Junk, Large & Old Files, Malware) and spare the user a re-scan. Settable
@@ -703,6 +712,9 @@ final class SmartScanViewModel {
             // retained, so this is safe. The scanner already orders groups by
             // reclaimable bytes, so no re-sort is needed for the Review list.
             largeFileSelection = Set(duplicates.flatMap { $0.redundantCopies.map(\.url) })
+            // Warm the Cleanup Manager's model in the background so the System
+            // Junk Review's panes paint instantly when opened.
+            junkManagerStore.load(result: junkResult)
             phase = .results(result)
             // Hand the aggregated result to whoever wired seeding (ContentView)
             // so the same-scope standalone sections can show these results
@@ -1152,6 +1164,7 @@ final class SmartScanViewModel {
     /// deselections forward.
     func reset() {
         phase = .idle
+        junkManagerStore.unload()
         tileSelection = []
         isReviewing = false
         junkFileSelection = []

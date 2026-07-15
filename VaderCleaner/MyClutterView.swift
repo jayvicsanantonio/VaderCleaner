@@ -20,7 +20,7 @@ struct MyClutterView: View {
     @State private var managerAnchor: UnitPoint = .center
     /// The transition host's frame in global space, for mapping the opening
     /// click to `managerAnchor`.
-    @State private var paneFrame: CGRect = .zero
+    @State private var paneFrame = FrameBox()
     /// The title-bar safe-area inset the transition host permanently claims;
     /// handed back to the dashboard as top padding so only the manager
     /// extends under the title bar.
@@ -98,7 +98,7 @@ struct MyClutterView: View {
             // spring fully settles, which read as the manager stuck below a
             // title-bar-height gap for a beat after opening.
             .ignoresSafeArea(.container, edges: .top)
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame.rect = $0 })
             .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
             .animation(VaderMotion.managerZoom, value: review)
         }
@@ -107,7 +107,7 @@ struct MyClutterView: View {
     /// Anchors the zoom to the button (or failing that, the click) being
     /// handled, then raises the review.
     private func openReview(_ target: ReviewTarget) {
-        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame.rect)
         review = target
     }
 

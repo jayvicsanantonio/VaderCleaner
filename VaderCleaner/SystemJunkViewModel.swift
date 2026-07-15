@@ -63,6 +63,15 @@ final class SystemJunkViewModel {
 
     private(set) var phase: Phase = .idle
 
+    /// Prebuilt, cached model behind the Cleanup Manager. Warmed the moment a
+    /// scan (or Smart Scan seed) produces results so opening Review paints
+    /// instantly. Owned here, not by the view: view-owned `@State` tore the
+    /// potentially huge path index down on the main thread on every section
+    /// switch (and rebuilt it on every return), a 100–300ms hitch
+    /// mid-transition on large scans. The store's lifetime now matches the
+    /// preview it serves.
+    @ObservationIgnored let managerStore = CleanupManagerStore()
+
     /// URLs of the files the user has selected for cleaning. Defaults to every
     /// file in the latest scan on success (opt-out), and is cleared on
     /// `scanAgain()`. The view binds each review row's checkbox to
@@ -256,10 +265,14 @@ final class SystemJunkViewModel {
             // The seed walk runs off the main actor; the scanning screen keeps
             // animating while a large result's selection is built.
             self.apply(await ScanSelectionSeed.safeDefaults(from: result))
+            // Warm the Cleanup Manager's model in the background so opening
+            // Review paints its panes instantly.
+            self.managerStore.load(result: result)
             self.phase = .preview(result)
         } catch {
             log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
             self.latestResult = nil
+            self.managerStore.unload()
             self.selectedURLs = []
             self.totalSelectedSize = 0
             self.selectedBytesByCategory = [:]
@@ -280,6 +293,9 @@ final class SystemJunkViewModel {
         guard case .idle = phase else { return }
         latestResult = result
         apply(seed)
+        // Warm the Cleanup Manager's model for the seeded preview, exactly as
+        // a direct scan would.
+        managerStore.load(result: result)
         phase = .preview(result)
     }
 
@@ -327,6 +343,7 @@ final class SystemJunkViewModel {
     /// button on the complete state and the "Re-scan" button on the dashboard.
     func scanAgain() {
         latestResult = nil
+        managerStore.unload()
         selectedURLs = []
         totalSelectedSize = 0
         selectedBytesByCategory = [:]
