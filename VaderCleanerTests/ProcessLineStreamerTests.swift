@@ -54,6 +54,31 @@ final class ProcessLineStreamerTests: XCTestCase {
         XCTAssertTrue(collector.snapshot().isEmpty)
     }
 
+    func test_run_mergesStandardErrorWhenRequested() async throws {
+        // stderr lines must be delivered through onLine when merging is on.
+        let collector = Collector()
+        let status = try await ProcessLineStreamer.run(
+            executable: sh,
+            arguments: ["-c", "printf 'out\\n'; printf 'err\\n' 1>&2"],
+            mergeStandardError: true,
+            onLine: collector.append
+        )
+        XCTAssertEqual(status, 0)
+        XCTAssertEqual(Set(collector.snapshot()), ["out", "err"])
+    }
+
+    func test_run_discardsStandardErrorByDefault() async throws {
+        // Default behaviour (ClamAV callers) routes stderr to /dev/null.
+        let collector = Collector()
+        let status = try await ProcessLineStreamer.run(
+            executable: sh,
+            arguments: ["-c", "printf 'out\\n'; printf 'err\\n' 1>&2"],
+            onLine: collector.append
+        )
+        XCTAssertEqual(status, 0)
+        XCTAssertEqual(collector.snapshot(), ["out"])
+    }
+
     func test_run_terminatesChildProcessOnTaskCancellation() async throws {
         // /bin/sleep 30 would block waitUntilExit() for 30s. If
         // cancellation isn't honoured, run() hangs and this test would

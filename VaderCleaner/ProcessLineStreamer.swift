@@ -26,6 +26,16 @@ enum ProcessLineStreamer {
     /// from `ProcessInfo.processInfo.environment` first so PATH / HOME /
     /// the user's locale aren't dropped on the floor.
     ///
+    /// When `mergeStandardError` is true the child's stderr is routed into the
+    /// same pipe as stdout, so its lines are delivered through `onLine` too.
+    /// This is off by default — the ClamAV callers deliberately discard stderr —
+    /// but `brew` writes progress and error text to stderr, so the Homebrew
+    /// path needs it interleaved rather than dropped.
+    ///
+    /// When `closeStandardInput` is true the child's stdin is `/dev/null`, so a
+    /// subprocess that tries to prompt interactively (e.g. a cask uninstaller
+    /// invoking `sudo`) reads EOF and fails fast instead of blocking forever.
+    ///
     /// Cancellation: if the calling Task is cancelled, the child process
     /// is SIGTERM-ed via `Process.terminate()`. clamscan exits within a
     /// second, the read loop sees EOF, and `run()` returns the (signal-
@@ -38,6 +48,8 @@ enum ProcessLineStreamer {
         executable: URL,
         arguments: [String],
         environment: [String: String]? = nil,
+        mergeStandardError: Bool = false,
+        closeStandardInput: Bool = false,
         onLine: @escaping (String) -> Void
     ) async throws -> Int32 {
         let process = Process()
@@ -46,15 +58,38 @@ enum ProcessLineStreamer {
         if let environment {
             process.environment = environment
         }
+        if closeStandardInput {
+            process.standardInput = FileHandle.nullDevice
+        }
         let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
+        if mergeStandardError {
+            // `brew` writes progress and errors to stderr; route both streams to
+            // the same write handle so their lines are streamed rather than
+            // lost. Passing the FileHandle (not the Pipe) to both means
+            // Foundation does not auto-close it — assigning one Pipe to both
+            // standardOutput and standardError leaves the write end open in the
+            // parent, so the reader never sees EOF and `availableData` blocks
+            // forever. We close the parent's copy ourselves after launch below.
+            let writeHandle = outputPipe.fileHandleForWriting
+            process.standardOutput = writeHandle
+            process.standardError = writeHandle
+        } else {
+            process.standardOutput = outputPipe
+            // Other callers (ClamAV) deliberately discard stderr.
+            process.standardError = FileHandle.nullDevice
+        }
 
         // Launch synchronously before the cancellation handler is wired
         // up so a fast cancellation can't see `process.isRunning == false`
         // and skip the terminate() — the handler only fires after this
         // line returns, and by then we're committed.
         try process.run()
+
+        if mergeStandardError {
+            // The child inherited its own dup of the write end at spawn; close
+            // the parent's copy now so the reader gets EOF when the child exits.
+            try? outputPipe.fileHandleForWriting.close()
+        }
 
         return try await withTaskCancellationHandler {
             try await Task.detached(priority: .userInitiated) {

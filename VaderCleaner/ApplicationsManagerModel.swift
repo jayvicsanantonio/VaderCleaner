@@ -36,6 +36,10 @@ enum AppManagerFacet: Hashable, Sendable {
     case selected
     case store(isAppStore: Bool)
     case vendor(AppVendor)
+    /// Homebrew packages — a parallel list (formulae + casks) shown under the
+    /// Stores group. Not an `AppInfo` filter: the pane swaps in the brew list
+    /// and dispatches removal through Homebrew rather than the Trash recycler.
+    case homebrew
 }
 
 /// Stateless derivations over the installed-app list. Kept separate from the
@@ -81,6 +85,10 @@ enum ApplicationsManagerModel {
             case .selected:                 return selectedIDs.contains(app.id)
             case .store(let isAppStore):    return app.isAppStore == isAppStore
             case .vendor(let vendor):       return AppVendor.of(bundleID: app.bundleID) == vendor
+            // Homebrew is a parallel list, not an app filter — the pane renders
+            // the brew list directly and never calls this with `.homebrew`, but
+            // the switch must stay exhaustive.
+            case .homebrew:                 return false
             }
         }
         let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
