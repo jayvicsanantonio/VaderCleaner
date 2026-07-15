@@ -122,6 +122,7 @@ final class CleanupManagerStore: @unchecked Sendable {
         }
         let ibc = itemsByCategory
         let sbc = sizeByCategory
+        let myToken = token
         lock.unlock()
 
         let built = CleanupManagerModel.buildShell(
@@ -130,7 +131,11 @@ final class CleanupManagerStore: @unchecked Sendable {
             includeEmptySections: true
         )
         lock.lock()
-        shellCache = built
+        // Only cache if a `load`/`unload` hasn't superseded these inputs while
+        // we built off the lock. Without this, a warm task that read the
+        // previous scan's data before an `unload` could write its stale shell
+        // back after the store was cleared.
+        if token == myToken { shellCache = built }
         lock.unlock()
         return built
     }
@@ -144,13 +149,18 @@ final class CleanupManagerStore: @unchecked Sendable {
             return cached
         }
         let files = ScanCategory(rawValue: id).flatMap { itemsByCategory[$0] } ?? []
+        let myToken = token
         lock.unlock()
 
         let tree = CleanupManagerModel.buildHierarchy(files)
 
         lock.lock()
-        itemsCache[id] = tree
-        indexRows(tree)
+        // Same supersession guard as `sections()`: a tree built from data a
+        // later `load`/`unload` has replaced must not repopulate the cache.
+        if token == myToken {
+            itemsCache[id] = tree
+            indexRows(tree)
+        }
         lock.unlock()
         return tree
     }

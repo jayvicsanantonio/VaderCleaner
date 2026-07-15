@@ -72,6 +72,9 @@ final class SeededSectionScansTests: XCTestCase {
         let alreadyWorking = FakeCoordinator(presentation: .working)
         alreadyWorking.finish() // ends `.working` so the chain never waits on it
         let idle = FakeCoordinator()
+        // The started scan completes, mirroring a real section's scan reaching
+        // its terminal phase — so the chain finishes waiting on it and returns.
+        idle.onBeginScan = { [weak idle] in idle?.finish() }
 
         await SeededSectionScans.run(
             [alreadyScanned, alreadyWorking, idle],
