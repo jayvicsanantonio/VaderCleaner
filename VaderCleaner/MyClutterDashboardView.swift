@@ -181,6 +181,10 @@ struct MyClutterDashboardView: View {
     /// dashboard so the two sections share one look.
     private let heroColumnWidth: CGFloat = 340
 
+    /// Gap between adjacent tiles, shared by the column and row splits so the
+    /// concrete sizing matches the visual spacing.
+    private let cardGap: CGFloat = 16
+
     /// The ranked 2–4 cards this scan warrants, largest reclaimable size first.
     private var recommendedTiles: [MyClutterTileKind] {
         MyClutterTileKind.recommended(
@@ -205,39 +209,60 @@ struct MyClutterDashboardView: View {
             card(tiles[0])
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         default:
+            // Size each card concretely from the pane geometry rather than
+            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
+            // several levels deep. A flexible grid this deep makes the SwiftUI
+            // layout engine re-probe every card for many candidate sizes on the
+            // first build — the dominant cost when the section is rebuilt after a
+            // switch. Concrete frames resolve the grid in a single pass.
             // One container so the adjacent glass tiles sample each other and
             // refract consistently; spacing stays below the 16pt grid gap so
             // they never blend into one blob.
             GlassEffectContainer(spacing: 8) {
-                HStack(alignment: .top, spacing: 16) {
-                    card(tiles[0])
-                        .frame(width: heroColumnWidth)
-                        .frame(maxHeight: .infinity)
-                    rightColumn(Array(tiles.dropFirst()))
+                GeometryReader { geo in
+                    let rightWidth = geo.size.width - heroColumnWidth - cardGap
+                    HStack(alignment: .top, spacing: cardGap) {
+                        card(tiles[0])
+                            .frame(width: heroColumnWidth, height: geo.size.height)
+                        rightColumn(
+                            Array(tiles.dropFirst()),
+                            width: rightWidth,
+                            height: geo.size.height
+                        )
+                    }
                 }
             }
         }
     }
 
     /// The non-hero cards: the first is a wide card spanning the column, the rest
-    /// flow in rows of two beneath it.
-    private func rightColumn(_ rest: [MyClutterTileKind]) -> some View {
-        VStack(spacing: 16) {
+    /// flow in rows of two beneath it. Sized concretely from the column geometry
+    /// so the grid stays a single-pass layout (see `grid`).
+    private func rightColumn(
+        _ rest: [MyClutterTileKind],
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        let pairRows = rows(of: Array(rest.dropFirst()))
+        // The wide lead card is one row; each pair of remaining cards is another.
+        let rowCount = (rest.isEmpty ? 0 : 1) + pairRows.count
+        let rowHeight = (height - cardGap * CGFloat(max(rowCount - 1, 0))) / CGFloat(max(rowCount, 1))
+        return VStack(spacing: cardGap) {
             if let wide = rest.first {
                 card(wide)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: width, height: rowHeight)
             }
-            ForEach(Array(rows(of: Array(rest.dropFirst())).enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 16) {
+            ForEach(Array(pairRows.enumerated()), id: \.offset) { _, row in
+                let cardWidth = (width - cardGap * CGFloat(row.count - 1)) / CGFloat(row.count)
+                HStack(spacing: cardGap) {
                     ForEach(row) { tile in
                         card(tile)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(width: cardWidth, height: rowHeight)
                     }
                 }
-                .frame(maxHeight: .infinity)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: width, height: height)
     }
 
     /// Chunks the remaining cards into rows of at most two so the lower grid
