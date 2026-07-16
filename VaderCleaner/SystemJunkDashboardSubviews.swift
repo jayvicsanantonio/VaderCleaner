@@ -102,6 +102,10 @@ struct SystemJunkDashboardView: View {
     /// cards absorb the remaining width.
     private let heroColumnWidth: CGFloat = 360
 
+    /// Gap between adjacent tiles, shared by the column and row splits so the
+    /// concrete sizing matches the visual spacing.
+    private let cardGap: CGFloat = 16
+
     var body: some View {
         VStack(spacing: 0) {
             startOverBar
@@ -193,40 +197,62 @@ struct SystemJunkDashboardView: View {
             card(tiles[0], style: .hero)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         default:
-            HStack(alignment: .top, spacing: 16) {
-                card(tiles[0], style: .hero)
-                    .frame(width: heroColumnWidth)
-                    .frame(maxHeight: .infinity)
-                rightColumn(Array(tiles.dropFirst()))
+            // Size each card concretely from the pane geometry rather than
+            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
+            // several levels deep. A flexible grid this deep makes the SwiftUI
+            // layout engine re-probe every card for many candidate sizes on the
+            // first build — the dominant cost when the section is rebuilt after a
+            // switch. Concrete frames resolve the grid in a single pass.
+            GeometryReader { geo in
+                let rightWidth = geo.size.width - heroColumnWidth - cardGap
+                HStack(alignment: .top, spacing: cardGap) {
+                    card(tiles[0], style: .hero)
+                        .frame(width: heroColumnWidth, height: geo.size.height)
+                    rightColumn(
+                        Array(tiles.dropFirst()),
+                        width: rightWidth,
+                        height: geo.size.height
+                    )
+                }
             }
         }
     }
 
     /// The non-hero cards: the first is a wide card spanning the column, the rest
     /// flow in rows of two beneath it. Grouped in a `GlassEffectContainer` so the
-    /// adjacent glass surfaces sample each other and refract consistently.
-    private func rightColumn(_ rest: [CleanupDashboardTile]) -> some View {
+    /// adjacent glass surfaces sample each other and refract consistently. Sized
+    /// concretely from the column geometry so the grid stays a single-pass layout
+    /// (see `cardLayout`).
+    private func rightColumn(
+        _ rest: [CleanupDashboardTile],
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        let pairRows = rows(of: Array(rest.dropFirst()))
+        // The wide lead card is one row; each pair of remaining cards is another.
+        let rowCount = (rest.isEmpty ? 0 : 1) + pairRows.count
+        let rowHeight = (height - cardGap * CGFloat(max(rowCount - 1, 0))) / CGFloat(max(rowCount, 1))
         // Container spacing stays below the 16pt grid gap: glass shapes closer
         // than the container's spacing melt into one blob, and the tiles must
         // stay discrete.
-        GlassEffectContainer(spacing: 8) {
-            VStack(spacing: 16) {
+        return GlassEffectContainer(spacing: 8) {
+            VStack(spacing: cardGap) {
                 if let wide = rest.first {
                     card(wide, style: .wide)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(width: width, height: rowHeight)
                 }
-                ForEach(Array(rows(of: Array(rest.dropFirst())).enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: 16) {
+                ForEach(Array(pairRows.enumerated()), id: \.offset) { _, row in
+                    let cardWidth = (width - cardGap * CGFloat(row.count - 1)) / CGFloat(row.count)
+                    HStack(spacing: cardGap) {
                         ForEach(row) { tile in
                             card(tile, style: .compact)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .frame(width: cardWidth, height: rowHeight)
                         }
                     }
-                    .frame(maxHeight: .infinity)
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: width, height: height)
     }
 
     /// Chunks the compact cards into rows of at most two so the lower grid reads

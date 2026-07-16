@@ -296,6 +296,10 @@ struct ProtectionDashboardView: View {
         return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
     }
 
+    /// Gap between adjacent tiles, shared by the column and row splits so the
+    /// concrete sizing matches the visual spacing.
+    private let cardGap: CGFloat = 16
+
     @ViewBuilder
     private var grid: some View {
         let tiles = selectedTiles
@@ -305,15 +309,27 @@ struct ProtectionDashboardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
+            // Size each tile concretely from the pane geometry rather than
+            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
+            // several levels deep. A flexible grid this deep makes the SwiftUI
+            // layout engine re-probe every card for many candidate sizes on the
+            // first build — the dominant cost when the section is rebuilt after a
+            // switch. Concrete frames resolve the grid in a single pass.
             // Spacing below the 16pt grid gap: glass shapes closer than the
             // container's spacing melt into one blob, and the tiles must stay
             // discrete.
             GlassEffectContainer(spacing: 8) {
-                HStack(alignment: .top, spacing: 16) {
-                    tileView(tiles[0])
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    rightColumn(Array(tiles.dropFirst()))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GeometryReader { geo in
+                    let columnWidth = (geo.size.width - cardGap) / 2
+                    HStack(alignment: .top, spacing: cardGap) {
+                        tileView(tiles[0])
+                            .frame(width: columnWidth, height: geo.size.height)
+                        rightColumn(
+                            Array(tiles.dropFirst()),
+                            width: columnWidth,
+                            height: geo.size.height
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -367,18 +383,25 @@ struct ProtectionDashboardView: View {
 
     /// The non-hero cards, packed into rows of at most two so the column never
     /// grows taller than the pane — exactly the Applications dashboard shape.
-    private func rightColumn(_ tiles: [ProtectionDashboardTile]) -> some View {
-        VStack(spacing: 16) {
-            ForEach(rows(of: tiles)) { row in
-                HStack(spacing: 16) {
+    private func rightColumn(
+        _ tiles: [ProtectionDashboardTile],
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        let cardRows = rows(of: tiles)
+        let rowHeight = (height - cardGap * CGFloat(cardRows.count - 1)) / CGFloat(max(cardRows.count, 1))
+        return VStack(spacing: cardGap) {
+            ForEach(cardRows) { row in
+                let cardWidth = (width - cardGap * CGFloat(row.tiles.count - 1)) / CGFloat(row.tiles.count)
+                HStack(spacing: cardGap) {
                     ForEach(row.tiles) { tile in
                         tileView(tile)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(width: cardWidth, height: rowHeight)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(width: width, height: height)
     }
 
     private func privacyCard(_ tile: PrivacyTile) -> some View {

@@ -147,6 +147,10 @@ struct ApplicationsDashboardView: View {
     /// count leads with a single full-width row), mirroring the My Clutter
     /// dashboard. Capping the right column at rows of two keeps the grid bounded
     /// so it fills the pane without overflowing, however many cards there are.
+    /// Gap between adjacent tiles, shared by the column split and the row split
+    /// so the deterministic sizing math matches the visual spacing.
+    private let cardGap: CGFloat = 16
+
     @ViewBuilder
     private var cardLayout: some View {
         let tiles = self.tiles
@@ -155,13 +159,25 @@ struct ApplicationsDashboardView: View {
                 card(only).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
+            // Size each card concretely from the pane geometry rather than
+            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
+            // several levels deep. A flexible grid this deep makes the SwiftUI
+            // layout engine re-probe every card for many candidate sizes on the
+            // first build — the dominant cost when the section is rebuilt after a
+            // switch. Concrete frames resolve the whole grid in a single pass.
             // Spacing below the 16pt grid gap so adjacent tiles never blend.
             GlassEffectContainer(spacing: 8) {
-                HStack(alignment: .top, spacing: 16) {
-                    card(tiles[0])
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    rightColumn(Array(tiles.dropFirst()))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GeometryReader { geo in
+                    let columnWidth = (geo.size.width - cardGap) / 2
+                    HStack(alignment: .top, spacing: cardGap) {
+                        card(tiles[0])
+                            .frame(width: columnWidth, height: geo.size.height)
+                        rightColumn(
+                            Array(tiles.dropFirst()),
+                            width: columnWidth,
+                            height: geo.size.height
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -169,18 +185,26 @@ struct ApplicationsDashboardView: View {
     }
 
     /// The right-hand cards, packed into rows of at most two so the column never
-    /// grows taller than the pane.
-    private func rightColumn(_ tiles: [ApplicationsDashboardTile]) -> some View {
-        VStack(spacing: 16) {
-            ForEach(rows(of: tiles)) { row in
-                HStack(spacing: 16) {
+    /// grows taller than the pane. Sized concretely from the column geometry so
+    /// the grid stays a single-pass layout (see `cardLayout`).
+    private func rightColumn(
+        _ tiles: [ApplicationsDashboardTile],
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        let cardRows = rows(of: tiles)
+        let rowHeight = (height - cardGap * CGFloat(cardRows.count - 1)) / CGFloat(max(cardRows.count, 1))
+        return VStack(spacing: cardGap) {
+            ForEach(cardRows) { row in
+                let cardWidth = (width - cardGap * CGFloat(row.tiles.count - 1)) / CGFloat(row.tiles.count)
+                HStack(spacing: cardGap) {
                     ForEach(row.tiles) { tile in
-                        card(tile).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        card(tile).frame(width: cardWidth, height: rowHeight)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(width: width, height: height)
     }
 
     /// One row of right-column cards.
