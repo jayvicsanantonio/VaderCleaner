@@ -36,6 +36,10 @@ struct HealthMonitorView: View {
     /// stable shape while the right tiles absorb the remaining width.
     private let leftColumnWidth: CGFloat = 340
 
+    /// Gap between adjacent tiles, shared by the row and column splits so the
+    /// concrete sizing matches the visual spacing.
+    private let cardGap: CGFloat = 16
+
     /// The section's blue accent — the Mac Health chrome color used for the
     /// ring, verdict, status badges, and progress bars.
     private let sectionAccent = NavigationSection.healthMonitor.theme.accent
@@ -182,17 +186,40 @@ struct HealthMonitorView: View {
             // adjacent glass cards sample each other and refract consistently.
             // Every tile takes an equal share of the column height so the grid
             // never overflows the pane.
+            //
+            // Size each tile concretely from the pane geometry rather than
+            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
+            // inside flexible rows: the flexible grid makes the SwiftUI layout
+            // engine re-probe every tile for many candidate sizes, and because
+            // the tiles' `.staggeredEntrance` (offset/opacity) re-runs that
+            // layout every frame, the cost smears across the whole return as
+            // sustained jank. Concrete frames make each layout pass a single
+            // cheap resolve, so the entrance stays a render-only fade.
             GlassEffectContainer(spacing: 16) {
-                VStack(spacing: 16) {
-                    HStack(spacing: 16) {
-                        batteryCard.staggeredEntrance(index: 0, appeared: appeared)
-                        smartCard.staggeredEntrance(index: 1, appeared: appeared)
+                GeometryReader { geo in
+                    let rowHeight = (geo.size.height - cardGap * 2) / 3
+                    let halfWidth = (geo.size.width - cardGap) / 2
+                    VStack(spacing: cardGap) {
+                        HStack(spacing: cardGap) {
+                            batteryCard
+                                .frame(width: halfWidth, height: rowHeight)
+                                .staggeredEntrance(index: 0, appeared: appeared)
+                            smartCard
+                                .frame(width: halfWidth, height: rowHeight)
+                                .staggeredEntrance(index: 1, appeared: appeared)
+                        }
+                        HStack(spacing: cardGap) {
+                            ramCard
+                                .frame(width: halfWidth, height: rowHeight)
+                                .staggeredEntrance(index: 2, appeared: appeared)
+                            cpuCard
+                                .frame(width: halfWidth, height: rowHeight)
+                                .staggeredEntrance(index: 3, appeared: appeared)
+                        }
+                        diskCard
+                            .frame(width: geo.size.width, height: rowHeight)
+                            .staggeredEntrance(index: 4, appeared: appeared)
                     }
-                    HStack(spacing: 16) {
-                        ramCard.staggeredEntrance(index: 2, appeared: appeared)
-                        cpuCard.staggeredEntrance(index: 3, appeared: appeared)
-                    }
-                    diskCard.staggeredEntrance(index: 4, appeared: appeared)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
