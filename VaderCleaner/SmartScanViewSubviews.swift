@@ -322,19 +322,33 @@ struct SmartScanResultsState: View {
                 // 3 + 2 arrangement. Both rows divide the available height so
                 // the grid fills the pane without scrolling. One container so
                 // the tiles sample each other's glass and refract consistently.
+                //
+                // Size each tile concretely from the pane geometry rather than
+                // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` tiles
+                // inside flexible rows: the flexible grid makes the SwiftUI
+                // layout engine re-probe every tile for many candidate sizes, and
+                // because the tiles' entrance animation (offset/opacity) re-runs
+                // that layout every frame, the cost smears across the whole
+                // return as sustained jank. Concrete frames make each layout pass
+                // a single cheap resolve, so the entrance stays a render-only
+                // fade.
                 GlassEffectContainer(spacing: 16) {
-                    VStack(spacing: 16) {
-                        HStack(spacing: 16) {
-                            tileEntry(.systemJunk, index: 0)
-                            tileEntry(.malware, index: 1)
-                            tileEntry(.performance, index: 2)
+                    GeometryReader { geo in
+                        let gap: CGFloat = 16
+                        let rowHeight = (geo.size.height - gap) / 2
+                        let topWidth = (geo.size.width - gap * 2) / 3
+                        let bottomWidth = (geo.size.width - gap) / 2
+                        VStack(spacing: gap) {
+                            HStack(spacing: gap) {
+                                tileEntry(.systemJunk, index: 0, width: topWidth, height: rowHeight)
+                                tileEntry(.malware, index: 1, width: topWidth, height: rowHeight)
+                                tileEntry(.performance, index: 2, width: topWidth, height: rowHeight)
+                            }
+                            HStack(spacing: gap) {
+                                tileEntry(.applications, index: 3, width: bottomWidth, height: rowHeight)
+                                tileEntry(.myClutter, index: 4, width: bottomWidth, height: rowHeight)
+                            }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        HStack(spacing: 16) {
-                            tileEntry(.applications, index: 3)
-                            tileEntry(.myClutter, index: 4)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -353,9 +367,9 @@ struct SmartScanResultsState: View {
 
     /// One grid cell: the module's tile, framed to fill its share of the row and
     /// given a staggered entrance.
-    private func tileEntry(_ module: SmartScanModule, index: Int) -> some View {
+    private func tileEntry(_ module: SmartScanModule, index: Int, width: CGFloat, height: CGFloat) -> some View {
         tile(for: module)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: width, height: height)
             .staggeredEntrance(index: index, appeared: appeared)
     }
 
