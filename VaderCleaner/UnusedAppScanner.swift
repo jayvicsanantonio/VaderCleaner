@@ -21,6 +21,7 @@ struct DefaultUnusedAppScanner: Sendable {
 
     private let thresholdSeconds: TimeInterval
     private let lastUsedDate: @Sendable (AppInfo) -> Date?
+    private let bundleSize: @Sendable (AppInfo) -> Int64
     private let now: @Sendable () -> Date
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "UnusedAppScanner")
@@ -29,20 +30,25 @@ struct DefaultUnusedAppScanner: Sendable {
     ///   - thresholdDays: how stale an app must be to be flagged.
     ///   - lastUsedDate: resolves an app's last-used date, or `nil` when
     ///     unknown. Injected so tests drive classification with synthetic dates.
+    ///   - bundleSize: resolves an app's on-disk size in bytes. Injected so
+    ///     tests drive the size total without touching disk.
     ///   - now: the reference "now" for the staleness cutoff; injected so age
     ///     assertions don't depend on real time.
     init(
         thresholdDays: Int = DefaultUnusedAppScanner.defaultThresholdDays,
         lastUsedDate: @escaping @Sendable (AppInfo) -> Date? = DefaultUnusedAppScanner.spotlightLastUsedDate,
+        bundleSize: @escaping @Sendable (AppInfo) -> Int64 = DefaultUnusedAppScanner.diskBundleSize,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.thresholdSeconds = TimeInterval(thresholdDays) * 24 * 60 * 60
         self.lastUsedDate = lastUsedDate
+        self.bundleSize = bundleSize
         self.now = now
     }
 
     func scan(apps: [AppInfo]) async -> [UnusedApp] {
         let provider = lastUsedDate
+        let sizeProvider = bundleSize
         let cutoff = now().addingTimeInterval(-thresholdSeconds)
         let log = log
         return await Task.detached(priority: .userInitiated) {
@@ -50,7 +56,9 @@ struct DefaultUnusedAppScanner: Sendable {
                 // Inclusive: an app last used exactly at the cutoff has not been
                 // opened *within* the window, so it qualifies.
                 guard let used = provider(app), used <= cutoff else { return nil }
-                return UnusedApp(app: app, lastUsedDate: used)
+                // Only the flagged apps are sized — a bounded subset — so the
+                // walk stays off the discovery hot path.
+                return UnusedApp(app: app, lastUsedDate: used, sizeBytes: sizeProvider(app))
             }
             // Oldest first — the longest-unused app is what the user most wants
             // to see.
@@ -66,5 +74,11 @@ struct DefaultUnusedAppScanner: Sendable {
         guard let item = MDItemCreate(nil, app.bundleURL.path as CFString) else { return nil }
         guard let attribute = MDItemCopyAttribute(item, kMDItemLastUsedDate) else { return nil }
         return attribute as? Date
+    }
+
+    /// Default provider: the app bundle's recursive on-disk size in bytes,
+    /// reusing the same walk the App Uninstaller uses for its per-row size.
+    static func diskBundleSize(_ app: AppInfo) -> Int64 {
+        DefaultAppDiscovery.bundleSize(at: app.bundleURL, fileManager: .default)
     }
 }

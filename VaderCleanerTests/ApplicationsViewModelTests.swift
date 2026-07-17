@@ -59,7 +59,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
-    nonisolated private func makeUnused(name: String, bundleID: String) -> UnusedApp {
+    nonisolated private func makeUnused(name: String, bundleID: String, size: Int64 = 0) -> UnusedApp {
         UnusedApp(
             app: AppInfo(
                 name: name,
@@ -68,7 +68,8 @@ final class ApplicationsViewModelTests: XCTestCase {
                 bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
                 isAppStore: false
             ),
-            lastUsedDate: Date(timeIntervalSince1970: 1_600_000_000)
+            lastUsedDate: Date(timeIntervalSince1970: 1_600_000_000),
+            sizeBytes: size
         )
     }
 
@@ -476,6 +477,21 @@ final class ApplicationsViewModelTests: XCTestCase {
         }
         XCTAssertEqual(result.unusedApps, unused)
         XCTAssertEqual(result.unusedAppsCount, 1)
+    }
+
+    func test_unusedAppsTotalBytes_sumsEachFlaggedApp() async {
+        let unused = [
+            makeUnused(name: "Dusty", bundleID: "com.dusty.app", size: 5_000),
+            makeUnused(name: "Stale", bundleID: "com.stale.app", size: 100),
+        ]
+        let vm = makeViewModel(discover: { [] }, unused: { _ in unused })
+
+        await vm.scan()
+
+        guard case .results(let result) = vm.phase else {
+            return XCTFail("Expected .results, got \(vm.phase)")
+        }
+        XCTAssertEqual(result.unusedAppsTotalBytes, 5_100)
     }
 
     func test_scan_passesDiscoveredAppsToTheUnusedScan() async {
