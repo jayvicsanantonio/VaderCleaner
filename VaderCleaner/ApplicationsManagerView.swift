@@ -17,6 +17,13 @@ struct ApplicationsManagerView: View {
     private var homebrewViewModel: HomebrewViewModel
     private let result: ApplicationsScanResult
     private var iconCache: AppIconCache
+    /// The deep-link target the manager (re)opens on. A fresh instance resolves
+    /// it in `init`; a retained one re-resolves it when `isPresented` flips.
+    private let destination: Destination
+    /// Whether the manager is the visible surface. The host keeps this manager
+    /// alive between opens (hidden behind the dashboard) and flips this so each
+    /// open re-aims the panes at `destination`.
+    private let isPresented: Bool
     private let onBack: () -> Void
 
     enum Pane: Hashable {
@@ -91,6 +98,7 @@ struct ApplicationsManagerView: View {
         result: ApplicationsScanResult,
         iconCache: AppIconCache,
         destination: Destination = .uninstaller,
+        isPresented: Bool = true,
         onBack: @escaping () -> Void
     ) {
         self.viewModel = viewModel
@@ -100,6 +108,8 @@ struct ApplicationsManagerView: View {
         self.homebrewViewModel = homebrewViewModel
         self.result = result
         self.iconCache = iconCache
+        self.destination = destination
+        self.isPresented = isPresented
         self.onBack = onBack
 
         let (pane, facet, leftoverSection) = Self.resolve(destination)
@@ -174,6 +184,18 @@ struct ApplicationsManagerView: View {
             }
         } message: {
             Text(uninstallConfirmationMessage)
+        }
+        // A retained manager (kept alive by its host between opens) re-aims
+        // its panes on each open: a fresh instance resolves `destination` in
+        // `init`, but a kept-alive one must follow it explicitly. Only the
+        // three deep-link selections reset — other facets and the checkbox
+        // selections survive, as they do across pane switches within one open.
+        .onChange(of: isPresented) { _, presented in
+            guard presented else { return }
+            let (pane, facet, leftoverSection) = Self.resolve(destination)
+            self.pane = pane
+            self.uninstallerFacet = facet
+            self.leftoverSection = leftoverSection
         }
     }
 

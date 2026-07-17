@@ -15,6 +15,10 @@ struct MyClutterView: View {
 
     /// Which review screen is up, or `nil` for the dashboard.
     @State private var review: ReviewTarget?
+    /// The target the retained manager is built with: the last one opened, so
+    /// the (kept-alive, hidden) manager still has a concrete category while
+    /// the dashboard is showing. Updated on every open.
+    @State private var managerTarget: ReviewTarget = .all
     /// Where the manager zoom anchors: the button that opened it, resolved
     /// by `openReview`. Also the point Back zooms the manager back into.
     @State private var managerAnchor: UnitPoint = .center
@@ -69,38 +73,29 @@ struct MyClutterView: View {
         case .failed(let message):
             LargeOldFilesFailedState(stage: .scanning, message: message, onTryAgain: viewModel.scanAgain)
         case .results:
-            // The dashboard and the review manager exchange inside a ZStack
-            // (a stable transition host) with the shared manager motion: the
-            // manager zooms up from the button that opened it over the
-            // receding dashboard, and zooms back into it on Back.
-            ZStack {
-                if let review {
-                    MyClutterManagerView(
-                        viewModel: viewModel,
-                        initialCategory: Self.category(for: review),
-                        onBack: { self.review = nil }
-                    )
-                    .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
-                    // Draw over the dashboard while the two overlap mid-swap.
-                    .zIndex(1)
-                } else {
-                    dashboard
-                        // The dashboard keeps its usual place below the title
-                        // bar: the host ZStack claims that inset permanently,
-                        // so it is handed back here as explicit padding.
-                        .padding(.top, paneTopInset)
-                        .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
-                }
+            // The dashboard and the review manager exchange inside
+            // `ManagerPresentationHost` (a stable transition host) with the
+            // shared manager motion: the manager zooms up from the button that
+            // opened it over the receding dashboard, and zooms back into it on
+            // Back — after which it stays mounted (hidden), so reopening
+            // restores its built caches and panes instantly.
+            ManagerPresentationHost(
+                isPresented: review != nil,
+                anchor: managerAnchor,
+                reduceMotion: reduceMotion,
+                dashboardTopInset: paneTopInset
+            ) {
+                dashboard
+            } manager: {
+                MyClutterManagerView(
+                    viewModel: viewModel,
+                    initialCategory: Self.category(for: managerTarget),
+                    isPresented: review != nil,
+                    onBack: { self.review = nil }
+                )
             }
-            // Claim the title-bar safe area on this stable container, never
-            // on a transitioning branch: safe-area changes anywhere inside a
-            // freshly inserted transition subtree are deferred until its
-            // spring fully settles, which read as the manager stuck below a
-            // title-bar-height gap for a beat after opening.
-            .ignoresSafeArea(.container, edges: .top)
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
             .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
-            .animation(VaderMotion.managerZoom, value: review)
         }
     }
 
@@ -108,6 +103,7 @@ struct MyClutterView: View {
     /// handled, then raises the review.
     private func openReview(_ target: ReviewTarget) {
         managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        managerTarget = target
         review = target
     }
 

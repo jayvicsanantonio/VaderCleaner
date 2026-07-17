@@ -46,40 +46,30 @@ struct ProtectionDashboardView: View {
     private let accent = NavigationSection.malwareRemoval.theme.accent
 
     var body: some View {
-        // The dashboard and the Protection Manager exchange inside a ZStack
-        // (a stable transition host) with the shared manager motion: the
-        // manager zooms up from the button that opened it over the receding
-        // dashboard, and zooms back into it on Back.
-        ZStack {
-            if detail == .manager {
-                ProtectionManagerView(
-                    malware: malware,
-                    privacyModel: viewModel.protectionPrivacy,
-                    iconCache: iconCache,
-                    bundleURL: { browserBundleURLs[$0] },
-                    onBack: { detail = .dashboard }
-                )
-                .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
-                // Draw over the dashboard while the two overlap mid-swap.
-                .zIndex(1)
-            } else {
-                dashboardSurface
-                    // The dashboard keeps its usual place below the title
-                    // bar: the host ZStack claims that inset permanently, so
-                    // it is handed back here as explicit padding.
-                    .padding(.top, paneTopInset)
-                    .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
-            }
+        // The dashboard and the Protection Manager exchange inside
+        // `ManagerPresentationHost` (a stable transition host) with the shared
+        // manager motion: the manager zooms up from the button that opened it
+        // over the receding dashboard, and zooms back into it on Back — after
+        // which it stays mounted (hidden), so reopening restores its panes
+        // instantly.
+        ManagerPresentationHost(
+            isPresented: detail == .manager,
+            anchor: managerAnchor,
+            reduceMotion: reduceMotion,
+            dashboardTopInset: paneTopInset
+        ) {
+            dashboardSurface
+        } manager: {
+            ProtectionManagerView(
+                malware: malware,
+                privacyModel: viewModel.protectionPrivacy,
+                iconCache: iconCache,
+                bundleURL: { browserBundleURLs[$0] },
+                onBack: { detail = .dashboard }
+            )
         }
-        // Claim the title-bar safe area on this stable container, never on a
-        // transitioning branch: safe-area changes anywhere inside a freshly
-        // inserted transition subtree are deferred until its spring fully
-        // settles, which read as the manager stuck below a title-bar-height
-        // gap for a beat after opening.
-        .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
-        .animation(VaderMotion.managerZoom, value: detail)
         // The dashboard appears once a scan has begun. Ensure the privacy
         // preview is running too — covers the Smart Scan seed path, where
         // the dashboard shows without this view's own beginScan.

@@ -31,6 +31,10 @@ struct ApplicationsView: View {
     /// of the pushed detail screens. Owned here so the selection survives the
     /// brief remount when the underlying detail view loads.
     @State private var detail: Detail = .dashboard
+    /// The destination the retained manager is built with: the last one opened,
+    /// so the (kept-alive, hidden) manager still has a concrete destination
+    /// while the dashboard is showing. Updated on every open.
+    @State private var managerDestination: ApplicationsManagerView.Destination = .uninstaller
     /// Where the manager zoom anchors: the button that opened it, resolved
     /// by `openManager`. Also the point Back zooms the manager back into.
     @State private var managerAnchor: UnitPoint = .center
@@ -128,81 +132,70 @@ struct ApplicationsView: View {
         }
     }
 
-    /// The dashboard and the manager exchange inside a ZStack (a stable
-    /// transition host) with the shared manager motion: the manager zooms up
-    /// from the button that opened it over the receding dashboard, and zooms
-    /// back into it on Back.
-    @ViewBuilder
+    /// The dashboard and the manager exchange inside `ManagerPresentationHost`
+    /// (a stable transition host) with the shared manager motion: the manager
+    /// zooms up from the button that opened it over the receding dashboard,
+    /// and zooms back into it on Back — after which it stays mounted (hidden),
+    /// so reopening restores its panes, metrics, and selections instantly.
     private func resultsContent(_ result: ApplicationsScanResult) -> some View {
-        ZStack {
-            switch detail {
-            case .dashboard:
-                // The dashboard divides the pane height into a hero banner and a
-                // grid of equal-height tiles, so it fills the detail area without a
-                // scroll view.
-                ApplicationsDashboardView(
-                    result: result,
-                    iconCache: iconCache,
-                    accent: NavigationSection.applications.theme.accent,
-                    onOpenManage: { openManager(.uninstaller) },
-                    onOpenInstallationFiles: { openManager(.installationFiles) },
-                    onOpenUnsupported: { openManager(.unsupported) },
-                    onOpenUnused: { openManager(.unused) },
-                    onOpenUpdates: { openManager(.updater) },
-                    onOpenLeftovers: { openManager(.leftovers) },
-                    onRemoveLeftovers: {
-                        viewModel.selectAllLeftovers()
-                        Task { await viewModel.deleteSelectedLeftovers() }
-                    }
-                )
-                // Generous top and bottom insets so the section breathes above the
-                // hero and below the cards rather than running into the window edges.
-                .padding(.horizontal, 24)
-                .padding(.top, 44)
-                .padding(.bottom, 48)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The dashboard keeps its usual place below the title bar:
-                // the host ZStack claims that inset permanently, so it is
-                // handed back here as explicit padding.
-                .padding(.top, paneTopInset)
-                .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
-            case .manage(let destination):
-                // Full multi-pane manager (Uninstaller / Updater / Extensions /
-                // Leftovers / Unsupported), styled like the Performance "View All
-                // Tasks" catalog — it owns its own header. Opens on `destination` so
-                // each card's Review deep-links straight to the pane and facet where
-                // its finding lives.
-                ApplicationsManagerView(
-                    viewModel: viewModel,
-                    uninstallerViewModel: uninstallerViewModel,
-                    updaterViewModel: updaterViewModel,
-                    extensionsManagerViewModel: extensionsManagerViewModel,
-                    homebrewViewModel: homebrewViewModel,
-                    result: result,
-                    iconCache: iconCache,
-                    destination: destination,
-                    onBack: { detail = .dashboard }
-                )
-                .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
-                // Draw over the dashboard while the two overlap mid-swap.
-                .zIndex(1)
-            }
+        ManagerPresentationHost(
+            isPresented: detail != .dashboard,
+            anchor: managerAnchor,
+            reduceMotion: reduceMotion,
+            dashboardTopInset: paneTopInset
+        ) {
+            // The dashboard divides the pane height into a hero banner and a
+            // grid of equal-height tiles, so it fills the detail area without a
+            // scroll view.
+            ApplicationsDashboardView(
+                result: result,
+                iconCache: iconCache,
+                accent: NavigationSection.applications.theme.accent,
+                onOpenManage: { openManager(.uninstaller) },
+                onOpenInstallationFiles: { openManager(.installationFiles) },
+                onOpenUnsupported: { openManager(.unsupported) },
+                onOpenUnused: { openManager(.unused) },
+                onOpenUpdates: { openManager(.updater) },
+                onOpenLeftovers: { openManager(.leftovers) },
+                onRemoveLeftovers: {
+                    viewModel.selectAllLeftovers()
+                    Task { await viewModel.deleteSelectedLeftovers() }
+                }
+            )
+            // Generous top and bottom insets so the section breathes above the
+            // hero and below the cards rather than running into the window edges.
+            .padding(.horizontal, 24)
+            .padding(.top, 44)
+            .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } manager: {
+            // Full multi-pane manager (Uninstaller / Updater / Extensions /
+            // Leftovers / Unsupported), styled like the Performance "View All
+            // Tasks" catalog — it owns its own header. Opens on the last
+            // `openManager` destination so each card's Review deep-links
+            // straight to the pane and facet where its finding lives.
+            ApplicationsManagerView(
+                viewModel: viewModel,
+                uninstallerViewModel: uninstallerViewModel,
+                updaterViewModel: updaterViewModel,
+                extensionsManagerViewModel: extensionsManagerViewModel,
+                homebrewViewModel: homebrewViewModel,
+                result: result,
+                iconCache: iconCache,
+                destination: managerDestination,
+                isPresented: detail != .dashboard,
+                onBack: { detail = .dashboard }
+            )
         }
-        // Claim the title-bar safe area on this stable container, never on a
-        // transitioning branch: safe-area changes anywhere inside a freshly
-        // inserted transition subtree are deferred until its spring fully
-        // settles, which read as the manager stuck below a title-bar-height
-        // gap for a beat after opening.
-        .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
-        .animation(VaderMotion.managerZoom, value: detail)
     }
 
     /// Anchors the zoom to the button (or failing that, the click) being
     /// handled, then raises the manager on `destination`.
     private func openManager(_ destination: ApplicationsManagerView.Destination) {
         managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        managerDestination = destination
         detail = .manage(destination)
     }
 }

@@ -113,35 +113,24 @@ struct SystemJunkView: View {
 
     /// The results surface: the category dashboard, or the three-pane Cleanup
     /// Manager when the user taps Review / Review All Junk. The two surfaces
-    /// exchange inside a ZStack (a stable transition host) with the shared
-    /// manager motion: the manager zooms up from the button that opened it
-    /// over the receding dashboard, and zooms back into it on Back.
-    @ViewBuilder
+    /// exchange inside `ManagerPresentationHost` (a stable transition host)
+    /// with the shared manager motion: the manager zooms up from the button
+    /// that opened it over the receding dashboard, and zooms back into it on
+    /// Back — after which it stays mounted (hidden), so reopening restores
+    /// the already-built panes instantly instead of rebuilding them.
     private func resultsContent(result: ScanResult) -> some View {
-        ZStack {
-            if showingManager {
-                managerScreen(result: result)
-                    .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
-                    // Draw over the dashboard while the two overlap mid-swap.
-                    .zIndex(1)
-            } else {
-                dashboard(result: result)
-                    // The dashboard keeps its usual place below the title
-                    // bar: the host ZStack claims that inset permanently, so
-                    // it is handed back here as explicit padding.
-                    .padding(.top, paneTopInset)
-                    .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
-            }
+        ManagerPresentationHost(
+            isPresented: showingManager,
+            anchor: managerAnchor,
+            reduceMotion: reduceMotion,
+            dashboardTopInset: paneTopInset
+        ) {
+            dashboard(result: result)
+        } manager: {
+            managerScreen(result: result)
         }
-        // Claim the title-bar safe area on this stable container, never on a
-        // transitioning branch: safe-area changes anywhere inside a freshly
-        // inserted transition subtree are deferred until its spring fully
-        // settles, which read as the manager stuck below a title-bar-height
-        // gap for a beat after opening.
-        .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
-        .animation(VaderMotion.managerZoom, value: showingManager)
     }
 
     /// Anchors the zoom to the button (or failing that, the click) being
@@ -208,10 +197,12 @@ struct SystemJunkView: View {
             // Cheap shell: sections + category sizes, no file trees.
             buildSections: { store.sections() },
             isSelected: { id in
-                // Checked when every file beneath the row is selected. The files
-                // are gathered under one store lock, and `areAllSelected` short-
-                // circuits, so an unchecked folder is cheap to answer.
-                viewModel.areAllSelected(store.files(forRowID: id))
+                // Checked when every file beneath the row is selected. The walk
+                // runs in place under one store lock and short-circuits on the
+                // first unselected file, never materializing the subtree's file
+                // array. (The manager's per-category fast path answers the
+                // common all/none states before this runs at all.)
+                store.allFilesSelected(forRowID: id) { viewModel.isSelected($0) }
             },
             onToggle: { id in
                 // Whole-folder toggle in one batched pass: gather the row's files
@@ -256,6 +247,9 @@ struct SystemJunkView: View {
             showsSparkle: true,
             initialSectionID: managerInitialSection,
             initialCategoryID: managerInitialCategory,
+            // The host keeps this manager alive across Back; flipping this
+            // re-aims the panes at the deep-link target on each open.
+            isPresented: showingManager,
             primaryActionTitle: String(
                 localized: "Clean Up",
                 comment: "Footer button on the Cleanup Manager that removes the selected junk."
