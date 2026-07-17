@@ -8,13 +8,14 @@ final class ApplicationsManagerModelTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func app(_ name: String, _ bundleID: String, appStore: Bool = false) -> AppInfo {
+    private func app(_ name: String, _ bundleID: String, appStore: Bool = false, lastUsed: Date? = nil) -> AppInfo {
         AppInfo(
             name: name,
             bundleID: bundleID,
             version: "1.0",
             bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
-            isAppStore: appStore
+            isAppStore: appStore,
+            lastUsedDate: lastUsed
         )
     }
 
@@ -113,7 +114,7 @@ final class ApplicationsManagerModelTests: XCTestCase {
     /// Name sort is case-insensitive ascending.
     func test_sort_name_isAlphabetical() {
         let result = ApplicationsManagerModel.sort(
-            apps, by: .name, sizes: [:], dates: [:]
+            apps, by: .name, sizes: [:]
         )
         XCTAssertEqual(result.map(\.name), ["Chrome", "Firefox", "Pages", "Safari", "VS Code"])
     }
@@ -126,22 +127,24 @@ final class ApplicationsManagerModelTests: XCTestCase {
             apps[2].id: 200,
         ]
         let result = ApplicationsManagerModel.sort(
-            apps, by: .size, sizes: sizes, dates: [:]
+            apps, by: .size, sizes: sizes
         )
         XCTAssertEqual(Array(result.prefix(3)).map(\.name), ["Pages", "Chrome", "Safari"])
     }
 
-    /// Last-opened sort is most-recent-first; apps without a date sink to the end.
+    /// Last-opened sort is most-recent-first; apps without a date sink to the
+    /// end. The date rides on `AppInfo`, resolved during discovery.
     func test_sort_lastOpened_isMostRecentFirst() {
         let now = Date()
-        let dates: [AppInfo.ID: Date] = [
-            apps[0].id: now.addingTimeInterval(-100),
-            apps[1].id: now,
-            apps[2].id: now.addingTimeInterval(-50),
+        let dated = [
+            app("Safari", "com.apple.Safari", lastUsed: now.addingTimeInterval(-100)),
+            app("Pages", "com.apple.iWork.Pages", lastUsed: now),
+            app("Chrome", "com.google.Chrome", lastUsed: now.addingTimeInterval(-50)),
+            app("Firefox", "org.mozilla.firefox", lastUsed: nil),
         ]
         let result = ApplicationsManagerModel.sort(
-            apps, by: .lastOpened, sizes: [:], dates: dates
+            dated, by: .lastOpened, sizes: [:]
         )
-        XCTAssertEqual(Array(result.prefix(3)).map(\.name), ["Pages", "Chrome", "Safari"])
+        XCTAssertEqual(result.map(\.name), ["Pages", "Chrome", "Safari", "Firefox"])
     }
 }

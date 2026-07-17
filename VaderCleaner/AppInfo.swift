@@ -29,8 +29,31 @@ struct AppInfo: Identifiable, Hashable, Sendable {
     let bundleURL: URL
     let isAppStore: Bool
 
+    /// Spotlight's `kMDItemLastUsedDate` for the bundle, resolved during the
+    /// discovery pass. Unlike bundle size, this is a single cheap index read,
+    /// so it rides along on discovery and the App Uninstaller list can show and
+    /// sort by last-opened the moment rows appear — no deferred second pass.
+    /// `nil` means Spotlight has no usage record for the app.
+    let lastUsedDate: Date?
+
     /// `id` keys off the bundle URL path so SwiftUI lists stay stable across
     /// repeated discovery passes — bundleID is not unique (two copies of the
     /// same app under `/Applications` and `~/Applications` would collide).
     var id: String { bundleURL.path }
+
+    init(
+        name: String,
+        bundleID: String,
+        version: String?,
+        bundleURL: URL,
+        isAppStore: Bool,
+        lastUsedDate: Date? = nil
+    ) {
+        self.name = name
+        self.bundleID = bundleID
+        self.version = version
+        self.bundleURL = bundleURL
+        self.isAppStore = isAppStore
+        self.lastUsedDate = lastUsedDate
+    }
 }

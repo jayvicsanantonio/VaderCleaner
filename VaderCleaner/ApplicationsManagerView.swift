@@ -736,8 +736,7 @@ private struct UninstallerPaneView: View {
         displayedApps = ApplicationsManagerModel.sort(
             filtered,
             by: sort,
-            sizes: uninstallerViewModel.listSizes,
-            dates: uninstallerViewModel.listLastOpened
+            sizes: uninstallerViewModel.listSizes
         )
     }
 
@@ -798,7 +797,7 @@ private struct UninstallerPaneView: View {
             }
             Spacer(minLength: 8)
             SmartInsightsSparkle(itemTitle: app.name, accent: ApplicationsManagerChrome.accent, topic: .application)
-            Text(dateText(uninstallerViewModel.listLastOpened[app.id]))
+            Text(dateText(app.lastUsedDate))
                 .font(.callout).foregroundStyle(.secondary).frame(width: 96, alignment: .trailing)
             Text(sizeText(uninstallerViewModel.listSizes[app.id]))
                 .font(.callout.weight(.semibold)).frame(width: 72, alignment: .trailing)

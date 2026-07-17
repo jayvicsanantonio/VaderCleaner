@@ -29,6 +29,10 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
 
     private let fileManager: FileManager
     private let roots: [URL]
+    /// Resolves each bundle's last-opened date during discovery. Injected so
+    /// tests can supply a deterministic date instead of the real Spotlight
+    /// index; defaults to Spotlight's `kMDItemLastUsedDate`.
+    private let lastUsedDate: @Sendable (String) -> Date?
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "AppDiscovery")
 
@@ -38,13 +42,17 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
     /// - Parameter additionalRoots: extra roots to scan in addition to
     ///   the macOS defaults. Tests use this to point discovery at a
     ///   fixture tree and bypass the real `/Applications`.
+    /// - Parameter lastUsedDate: resolves a bundle path to its last-opened
+    ///   date. Defaults to the real Spotlight read; tests inject a stub.
     init(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         additionalRoots: [URL] = [],
-        useDefaultRoots: Bool = true
+        useDefaultRoots: Bool = true,
+        lastUsedDate: @escaping @Sendable (String) -> Date? = { DefaultUnusedAppScanner.spotlightLastUsedDate(atPath: $0) }
     ) {
         self.fileManager = fileManager
+        self.lastUsedDate = lastUsedDate
         var roots: [URL] = []
         if useDefaultRoots {
             roots.append(URL(fileURLWithPath: "/Applications", isDirectory: true))
@@ -72,6 +80,7 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
         let fileManager = fileManager
         let roots = roots
         let log = log
+        let lastUsedDate = lastUsedDate
         return await Task.detached(priority: .userInitiated) {
             var seen = Set<String>()
             var apps: [AppInfo] = []
@@ -102,7 +111,7 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
                     guard entry.pathExtension.caseInsensitiveCompare("app") == .orderedSame else {
                         continue
                     }
-                    guard let info = Self.parseBundle(at: entry, fileManager: fileManager) else {
+                    guard let info = Self.parseBundle(at: entry, fileManager: fileManager, lastUsedDate: lastUsedDate) else {
                         continue
                     }
                     if !includingSystemApps, info.bundleID.hasPrefix("com.apple.") {
@@ -125,7 +134,11 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
     /// Parses `Info.plist` for a single `.app` bundle. Returns `nil` when
     /// `CFBundleIdentifier` is missing — without a bundle ID we can't find
     /// associated files later, so the row would be useless to the user.
-    static func parseBundle(at url: URL, fileManager: FileManager) -> AppInfo? {
+    static func parseBundle(
+        at url: URL,
+        fileManager: FileManager,
+        lastUsedDate: @Sendable (String) -> Date? = { DefaultUnusedAppScanner.spotlightLastUsedDate(atPath: $0) }
+    ) -> AppInfo? {
         let infoPlistURL = url
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Info.plist")
@@ -156,12 +169,18 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
             .appendingPathComponent("receipt")
         let isAppStore = fileManager.fileExists(atPath: receipt.path)
 
+        // A single Spotlight index read — cheap enough to resolve inline on the
+        // discovery pass, so the list shows and sorts by last-opened without a
+        // deferred second walk. Bundle size stays lazy; it is the expensive one.
+        let resolvedLastUsedDate = lastUsedDate(url.path)
+
         return AppInfo(
             name: name,
             bundleID: bundleID,
             version: version,
             bundleURL: url,
-            isAppStore: isAppStore
+            isAppStore: isAppStore,
+            lastUsedDate: resolvedLastUsedDate
         )
     }
 

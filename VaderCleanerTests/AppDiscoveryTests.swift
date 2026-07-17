@@ -42,6 +42,43 @@ final class AppDiscoveryTests: XCTestCase {
         XCTAssertEqual(apps.first?.bundleURL.lastPathComponent, "Helio.app")
     }
 
+    /// Discovery resolves each bundle's last-opened date inline and carries it
+    /// on `AppInfo`, so the uninstaller list can show and sort by last-opened
+    /// the moment rows appear — no deferred second pass.
+    func test_installedApps_carriesLastUsedDateFromProvider() async throws {
+        try makeAppBundle(named: "Helio", bundleID: "com.acme.helio")
+        let expected = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let discovery = DefaultAppDiscovery(
+            homeDirectory: tempRoot.appendingPathComponent("home", isDirectory: true),
+            additionalRoots: [tempRoot],
+            useDefaultRoots: false,
+            lastUsedDate: { path in
+                path.hasSuffix("Helio.app") ? expected : nil
+            }
+        )
+
+        let apps = try await discovery.installedApps(includingSystemApps: true)
+        XCTAssertEqual(apps.first?.lastUsedDate, expected)
+    }
+
+    /// A bundle with no Spotlight usage record surfaces with a `nil` date
+    /// rather than being dropped from the list.
+    func test_installedApps_lastUsedDateIsNilWhenProviderHasNoRecord() async throws {
+        try makeAppBundle(named: "Helio", bundleID: "com.acme.helio")
+
+        let discovery = DefaultAppDiscovery(
+            homeDirectory: tempRoot.appendingPathComponent("home", isDirectory: true),
+            additionalRoots: [tempRoot],
+            useDefaultRoots: false,
+            lastUsedDate: { _ in nil }
+        )
+
+        let apps = try await discovery.installedApps(includingSystemApps: true)
+        XCTAssertEqual(apps.count, 1)
+        XCTAssertNil(apps.first?.lastUsedDate)
+    }
+
     /// Apps installed inside vendor subfolders such as
     /// `/Applications/Adobe/.../*.app` or `/Applications/Setapp/*.app`
     /// must surface in the list; the enumerator walks recursively but
