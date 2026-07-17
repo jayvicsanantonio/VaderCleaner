@@ -27,7 +27,7 @@ struct ManagerItemTable: NSViewRepresentable {
     /// white surface. AppKit views follow `effectiveAppearance`, not SwiftUI's
     /// `colorScheme`, so this must be set explicitly here.
     var forcesLightAppearance: Bool = false
-    /// When true each row shows a decorative pink sparkle before its size.
+    /// When true each row shows a decorative accent-tinted sparkle before its size.
     var showsSparkle: Bool = false
     /// Whether an expandable row (by `ManagerItem.id`) is currently disclosed —
     /// drives the chevron direction.
@@ -270,6 +270,144 @@ final class HoverTableRowView: NSTableRowView {
     }
 }
 
+/// The "smart insights" sparkle in a manager row's trailing column. Hovering it
+/// fills a rounded accent chip behind the glyph and reveals its tooltip; it has
+/// no click action of its own.
+final class ManagerSparkleView: NSView {
+    /// The chip's fixed side length: a square larger than the 15-point glyph so
+    /// the hover background reads as a squircle with padding around the sparkle.
+    private static let side: CGFloat = 26
+
+    /// The hover chip, drawn as its own centered square sublayer so it stays
+    /// square (a squircle) regardless of how the row stack sizes this view.
+    private let chipLayer = CALayer()
+    /// The sparkle glyph, centered on top of the chip.
+    private let glyph = NSImageView()
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovering = false
+    /// The popover presented on click, reused so a second click toggles it shut.
+    private var insightsPopover: NSPopover?
+
+    /// The row's display name, summarized by the Smart Insights popover.
+    var itemTitle: String = ""
+    /// The manager accent the hover chip is tinted with, set per row so the
+    /// sparkle matches the section's chevrons and checkboxes.
+    private(set) var accentColor: NSColor = ManagerChrome.nsAccent
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+
+        // A squircle: a continuous corner curve rather than a plain arc.
+        chipLayer.cornerRadius = 8
+        chipLayer.cornerCurve = .continuous
+        chipLayer.backgroundColor = NSColor.clear.cgColor
+        layer?.addSublayer(chipLayer)
+
+        glyph.image = ManagerSymbolCache.image("sparkles", pointSize: 15)
+        glyph.imageScaling = .scaleNone
+        glyph.imageAlignment = .alignCenter
+        glyph.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glyph)
+        NSLayoutConstraint.activate([
+            glyph.centerXAnchor.constraint(equalTo: centerXAnchor),
+            glyph.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        toolTip = String(
+            localized: "Get smart insights about this item",
+            comment: "Tooltip on the smart-insights sparkle in a Cleanup Manager row."
+        )
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(String(
+            localized: "Smart Insights",
+            comment: "Accessibility label for the smart-insights sparkle button in a Cleanup Manager row."
+        ))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    // Click the sparkle to open (or toggle shut) the Smart Insights popover. The
+    // event is consumed here so it never falls through to the row or table.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        presentInsights()
+    }
+
+    /// A pointing-hand cursor so the sparkle reads as clickable on hover.
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    /// Shows the Smart Insights popover anchored to the sparkle, or closes it if
+    /// it is already open. The popover opens in its "thinking" loading state; the
+    /// Apple Intelligence summary populates it once generation is wired up.
+    private func presentInsights() {
+        if let popover = insightsPopover, popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+        let popover = insightsPopover ?? NSPopover()
+        popover.behavior = .transient
+        popover.appearance = NSAppearance(named: .darkAqua)
+        let hosting = NSHostingController(rootView: SmartInsightsPopoverView(itemTitle: itemTitle))
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
+        insightsPopover = popover
+        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)
+    }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: Self.side, height: Self.side) }
+
+    override func layout() {
+        super.layout()
+        // Center a fixed square chip within whatever frame the stack hands us so
+        // the squircle stays square rather than following a rectangular bounds.
+        let s = min(Self.side, bounds.width, bounds.height)
+        chipLayer.frame = CGRect(
+            x: (bounds.width - s) / 2,
+            y: (bounds.height - s) / 2,
+            width: s,
+            height: s
+        )
+    }
+
+    /// Tints the glyph and the hover chip with the manager accent.
+    func setAccent(_ color: NSColor) {
+        accentColor = color
+        glyph.contentTintColor = color
+        if isHovering { chipLayer.backgroundColor = color.withAlphaComponent(0.18).cgColor }
+    }
+
+    /// Clears the hover chip so a recycled cell never shows a stale highlight.
+    func clearHover() {
+        isHovering = false
+        chipLayer.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp],
+            owner: self
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        chipLayer.backgroundColor = accentColor.withAlphaComponent(0.18).cgColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        clearHover()
+    }
+}
+
 /// A native, recycled row cell: an optional indent, a checkbox, a tinted icon
 /// or real Finder icon, a title + optional subtitle, an optional decorative
 /// sparkle, a right-aligned size, and an optional disclosure chevron. Built from
@@ -281,7 +419,7 @@ final class ManagerRowCellView: NSTableCellView {
     private let iconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
-    private let sparkleView = NSImageView()
+    private let sparkleView = ManagerSparkleView()
     private let sizeField = NSTextField(labelWithString: "")
     private let chevron = NSButton()
     /// Flexible gap between the text and the trailing column. It absorbs the
@@ -321,9 +459,13 @@ final class ManagerRowCellView: NSTableCellView {
         subtitleField.textColor = .secondaryLabelColor
         subtitleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        sparkleView.image = ManagerSymbolCache.image("sparkles", pointSize: 15)
-        sparkleView.contentTintColor = .systemPink
+        // Hug and resist on both axes so the row stack honors the sparkle's fixed
+        // square intrinsic size exactly — never stretching or compressing it into
+        // a rectangle.
         sparkleView.setContentHuggingPriority(.required, for: .horizontal)
+        sparkleView.setContentHuggingPriority(.required, for: .vertical)
+        sparkleView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sparkleView.setContentCompressionResistancePriority(.required, for: .vertical)
 
         // Lowest hugging so the stack hands this view all the row's slack,
         // parking the trailing column (sparkle / size / chevron) at a fixed
@@ -418,6 +560,12 @@ final class ManagerRowCellView: NSTableCellView {
             subtitleField.isHidden = true
         }
         sparkleView.isHidden = !showsSparkle
+        // Tint the sparkle and its hover chip with the manager's accent so it
+        // matches the chevron, search, and back icons rather than a fixed pink.
+        sparkleView.setAccent(accent)
+        sparkleView.itemTitle = item.title
+        // A recycled cell may arrive still tinted from a prior hover.
+        sparkleView.clearHover()
         if let sizeText = item.sizeText {
             sizeField.stringValue = sizeText
             sizeField.isHidden = false
@@ -453,6 +601,7 @@ final class ManagerRowCellView: NSTableCellView {
         titleField.stringValue = ""
         subtitleField.isHidden = true
         sparkleView.isHidden = true
+        sparkleView.clearHover()
         sizeField.isHidden = true
         chevron.image = nil
         chevron.alphaValue = 0
