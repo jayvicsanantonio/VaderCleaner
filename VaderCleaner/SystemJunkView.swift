@@ -173,7 +173,10 @@ struct SystemJunkView: View {
                 Task { await viewModel.clean(categories: Set(group.categories)) }
             },
             onReviewAll: {
-                // The full manager, default first section/category.
+                // The full manager, default first section/category. Opens with
+                // nothing checked — selection is a card's Review, not this
+                // browse-everything entry point.
+                viewModel.clearSelection()
                 managerInitialSection = nil
                 managerInitialCategory = nil
                 openManager()

@@ -225,6 +225,14 @@ final class SystemJunkViewModel {
         apply(seed)
     }
 
+    /// Clear the whole selection — backs opening the full Cleanup Manager from
+    /// "Review All Junk", which opens with nothing checked so cleaning is an
+    /// explicit opt-in. The scan-time safe-default seed is left intact; only the
+    /// live selection is emptied, and a card's Review re-seeds its own group.
+    func clearSelection() {
+        apply(ScanSelectionSeed())
+    }
+
     /// Land a precomputed selection in the four observable properties in one
     /// write each. The seed itself is built off the main actor (see
     /// `ScanSelectionSeed`) — walking a large result's URLs into a `Set` on

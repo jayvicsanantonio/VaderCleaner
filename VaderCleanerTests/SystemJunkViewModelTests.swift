@@ -285,6 +285,25 @@ final class SystemJunkViewModelTests: XCTestCase {
         XCTAssertEqual(vm.totalSelectedSize, 300)
     }
 
+    /// "Review All Junk" opens the full Cleanup Manager browsing everything with
+    /// nothing checked, so `clearSelection()` empties the safe-default selection
+    /// and every per-category total the manager reads.
+    func test_clearSelection_emptiesSelectionAndCategoryTotals() async {
+        let cacheA = makeFile(name: "a", size: 100, category: .userCache)
+        let cacheB = makeFile(name: "b", size: 200, category: .systemCache)
+        let result = makeResult((.userCache, [cacheA]), (.systemCache, [cacheB]))
+        let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
+        await vm.scan()
+        XCTAssertFalse(vm.selectedURLs.isEmpty, "Safe defaults pre-check regenerable junk")
+
+        vm.clearSelection()
+
+        XCTAssertTrue(vm.selectedURLs.isEmpty)
+        XCTAssertEqual(vm.totalSelectedSize, 0)
+        XCTAssertEqual(vm.selectedBytes(in: .userCache), 0)
+        XCTAssertEqual(vm.selectedCount(in: .systemCache), 0)
+    }
+
     // MARK: - Per-category selected bytes (Cleanup Manager badge)
 
     /// Toggling a file must move its bytes into (and out of) its own category's
