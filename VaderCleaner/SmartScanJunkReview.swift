@@ -28,10 +28,12 @@ struct SmartScanJunkReview: View {
             // the background when the scan landed on `.results`).
             buildSections: { store.sections() },
             isSelected: { id in
-                // Checked when every file beneath the row is selected. The files
-                // are gathered under one store lock, and `areAllJunkFilesSelected`
-                // short-circuits, so an unchecked folder is cheap to answer.
-                viewModel.areAllJunkFilesSelected(store.files(forRowID: id))
+                // Checked when every file beneath the row is selected. The walk
+                // runs in place under one store lock and short-circuits on the
+                // first unselected file, never materializing the subtree's file
+                // array. (The manager's per-category fast path answers the
+                // common all/none states before this runs at all.)
+                store.allFilesSelected(forRowID: id) { viewModel.junkFileSelection.contains($0.url) }
             },
             onToggle: { id in
                 // Whole-folder toggle in one batched pass: gather the row's files

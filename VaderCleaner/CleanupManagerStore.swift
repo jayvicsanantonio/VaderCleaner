@@ -224,4 +224,42 @@ final class CleanupManagerStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return resolvePaths(forRowID: id).compactMap { filesByPath[$0] }
     }
+
+    /// Whether a row covers at least one indexed file and every one of them
+    /// satisfies `isSelected` — the folder-row checkbox's checked state,
+    /// answered by walking the row's index in place and short-circuiting on the
+    /// first miss, instead of materializing the subtree's whole file array
+    /// (which a visible folder row over a huge subtree re-allocated on every
+    /// table reload). Paths the background warm hasn't indexed yet are skipped,
+    /// matching `files(forRowID:)`; a row that resolves to no files answers
+    /// unchecked. `isSelected` runs under the store's lock and must not call
+    /// back into the store.
+    func allFilesSelected(forRowID id: String, isSelected: (ScannedFile) -> Bool) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        var foundFile = false
+        return allResolvedFilesSelected(forRowID: id, isSelected: isSelected, foundFile: &foundFile) && foundFile
+    }
+
+    /// Recursive body of `allFilesSelected`, mirroring `resolvePaths`' index
+    /// precedence (stored paths, then children, then the id itself as a path).
+    /// Call under `lock`.
+    private func allResolvedFilesSelected(forRowID id: String, isSelected: (ScannedFile) -> Bool, foundFile: inout Bool) -> Bool {
+        let paths: [String]
+        if let stored = pathsByRowID[id] {
+            paths = stored
+        } else if let children = childRowIDsByRowID[id] {
+            for child in children where !allResolvedFilesSelected(forRowID: child, isSelected: isSelected, foundFile: &foundFile) {
+                return false
+            }
+            return true
+        } else {
+            paths = [id]
+        }
+        for path in paths {
+            guard let file = filesByPath[path] else { continue }
+            foundFile = true
+            if !isSelected(file) { return false }
+        }
+        return true
+    }
 }

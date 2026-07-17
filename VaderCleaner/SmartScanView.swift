@@ -19,6 +19,11 @@ struct SmartScanView: View {
     /// dashboard is visible. State is local because Review is a transient
     /// UI mode, not a persisted part of the scan model.
     @State private var review: SmartScanModule?
+    /// The module the retained Review screen is built for: the last one
+    /// opened, so the (kept-alive, hidden) Review still has a concrete module
+    /// while the dashboard is showing. Reopening the same module restores its
+    /// built panes instantly; opening a different one swaps in a fresh screen.
+    @State private var managerModule: SmartScanModule?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Where the manager zoom anchors: the button that opened it, resolved
     /// by `openReview`. Also the point Back zooms the manager back into.
@@ -128,47 +133,38 @@ struct SmartScanView: View {
 
     /// Within `.results`, route to the dashboard or to the active Review
     /// screen. Each Review pops back to the dashboard via `review = nil`.
-    /// The two surfaces exchange inside a ZStack (a stable transition host)
-    /// with the shared manager motion: the Review zooms up from the button
-    /// that opened it over the receding dashboard, and zooms back into it on
-    /// Back.
-    @ViewBuilder
+    /// The two surfaces exchange inside `ManagerPresentationHost` (a stable
+    /// transition host) with the shared manager motion: the Review zooms up
+    /// from the button that opened it over the receding dashboard, and zooms
+    /// back into it on Back — after which the last module's Review stays
+    /// mounted (hidden), so reopening it restores its built panes instantly.
     private func resultsContent(result: SmartScanResult) -> some View {
-        ZStack {
-            if let review {
-                reviewScreen(for: review, result: result)
-                    .transition(VaderMotion.managerTransition(anchor: managerAnchor, reduceMotion: reduceMotion))
-                    // Draw over the dashboard while the two overlap mid-swap.
-                    .zIndex(1)
-            } else {
-                SmartScanResultsState(
-                    viewModel: viewModel,
-                    result: result,
-                    onRequestReview: openReview,
-                    onStartOver: { viewModel.reset() }
-                )
-                // The dashboard keeps its usual place below the title bar: the
-                // host ZStack claims that inset permanently, so it is handed
-                // back here as explicit padding.
-                .padding(.top, paneTopInset)
-                .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
+        ManagerPresentationHost(
+            isPresented: review != nil,
+            anchor: managerAnchor,
+            reduceMotion: reduceMotion,
+            dashboardTopInset: paneTopInset
+        ) {
+            SmartScanResultsState(
+                viewModel: viewModel,
+                result: result,
+                onRequestReview: openReview,
+                onStartOver: { viewModel.reset() }
+            )
+        } manager: {
+            if let managerModule {
+                reviewScreen(for: managerModule, result: result)
             }
         }
-        // Claim the title-bar safe area on this stable container, never on a
-        // transitioning branch: safe-area changes anywhere inside a freshly
-        // inserted transition subtree are deferred until its spring fully
-        // settles, which read as the Review Manager stuck below a title-bar-
-        // height gap for a beat after opening.
-        .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
-        .animation(VaderMotion.managerZoom, value: review)
     }
 
     /// Anchors the zoom to the button (or failing that, the click) being
     /// handled, then raises the module's Review screen.
     private func openReview(_ module: SmartScanModule) {
         managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        managerModule = module
         review = module
     }
 

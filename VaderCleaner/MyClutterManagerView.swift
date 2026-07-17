@@ -13,6 +13,10 @@ struct MyClutterManagerView: View {
     @Bindable var viewModel: MyClutterViewModel
     /// Category to open on first show, for deep-linking from a dashboard card.
     var initialCategory: MyClutterCategory = .largeOld
+    /// Whether the manager is the visible surface. The host keeps this manager
+    /// alive between opens (hidden behind the dashboard) and flips this so
+    /// each open re-aims the panes at `initialCategory`.
+    var isPresented: Bool = true
     let onBack: () -> Void
 
     /// The reference Manager uses a magenta accent on a white surface — the same
@@ -51,9 +55,10 @@ struct MyClutterManagerView: View {
     /// slice is the meaningful top; the rest is reached by clearing and re-scanning.
     private static let displayRowLimit = 1000
 
-    init(viewModel: MyClutterViewModel, initialCategory: MyClutterCategory = .largeOld, onBack: @escaping () -> Void) {
+    init(viewModel: MyClutterViewModel, initialCategory: MyClutterCategory = .largeOld, isPresented: Bool = true, onBack: @escaping () -> Void) {
         self.viewModel = viewModel
         self.initialCategory = initialCategory
+        self.isPresented = isPresented
         self.onBack = onBack
         _category = State(initialValue: initialCategory)
     }
@@ -92,6 +97,15 @@ struct MyClutterManagerView: View {
         // so an ordinary checkbox toggle repaints rows without recomputing
         // the list.
         .task(id: displayInputs) { await rebuildDisplayedFiles() }
+        // A retained manager (kept alive by its host between opens) re-aims
+        // its category on each open: a fresh instance seeds it in `init`, but
+        // a kept-alive one must follow the deep link explicitly. The other
+        // pane selections survive, as they do across category switches within
+        // one open.
+        .onChange(of: isPresented) { _, presented in
+            guard presented else { return }
+            category = initialCategory
+        }
     }
 
     /// The complete set of inputs the right pane's file rows derive from. The

@@ -94,6 +94,47 @@ final class CleanupManagerStoreTests: XCTestCase {
         XCTAssertEqual(resolved, target)
     }
 
+    /// The folder-row checkbox's all-selected answer resolves through the same
+    /// row index as `files(forRowID:)` — a folder unions its children — without
+    /// materializing the subtree's file array.
+    func test_allFilesSelected_forFolderRow_walksDescendants() async {
+        let store = CleanupManagerStore()
+        let a = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        let b = file("/Users/me/Library/Caches/Google/Chrome/b", 200, .userCache)
+        // A divergent third file keeps the common ancestor at Caches, so Google
+        // stays a top-level folder disclosing its Chrome child.
+        let c = file("/Users/me/Library/Caches/Homebrew/d", 50, .userCache)
+        store.load(result: ScanResult(items: [a, b, c]))
+        _ = store.items(forCategoryID: "userCache")
+
+        // The path index warms on a background task; poll for it.
+        var google: ManagerItem?
+        for _ in 0..<200 {
+            google = store.items(forCategoryID: "userCache").first { $0.title == "Google" }
+            if store.files(forRowID: google!.id).count == 2 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
+        }
+
+        let selected: Set<URL> = [a.url, b.url]
+        XCTAssertTrue(store.allFilesSelected(forRowID: google!.id) { selected.contains($0.url) })
+        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id) { $0.url == a.url },
+                       "One unselected descendant must uncheck the folder")
+        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id) { _ in false })
+    }
+
+    /// A row that resolves to no indexed files — an unknown id, or paths the
+    /// background warm hasn't indexed yet — answers unchecked, matching the
+    /// empty-array behavior of the materializing path it replaces.
+    func test_allFilesSelected_withNoResolvedFiles_isFalse() {
+        let store = CleanupManagerStore()
+        store.load(result: ScanResult(items: [
+            file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache),
+        ]))
+        _ = store.items(forCategoryID: "userCache")
+
+        XCTAssertFalse(store.allFilesSelected(forRowID: "/no/such/row") { _ in true })
+    }
+
     /// `unload()` drops everything the store serves: category trees come back
     /// empty and the path index no longer resolves files — even if the
     /// superseded load's background warm lands after the unload.

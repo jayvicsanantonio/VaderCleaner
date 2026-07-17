@@ -194,6 +194,11 @@ struct SmartScanReviewManager: View {
     /// and that section's first category.
     var initialSectionID: String? = nil
     var initialCategoryID: String? = nil
+    /// Whether the manager is the visible surface. Hosts that keep the manager
+    /// alive between opens (hidden behind the dashboard) flip this so each
+    /// open re-aims the panes at the deep-link target; a host that removes the
+    /// manager on Back can leave it `true`.
+    var isPresented: Bool = true
     /// Optional secondary footer button shown left of the primary action.
     var secondaryActionTitle: String? = nil
     var onSecondaryAction: (() -> Void)? = nil
@@ -291,6 +296,31 @@ struct SmartScanReviewManager: View {
         }
         .onChange(of: sort) { _, _ in refreshDisplayedItems() }
         .onChange(of: search) { _, _ in refreshDisplayedItems() }
+        // A manager kept alive by its host between opens re-aims its panes on
+        // each open: a fresh instance honors the deep-link ids in
+        // `syncSelection`, but a retained one must follow them explicitly.
+        // `nil` ids (Review All) leave the panes where the user left them.
+        .onChange(of: isPresented) { _, presented in
+            guard presented else { return }
+            applyDeepLinkTarget()
+        }
+    }
+
+    /// Aim the panes at the host's current deep-link target, if any: the
+    /// section when it names one in the model, then its category — or that
+    /// section's first category when the category id doesn't resolve,
+    /// mirroring `syncSelection`. No-op when both ids are `nil`, so a plain
+    /// (non-deep-linked) reopen resumes in place.
+    private func applyDeepLinkTarget() {
+        guard initialSectionID != nil || initialCategoryID != nil else { return }
+        if let target = initialSectionID, loadedSections.contains(where: { $0.id == target }) {
+            selectedSectionID = target
+        }
+        if let target = initialCategoryID, sortedCategories.contains(where: { $0.id == target }) {
+            selectedCategoryID = target
+        } else if initialSectionID != nil {
+            selectFirstCategory()
+        }
     }
 
     /// Builds the selected category's rows on demand when `loadItems` is set,
@@ -510,7 +540,7 @@ struct SmartScanReviewManager: View {
                     ManagerItemTable(
                         items: displayedItems,
                         showsSelection: showsSelection,
-                        isSelected: isSelected,
+                        isSelected: rowIsSelected,
                         onToggle: onToggle,
                         accent: accent,
                         // Tall enough for the 38-point icon plus the card's
@@ -612,6 +642,33 @@ struct SmartScanReviewManager: View {
     }
 
     // MARK: - Derived data
+
+    /// The per-row checkbox predicate for the visible category. When the
+    /// category's O(1) tally reports a uniform state — everything or nothing
+    /// selected — every row answers without the caller's per-row check, which
+    /// for the hierarchical managers walks the row's whole subtree; over a
+    /// large scan (whose default state is a fully-checked category) those
+    /// walks stalled every open of the manager for seconds. Mixed selections
+    /// fall back to the caller's check, which then short-circuits on the
+    /// unselected files.
+    private var rowIsSelected: (String) -> Bool {
+        guard let category = selectedCategory,
+              let uniform = Self.uniformSelection(tally: categorySelectionTally(category)) else {
+            return isSelected
+        }
+        return { _ in uniform }
+    }
+
+    /// Maps a category's selection tally to its uniform state: `true` when
+    /// every leaf item is selected, `false` when none is, `nil` when mixed or
+    /// unknown (no tally, or an empty category) — only then do the row
+    /// checkboxes need a real per-row answer.
+    static func uniformSelection(tally: (selected: Int, total: Int)?) -> Bool? {
+        guard let tally, tally.total > 0 else { return nil }
+        if tally.selected == 0 { return false }
+        if tally.selected >= tally.total { return true }
+        return nil
+    }
 
     /// The selected category's rows — lazily loaded when `loadItems` is set,
     /// otherwise the eager rows carried on the category.
