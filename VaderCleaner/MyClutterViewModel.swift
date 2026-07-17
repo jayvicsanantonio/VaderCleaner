@@ -180,6 +180,36 @@ final class MyClutterViewModel {
         }
     }
 
+    /// Clear the whole selection — backs opening the manager from "Review All
+    /// Files", which opens with nothing checked so deleting is an explicit
+    /// opt-in. The size/category read-model built at scan time is left intact;
+    /// only the live selection is emptied, and a card's Review re-seeds its own
+    /// category via `selectOnly(category:)`.
+    func clearSelection() {
+        selectedURLs = []
+        totalSelectedSize = 0
+        selectedBytesByCategory = [:]
+        selectedCountByCategory = [:]
+    }
+
+    /// Replace the selection with just one category's safe-by-default files —
+    /// backs a dashboard card's Review, which opens the manager with that card's
+    /// group pre-checked. Duplicates and Similar seed their redundant copies (a
+    /// copy always leaves an original); Large & Old and Downloads are real user
+    /// data, so their cards open unchecked (opt-in), mirroring the scan-time
+    /// safe-default seed.
+    func selectOnly(category: MyClutterCategory) {
+        let urls: Set<URL>
+        switch category {
+        case .duplicates: urls = Set(duplicateCopies.map(\.url))
+        case .similar:    urls = Set(similarCopies.map(\.url))
+        case .largeOld, .downloads: urls = []
+        }
+        selectedURLs = urls
+        totalSelectedSize = urls.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
+        recomputeSelectedCategoryTotals()
+    }
+
     /// Bulk select/clear a set of URLs (the review manager's "Select" menu).
     func setSelection(_ urls: [URL], selected: Bool) {
         for url in urls {

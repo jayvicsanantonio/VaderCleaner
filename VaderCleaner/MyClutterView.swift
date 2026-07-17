@@ -111,11 +111,14 @@ struct MyClutterView: View {
         MyClutterDashboardView(
             viewModel: viewModel,
             accent: accent,
-            onReviewAll: { openReview(.all) },
-            onReviewDuplicates: { openReview(.duplicates) },
-            onReviewSimilar: { openReview(.similar) },
-            onReviewLargeOld: { openReview(.largeOld) },
-            onReviewDownloads: { openReview(.downloads) },
+            // "Review All Files" browses everything with nothing checked;
+            // each card's Review pre-selects only that card's group so the
+            // manager opens matching the tile the user tapped.
+            onReviewAll: { viewModel.clearSelection(); openReview(.all) },
+            onReviewDuplicates: { viewModel.selectOnly(category: .duplicates); openReview(.duplicates) },
+            onReviewSimilar: { viewModel.selectOnly(category: .similar); openReview(.similar) },
+            onReviewLargeOld: { viewModel.selectOnly(category: .largeOld); openReview(.largeOld) },
+            onReviewDownloads: { viewModel.selectOnly(category: .downloads); openReview(.downloads) },
             onStartOver: viewModel.scanAgain
         )
     }
