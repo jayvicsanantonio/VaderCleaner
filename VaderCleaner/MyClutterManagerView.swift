@@ -506,6 +506,7 @@ struct MyClutterManagerView: View {
                 breadcrumb(file.url)
             }
             Spacer(minLength: 8)
+            SmartInsightsSparkle(itemTitle: file.url.lastPathComponent, accent: Self.accent, topic: .fileOrFolder)
             Text(dateText(file.lastModifiedDate ?? file.lastAccessDate))
                 .font(.callout).foregroundStyle(.secondary).frame(width: 100, alignment: .trailing)
             Text(ManagerByteText.string(file.size))

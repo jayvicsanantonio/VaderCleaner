@@ -11,26 +11,147 @@ import FoundationModels
 struct SmartInsight {
     @Guide(description: "One or two plain-language sentences explaining what this file or folder is and whether it is generally safe to delete during a storage cleanup.")
     let summary: String
-    @Guide(description: "A single short category label such as Developer, Browser, System, Media, Cache, or Document.")
-    let category: String
+    @Guide(description: "The one category that best fits the item, for a non-technical person: app for an application; system for part of macOS that should be handled with care; media for photos, videos, or music; documents for documents and personal files; temporaryFiles for caches and temporary junk that is safe to clear; browser for a web browser or its stored data; developer for coding and development tools; games for games; other for anything that fits none of these.")
+    let category: SmartInsightCategory
 }
 
-/// The instructions and prompt used to generate a `SmartInsight`. Kept pure and
-/// separate from the model call so the wording is unit-testable without invoking
-/// the on-device model.
-enum SmartInsightsPrompt {
-    static let instructions = """
-        You explain what a file or folder on a Mac is, in plain language, to help \
-        someone decide whether it is safe to delete during a storage cleanup. Be \
-        concise and factual. If you are not certain what the item is, say so \
-        rather than guessing.
-        """
+/// A fixed set of plain-language categories the model classifies an item into,
+/// each with its own pill color. Constrained rather than free text so the tag is
+/// predictable and a non-technical person can read it at a glance.
+@Generable
+enum SmartInsightCategory {
+    case app
+    case system
+    case media
+    case documents
+    case temporaryFiles
+    case browser
+    case developer
+    case games
+    case other
 
-    static func text(for itemName: String) -> String {
-        """
-        Explain what this item on the user's Mac is and whether it is generally \
-        safe to delete during a cleanup. Item name: "\(itemName)".
-        """
+    /// The short text shown on the pill.
+    var label: String {
+        switch self {
+        case .app: return String(localized: "App")
+        case .system: return String(localized: "System")
+        case .media: return String(localized: "Media")
+        case .documents: return String(localized: "Documents")
+        case .temporaryFiles: return String(localized: "Temporary")
+        case .browser: return String(localized: "Browser")
+        case .developer: return String(localized: "Developer")
+        case .games: return String(localized: "Games")
+        case .other: return String(localized: "Other")
+        }
+    }
+
+    /// The pill's accent color — its text, over a soft fill of the same color.
+    var color: Color {
+        switch self {
+        case .app: return .blue
+        case .system: return .gray
+        case .media: return .pink
+        case .documents: return .teal
+        case .temporaryFiles: return .green
+        case .browser: return .indigo
+        case .developer: return .purple
+        case .games: return .orange
+        case .other: return .brown
+        }
+    }
+}
+
+extension SmartInsightCategory: CaseIterable {}
+
+/// What kind of thing a Smart Insight is about, so the popover speaks to it
+/// correctly across managers — a cache folder, an app, a maintenance task, a
+/// login item, or browser data. Each case carries the instructions, prompt, and
+/// loading-line noun that suit it. Kept pure so the wording is unit-testable
+/// without invoking the on-device model.
+enum SmartInsightsTopic {
+    case fileOrFolder
+    case application
+    case appExtension
+    case maintenanceTask
+    case loginItem
+    case privacyData
+
+    /// The noun used in the loading line ("Giving this <noun> some thought…").
+    var loadingNoun: String {
+        switch self {
+        case .fileOrFolder: return String(localized: "file")
+        case .application: return String(localized: "app")
+        case .appExtension: return String(localized: "extension")
+        case .maintenanceTask: return String(localized: "task")
+        case .loginItem: return String(localized: "item")
+        case .privacyData: return String(localized: "data")
+        }
+    }
+
+    /// System instructions orienting the model for this kind of item.
+    var instructions: String {
+        switch self {
+        case .fileOrFolder:
+            return """
+                You explain what a file or folder on a Mac is, in plain language, to \
+                help someone decide whether it is safe to delete during a storage \
+                cleanup. Be concise and factual. If you are not certain what the \
+                item is, say so rather than guessing.
+                """
+        case .application:
+            return """
+                You explain what a macOS app is and what it is typically used for, in \
+                plain language, to help someone decide whether they still need it or \
+                can uninstall it. Be concise and factual. If you are not certain what \
+                the app is, say so rather than guessing.
+                """
+        case .appExtension:
+            return """
+                You explain what a browser or app extension is and what it does, in \
+                plain language, to help someone decide whether to keep or remove it. \
+                Be concise and factual. If you are not certain what the extension is, \
+                say so rather than guessing.
+                """
+        case .maintenanceTask:
+            return """
+                You explain what a macOS maintenance task does and what running it \
+                accomplishes, in plain language, to help someone decide whether to \
+                run it. Be concise and factual. If you are not certain what the task \
+                is, say so rather than guessing.
+                """
+        case .loginItem:
+            return """
+                You explain what a macOS login or background item is and what it does, \
+                in plain language, to help someone decide whether to disable it. Be \
+                concise and factual. If you are not certain what the item is, say so \
+                rather than guessing.
+                """
+        case .privacyData:
+            return """
+                You explain what a category of stored browser or app data is — such as \
+                cookies, cache, or history — and whether it is generally safe to \
+                remove, in plain language. Be concise and factual. If you are not \
+                certain what the data is, say so rather than guessing.
+                """
+        }
+    }
+
+    /// The user prompt asking about one specific named item.
+    func prompt(for itemName: String) -> String {
+        switch self {
+        case .fileOrFolder:
+            return "Explain what this item on the user's Mac is and whether it is generally safe to delete during a cleanup. Item name: \"\(itemName)\"."
+        case .application:
+            return "Explain what this Mac app is and what it is typically used for. App name: \"\(itemName)\"."
+        case .appExtension:
+            return "Explain what this browser or app extension is and what it does. Extension name: \"\(itemName)\"."
+        case .maintenanceTask:
+            return "Explain what this Mac maintenance task does when it runs. Task name: \"\(itemName)\"."
+        case .loginItem:
+            return "Explain what this Mac login or background item is and what it does. Item name: \"\(itemName)\"."
+        case .privacyData:
+            return "Explain what this stored browser or app data is and whether it is generally safe to remove. Item: \"\(itemName)\"."
+        }
     }
 }
 
@@ -52,9 +173,11 @@ final class SmartInsightsViewModel {
 
     private(set) var state: State = .loading
     private let itemName: String
+    private let topic: SmartInsightsTopic
 
-    init(itemName: String) {
+    init(itemName: String, topic: SmartInsightsTopic) {
         self.itemName = itemName
+        self.topic = topic
     }
 
     /// Generates the insight for the item, updating `state` as it goes. Safe to
@@ -66,9 +189,9 @@ final class SmartInsightsViewModel {
             return
         }
         do {
-            let session = LanguageModelSession(instructions: SmartInsightsPrompt.instructions)
+            let session = LanguageModelSession(instructions: topic.instructions)
             let response = try await session.respond(
-                to: SmartInsightsPrompt.text(for: itemName),
+                to: topic.prompt(for: itemName),
                 generating: SmartInsight.self
             )
             state = .result(response.content)
@@ -101,9 +224,11 @@ final class SmartInsightsViewModel {
 /// feedback controls, and the Apple Intelligence footer.
 struct SmartInsightsPopoverView: View {
     @State private var model: SmartInsightsViewModel
+    private let loadingNoun: String
 
-    init(itemTitle: String) {
-        _model = State(initialValue: SmartInsightsViewModel(itemName: itemTitle))
+    init(itemTitle: String, topic: SmartInsightsTopic = .fileOrFolder) {
+        _model = State(initialValue: SmartInsightsViewModel(itemName: itemTitle, topic: topic))
+        loadingNoun = topic.loadingNoun
     }
 
     var body: some View {
@@ -114,6 +239,11 @@ struct SmartInsightsPopoverView: View {
         .padding(16)
         .frame(width: 300, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
+        // The dark bubble from the design, kept readable in every manager by
+        // pinning its own dark surface and color scheme rather than relying on
+        // the host popover's appearance.
+        .background(Color(red: 0.17, green: 0.16, blue: 0.19))
+        .environment(\.colorScheme, .dark)
         .task { await model.generate() }
     }
 
@@ -140,7 +270,7 @@ struct SmartInsightsPopoverView: View {
     private var content: some View {
         switch model.state {
         case .loading:
-            Text("Giving this file some thought…", comment: "Loading line while Smart Insights generates.")
+            Text(String(format: String(localized: "Giving this %@ some thought…", comment: "Loading line while Smart Insights generates; %@ is a noun like file, app, or task."), loadingNoun))
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .shimmering()
@@ -163,14 +293,12 @@ struct SmartInsightsPopoverView: View {
             Text(insight.summary)
                 .font(.system(size: 14))
                 .fixedSize(horizontal: false, vertical: true)
-            if !insight.category.isEmpty {
-                Text(insight.category)
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.green.opacity(0.22), in: Capsule())
-                    .foregroundStyle(Color.green)
-            }
+            Text(insight.category.label)
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(insight.category.color.opacity(0.22), in: Capsule())
+                .foregroundStyle(insight.category.color)
             Divider().opacity(0.3)
             SmartInsightsFeedbackControls()
             Divider().opacity(0.3)
@@ -178,6 +306,41 @@ struct SmartInsightsPopoverView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+}
+
+/// The clickable Smart Insights sparkle for a SwiftUI manager row — the peer of
+/// the AppKit `ManagerSparkleView`. Shows a squircle hover chip in the manager's
+/// accent, a tooltip, and opens the Smart Insights popover for its item.
+struct SmartInsightsSparkle: View {
+    let itemTitle: String
+    var accent: Color = ManagerChrome.accent
+    var topic: SmartInsightsTopic = .fileOrFolder
+
+    @State private var isPresented = false
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "sparkles")
+                .font(.system(size: 15))
+                .foregroundStyle(accent)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(accent.opacity(isHovering ? 0.18 : 0))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(Text("Get smart insights about this item", comment: "Tooltip on a manager row's smart-insights sparkle."))
+        .accessibilityLabel(Text("Smart Insights", comment: "Accessibility label for a manager row's smart-insights sparkle button."))
+        .popover(isPresented: $isPresented) {
+            SmartInsightsPopoverView(itemTitle: itemTitle, topic: topic)
         }
     }
 }

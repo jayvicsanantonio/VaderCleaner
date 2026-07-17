@@ -897,13 +897,7 @@ struct PerformanceTaskRow: View {
 
             Spacer()
 
-            // Decorative "smart suggestion" sparkle, matching the pink sparkle on
-            // the Login Items / Background Items rows so every pane shares one
-            // trailing column.
-            Image(systemName: "sparkles")
-                .font(.system(size: 15))
-                .foregroundStyle(.pink)
-                .accessibilityHidden(true)
+            SmartInsightsSparkle(itemTitle: task.title, topic: .maintenanceTask)
         }
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
@@ -952,12 +946,7 @@ struct PerformanceItemRow: View {
 
             Spacer()
 
-            // Decorative "smart suggestion" sparkle, matching the maintenance
-            // task rows so every pane shares one trailing column.
-            Image(systemName: "sparkles")
-                .font(.system(size: 15))
-                .foregroundStyle(.pink)
-                .accessibilityHidden(true)
+            SmartInsightsSparkle(itemTitle: item.title, topic: .loginItem)
         }
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }

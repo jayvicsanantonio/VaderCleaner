@@ -384,8 +384,15 @@ private struct PrivacyPane: View {
             Image(category.iconAsset).resizable().interpolation(.high).scaledToFit().frame(width: 34, height: 34)
             Text(category.displayName).font(.body)
             Spacer(minLength: 8)
-            Text(managerItemsLabel(model.count(browser, category))).font(.callout).foregroundStyle(.secondary)
-            if category.isExpandable {
+            SmartInsightsSparkle(itemTitle: category.displayName, accent: accent, topic: .privacyData)
+            // Fixed-width count column so the sparkle to its left lines up across
+            // every row regardless of how wide each item count is.
+            Text(managerItemsLabel(model.count(browser, category)))
+                .font(.callout).foregroundStyle(.secondary)
+                .frame(width: 100, alignment: .trailing)
+            // Only offer the disclosure chevron when the category can expand AND
+            // actually has items to reveal — an empty category shows no chevron.
+            if category.isExpandable && model.count(browser, category) > 0 {
                 Button { toggleExpanded(category) } label: {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold)).foregroundStyle(.tint)
@@ -428,7 +435,10 @@ private struct PrivacyPane: View {
             .frame(width: 26)
             Text(item.label).font(.body).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
-            Text(managerItemsLabel(item.count)).font(.callout).foregroundStyle(.secondary)
+            SmartInsightsSparkle(itemTitle: item.label, accent: accent, topic: .privacyData)
+            Text(managerItemsLabel(item.count))
+                .font(.callout).foregroundStyle(.secondary)
+                .frame(width: 100, alignment: .trailing)
             Color.clear.frame(width: 20, height: 1)
         }
         .padding(.vertical, 7).padding(.leading, 34)
@@ -470,17 +480,31 @@ private struct MalwareResultsPane: View {
     let accent: Color
 
     var body: some View {
-        ScrollView {
+        if threats.isEmpty {
+            // A clean Mac shows the same centered icon + title + description
+            // empty state the Applications Manager uses, below the pane heading,
+            // rather than a bare left-aligned line.
             VStack(spacing: 0) {
                 PaneHeading(
                     title: String(localized: "Detected Threats", comment: "Threats pane title."),
                     description: String(localized: "Select the infected files to remove. Removal is permanent.", comment: "Threats pane description.")
                 )
-                if threats.isEmpty {
-                    Text(String(localized: "No threats were found.", comment: "Empty threats."))
-                        .font(.callout).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-                } else {
+                ManagerEmptyState(
+                    icon: "checkmark.shield.fill",
+                    title: String(localized: "No Threats Found", comment: "Empty threats title."),
+                    detail: String(localized: "Your Mac is clean — no malware was detected in this scan.", comment: "Empty threats detail.")
+                )
+                .tint(accent)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            ScrollView {
+                VStack(spacing: 0) {
+                    PaneHeading(
+                        title: String(localized: "Detected Threats", comment: "Threats pane title."),
+                        description: String(localized: "Select the infected files to remove. Removal is permanent.", comment: "Threats pane description.")
+                    )
                     ManagerSelectMenu(
                         any: !selectedThreats.isEmpty,
                         onAll: { selectedThreats = Set(threats.map(\.id)) },
@@ -490,8 +514,8 @@ private struct MalwareResultsPane: View {
                         ForEach(sortedThreats) { threat in threatRow(threat) }
                     }
                 }
+                .padding(.horizontal, 24).padding(.vertical, 16)
             }
-            .padding(.horizontal, 24).padding(.vertical, 16)
         }
     }
 
