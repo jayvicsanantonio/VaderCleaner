@@ -152,9 +152,14 @@ struct SpaceLensListPanel: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                SmartInsightsSparkle(itemTitle: child.name, accent: Self.accent, topic: .fileOrFolder)
+                // Fixed-width size column so the sparkle to its left lines up
+                // across rows regardless of how wide each size string is.
                 Text(child.formattedSize)
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 80, alignment: .trailing)
             }
             .contentShape(Rectangle())
             .onTapGesture {

@@ -775,10 +775,7 @@ private struct UninstallerPaneView: View {
                 }
             }
             Spacer(minLength: 8)
-            // Decorative AI sparkle, matching the reference rows.
-            Image(systemName: "sparkles")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.pink)
+            SmartInsightsSparkle(itemTitle: app.name, accent: ApplicationsManagerChrome.accent, topic: .application)
             Text(dateText(uninstallerViewModel.listLastOpened[app.id]))
                 .font(.callout).foregroundStyle(.secondary).frame(width: 96, alignment: .trailing)
             Text(sizeText(uninstallerViewModel.listSizes[app.id]))
@@ -1018,7 +1015,9 @@ private struct LeftoversPaneView: View {
                                 }
                                 Text(row.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: 8)
+                                SmartInsightsSparkle(itemTitle: row.name, accent: ApplicationsManagerChrome.accent, topic: .fileOrFolder)
                                 Text(ApplicationsManagerChrome.byteText(row.bytes)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                                    .frame(width: 72, alignment: .trailing)
                             }
                             .contentShape(Rectangle())
                             .onTapGesture { row.toggle() }
@@ -1155,6 +1154,7 @@ private struct UnsupportedPaneView: View {
                 Text(reasonText(entry)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            SmartInsightsSparkle(itemTitle: entry.app.name, accent: ApplicationsManagerChrome.accent, topic: .application)
         }
         .contentShape(Rectangle())
         .onTapGesture { viewModel.toggleUnsupportedApp(entry) }
@@ -1345,10 +1345,12 @@ private struct UpdaterPaneView: View {
                 Text(versionTransition(info)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            SmartInsightsSparkle(itemTitle: info.appName, accent: ApplicationsManagerChrome.accent, topic: .application)
             Text(info.source == .appStore
                  ? String(localized: "App Store", comment: "Update source label.")
                  : String(localized: "Web", comment: "Update source label."))
                 .font(.caption).foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .trailing)
         }
         .padding(12)
         .managerRowCard()
@@ -1534,7 +1536,9 @@ private struct ExtensionsPaneView: View {
                 Text(localizedExtensionType(item.type)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            SmartInsightsSparkle(itemTitle: item.name, accent: ApplicationsManagerChrome.accent, topic: .appExtension)
             Text(ApplicationsManagerChrome.byteText(item.size)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .trailing)
         }
         .padding(12)
         .managerRowCard()
