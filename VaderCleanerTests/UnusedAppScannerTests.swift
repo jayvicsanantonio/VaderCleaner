@@ -22,11 +22,13 @@ final class UnusedAppScannerTests: XCTestCase {
 
     private func scanner(
         thresholdDays: Int = DefaultUnusedAppScanner.defaultThresholdDays,
-        dates: [String: Date?]
+        dates: [String: Date?],
+        sizes: [String: Int64] = [:]
     ) -> DefaultUnusedAppScanner {
         DefaultUnusedAppScanner(
             thresholdDays: thresholdDays,
             lastUsedDate: { app in dates[app.bundleID] ?? nil },
+            bundleSize: { app in sizes[app.bundleID] ?? 0 },
             now: { self.now }
         )
     }
@@ -43,6 +45,20 @@ final class UnusedAppScannerTests: XCTestCase {
 
         XCTAssertEqual(result.map(\.app.bundleID), ["com.stale.app"])
         XCTAssertEqual(result.first?.lastUsedDate, now.addingTimeInterval(-90 * day))
+    }
+
+    func test_scan_populatesSizeBytesFromProvider() async {
+        // The dashboard's Unused card reads the total on-disk size off the scan
+        // result, so each flagged app must carry its measured size.
+        let stale = makeApp("Stale", bundleID: "com.stale.app")
+        let s = scanner(
+            dates: ["com.stale.app": now.addingTimeInterval(-90 * day)],
+            sizes: ["com.stale.app": 5_000_000]
+        )
+
+        let result = await s.scan(apps: [stale])
+
+        XCTAssertEqual(result.map(\.sizeBytes), [5_000_000])
     }
 
     func test_scan_doesNotFlagAppsWithNoKnownLastUsedDate() async {

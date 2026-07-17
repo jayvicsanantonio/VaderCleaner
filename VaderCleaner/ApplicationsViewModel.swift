@@ -36,6 +36,11 @@ struct ApplicationsScanResult: Equatable {
     var unsupportedAppsCount: Int { unsupportedApps.count }
     /// Unused Applications card count.
     var unusedAppsCount: Int { unusedApps.count }
+    /// Sum of every unused app's on-disk size — the Unused card's "they use N
+    /// of space" figure.
+    var unusedAppsTotalBytes: Int64 {
+        unusedApps.reduce(Int64(0)) { $0 + $1.sizeBytes }
+    }
     /// App Leftovers card count (one per orphaned bundle ID).
     var leftoversCount: Int { leftovers.count }
     /// Sum of every leftover group's size — the Leftovers card's reclaimable

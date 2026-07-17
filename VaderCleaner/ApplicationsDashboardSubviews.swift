@@ -23,10 +23,6 @@ struct ApplicationsDashboardView: View {
     /// every leftover group and moves it to the Trash.
     let onRemoveLeftovers: () -> Void
 
-    /// Total on-disk size of the unused apps, summed off-main for the Unused
-    /// card's "they use N of space" detail. `nil` until the walk returns.
-    @State private var unusedTotalBytes: Int64?
-
     var body: some View {
         VStack(spacing: 18) {
             header
@@ -38,14 +34,11 @@ struct ApplicationsDashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("applications.dashboard")
         .task(id: result.unusedApps.map(\.id)) {
-            // Preload the unused apps' icons for the Unused card's icon cluster
-            // and sum their on-disk sizes off-main for its detail line.
+            // Preload the unused apps' icons for the Unused card's icon cluster.
+            // Their on-disk sizes are already summed by the scan, so the detail
+            // line's total is available on first paint.
             let urls = result.unusedApps.map { $0.app.bundleURL }
             await iconCache.preloadIcons(for: urls)
-            unusedTotalBytes = await Task.detached(priority: .utility) {
-                let fileManager = FileManager.default
-                return urls.reduce(Int64(0)) { $0 + DefaultAppDiscovery.bundleSize(at: $1, fileManager: fileManager) }
-            }.value
         }
     }
 
@@ -314,7 +307,8 @@ struct ApplicationsDashboardView: View {
                 comment: "Applications Unused card detail when none are found."
             )
         }
-        if let bytes = unusedTotalBytes {
+        let bytes = result.unusedAppsTotalBytes
+        if bytes > 0 {
             let format = String(
                 localized: "You may not need these apps, but they use %@ of space in total.",
                 comment: "Applications Unused card detail; %@ is the total on-disk size of the unused apps."
@@ -323,7 +317,7 @@ struct ApplicationsDashboardView: View {
         }
         return String(
             localized: "You may not need these apps. Remove the ones you no longer use.",
-            comment: "Applications Unused card detail shown before the total size has been measured."
+            comment: "Applications Unused card detail shown when the total size could not be measured."
         )
     }
 
