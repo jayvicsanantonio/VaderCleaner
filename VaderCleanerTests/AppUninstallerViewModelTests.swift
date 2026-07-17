@@ -645,23 +645,20 @@ final class AppUninstallerViewModelTests: XCTestCase {
 
     // MARK: - List metrics cache
 
-    /// `loadListMetrics()` populates the session-scoped per-app size and
-    /// last-opened caches the manager's uninstaller list sorts and renders by.
-    func test_loadListMetrics_populatesSizesAndDates() async {
+    /// `loadListMetrics()` populates the session-scoped per-app size cache the
+    /// manager's uninstaller list sorts and renders by.
+    func test_loadListMetrics_populatesSizes() async {
         let appA = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
         let appB = makeApp(name: "Bravo", bundleID: "com.acme.bravo")
-        let date = Date(timeIntervalSince1970: 1_700_000_000)
         let vm = makeViewModel(
             discover: { _ in [appA, appB] },
             measureListMetrics: { apps in
                 AsyncStream { continuation in
                     var sizes: [AppInfo.ID: Int64] = [:]
-                    var dates: [AppInfo.ID: Date] = [:]
                     for app in apps {
                         sizes[app.id] = 1_000
-                        dates[app.id] = date
                     }
-                    continuation.yield((sizes, dates))
+                    continuation.yield(sizes)
                     continuation.finish()
                 }
             }
@@ -671,8 +668,6 @@ final class AppUninstallerViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.listSizes[appA.id], 1_000)
         XCTAssertEqual(vm.listSizes[appB.id], 1_000)
-        XCTAssertEqual(vm.listLastOpened[appA.id], date)
-        XCTAssertEqual(vm.listLastOpened[appB.id], date)
     }
 
     /// The metrics walk is the expensive pass, so once an app is measured it is
@@ -687,7 +682,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
                 AsyncStream { continuation in
                     Task {
                         await measuredApps.mutate { $0.append(apps.map(\.id)) }
-                        continuation.yield((Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }), [:]))
+                        continuation.yield(Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }))
                         continuation.finish()
                     }
                 }
@@ -714,7 +709,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
                 AsyncStream { continuation in
                     Task {
                         await measuredApps.mutate { $0.append(apps.map(\.id)) }
-                        continuation.yield((Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }), [:]))
+                        continuation.yield(Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }))
                         continuation.finish()
                     }
                 }
@@ -733,15 +728,15 @@ final class AppUninstallerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.listSizes[appB.id], 1)
     }
 
-    /// Each batch of freshly-measured metrics bumps the revision so the
-    /// manager's memoized list recomputes its order once the values land.
+    /// Each batch of freshly-measured sizes bumps the revision so the manager's
+    /// memoized list recomputes its order once the values land.
     func test_loadListMetrics_bumpsRevisionWhenMetricsLand() async {
         let app = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
         let vm = makeViewModel(
             discover: { _ in [app] },
             measureListMetrics: { apps in
                 AsyncStream { continuation in
-                    continuation.yield((Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }), [:]))
+                    continuation.yield(Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Int64(1)) }))
                     continuation.finish()
                 }
             }
@@ -756,20 +751,19 @@ final class AppUninstallerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.listMetricsRevision, before + 1)
     }
 
-    /// A metrics walk that arrives in several chunks merges every chunk, so rows
+    /// A size walk that arrives in several chunks merges every chunk, so rows
     /// fill in progressively as the background pass yields them rather than only
     /// when the whole walk finishes.
     func test_loadListMetrics_mergesEveryStreamedChunk() async {
         let appA = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
         let appB = makeApp(name: "Bravo", bundleID: "com.acme.bravo")
-        let date = Date(timeIntervalSince1970: 1_700_000_000)
         let vm = makeViewModel(
             discover: { _ in [appA, appB] },
             measureListMetrics: { apps in
                 AsyncStream { continuation in
                     // One app per chunk rather than a single terminal batch.
                     for (index, app) in apps.enumerated() {
-                        continuation.yield(([app.id: Int64((index + 1) * 10)], [app.id: date]))
+                        continuation.yield([app.id: Int64((index + 1) * 10)])
                     }
                     continuation.finish()
                 }
@@ -780,8 +774,6 @@ final class AppUninstallerViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.listSizes[appA.id], 10)
         XCTAssertEqual(vm.listSizes[appB.id], 20)
-        XCTAssertEqual(vm.listLastOpened[appA.id], date)
-        XCTAssertEqual(vm.listLastOpened[appB.id], date)
     }
 
     // MARK: - Helpers

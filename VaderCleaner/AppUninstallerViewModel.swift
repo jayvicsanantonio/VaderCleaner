@@ -51,16 +51,14 @@ final class AppUninstallerViewModel {
     typealias Discover     = @Sendable (_ includingSystemApps: Bool) async throws -> [AppInfo]
     typealias FindFiles    = @Sendable (_ bundleID: String) async -> [AssociatedFile]
     typealias MeasureSize  = @Sendable (_ bundleURL: URL) async -> Int64
-    /// One incremental slice of measured list metrics: a subset of the pending
-    /// apps' bundle sizes and Spotlight last-opened dates.
-    typealias ListMetricsChunk = (sizes: [AppInfo.ID: Int64], dates: [AppInfo.ID: Date])
-    /// Streaming metrics walk for the Applications Manager's uninstaller list:
-    /// yields each app's bundle size and Spotlight last-opened date in chunks as
-    /// the background pass measures them, so the list fills in progressively
-    /// rather than snapping every row to its value only when the whole walk
-    /// finishes. The size walk over many bundles is the expensive measurement
-    /// discovery deliberately skips, which is why it streams off the main actor.
-    typealias MeasureListMetrics = @Sendable (_ apps: [AppInfo]) -> AsyncStream<ListMetricsChunk>
+    /// Streaming bundle-size walk for the Applications Manager's uninstaller
+    /// list: yields chunks of per-app sizes as the background pass measures
+    /// them, so the list fills in progressively rather than snapping every row
+    /// to its size only when the whole walk finishes. Size is the one expensive
+    /// measurement discovery deliberately skips (last-opened date rides on
+    /// `AppInfo` from discovery), which is why only it streams off the main
+    /// actor. Each chunk maps `AppInfo.ID` to the measured byte size.
+    typealias MeasureListMetrics = @Sendable (_ apps: [AppInfo]) -> AsyncStream<[AppInfo.ID: Int64]>
     /// Recycler contract: takes the `.app` bundle URL and the associated
     /// file URLs separately so the production implementation can verify
     /// the bundle itself was moved (and not just the user-writable
@@ -88,17 +86,14 @@ final class AppUninstallerViewModel {
     /// list and the detail inspector don't fight over one selection.
     private(set) var uninstallSelection: Set<AppInfo.ID> = []
 
-    /// Session-scoped per-app size and last-opened caches the Applications
-    /// Manager's uninstaller list sorts and renders by. Populated once by
-    /// `loadListMetrics()` and retained for the session so reopening the manager
-    /// reuses them instead of re-walking the disk. Observable so the list
-    /// re-renders when the measured values land.
+    /// Session-scoped per-app bundle-size cache the Applications Manager's
+    /// uninstaller list sorts and renders by. Populated by `loadListMetrics()`
+    /// and retained for the session so reopening the manager reuses it instead
+    /// of re-walking the disk. Observable so each row re-renders when its size
+    /// lands. Last-opened date is not cached here — it rides on `AppInfo`.
     private(set) var listSizes: [AppInfo.ID: Int64] = [:]
-    private(set) var listLastOpened: [AppInfo.ID: Date] = [:]
-    /// Apps that have completed a metrics pass, tracked separately from the
-    /// value caches because a `nil` last-opened date is a valid result (Spotlight
-    /// has no record) — inferring "measured" from the dictionaries would re-walk
-    /// those apps forever.
+    /// Apps whose size has been measured, tracked separately from `listSizes`
+    /// so a still-pending app is retried while a genuinely measured one is not.
     @ObservationIgnored private var measuredListMetricApps: Set<AppInfo.ID> = []
     /// Bumped once a metrics stream finishes so the manager's memoized list
     /// re-sorts into its final order. The per-chunk dictionary merges above
@@ -233,21 +228,19 @@ final class AppUninstallerViewModel {
         await loadApps()
     }
 
-    /// Measures size and last-opened date for every app not already in the
-    /// `listSizes` / `listLastOpened` caches, merging each streamed chunk as it
-    /// arrives so rows fill in progressively instead of all at once when the
-    /// whole walk finishes. Idempotent: apps measured earlier in the session are
-    /// skipped, so the expensive disk walk runs once per app and reopening the
-    /// manager reuses the cache. A no-op when nothing is pending — the revision
-    /// only bumps when new metrics actually land.
+    /// Measures bundle size for every app not already in the `listSizes` cache,
+    /// merging each streamed chunk as it arrives so rows fill in progressively
+    /// instead of all at once when the whole walk finishes. Idempotent: apps
+    /// measured earlier in the session are skipped, so the expensive disk walk
+    /// runs once per app and reopening the manager reuses the cache. A no-op
+    /// when nothing is pending — the revision only bumps when new sizes land.
     func loadListMetrics() async {
         let pending = apps.filter { !measuredListMetricApps.contains($0.id) }
         guard !pending.isEmpty else { return }
         // Merge each chunk rather than replace so apps already measured keep
-        // their values, and each row updates the moment its metrics stream in.
+        // their sizes, and each row updates the moment its size streams in.
         for await chunk in measureListMetrics(pending) {
-            listSizes.merge(chunk.sizes) { _, new in new }
-            listLastOpened.merge(chunk.dates) { _, new in new }
+            listSizes.merge(chunk) { _, new in new }
         }
         for app in pending { measuredListMetricApps.insert(app.id) }
         listMetricsRevision &+= 1
@@ -534,18 +527,15 @@ extension AppUninstallerViewModel {
                         // waves without re-sorting the list on every single app.
                         let chunkSize = 8
                         var sizes: [AppInfo.ID: Int64] = [:]
-                        var dates: [AppInfo.ID: Date] = [:]
                         for app in apps {
                             if Task.isCancelled { break }
                             sizes[app.id] = DefaultAppDiscovery.bundleSize(at: app.bundleURL, fileManager: fileManager)
-                            dates[app.id] = DefaultUnusedAppScanner.spotlightLastUsedDate(app)
                             if sizes.count >= chunkSize {
-                                continuation.yield((sizes, dates))
+                                continuation.yield(sizes)
                                 sizes = [:]
-                                dates = [:]
                             }
                         }
-                        if !sizes.isEmpty { continuation.yield((sizes, dates)) }
+                        if !sizes.isEmpty { continuation.yield(sizes) }
                         continuation.finish()
                     }
                     continuation.onTermination = { _ in task.cancel() }

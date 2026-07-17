@@ -71,7 +71,14 @@ struct DefaultUnusedAppScanner: Sendable {
     /// Default provider: Spotlight's `kMDItemLastUsedDate` for the app bundle,
     /// or `nil` when Spotlight has no record.
     static func spotlightLastUsedDate(_ app: AppInfo) -> Date? {
-        guard let item = MDItemCreate(nil, app.bundleURL.path as CFString) else { return nil }
+        spotlightLastUsedDate(atPath: app.bundleURL.path)
+    }
+
+    /// Reads Spotlight's `kMDItemLastUsedDate` for a bundle path, or `nil` when
+    /// Spotlight has no record. Path-based so discovery can resolve the date
+    /// while it is still building the `AppInfo`, before the value exists.
+    static func spotlightLastUsedDate(atPath path: String) -> Date? {
+        guard let item = MDItemCreate(nil, path as CFString) else { return nil }
         guard let attribute = MDItemCopyAttribute(item, kMDItemLastUsedDate) else { return nil }
         return attribute as? Date
     }

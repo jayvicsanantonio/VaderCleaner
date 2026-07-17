@@ -100,13 +100,14 @@ enum ApplicationsManagerModel {
     }
 
     /// Orders the apps for display. Size and last-opened are descending (largest
-    /// / most-recent first); apps missing the measured value sink to the end so
-    /// a half-built metrics cache never floats unmeasured rows to the top.
+    /// / most-recent first). Last-opened rides on `AppInfo` (resolved during
+    /// discovery); size is passed in because it is measured lazily, and apps
+    /// still missing a size sink to the end so a half-built size cache never
+    /// floats unmeasured rows to the top.
     static func sort(
         _ apps: [AppInfo],
         by sort: AppManagerSort,
-        sizes: [AppInfo.ID: Int64],
-        dates: [AppInfo.ID: Date]
+        sizes: [AppInfo.ID: Int64]
     ) -> [AppInfo] {
         switch sort {
         case .name:
@@ -117,7 +118,7 @@ enum ApplicationsManagerModel {
             return apps.sorted { (sizes[$0.id] ?? -1) > (sizes[$1.id] ?? -1) }
         case .lastOpened:
             let floor = Date.distantPast
-            return apps.sorted { (dates[$0.id] ?? floor) > (dates[$1.id] ?? floor) }
+            return apps.sorted { ($0.lastUsedDate ?? floor) > ($1.lastUsedDate ?? floor) }
         }
     }
 }
