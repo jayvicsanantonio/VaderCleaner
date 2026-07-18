@@ -126,6 +126,7 @@
 		486EBB681D5216ADDC6CC4FD /* SpaceLensProtectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2D81614C060D1B03E9922F3 /* SpaceLensProtectionTests.swift */; };
 		48EF0257049EE6954E00E936 /* UnusedAppScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382745ACB652CA50CA393BD5 /* UnusedAppScannerTests.swift */; };
 		494DBF4AEF6D8730DF44147E /* ScannedFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B017EBC3CA11CE939B3362 /* ScannedFile.swift */; };
+		496D08346329760319893BF2 /* CareScanEngineLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0BD63D8AB148E0E1AEB1DF9 /* CareScanEngineLive.swift */; };
 		4A3FEBEBF48CA7078F98EA17 /* BrowserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F6A5DF7364E1886699488B /* BrowserTests.swift */; };
 		4AFD7481F468F9E06DF1A2DE /* AppUpdaterViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68B3B6F431DB972DC6427E55 /* AppUpdaterViewModel.swift */; };
 		4BAEAB536AEF8709ECBF6658 /* ScanActivityAssertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 273BF54E38EC3C41D2DB5466 /* ScanActivityAssertion.swift */; };
@@ -335,6 +336,7 @@
 		C4412F1E74ADFE53633DA41A /* SpaceLensBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCA2D3E58D656FF184F406A0 /* SpaceLensBubbleView.swift */; };
 		C75E96295ED70F91F6B2A0F1 /* SectionTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01EA1ADE2572F4772B89B1B1 /* SectionTheme.swift */; };
 		C789001CAAACBF6DE4388751 /* ManagerContentTokenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C763E0DB99A67C5F869339C6 /* ManagerContentTokenTests.swift */; };
+		C7B02B71412F20446D0DC92B /* CareScanEngineLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF69D87EB6C33719A7EEBA57 /* CareScanEngineLiveTests.swift */; };
 		C7CC2B5E09E8E3A89C39815E /* MacHealthStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32BF07D3C75C31A0EA7E9037 /* MacHealthStatus.swift */; };
 		C7F0C420D93B12093D439722 /* BloomFieldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF7A44789CDF160E65D36A9 /* BloomFieldTests.swift */; };
 		C848FD080F1DED2282ADC12E /* LocalSnapshotCounterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19C886F966A9E160780D16F /* LocalSnapshotCounterTests.swift */; };
@@ -761,6 +763,7 @@
 		AF00763E44DB5A7AB03DE281 /* MaintenanceScriptRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaintenanceScriptRunner.swift; sourceTree = "<group>"; };
 		AF6EA6E0EC8BFB813F89FAAE /* WebDevScanScopeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDevScanScopeStoreTests.swift; sourceTree = "<group>"; };
 		B0B017EBC3CA11CE939B3362 /* ScannedFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannedFile.swift; sourceTree = "<group>"; };
+		B0BD63D8AB148E0E1AEB1DF9 /* CareScanEngineLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareScanEngineLive.swift; sourceTree = "<group>"; };
 		B17B889E32D6334AED35F2BE /* LaunchAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgent.swift; sourceTree = "<group>"; };
 		B2E92F45C5CC0EEA00B12EF5 /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
 		B39407E2EA6D045893F1BA4B /* DiskNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskNode.swift; sourceTree = "<group>"; };
@@ -867,6 +870,7 @@
 		EDF85D42AE611D1F64E6B4C6 /* UnusedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnusedApp.swift; sourceTree = "<group>"; };
 		EE225F3A130C0DDEE2E31DBF /* PerformanceDashboardSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceDashboardSubviews.swift; sourceTree = "<group>"; };
 		EF58D340F13A253CAAB153AC /* UnsupportedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsupportedApp.swift; sourceTree = "<group>"; };
+		EF69D87EB6C33719A7EEBA57 /* CareScanEngineLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareScanEngineLiveTests.swift; sourceTree = "<group>"; };
 		F0229FBE733B06D6302D5497 /* RailCollapseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailCollapseTests.swift; sourceTree = "<group>"; };
 		F029C41A438769EC30C69A0D /* MaintenanceScriptRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaintenanceScriptRunnerTests.swift; sourceTree = "<group>"; };
 		F03D812C509D828B9543F898 /* RecentFilesManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentFilesManagerTests.swift; sourceTree = "<group>"; };
@@ -986,6 +990,7 @@
 				3E86861DEE5B2703CAB3C0AD /* CarePlan.swift */,
 				2126E33D35842563217A61C5 /* CarePlanRanker.swift */,
 				E11B461971702470D7F3E488 /* CareScanEngine.swift */,
+				B0BD63D8AB148E0E1AEB1DF9 /* CareScanEngineLive.swift */,
 				A066CA0BACD6EEF77AACFDD3 /* CareScanUnit.swift */,
 				C1ACA70E63A4981BF477C35B /* CareVerdict.swift */,
 				4F5BB068BDD86F2C6D2FC966 /* ClamAVDetector.swift */,
@@ -1263,6 +1268,7 @@
 				41C875034A7C999FA39C17DB /* CareFindingTests.swift */,
 				170DA1CC2A4D57876E8751DE /* CarePlanRankerTests.swift */,
 				5B0C7DC7DD80063B229067ED /* CarePlanTests.swift */,
+				EF69D87EB6C33719A7EEBA57 /* CareScanEngineLiveTests.swift */,
 				ABC981324E0B3FA0AD765F5F /* CareScanEngineTests.swift */,
 				84FCEFD71586FDF589B270C0 /* CareVerdictEngineTests.swift */,
 				E6E0615BF174E6CD7925C8C9 /* ClamAVDetectorTests.swift */,
@@ -1631,6 +1637,7 @@
 				B1C4D909072C4D47CD0F6C49 /* CareFindingTests.swift in Sources */,
 				8326393F6B1C3B7A2A03FEC5 /* CarePlanRankerTests.swift in Sources */,
 				AEB27F2704486645CB60604A /* CarePlanTests.swift in Sources */,
+				C7B02B71412F20446D0DC92B /* CareScanEngineLiveTests.swift in Sources */,
 				24C59EBCD3B20FC5E103CBAC /* CareScanEngineTests.swift in Sources */,
 				D34D2F121B65800E172BF0B8 /* CareVerdictEngineTests.swift in Sources */,
 				8B4F6825901250C83DBA5941 /* ClamAVDetectorTests.swift in Sources */,
@@ -1835,6 +1842,7 @@
 				8ED013BA119CEC8F42DA0445 /* CarePlan.swift in Sources */,
 				197EC2C9C4C6495CC749DA90 /* CarePlanRanker.swift in Sources */,
 				DE4376779B356FF27B3ADBF4 /* CareScanEngine.swift in Sources */,
+				496D08346329760319893BF2 /* CareScanEngineLive.swift in Sources */,
 				0DC1BF28815026A359CEB744 /* CareScanUnit.swift in Sources */,
 				C9D4512D372D8BD49B20521B /* CareVerdict.swift in Sources */,
 				80B190269BF951513C453663 /* ClamAVDetector.swift in Sources */,
