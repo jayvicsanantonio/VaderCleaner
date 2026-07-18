@@ -75,6 +75,10 @@ enum SmartInsightsTopic {
     case maintenanceTask
     case loginItem
     case privacyData
+    /// A Smart Scan care-plan finding (a whole category of results, e.g.
+    /// "Duplicate files"), explained with an emphasis on whether acting on
+    /// it is safe.
+    case careFinding
 
     /// The noun used in the loading line ("Giving this <noun> some thought…").
     var loadingNoun: String {
@@ -85,6 +89,7 @@ enum SmartInsightsTopic {
         case .maintenanceTask: return String(localized: "task")
         case .loginItem: return String(localized: "item")
         case .privacyData: return String(localized: "data")
+        case .careFinding: return String(localized: "finding")
         }
     }
 
@@ -133,6 +138,14 @@ enum SmartInsightsTopic {
                 remove, in plain language. Be concise and factual. If you are not \
                 certain what the data is, say so rather than guessing.
                 """
+        case .careFinding:
+            return """
+                You explain a category of Mac-cleanup findings — such as duplicate \
+                files, old caches, or unused apps — to someone who is not technical: \
+                what it is, why it accumulates, and whether cleaning it is safe. Be \
+                concise and factual. If you are not certain, say so rather than \
+                guessing.
+                """
         }
     }
 
@@ -151,6 +164,8 @@ enum SmartInsightsTopic {
             return "Explain what this Mac login or background item is and what it does. Item name: \"\(itemName)\"."
         case .privacyData:
             return "Explain what this stored browser or app data is and whether it is generally safe to remove. Item: \"\(itemName)\"."
+        case .careFinding:
+            return "Explain this kind of Mac-cleanup finding and whether cleaning it up is safe. Finding: \"\(itemName)\"."
         }
     }
 }

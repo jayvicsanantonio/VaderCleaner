@@ -1013,13 +1013,8 @@ extension SmartScanViewModel {
             recordMaintenanceRun: { MaintenanceRunLog().record($0) },
             privacyRemover: { try await privacyRemover.remove($0) },
             malwareEngineAvailable: { detector.isInstalled() },
-            // Interim domain gate until the settings store migrates to
-            // CareDomain (the raw values already match): Browser Privacy is
-            // new and defaults on, like every other module on fresh installs.
             enabledDomains: { [weak settings] in
-                let modules = settings?.enabledModules ?? Set(SmartScanModule.allCases)
-                return Set(modules.compactMap { CareDomain(rawValue: $0.rawValue) })
-                    .union([.browserPrivacy])
+                settings?.enabledDomains ?? Set(CareDomain.allCases)
             },
             enabledJunkCategories: { [weak settings] in
                 settings?.enabledJunkCategories ?? Set(SmartScanSettingsStore.junkCategories)

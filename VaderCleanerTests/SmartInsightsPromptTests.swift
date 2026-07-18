@@ -42,8 +42,14 @@ final class SmartInsightsPromptTests: XCTestCase {
         }
     }
 
+    func test_careFinding_prompt_framesSafety() {
+        let prompt = SmartInsightsTopic.careFinding.prompt(for: "Junk your Mac doesn't need")
+        XCTAssertTrue(prompt.contains("\"Junk your Mac doesn't need\""))
+        XCTAssertTrue(prompt.localizedCaseInsensitiveContains("safe"))
+    }
+
     func test_eachTopic_hasConciseInstructionsAndLoadingNoun() {
-        for topic: SmartInsightsTopic in [.fileOrFolder, .application, .appExtension, .maintenanceTask, .loginItem, .privacyData] {
+        for topic: SmartInsightsTopic in [.fileOrFolder, .application, .appExtension, .maintenanceTask, .loginItem, .privacyData, .careFinding] {
             XCTAssertTrue(topic.instructions.localizedCaseInsensitiveContains("concise"),
                           "\(topic) instructions should ask for a concise answer that fits the popover.")
             XCTAssertFalse(topic.loadingNoun.isEmpty, "\(topic) should provide a loading-line noun.")

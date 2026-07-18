@@ -213,6 +213,7 @@ struct CareCardView: View {
     let showsReview: Bool
     let onToggleInclusion: () -> Void
     let onReview: () -> Void
+    @Environment(\.sectionAccent) private var accent
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -222,6 +223,14 @@ struct CareCardView: View {
                     Text(CareFindingCopy.title(for: finding.kind))
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
+                    // On-device Apple Intelligence explanation, availability-
+                    // gated inside the sparkle. Pure augmentation: the card's
+                    // own copy is always the rendered text.
+                    SmartInsightsSparkle(
+                        itemTitle: CareFindingCopy.title(for: finding.kind),
+                        accent: accent,
+                        topic: .careFinding
+                    )
                     Spacer(minLength: 8)
                     Text(CareFindingCopy.metric(for: finding))
                         .font(.system(size: 15, weight: .bold, design: .rounded))

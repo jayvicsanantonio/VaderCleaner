@@ -1,5 +1,5 @@
 // SmartScanSettingsStoreTests.swift
-// Tests that SmartScanSettingsStore enables/disables Smart Scan modules and System Junk categories, derives the Cleanup tri-state, and persists choices through an injected UserDefaults.
+// Tests that SmartScanSettingsStore enables/disables care domains and System Junk categories, migrates the legacy module array, derives the Cleanup tri-state, and persists choices through an injected UserDefaults.
 
 import XCTest
 @testable import VaderCleaner
@@ -26,129 +26,120 @@ final class SmartScanSettingsStoreTests: XCTestCase {
 
     // MARK: - Defaults
 
-    func test_defaults_allModulesEnabled() {
+    func test_freshInstall_everyDomainEnabled() {
         let sut = SmartScanSettingsStore(defaults: defaults)
-        XCTAssertEqual(sut.enabledModules, Set(SmartScanModule.allCases))
-        for module in SmartScanModule.allCases {
-            XCTAssertTrue(sut.isModuleEnabled(module), "\(module) should default to enabled")
+        XCTAssertEqual(sut.enabledDomains, Set(CareDomain.allCases))
+        for domain in CareDomain.allCases {
+            XCTAssertTrue(sut.isDomainEnabled(domain), "\(domain) should default to enabled")
         }
     }
 
     func test_defaults_allJunkCategoriesEnabled() {
         let sut = SmartScanSettingsStore(defaults: defaults)
         XCTAssertEqual(sut.enabledJunkCategories, Set(SmartScanSettingsStore.junkCategories))
-        for category in SmartScanSettingsStore.junkCategories {
-            XCTAssertTrue(sut.isJunkCategoryEnabled(category), "\(category) should default to enabled")
-        }
     }
 
-    // MARK: - junkCategories membership
+    // MARK: - Domain toggles & persistence
 
-    func test_junkCategories_excludeClutterCategories() {
-        // largeFile / oldFile belong to the My Clutter module, not System Junk,
-        // so they must never appear in the Cleanup sub-tree.
+    func test_setDomain_persistsAcrossInstances() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setDomain(.myClutter, enabled: false)
+        XCTAssertFalse(sut.isDomainEnabled(.myClutter))
+
+        let reloaded = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(reloaded.isDomainEnabled(.myClutter))
+        XCTAssertTrue(reloaded.isDomainEnabled(.systemJunk))
+    }
+
+    func test_missingDictionaryEntry_meansEnabled() {
+        // A future build's new domain won't be in an old install's dictionary;
+        // absent must read as enabled so new features default on.
+        defaults.set(["myClutter": false], forKey: "smartScan.moduleStates")
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(sut.isDomainEnabled(.myClutter))
+        XCTAssertTrue(sut.isDomainEnabled(.browserPrivacy))
+        XCTAssertTrue(sut.isDomainEnabled(.performance))
+    }
+
+    func test_corruptDictionaryValues_degradeToEnabled() {
+        defaults.set(["malware": "banana", "unknownDomain": false], forKey: "smartScan.moduleStates")
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertTrue(sut.isDomainEnabled(.malware), "non-bool values are dropped, not treated as off")
+    }
+
+    // MARK: - Legacy module-array migration
+
+    func test_legacyAllOnArray_migratesToEverythingEnabled() {
+        defaults.set(
+            ["systemJunk", "malware", "performance", "applications", "myClutter"],
+            forKey: "smartScan.enabledModules"
+        )
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertEqual(sut.enabledDomains, Set(CareDomain.allCases))
+    }
+
+    func test_legacyCustomizedArray_preservesChoices_andEnablesNewDomains() {
+        // A user who kept only Cleanup and Protection: those choices survive,
+        // and Browser Privacy (which the legacy build didn't know) starts on.
+        defaults.set(["systemJunk", "malware"], forKey: "smartScan.enabledModules")
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertTrue(sut.isDomainEnabled(.systemJunk))
+        XCTAssertTrue(sut.isDomainEnabled(.malware))
+        XCTAssertFalse(sut.isDomainEnabled(.performance), "a legacy exclusion stays excluded")
+        XCTAssertFalse(sut.isDomainEnabled(.applications))
+        XCTAssertFalse(sut.isDomainEnabled(.myClutter))
+        XCTAssertTrue(sut.isDomainEnabled(.browserPrivacy), "domains the legacy build didn't know default on")
+    }
+
+    func test_legacyMigration_writesTheNewFormat_once() {
+        defaults.set(["systemJunk"], forKey: "smartScan.enabledModules")
+        _ = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertNotNil(defaults.dictionary(forKey: "smartScan.moduleStates"), "migration persists the new format")
+
+        // The migrated dictionary is now authoritative: mutating the legacy
+        // key afterwards changes nothing.
+        defaults.set(["systemJunk", "malware", "performance"], forKey: "smartScan.enabledModules")
+        let reloaded = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(reloaded.isDomainEnabled(.malware))
+    }
+
+    func test_legacyUnknownRawValues_areDropped() {
+        defaults.set(["systemJunk", "notARealModule"], forKey: "smartScan.enabledModules")
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertTrue(sut.isDomainEnabled(.systemJunk))
+    }
+
+    // MARK: - Junk categories (unchanged contract)
+
+    func test_junkCategoryToggle_persists() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setJunkCategory(.userCache, enabled: false)
+        XCTAssertFalse(sut.isJunkCategoryEnabled(.userCache))
+        let reloaded = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(reloaded.isJunkCategoryEnabled(.userCache))
+    }
+
+    func test_junkCategories_excludeMyClutterCategories() {
         XCTAssertFalse(SmartScanSettingsStore.junkCategories.contains(.largeFile))
         XCTAssertFalse(SmartScanSettingsStore.junkCategories.contains(.oldFile))
     }
 
-    func test_junkCategories_coverEverySystemJunkCategory() {
-        let expected = Set(ScanCategory.allCases).subtracting([.largeFile, .oldFile])
-        XCTAssertEqual(Set(SmartScanSettingsStore.junkCategories), expected)
-    }
-
-    func test_scanningTab_offersToggleForEveryJunkCategory() {
-        // Every category the scanner can emit and the store filters on must have
-        // a toggle in Settings → Scanning; otherwise it is silently always-on.
-        XCTAssertEqual(
-            ScanningTab.toggleableJunkCategories,
-            Set(SmartScanSettingsStore.junkCategories)
-        )
-    }
-
-    // MARK: - Toggling modules
-
-    func test_setModule_disablesAndEnables() {
+    func test_unknownStoredJunkCategory_isDropped() {
+        defaults.set(["userCache", "definitelyNotACategory"], forKey: "smartScan.enabledJunkCategories")
         let sut = SmartScanSettingsStore(defaults: defaults)
-
-        sut.setModule(.malware, enabled: false)
-        XCTAssertFalse(sut.isModuleEnabled(.malware))
-        XCTAssertFalse(sut.enabledModules.contains(.malware))
-
-        sut.setModule(.malware, enabled: true)
-        XCTAssertTrue(sut.isModuleEnabled(.malware))
-    }
-
-    func test_setModule_isIndependentOfJunkCategories() {
-        let sut = SmartScanSettingsStore(defaults: defaults)
-        sut.setJunkCategory(.trash, enabled: false)
-
-        // Disabling a different module must not touch the category flags.
-        sut.setModule(.applications, enabled: false)
-        XCTAssertFalse(sut.isJunkCategoryEnabled(.trash))
-        XCTAssertTrue(sut.isJunkCategoryEnabled(.userCache))
-    }
-
-    // MARK: - Toggling junk categories
-
-    func test_setJunkCategory_disablesAndEnables() {
-        let sut = SmartScanSettingsStore(defaults: defaults)
-
-        sut.setJunkCategory(.trash, enabled: false)
-        XCTAssertFalse(sut.isJunkCategoryEnabled(.trash))
-        XCTAssertFalse(sut.enabledJunkCategories.contains(.trash))
-
-        sut.setJunkCategory(.trash, enabled: true)
-        XCTAssertTrue(sut.isJunkCategoryEnabled(.trash))
+        XCTAssertEqual(sut.enabledJunkCategories, [.userCache])
     }
 
     // MARK: - Cleanup tri-state
 
-    func test_junkCategoryState_isOn_whenModuleAndAllCategoriesEnabled() {
+    func test_junkCategoryState_triState() {
         let sut = SmartScanSettingsStore(defaults: defaults)
         XCTAssertEqual(sut.junkCategoryState, .on)
-    }
 
-    func test_junkCategoryState_isOff_whenModuleDisabled() {
-        let sut = SmartScanSettingsStore(defaults: defaults)
-        sut.setModule(.systemJunk, enabled: false)
-        XCTAssertEqual(sut.junkCategoryState, .off)
-    }
-
-    func test_junkCategoryState_isMixed_whenModuleOnButSomeCategoriesOff() {
-        let sut = SmartScanSettingsStore(defaults: defaults)
-        sut.setJunkCategory(.trash, enabled: false)
+        sut.setJunkCategory(.userCache, enabled: false)
         XCTAssertEqual(sut.junkCategoryState, .mixed)
-    }
 
-    func test_junkCategoryState_isOff_evenIfCategoriesEnabled_whenModuleOff() {
-        // Module off wins over category flags: the whole subtree is excluded.
-        let sut = SmartScanSettingsStore(defaults: defaults)
-        sut.setModule(.systemJunk, enabled: false)
-        XCTAssertTrue(sut.isJunkCategoryEnabled(.userCache))
+        sut.setDomain(.systemJunk, enabled: false)
         XCTAssertEqual(sut.junkCategoryState, .off)
-    }
-
-    // MARK: - Persistence
-
-    func test_persistsModuleChoiceAcrossInstances() {
-        let writer = SmartScanSettingsStore(defaults: defaults)
-        writer.setModule(.applications, enabled: false)
-        writer.setModule(.myClutter, enabled: false)
-
-        let reader = SmartScanSettingsStore(defaults: defaults)
-        XCTAssertFalse(reader.isModuleEnabled(.applications))
-        XCTAssertFalse(reader.isModuleEnabled(.myClutter))
-        XCTAssertTrue(reader.isModuleEnabled(.systemJunk))
-    }
-
-    func test_persistsJunkCategoryChoiceAcrossInstances() {
-        let writer = SmartScanSettingsStore(defaults: defaults)
-        writer.setJunkCategory(.trash, enabled: false)
-        writer.setJunkCategory(.systemLogs, enabled: false)
-
-        let reader = SmartScanSettingsStore(defaults: defaults)
-        XCTAssertFalse(reader.isJunkCategoryEnabled(.trash))
-        XCTAssertFalse(reader.isJunkCategoryEnabled(.systemLogs))
-        XCTAssertTrue(reader.isJunkCategoryEnabled(.userCache))
     }
 }

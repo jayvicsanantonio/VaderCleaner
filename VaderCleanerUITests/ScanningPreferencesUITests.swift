@@ -19,13 +19,13 @@ final class ScanningPreferencesUITests: XCTestCase {
         app = nil
     }
 
-    /// The Scanning tab must be reachable and expose the five module checkboxes.
+    /// The Scanning tab must be reachable and expose the six domain checkboxes.
     func test_scanningTab_exposesModuleCheckboxes() throws {
         dismissOnboardingIfNeeded()
         openPreferences()
         preferenceTab("Scanning").click()
 
-        for module in ["systemJunk", "malware", "performance", "applications", "myClutter"] {
+        for module in ["systemJunk", "malware", "browserPrivacy", "performance", "applications", "myClutter"] {
             let checkbox = control("scanning.module.\(module)")
             XCTAssertTrue(
                 checkbox.waitForExistence(timeout: 5),
