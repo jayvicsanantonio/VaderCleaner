@@ -37,6 +37,8 @@ struct CareReceiptView: View {
 
     let receipt: CareReceipt
     let onDone: () -> Void
+    /// Optional so previews and tests need not inject a store.
+    @Environment(CareHistoryStore.self) private var history: CareHistoryStore?
 
     var body: some View {
         VStack(spacing: 24) {
@@ -58,6 +60,12 @@ struct CareReceiptView: View {
                     ))
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.7))
+                }
+                if let lifetimeLine = history?.lifetimeFreedLine() {
+                    Text(lifetimeLine)
+                        .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .accessibilityIdentifier("smartScan.receiptLifetimeLine")
                 }
             }
             if !receipt.lines.isEmpty {

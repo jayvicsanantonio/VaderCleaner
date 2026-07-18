@@ -223,6 +223,29 @@ final class SmartScanViewModelRunTests: XCTestCase {
         )
     }
 
+    // MARK: - History hooks
+
+    func test_scanAndRun_stampTheHistoryHooks() async {
+        let recorded = Recorder()
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in self.richPlan },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            threatRemover: { _ in [] },
+            recycleFiles: { Set($0) },
+            maintenanceTaskRunner: { _ in },
+            recordScan: { _ in recorded.record("scan") },
+            recordReceipt: { receipt in recorded.record("receipt:\(receipt.totalBytesFreed)") }
+        )
+        await vm.scan()
+        XCTAssertEqual(recorded.entries, ["scan"], "landing results stamps the scan date")
+        await vm.run()
+        XCTAssertEqual(
+            recorded.entries,
+            ["scan", "receipt:\(1_000 + 10)"],
+            "completing a Run pass records its receipt"
+        )
+    }
+
     // MARK: - Browser privacy refusal
 
     func test_run_browserRunning_surfacesPlainReceiptLine() async {

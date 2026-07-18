@@ -17,13 +17,19 @@ struct CarePlanFeedView: View {
     let onRequestReview: (CareFinding.Kind) -> Void
     let onStartOver: () -> Void
     @Environment(\.sectionAccent) private var accent
+    /// Optional so previews and tests need not inject a store.
+    @Environment(CareHistoryStore.self) private var history: CareHistoryStore?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 topBar
                 if let verdict = viewModel.verdict {
-                    CareVerdictHero(verdict: verdict, coverageNote: coverageNote)
+                    CareVerdictHero(
+                        verdict: verdict,
+                        historyLine: history?.lifetimeFreedLine(),
+                        coverageNote: coverageNote
+                    )
                 }
                 if viewModel.rankedFindings.isEmpty {
                     ReassuranceCard(
@@ -130,6 +136,7 @@ struct CarePlanFeedView: View {
 private struct CareVerdictHero: View {
 
     let verdict: CareVerdict
+    let historyLine: String?
     let coverageNote: String?
 
     var body: some View {
@@ -146,6 +153,12 @@ private struct CareVerdictHero: View {
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.75))
                         .accessibilityIdentifier("smartScan.verdictDetail")
+                    if let historyLine {
+                        Text(historyLine)
+                            .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .accessibilityIdentifier("smartScan.historyLine")
+                    }
                 }
                 Spacer(minLength: 0)
             }

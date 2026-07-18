@@ -81,6 +81,7 @@ final class SmartScanViewModel {
     /// a large scan) never happens on the main thread mid-transition.
     @ObservationIgnored let junkManagerStore = CleanupManagerStore()
 
+
     /// Per-unit live status for the scanning checklist.
     private(set) var unitStatuses: [CareScanUnit: UnitStatus] = [:]
 
@@ -140,6 +141,12 @@ final class SmartScanViewModel {
     @ObservationIgnored private let enabledDomains: () -> Set<CareDomain>
     @ObservationIgnored private let enabledJunkCategories: () -> Set<ScanCategory>
 
+    /// History hooks, stamped when a scan lands and when a Run pass
+    /// completes. No-ops by default; `live()` wires the app-scoped
+    /// `CareHistoryStore` (which the feed and receipt views read directly).
+    @ObservationIgnored private let recordScan: (Date) -> Void
+    @ObservationIgnored private let recordReceipt: (CareReceipt) -> Void
+
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
 
@@ -154,8 +161,12 @@ final class SmartScanViewModel {
         privacyRemover: @escaping PrivacyRemover = { _ in },
         malwareEngineAvailable: @escaping () -> Bool = { true },
         enabledDomains: @escaping () -> Set<CareDomain> = { Set(CareDomain.allCases) },
-        enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) }
+        enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) },
+        recordScan: @escaping (Date) -> Void = { _ in },
+        recordReceipt: @escaping (CareReceipt) -> Void = { _ in }
     ) {
+        self.recordScan = recordScan
+        self.recordReceipt = recordReceipt
         self.scanEngine = scanEngine
         self.junkCleaner = junkCleaner
         self.threatRemover = threatRemover
@@ -302,6 +313,7 @@ final class SmartScanViewModel {
         )
 
         phase = .results(plan)
+        recordScan(plan.finishedAt)
         onScanCompleted?(plan)
     }
 
@@ -750,7 +762,9 @@ final class SmartScanViewModel {
                 lines.append(line)
             }
         }
-        phase = .done(receipt: CareReceipt(date: Date(), lines: lines))
+        let receipt = CareReceipt(date: Date(), lines: lines)
+        recordReceipt(receipt)
+        phase = .done(receipt: receipt)
     }
 
     /// `willExecute` reads `phase == .results`; during the pass the phase is
@@ -956,8 +970,12 @@ extension SmartScanViewModel {
         exclusions: ExclusionsStore,
         settings: SmartScanSettingsStore,
         webDevScanScope: WebDevScanScopeStore? = nil,
-        statsService: SystemStatsService
+        statsService: SystemStatsService,
+        history: CareHistoryStore? = nil
     ) -> SmartScanViewModel {
+        // Default arguments evaluate outside the main actor, so the fallback
+        // store (previews, tests) is built here instead.
+        let history = history ?? CareHistoryStore()
         let engine = CareScanEngine(
             runners: .live(
                 exclusions: exclusions,
@@ -1005,7 +1023,11 @@ extension SmartScanViewModel {
             },
             enabledJunkCategories: { [weak settings] in
                 settings?.enabledJunkCategories ?? Set(SmartScanSettingsStore.junkCategories)
-            }
+            },
+            // Strong captures: the view model is the store's writer, and the
+            // app hands the same instance to the environment for the views.
+            recordScan: { history.recordScan(at: $0) },
+            recordReceipt: { history.recordReceipt($0) }
         )
     }
 
