@@ -69,9 +69,12 @@ struct CareReceiptView: View {
                 }
             }
             if !receipt.lines.isEmpty {
-                VStack(spacing: 10) {
-                    ForEach(receipt.lines, id: \.kind) { line in
-                        CareReceiptLineRow(line: line)
+                // One container so the glass line rows resolve in a single pass.
+                GlassEffectContainer(spacing: 10) {
+                    VStack(spacing: 10) {
+                        ForEach(receipt.lines, id: \.kind) { line in
+                            CareReceiptLineRow(line: line)
+                        }
                     }
                 }
                 .frame(maxWidth: 520)

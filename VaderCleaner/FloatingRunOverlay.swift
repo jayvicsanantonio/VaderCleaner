@@ -50,8 +50,10 @@ struct FloatingRunOverlay: View {
             }
         }
         // Fade as the dashboard's hasExecutableWork flips so toggling a
-        // tile slides the disc in or out rather than popping.
-        .animation(.smooth(duration: 0.35), value: viewModel.phase)
+        // tile slides the disc in or out rather than popping. Animates on
+        // the cheap `phaseID` — the payload-carrying `Phase` would drag the
+        // whole plan through `Equatable` on every overlay render.
+        .animation(.smooth(duration: 0.35), value: viewModel.phaseID)
         .animation(.smooth(duration: 0.35), value: isShown)
         .onAppear { onPresenceChanged(isShown) }
         .onChange(of: isShown) { _, newValue in

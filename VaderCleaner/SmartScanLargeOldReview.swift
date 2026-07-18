@@ -3,6 +3,16 @@
 
 import SwiftUI
 
+/// Holds the id→file and url→size lookups the selection callbacks need. Built
+/// on the same background pass as the section model so nothing O(all-files)
+/// runs on the main thread; read on the main actor once that build finishes.
+/// (The naive alternative — a computed dictionary in `body` — rebuilt the
+/// whole index on every render and stalled the Review open on big scans.)
+private final class LargeOldReviewLookups: @unchecked Sendable {
+    var filesByID: [String: ScannedFile] = [:]
+    var sizeByURL: [URL: Int64] = [:]
+}
+
 /// Large & Old Files Review, rendered through the shared
 /// `SmartScanReviewManager`. Every row is the user's own file, so nothing is
 /// pre-checked — the card's selection fills only from explicit choices here.
@@ -11,26 +21,30 @@ struct SmartScanLargeOldReview: View {
     let files: [ScannedFile]
     let onBack: () -> Void
 
-    /// id (path) → file, for bridging row toggles to the URL-keyed selection.
-    private var filesByID: [String: ScannedFile] {
-        Dictionary(files.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
-    }
+    @State private var lookups = LargeOldReviewLookups()
 
     var body: some View {
-        let filesByID = self.filesByID
+        let lookups = self.lookups
         let files = self.files
         SmartScanReviewManager(
             title: String(
                 localized: "Large & Forgotten Files",
                 comment: "Title on the Smart Scan large/old files Review screen."
             ),
-            buildSections: { Self.buildSections(files: files) },
+            buildSections: {
+                // Build the selection lookups on the same off-main pass as
+                // the section model, so the main thread never does
+                // O(all-files) work.
+                lookups.filesByID = Dictionary(files.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
+                lookups.sizeByURL = Dictionary(files.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+                return Self.buildSections(files: files)
+            },
             isSelected: { id in
-                guard let file = filesByID[id] else { return false }
+                guard let file = lookups.filesByID[id] else { return false }
                 return viewModel.isLargeOldFileSelected(file)
             },
             onToggle: { id in
-                guard let file = filesByID[id] else { return }
+                guard let file = lookups.filesByID[id] else { return }
                 viewModel.toggleLargeOldFile(file)
             },
             onSetCategory: { category, selected in
@@ -42,14 +56,18 @@ struct SmartScanLargeOldReview: View {
             lightSurface: true,
             showsSparkle: true,
             selectionSummary: {
+                // O(selection), not O(all files): sum sizes of just the
+                // checked URLs through the prebuilt lookup.
                 let selection = viewModel.largeOldFileSelection
-                let bytes = files.reduce(Int64(0)) { total, file in
-                    selection.contains(file.url) ? total + file.size : total
-                }
+                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.sizeByURL[$1] ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }
         )
     }
+
+    /// Shared formatter — construction is expensive and the builder runs it
+    /// once per row.
+    nonisolated private static let relativeFormatter = RelativeDateTimeFormatter()
 
     nonisolated private static func buildSections(files: [ScannedFile]) -> [ManagerSection] {
         let categories = [
@@ -126,7 +144,7 @@ struct SmartScanLargeOldReview: View {
     nonisolated private static func subtitle(for file: ScannedFile) -> String {
         let folder = file.url.deletingLastPathComponent().path
         guard let accessed = file.lastAccessDate else { return folder }
-        let ago = RelativeDateTimeFormatter().localizedString(for: accessed, relativeTo: Date())
+        let ago = relativeFormatter.localizedString(for: accessed, relativeTo: Date())
         return String.localizedStringWithFormat(
             String(
                 localized: "Last opened %@ · %@",

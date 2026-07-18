@@ -101,12 +101,28 @@ struct CareFinding: Identifiable, Equatable, Sendable {
     let kind: Kind
     let payload: Payload
 
-    var id: String { kind.rawValue }
-
     /// How many removable/reviewable things this finding represents. For
     /// duplicates that is redundant copies only (the kept original is never
     /// work); for leftovers it is orphaned apps, not individual files.
-    var itemCount: Int {
+    /// Stored (computed once in `init`) — the feed reads it on every render,
+    /// and re-reducing a huge file payload per access froze scrolling.
+    let itemCount: Int
+
+    /// Bytes freed if every removable item in this finding were removed.
+    /// Zero for count-only findings (threats, updates, privacy counts, …).
+    /// Stored for the same render-cost reason as `itemCount`.
+    let reclaimableBytes: Int64
+
+    var id: String { kind.rawValue }
+
+    init(kind: Kind, payload: Payload) {
+        self.kind = kind
+        self.payload = payload
+        self.itemCount = Self.itemCount(of: payload)
+        self.reclaimableBytes = Self.reclaimableBytes(of: payload)
+    }
+
+    private static func itemCount(of payload: Payload) -> Int {
         switch payload {
         case .junk(let result): return result.items.count
         case .threats(let threats): return threats.count
@@ -123,9 +139,7 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// Bytes freed if every removable item in this finding were removed.
-    /// Zero for count-only findings (threats, updates, privacy counts, …).
-    var reclaimableBytes: Int64 {
+    private static func reclaimableBytes(of payload: Payload) -> Int64 {
         switch payload {
         case .junk(let result): return result.totalSize
         case .duplicates(let groups): return groups.reduce(0) { $0 + $1.reclaimableBytes }

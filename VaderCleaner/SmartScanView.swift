@@ -59,8 +59,10 @@ struct SmartScanView: View {
             .navigationTitle(NavigationSection.smartScan.title)
             // Every transition out of `.results` clears any in-flight Review
             // so a stale value can't re-emerge on the next results landing.
-            .onChange(of: viewModel.phase) { _, newPhase in
-                if case .results = newPhase { return }
+            // Watches the cheap `phaseID` rather than the payload-carrying
+            // `Phase` so no render drags the whole plan through `Equatable`.
+            .onChange(of: viewModel.phaseID) { _, newPhaseID in
+                if newPhaseID == "results" { return }
                 review = nil
             }
             // Mirror the local Review navigation onto the view model so the
@@ -74,16 +76,7 @@ struct SmartScanView: View {
     /// Stable per-phase token so moving between scan phases crossfades
     /// instead of hard-cutting. Associated values are intentionally ignored —
     /// only the phase identity drives the transition.
-    private var phaseTransitionID: String {
-        switch viewModel.phase {
-        case .idle:     return "idle"
-        case .scanning: return "scanning"
-        case .results:  return "results"
-        case .running:  return "running"
-        case .done:     return "done"
-        case .failed:   return "failed"
-        }
-    }
+    private var phaseTransitionID: String { viewModel.phaseID }
 
     @ViewBuilder
     private var content: some View {

@@ -22,6 +22,18 @@ struct CarePlanFeedView: View {
 
     var body: some View {
         ScrollView {
+            // One glass container for the hero and every card: independent
+            // glass surfaces each pay their own render pass, which made
+            // scrolling the feed stutter; merged they resolve together.
+            GlassEffectContainer(spacing: 14) {
+                feedContent
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("smartScan.resultsFeed")
+    }
+
+    private var feedContent: some View {
             VStack(spacing: 24) {
                 topBar
                 if let verdict = viewModel.verdict {
@@ -64,9 +76,6 @@ struct CarePlanFeedView: View {
             .padding(.horizontal, 32)
             .padding(.top, 18)
             .frame(maxWidth: .infinity)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("smartScan.resultsFeed")
     }
 
     private var topBar: some View {

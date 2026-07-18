@@ -15,9 +15,12 @@ struct CareScanChecklistView: View {
     var body: some View {
         VStack(spacing: 28) {
             header
-            VStack(spacing: 12) {
-                ForEach(viewModel.checklistDomains, id: \.self) { domain in
-                    CareChecklistRow(domain: domain, status: viewModel.domainStatus(domain))
+            // One container so the six glass rows resolve in a single pass.
+            GlassEffectContainer(spacing: 12) {
+                VStack(spacing: 12) {
+                    ForEach(viewModel.checklistDomains, id: \.self) { domain in
+                        CareChecklistRow(domain: domain, status: viewModel.domainStatus(domain))
+                    }
                 }
             }
             .frame(maxWidth: 560)

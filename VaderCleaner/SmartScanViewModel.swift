@@ -392,6 +392,21 @@ final class SmartScanViewModel {
         return nil
     }
 
+    /// Cheap phase identity for `onChange`/`animation` values. Comparing the
+    /// full `Phase` drags the entire `CarePlan` (findings, per-unit outcome
+    /// maps, a potentially million-item junk result) through `Equatable` on
+    /// every render — this string answers "did the phase change?" for free.
+    var phaseID: String {
+        switch phase {
+        case .idle:     return "idle"
+        case .scanning: return "scanning"
+        case .results:  return "results"
+        case .running:  return "running"
+        case .done:     return "done"
+        case .failed:   return "failed"
+        }
+    }
+
     /// The hero verdict for the current results, derived on demand (pure and
     /// cheap) so it can never disagree with the plan on screen.
     var verdict: CareVerdict? {
