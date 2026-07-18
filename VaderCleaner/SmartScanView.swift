@@ -1,41 +1,47 @@
 // SmartScanView.swift
-// Smart Scan feature view — the default landing section. Walks the scan → results → clean → done state machine of SmartScanViewModel, surfacing one summary card per orchestrated sub-module.
+// Smart Scan feature view — the default landing section. Walks the care-plan state machine: checklist scan → results feed → run → receipt, pushing per-finding Review screens over the feed.
 
 import SwiftUI
 
 /// Detail view shown when the user selects "Smart Scan" in the sidebar (the
-/// default landing section). Drives `SmartScanViewModel`'s state machine,
-/// and within `.results` either renders the dashboard or pushes one of the
-/// five tile-specific Review screens in place. The Review push is local
-/// state (not a nested NavigationStack) so it never collides with the outer
-/// section-slide transition in ContentView. The Performance Review uses
+/// default landing section). Drives `SmartScanViewModel`'s state machine, and
+/// within `.results` either renders the care-plan feed or pushes a
+/// finding-specific Review screen in place. The Review push is local state
+/// (not a nested NavigationStack) so it never collides with the outer
+/// section-slide transition in ContentView. The login-items Review uses
 /// `onOpenPerformance` to jump to the standalone sidebar section.
 struct SmartScanView: View {
 
     private var viewModel: SmartScanViewModel
     private let onOpenPerformance: () -> Void
 
-    /// The tile whose Review screen is currently up, or `nil` if the
-    /// dashboard is visible. State is local because Review is a transient
-    /// UI mode, not a persisted part of the scan model.
-    @State private var review: SmartScanModule?
-    /// The module the retained Review screen is built for: the last one
-    /// opened, so the (kept-alive, hidden) Review still has a concrete module
-    /// while the dashboard is showing. Reopening the same module restores its
+    /// The finding whose Review screen is currently up, or `nil` if the feed
+    /// is visible. Local state because Review is a transient UI mode.
+    @State private var review: CareFinding.Kind?
+    /// The finding the retained Review screen is built for: the last one
+    /// opened, so the (kept-alive, hidden) Review still has a concrete kind
+    /// while the feed is showing. Reopening the same finding restores its
     /// built panes instantly; opening a different one swaps in a fresh screen.
-    @State private var managerModule: SmartScanModule?
+    @State private var managerKind: CareFinding.Kind?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Where the manager zoom anchors: the button that opened it, resolved
-    /// by `openReview`. Also the point Back zooms the manager back into.
+    /// Where the manager zoom anchors: the button that opened it.
     @State private var managerAnchor: UnitPoint = .center
     /// The transition host's frame in global space, for mapping the opening
     /// click to `managerAnchor`.
     @State private var paneFrame: CGRect = .zero
     /// The title-bar safe-area inset, claimed permanently by the results
-    /// container and handed back to the dashboard as explicit padding so a
-    /// Review Manager can extend up under the title bar (a thin, even top
-    /// margin) while the dashboard keeps its usual place below it.
+    /// container and handed back to the feed as explicit padding so a Review
+    /// Manager can extend up under the title bar.
     @State private var paneTopInset: CGFloat = 0
+
+    /// The finding kinds whose Review screen exists. Kinds outside this set
+    /// (today only the disk-space advisory) hide their card's Review
+    /// affordance.
+    static let reviewableKinds: Set<CareFinding.Kind> = [
+        .junkCleanup, .threats, .appUpdates, .duplicates, .loginItems,
+        .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy,
+    ]
+
     init(
         viewModel: SmartScanViewModel,
         onOpenPerformance: @escaping () -> Void
@@ -48,25 +54,13 @@ struct SmartScanView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .id(phaseTransitionID)
-            // The subtle scale-and-fade phase changes share: the incoming
-            // surface settles forward from 97% while the outgoing recedes.
-            // Review pushes are not phase changes — they swap inside
-            // `resultsContent` with the manager zoom motion. Reduce Motion
-            // keeps the plain crossfade.
             .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
             .animation(VaderMotion.surface, value: phaseTransitionID)
             .navigationTitle(NavigationSection.smartScan.title)
             // Every transition out of `.results` clears any in-flight Review
-            // (e.g. Start Over → idle, Run → cleaning, an external reset).
-            // Without this a stale `.review` value would re-emerge the next
-            // time we land back on `.results`.
+            // so a stale value can't re-emerge on the next results landing.
             .onChange(of: viewModel.phase) { _, newPhase in
-                if case .results = newPhase {
-                    // Preserve user's Review choice if any only while we
-                    // remain in `.results` — re-entering results from a
-                    // fresh scan should start on the dashboard.
-                    return
-                }
+                if case .results = newPhase { return }
                 review = nil
             }
             // Mirror the local Review navigation onto the view model so the
@@ -78,18 +72,14 @@ struct SmartScanView: View {
     }
 
     /// Stable per-phase token so moving between scan phases crossfades
-    /// instead of hard-cutting. Distinct phases map to distinct strings;
-    /// associated values are intentionally ignored — only the phase identity
-    /// drives the transition. The Review-vs-dashboard split within `.results`
-    /// is deliberately not part of the token: Review swaps animate with the
-    /// manager zoom motion inside `resultsContent`, and folding them into
-    /// this identity would replace that with the phase crossfade.
+    /// instead of hard-cutting. Associated values are intentionally ignored —
+    /// only the phase identity drives the transition.
     private var phaseTransitionID: String {
         switch viewModel.phase {
         case .idle:     return "idle"
         case .scanning: return "scanning"
         case .results:  return "results"
-        case .cleaning: return "cleaning"
+        case .running:  return "running"
         case .done:     return "done"
         case .failed:   return "failed"
         }
@@ -100,28 +90,24 @@ struct SmartScanView: View {
         switch viewModel.phase {
         case .idle:
             // Unreachable: ContentView shows the unified SectionIntroView
-            // while the coordinator reports `.intro` (which `.idle` maps to),
-            // so the detail view is never built in this phase. The arm stays
-            // only to keep the switch exhaustive over `Phase`.
+            // while the coordinator reports `.intro` (which `.idle` maps to).
+            // The arm stays only to keep the switch exhaustive over `Phase`.
             EmptyView()
         case .scanning:
-            // The staged scanning screen: one module heroes at a time while
-            // the others fill in with result summaries as their sub-scans
-            // are collected.
-            SmartScanScanningView(viewModel: viewModel)
-        case .results(let result):
-            resultsContent(result: result)
-        case .cleaning:
+            CareScanChecklistView(viewModel: viewModel)
+        case .results:
+            resultsContent
+        case .running:
             SmartScanProgressState(
                 label: String(
-                    localized: "Running…",
-                    comment: "Progress label while the Smart Scan executes every selected module's action."
+                    localized: "Fixing things up…",
+                    comment: "Progress label while the Smart Scan runs every included finding's action."
                 ),
-                identifier: "smartScan.cleaning"
+                identifier: "smartScan.running"
             )
-        case .done(let summary):
-            SmartScanDoneState(
-                summary: summary,
+        case .done(let receipt):
+            CareReceiptView(
+                receipt: receipt,
                 onDone: { viewModel.reset() }
             )
         case .failed(let message):
@@ -131,86 +117,167 @@ struct SmartScanView: View {
         }
     }
 
-    /// Within `.results`, route to the dashboard or to the active Review
-    /// screen. Each Review pops back to the dashboard via `review = nil`.
+    /// Within `.results`, route to the feed or to the active Review screen.
     /// The two surfaces exchange inside `ManagerPresentationHost` (a stable
-    /// transition host) with the shared manager motion: the Review zooms up
-    /// from the button that opened it over the receding dashboard, and zooms
-    /// back into it on Back — after which the last module's Review stays
-    /// mounted (hidden), so reopening it restores its built panes instantly.
-    private func resultsContent(result: SmartScanResult) -> some View {
+    /// transition host) with the shared manager motion; after Back the last
+    /// finding's Review stays mounted (hidden), so reopening it restores its
+    /// built panes instantly.
+    private var resultsContent: some View {
         ManagerPresentationHost(
             isPresented: review != nil,
             anchor: managerAnchor,
             reduceMotion: reduceMotion,
             dashboardTopInset: paneTopInset
         ) {
-            SmartScanResultsState(
+            CarePlanFeedView(
                 viewModel: viewModel,
-                result: result,
+                reviewableKinds: Self.reviewableKinds,
                 onRequestReview: openReview,
                 onStartOver: { viewModel.reset() }
             )
         } manager: {
-            if let managerModule {
-                reviewScreen(for: managerModule, result: result)
+            if let managerKind {
+                reviewScreen(for: managerKind)
             }
         }
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
     }
 
-    /// Anchors the zoom to the button (or failing that, the click) being
-    /// handled, then raises the module's Review screen.
-    private func openReview(_ module: SmartScanModule) {
+    /// Anchors the zoom to the control being handled, then raises the
+    /// finding's Review screen.
+    private func openReview(_ kind: CareFinding.Kind) {
+        guard Self.reviewableKinds.contains(kind) else { return }
         managerAnchor = TriggerAnchor.resolve(in: paneFrame)
-        managerModule = module
-        review = module
+        managerKind = kind
+        review = kind
     }
 
-    /// The tile-specific Review screen for one Smart Scan module.
+    /// The finding-specific Review screen.
     @ViewBuilder
-    private func reviewScreen(for review: SmartScanModule, result: SmartScanResult) -> some View {
-        switch review {
-        case .systemJunk:
+    private func reviewScreen(for kind: CareFinding.Kind) -> some View {
+        switch kind {
+        case .junkCleanup:
             SmartScanJunkReview(
                 viewModel: viewModel,
-                result: result,
+                junkResult: viewModel.junkResult,
                 store: viewModel.junkManagerStore,
-                onBack: { self.review = nil }
+                onBack: { review = nil }
             )
-        case .malware:
+        case .threats:
             SmartScanMalwareReview(
                 viewModel: viewModel,
-                result: result,
-                onBack: { self.review = nil }
+                allThreats: threats,
+                onBack: { review = nil }
             )
-        case .performance:
-            SmartScanPerformanceReview(
-                result: result,
-                onBack: { self.review = nil },
-                onOpenPerformance: onOpenPerformance
-            )
-        case .applications:
+        case .appUpdates:
             SmartScanApplicationsReview(
                 viewModel: viewModel,
-                result: result,
-                onBack: { self.review = nil }
+                allUpdates: updates,
+                onBack: { review = nil }
             )
-        case .myClutter:
+        case .duplicates:
             SmartScanMyClutterReview(
                 viewModel: viewModel,
-                result: result,
-                onBack: { self.review = nil }
+                groups: duplicateGroups,
+                onBack: { review = nil }
             )
+        case .loginItems:
+            SmartScanPerformanceReview(
+                loginItems: loginItems,
+                onBack: { review = nil },
+                onOpenPerformance: onOpenPerformance
+            )
+        case .largeOldFiles:
+            SmartScanLargeOldReview(
+                viewModel: viewModel,
+                files: largeOldFiles,
+                onBack: { review = nil }
+            )
+        case .unusedApps:
+            SmartScanUnusedAppsReview(
+                viewModel: viewModel,
+                apps: unusedApps,
+                onBack: { review = nil }
+            )
+        case .appLeftovers:
+            SmartScanLeftoversReview(
+                viewModel: viewModel,
+                groups: leftoverGroups,
+                onBack: { review = nil }
+            )
+        case .installers:
+            SmartScanInstallersReview(
+                viewModel: viewModel,
+                installers: installers,
+                onBack: { review = nil }
+            )
+        case .browserPrivacy:
+            SmartScanBrowserPrivacyReview(
+                viewModel: viewModel,
+                summaries: browserPrivacySummaries,
+                onBack: { review = nil }
+            )
+        case .lowDiskSpace, .maintenanceDue:
+            // No Review — the disk advisory is informational and the tune-up
+            // card is whole-tile work; both hide the affordance
+            // (`reviewableKinds`), so this arm is unreachable.
+            EmptyView()
         }
+    }
+
+    // MARK: - Payload slices for the Review screens
+
+    private var threats: [MalwareThreat] {
+        if case .threats(let threats)? = viewModel.currentPlan?.finding(.threats)?.payload { return threats }
+        return []
+    }
+
+    private var updates: [UpdateInfo] {
+        if case .appUpdates(let updates)? = viewModel.currentPlan?.finding(.appUpdates)?.payload { return updates }
+        return []
+    }
+
+    private var duplicateGroups: [DuplicateGroup] {
+        if case .duplicates(let groups)? = viewModel.currentPlan?.finding(.duplicates)?.payload { return groups }
+        return []
+    }
+
+    private var loginItems: [LoginItem] {
+        if case .loginItems(let items)? = viewModel.currentPlan?.finding(.loginItems)?.payload { return items }
+        return []
+    }
+
+    private var largeOldFiles: [ScannedFile] {
+        if case .largeOldFiles(let files)? = viewModel.currentPlan?.finding(.largeOldFiles)?.payload { return files }
+        return []
+    }
+
+    private var unusedApps: [UnusedApp] {
+        if case .unusedApps(let apps)? = viewModel.currentPlan?.finding(.unusedApps)?.payload { return apps }
+        return []
+    }
+
+    private var leftoverGroups: [LeftoverGroup] {
+        if case .appLeftovers(let groups)? = viewModel.currentPlan?.finding(.appLeftovers)?.payload { return groups }
+        return []
+    }
+
+    private var installers: [InstallationFile] {
+        if case .installers(let files)? = viewModel.currentPlan?.finding(.installers)?.payload { return files }
+        return []
+    }
+
+    private var browserPrivacySummaries: [BrowserPrivacySummary] {
+        if case .browserPrivacy(let summaries)? = viewModel.currentPlan?.finding(.browserPrivacy)?.payload { return summaries }
+        return []
     }
 }
 
 #Preview("Results") {
-    let vm = SmartScanViewModel(
-        junkScanner: { _ in
-            ScanResult(items: [
+    let plan = CarePlan(
+        findings: [
+            CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
                 ScannedFile(
                     url: URL(fileURLWithPath: "/Users/me/Library/Caches/big"),
                     size: 1_500_000_000,
@@ -218,27 +285,24 @@ struct SmartScanView: View {
                     lastModifiedDate: nil,
                     category: .userCache
                 )
-            ])
-        },
-        malwareInstalled: { true },
-        malwareScanner: { _ in
-            [
+            ]))),
+            CareFinding(kind: .threats, payload: .threats([
                 MalwareThreat(
                     filePath: URL(fileURLWithPath: "/Users/me/Downloads/evil.bin"),
                     threatName: "Eicar-Test-Signature"
                 )
-            ]
-        },
-        loginItemsLoader: {
-            [LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)]
-        },
-        duplicatesScanner: { _ in [] },
-        updatesChecker: { _ in [] },
-        junkCleaner: { _ in 1_500_000_000 },
-        threatRemover: { _ in [] },
-        maintenanceRunner: { "Ran maintenance scripts." },
-        updateOpener: { _ in },
-        largeFileDeleter: { _ in [] }
+            ])),
+            CareFinding(kind: .loginItems, payload: .loginItems([
+                LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)
+            ])),
+        ],
+        health: nil,
+        unitOutcomes: [.systemJunk: .completed, .malware: .completed, .loginItems: .completed],
+        startedAt: Date(),
+        finishedAt: Date()
+    )
+    let vm = SmartScanViewModel(
+        scanEngine: { _, _ in plan }
     )
     return SmartScanView(
         viewModel: vm,

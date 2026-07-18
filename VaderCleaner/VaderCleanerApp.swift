@@ -181,7 +181,12 @@ struct VaderCleanerApp: App {
         // the standalone junk scanner uses and snapshots it per scan, so an
         // exclusion added in Preferences takes effect on the next Smart Scan.
         _smartScanViewModel = State(
-            initialValue: SmartScanViewModel.live(exclusions: exclusions, settings: smartScanSettings, webDevScanScope: webDevScanScope)
+            initialValue: SmartScanViewModel.live(
+                exclusions: exclusions,
+                settings: smartScanSettings,
+                webDevScanScope: webDevScanScope,
+                statsService: stats
+            )
         )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager

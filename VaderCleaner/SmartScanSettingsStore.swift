@@ -4,6 +4,19 @@
 import Foundation
 import Observation
 
+/// The five user-facing Smart Scan modules the "Customize Smart Care"
+/// preferences persist. Raw values are stable UserDefaults keys. Lives here
+/// (with the store that persists it) because the scan itself now runs on
+/// `CareScanUnit`/`CareDomain`; the domains reuse these raw values so stored
+/// choices keep decoding.
+enum SmartScanModule: String, Hashable, CaseIterable {
+    case systemJunk
+    case malware
+    case performance
+    case applications
+    case myClutter
+}
+
 /// Source of truth for the "Customize Smart Care" preferences: which of the five
 /// Smart Scan modules run, and — within the Cleanup (System Junk) module — which
 /// `ScanCategory` sub-groups are included. Persisted in `UserDefaults` so the

@@ -12,13 +12,13 @@ import SwiftUI
 /// tallies.
 struct SmartScanJunkReview: View {
     var viewModel: SmartScanViewModel
-    let result: SmartScanResult
+    let junkResult: ScanResult
     let store: CleanupManagerStore
     let onBack: () -> Void
 
     var body: some View {
         let store = self.store
-        let itemsByCategory = result.junkResult.itemsByCategory
+        let itemsByCategory = junkResult.itemsByCategory
         SmartScanReviewManager(
             title: String(
                 localized: "Cleanup Manager",

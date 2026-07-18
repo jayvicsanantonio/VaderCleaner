@@ -18,14 +18,14 @@ private final class ClutterReviewLookups: @unchecked Sendable {
 /// always survives), matching Smart Care.
 struct SmartScanMyClutterReview: View {
     var viewModel: SmartScanViewModel
-    let result: SmartScanResult
+    let groups: [DuplicateGroup]
     let onBack: () -> Void
 
     @State private var lookups = ClutterReviewLookups()
 
     var body: some View {
         let lookups = self.lookups
-        let groups = result.duplicateGroups
+        let groups = self.groups
         SmartScanReviewManager(
             title: String(
                 localized: "Duplicates Manager",
@@ -43,22 +43,22 @@ struct SmartScanMyClutterReview: View {
             },
             isSelected: { id in
                 guard let file = lookups.filesByID[id] else { return false }
-                return viewModel.isLargeFileSelected(file)
+                return viewModel.isDuplicateSelected(file)
             },
             onToggle: { id in
                 guard let file = lookups.filesByID[id] else { return }
-                viewModel.toggleLargeFile(file)
+                viewModel.toggleDuplicate(file)
             },
             onSetCategory: { category, selected in
                 let urls = category.items.map { URL(fileURLWithPath: $0.id) }
-                viewModel.setLargeFiles(urls, selected: selected)
+                viewModel.setDuplicates(urls, selected: selected)
             },
             onBack: onBack,
             accessibilityPrefix: "smartScan.review.myClutter",
             lightSurface: true,
             showsSparkle: true,
             selectionSummary: {
-                let selection = viewModel.largeFileSelection
+                let selection = viewModel.duplicateSelection
                 let bytes = selection.reduce(Int64(0)) { $0 + (lookups.sizeByURL[$1] ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }

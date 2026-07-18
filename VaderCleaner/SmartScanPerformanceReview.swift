@@ -9,12 +9,12 @@ import SwiftUI
 /// the login-item list is informational (no checkboxes). The footer's
 /// "Open Performance" jump-link sends the user to the standalone screen.
 struct SmartScanPerformanceReview: View {
-    let result: SmartScanResult
+    let loginItems: [LoginItem]
     let onBack: () -> Void
     let onOpenPerformance: () -> Void
 
     var body: some View {
-        let items = result.performanceItems
+        let items = loginItems
         SmartScanReviewManager(
             title: String(
                 localized: "Performance Manager",

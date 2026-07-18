@@ -14,6 +14,14 @@ struct BrowserPrivacySummary: Hashable, Sendable {
     var totalItems: Int { counts.values.reduce(0, +) }
 }
 
+/// Selection key for one browser's one privacy category in the Browser
+/// Privacy review — removal is whole-category per browser, so this pair is
+/// the finest grain the care plan lets the user opt in.
+struct BrowserPrivacyKey: Hashable, Sendable {
+    let browser: Browser
+    let category: ProtectionPrivacyCategory
+}
+
 /// What a Run pass may do with a finding, and how its selection is seeded.
 /// This is the safety model's single source of truth: nothing seeded as
 /// selected may ever destroy data the user can't get back.
@@ -36,9 +44,10 @@ enum CareActionability: Equatable, Sendable {
 struct CareFinding: Identifiable, Equatable, Sendable {
 
     /// Every kind of finding a scan can produce. Raw values are stable keys
-    /// used for identity, accessibility identifiers, and receipt persistence.
-    /// Declaration order is the ranker's tie-break: advisory kinds late.
-    enum Kind: String, CaseIterable, Hashable, Sendable {
+    /// used for identity, accessibility identifiers, and receipt persistence
+    /// (hence `Codable`). Declaration order is the ranker's tie-break:
+    /// advisory kinds late.
+    enum Kind: String, CaseIterable, Hashable, Sendable, Codable {
         case threats
         case lowDiskSpace
         case junkCleanup
@@ -51,6 +60,25 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         case maintenanceDue
         case browserPrivacy
         case loginItems
+
+        /// The scan unit that produces this finding — the checklist and the
+        /// review screens group findings by the unit's domain.
+        var unit: CareScanUnit {
+            switch self {
+            case .threats: return .malware
+            case .lowDiskSpace: return .healthSnapshot
+            case .junkCleanup: return .systemJunk
+            case .duplicates: return .duplicates
+            case .largeOldFiles: return .largeOldFiles
+            case .unusedApps: return .unusedApps
+            case .appLeftovers: return .appLeftovers
+            case .installers: return .installers
+            case .appUpdates: return .appUpdates
+            case .maintenanceDue: return .maintenanceDue
+            case .browserPrivacy: return .browserPrivacy
+            case .loginItems: return .loginItems
+            }
+        }
     }
 
     /// The typed results backing a finding, one case per kind. Reuses each

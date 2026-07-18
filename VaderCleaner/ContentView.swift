@@ -149,15 +149,23 @@ struct ContentView: View {
         //
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
-        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, spaceLensViewModel, applicationsViewModel, performanceViewModel, protectionDashboardViewModel] result in
+        smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, spaceLensViewModel, applicationsViewModel, performanceViewModel, protectionDashboardViewModel] plan in
             // Seeding walks the whole junk result off the main actor, so it
             // runs as its own task rather than blocking this completion hop.
-            Task { await systemJunkViewModel.seed(with: result.junkResult) }
+            if case .junk(let junkResult)? = plan.finding(.junkCleanup)?.payload {
+                Task { await systemJunkViewModel.seed(with: junkResult) }
+            }
             // Seeds Protection's malware tile from the Smart Scan results and
             // kicks off the privacy preview, without re-running the malware scan.
+            let threats: [MalwareThreat]
+            if case .threats(let found)? = plan.finding(.threats)?.payload {
+                threats = found
+            } else {
+                threats = []
+            }
             protectionDashboardViewModel.prewarmFromSmartScan(
-                threats: result.threats,
-                clamAVAvailable: result.clamAVAvailable,
+                threats: threats,
+                clamAVAvailable: plan.malwareScanPerformed,
                 scannedAt: Date()
             )
             if case .idle = myClutterViewModel.phase { myClutterViewModel.beginScan() }
@@ -522,7 +530,8 @@ private extension AnyTransition {
         ),
         smartScanViewModel: SmartScanViewModel.live(
             exclusions: exclusions,
-            settings: SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!)
+            settings: SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!),
+            statsService: SystemStatsService(autostart: false)
         )
     )
         .environment(AppState(checker: { true }))

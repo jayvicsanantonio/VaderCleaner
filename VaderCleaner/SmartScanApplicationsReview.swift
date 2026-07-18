@@ -8,16 +8,16 @@ import SwiftUI
 /// bridges to the view model's per-update API.
 struct SmartScanApplicationsReview: View {
     var viewModel: SmartScanViewModel
-    let result: SmartScanResult
+    let allUpdates: [UpdateInfo]
     let onBack: () -> Void
 
     private var updatesByID: [String: UpdateInfo] {
-        Dictionary(result.availableUpdates.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        Dictionary(allUpdates.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     var body: some View {
         let updates = updatesByID
-        let allUpdates = result.availableUpdates
+        let allUpdates = self.allUpdates
         SmartScanReviewManager(
             title: String(
                 localized: "Applications Manager",

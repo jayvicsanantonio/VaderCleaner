@@ -1,944 +1,466 @@
 // SmartScanViewModel.swift
-// State machine behind the Smart Scan feature view — orchestrates the System Junk, Malware, and Performance sub-modules into one sequential scan, aggregates their results, and drives a single junk+threats clean pass.
+// Smart Scan's view model: drives the care-plan state machine — the concurrent checklist scan, the results feed's inclusion and per-finding selections, and the one-tap Run pass that produces a receipt.
 
 import AppKit
 import Foundation
 import Observation
-import os.log
+import os
 
-/// The five tiles the Smart Scan dashboard renders, one per orchestrated
-/// sub-module. The enum drives both the rendering loop and the per-tile
-/// selection set the user toggles on the dashboard. The case order mirrors
-/// the left-to-right reading order on the dashboard so iterating
-/// `allCases` lays the tiles out the same way the reference does.
+/// The view model behind the Smart Scan section. Owns the phase machine
+/// (`idle → scanning → results → running → done/failed`), consumes
+/// `CareScanEngine` events into the live checklist, seeds the safety-tiered
+/// selections when results land, and executes the Run pass finding by
+/// finding so one failure never sinks the rest.
 ///
-/// Raw values are stable string keys (the case names) so the Scanning
-/// preferences can persist which modules the user includes in Smart Scan;
-/// they must not change once shipped.
-enum SmartScanModule: String, Hashable, CaseIterable {
-    case systemJunk
-    case malware
-    case performance
-    case applications
-    case myClutter
-}
-
-/// The phase the in-flight Smart Scan is currently focused on, derived from
-/// which sub-scans have finished. The five sub-scans run one at a time in
-/// collection order, so this reflects the most foundational phase not yet
-/// complete: the broad file sweep first, then the malware content scan, then
-/// the app-update probe. The progress screen uses it to show a phrase set
-/// themed to whatever is actually being scanned right now.
-enum SmartScanStage: Hashable {
-    /// The two file-walk sub-scans (System Junk + My Clutter) are still
-    /// enumerating the disk.
-    case sweepingFiles
-    /// The file walks are done; the malware content scan is still running.
-    case scanningThreats
-    /// File walks and malware are done; the app-update probe is finishing up.
-    case checkingApps
-}
-
-/// One module's presentation state on the staged scanning screen: waiting its
-/// turn, the one whose results are being collected right now (the hero),
-/// finished with a short result summary, or skipped entirely (disabled in
-/// Customize Smart Care, or ClamAV absent for Malware).
-enum SmartScanModuleScanState: Equatable {
-    case pending
-    case running
-    case finished(metric: String, caption: String)
-    case skipped
-}
-
-/// One aggregated Smart Scan result, holding each sub-module's findings so the
-/// results screen can render a card per module. `clamAVAvailable` lets the
-/// Malware card hide its remove action when ClamAV is absent (the scan was
-/// skipped, so an empty `threats` list there is "unknown", not "clean").
-struct SmartScanResult: Equatable {
-    let junkResult: ScanResult
-    let threats: [MalwareThreat]
-    let performanceItems: [LoginItem]
-    /// Duplicate-file groups surfaced by the duplicate sub-scan, fronting the
-    /// "My Clutter" tile on the dashboard (matching Smart Care, which finds
-    /// duplicate files in Downloads). Empty when the scan found nothing — or, in
-    /// live wiring, when the underlying scanner failed (failures are swallowed to
-    /// `[]` so one bad probe never sinks an otherwise-useful Smart Scan).
-    let duplicateGroups: [DuplicateGroup]
-    /// Per-app updates surfaced by the App Updater sub-check, fronting the
-    /// "Applications" tile. Same partial-degradation contract as `threats`
-    /// and `duplicateGroups` — a network failure yields `[]`, not `.failed`.
-    let availableUpdates: [UpdateInfo]
-    let clamAVAvailable: Bool
-
-    /// "Total bytes found" is the System Junk byte total: detected threats and
-    /// login items don't correspond to freeable bytes, so they don't
-    /// contribute. Named explicitly so the contract is unambiguous.
-    var totalJunkBytes: Int64 { junkResult.totalSize }
-}
-
-/// What a Smart Scan Run pass accomplished, aggregated across every tile
-/// the user kept selected. The done screen reads each field and renders a
-/// matching clause — zero-valued fields are dropped from the line so the
-/// summary only mentions work that actually happened.
-///
-/// `failedModules` is non-empty when a per-module catch fired during Run.
-/// Per Open Decision 1 in the plan, a single module's failure must not
-/// collapse the whole pass to `.failed` — every other module's work is
-/// preserved, and the failure surfaces as a warning under the headline
-/// summary rather than as an error screen.
-struct SmartScanSummary: Equatable {
-    /// Bytes the System Junk cleaner reported as freed.
-    let bytesFreed: Int64
-    /// Threats the Malware remover successfully removed (i.e. were
-    /// requested *and* not returned as failures by the remover).
-    let threatsRemoved: Int
-    /// The Maintenance script runner's result line on success, `nil` if
-    /// Performance was deselected or the runner threw.
-    let maintenanceOutput: String?
-    /// How many app-update URLs Run opened via the App Updater opener.
-    let updatesOpened: Int
-    /// How many large-old files the My Clutter deleter actually removed
-    /// (partial-success: the deleter reports only the URLs whose removal
-    /// succeeded).
-    let clutterFilesRemoved: Int
-    /// Sum of `ScannedFile.size` for the files actually removed — useful
-    /// because the done line wants a byte-style figure to show alongside
-    /// the count.
-    let clutterBytesRemoved: Int64
-    /// Modules whose per-module catch fired during Run. The done screen
-    /// uses this to surface a warning clause without collapsing the whole
-    /// pass.
-    let failedModules: Set<SmartScanModule>
-
-    /// Convenience for the original two-field call sites — every other
-    /// field defaults so existing tests and previews don't have to spell
-    /// out the entire aggregate when they only care about junk + threats.
-    init(
-        bytesFreed: Int64,
-        threatsRemoved: Int,
-        maintenanceOutput: String? = nil,
-        updatesOpened: Int = 0,
-        clutterFilesRemoved: Int = 0,
-        clutterBytesRemoved: Int64 = 0,
-        failedModules: Set<SmartScanModule> = []
-    ) {
-        self.bytesFreed = bytesFreed
-        self.threatsRemoved = threatsRemoved
-        self.maintenanceOutput = maintenanceOutput
-        self.updatesOpened = updatesOpened
-        self.clutterFilesRemoved = clutterFilesRemoved
-        self.clutterBytesRemoved = clutterBytesRemoved
-        self.failedModules = failedModules
-    }
-}
-
-/// Drives the Smart Scan feature view (scan → results → clean → done).
-/// Collaborators are injected as closures — each mirrors the contract of the
-/// sub-module it fronts — so unit tests can exercise every transition without
-/// touching the real filesystem, ClamAV, or the privileged helper. Production
-/// wiring lives in `SmartScanViewModel.live(exclusions:settings:)`.
+/// Collaborators are injected as closures with a `live()` production factory,
+/// matching every other section's view model, so the whole machine is
+/// testable against fakes.
 @MainActor
 @Observable
 final class SmartScanViewModel {
 
-    /// Discrete phases the view binds to. The happy path is
-    /// `idle → scanning → results → cleaning → done`; `failed` carries a
-    /// message to surface.
     enum Phase: Equatable {
         case idle
-        case scanning(phase: String)
-        case results(SmartScanResult)
-        case cleaning
-        case done(summary: SmartScanSummary)
+        case scanning
+        case results(CarePlan)
+        case running
+        case done(receipt: CareReceipt)
         case failed(message: String)
     }
 
-    /// System Junk scan source. Throwing: a failed junk scan fails the whole
-    /// Smart Scan, mirroring `SystemJunkViewModel.Scanner`. The
-    /// `@Sendable (Int) -> Void` parameter receives the running walked-item
-    /// count so Smart Scan can show its sub-scans advancing.
-    typealias JunkScanner = (@escaping @Sendable (Int) -> Void) async throws -> ScanResult
-    /// Whether ClamAV is installed. When `false` the malware scan is skipped
-    /// entirely and the Malware card hides its action.
-    typealias MalwareInstalled = () -> Bool
-    /// Malware scan source. Non-throwing and best-effort: a broken ClamAV
-    /// install must not fail an otherwise-useful Smart Scan, so the live
-    /// wiring logs and yields `[]` rather than propagating. The
-    /// `@Sendable (Int) -> Void` parameter receives the running files-checked
-    /// count so Smart Scan can show the malware sub-scan advancing after the
-    /// file-walk tally plateaus.
-    typealias MalwareScanner = (@escaping @Sendable (Int) -> Void) async -> [MalwareThreat]
-    /// Login-item loader, mirroring `PerformanceViewModel.LoadLoginItems`.
-    typealias LoginItemsLoader = () async -> [LoginItem]
-    /// Duplicate-file scan source, fronting the My Clutter tile. Non-throwing
-    /// and best-effort: a partly-blocked filesystem walk must not fail the whole
-    /// Smart Scan, so the live wiring catches and yields `[]` (same shape as the
-    /// malware sub-scan). The `@Sendable (Int) -> Void` parameter receives the
-    /// running walked-item count so Smart Scan can show its sub-scans advancing.
-    typealias ClutterScanner = (@escaping @Sendable (Int) -> Void) async -> [DuplicateGroup]
-    /// App-update check source, fronting the Applications tile. Non-throwing
-    /// and best-effort for the same reason as `ClutterScanner` — a
-    /// network blip can't sink an otherwise-useful Smart Scan. The
-    /// `@Sendable (Int, Int) -> Void` parameter receives the running
-    /// `(appsChecked, appsTotal)` so Smart Scan can show determinate progress
-    /// for the network-bound probe.
-    typealias UpdatesChecker = (@escaping @Sendable (_ checked: Int, _ total: Int) -> Void) async -> [UpdateInfo]
-    /// Junk deletion sink — returns the bytes actually freed, mirroring
-    /// `SystemJunkViewModel.Deleter`.
+    /// Live status of one scan unit while `.scanning`, driven by engine
+    /// events. Skips and failures arrive as `finished` with their outcome so
+    /// the checklist can grey or amber the row honestly.
+    enum UnitStatus: Equatable {
+        case pending
+        case running(itemsScanned: Int)
+        case finished(CareUnitOutcome)
+    }
+
+    /// One checklist row's derived state — the per-domain rollup of its
+    /// units' statuses, with a plain-language result line once every unit
+    /// in the domain has landed.
+    enum DomainStatus: Equatable {
+        case pending
+        case running(itemsScanned: Int)
+        case finished(line: String)
+        case skipped
+        case failed
+    }
+
+    // MARK: - Collaborator shapes
+
+    typealias ScanEngine = @Sendable (
+        CareScanEngine.Configuration,
+        @escaping @Sendable (CareScanEngine.Event) -> Void
+    ) async -> CarePlan
     typealias JunkCleaner = ([ScannedFile]) async throws -> Int64
-    /// Threat remover — returns the threats it could **not** remove (empty ==
-    /// full success), mirroring `MalwareViewModel.RemoveThreats`.
     typealias ThreatRemover = ([MalwareThreat]) async -> [MalwareThreat]
-    /// Privileged maintenance-script runner, mirroring
-    /// `PerformanceViewModel.RunMaintenance` — returns a result line on
-    /// success and throws on a dropped helper connection or a script failure.
-    typealias MaintenanceRunner = () async throws -> String
-    /// Opens an App Updater update URL (App Store or Sparkle), mirroring the
-    /// per-app opener that `AppUpdaterViewModel` already routes through
-    /// `NSWorkspace.open`. Non-throwing — open is fire-and-forget.
     typealias UpdateOpener = (URL) async -> Void
-    /// Removes the given large-old file URLs and returns the set of URLs that
-    /// were actually removed. Mirrors `MyClutterViewModel`'s deleter:
-    /// partial-success is the norm (a single locked file must not abort the
-    /// batch), so the return is the success set, not a failure set.
-    typealias LargeFileDeleter = ([URL]) async -> Set<URL>
+    /// Moves the given files to the Trash and returns the URLs that made it —
+    /// the same restorable contract `ApplicationsViewModel`/`MyClutterViewModel`
+    /// use, because user files must survive a change of heart.
+    typealias RecycleFiles = @Sendable ([URL]) async -> Set<URL>
+    /// Runs one maintenance task by its `MaintenanceTask.Kind` raw value.
+    typealias MaintenanceTaskRunner = (String) async throws -> Void
+    typealias PrivacyRemover = ([PrivacyRemovalRequest]) async throws -> Void
+
+    // MARK: - Observable state
 
     private(set) var phase: Phase = .idle
 
-    /// Called with the aggregated result the moment a Smart Scan completes, so a
-    /// host (ContentView) can seed the same-scope standalone sections (System
-    /// Junk, Large & Old Files, Malware) and spare the user a re-scan. Settable
-    /// post-init so wiring it adds no constructor churn; `nil` by default (tests
-    /// and previews don't seed).
-    var onScanCompleted: ((SmartScanResult) -> Void)?
+    /// Called with the aggregated plan the moment a Smart Scan completes, so
+    /// ContentView can seed the same-scope standalone sections and spare the
+    /// user a re-scan. `nil` by default (tests and previews don't seed).
+    var onScanCompleted: ((CarePlan) -> Void)?
 
-    /// Persistent, prebuilt model behind the System Junk Review — the same
-    /// store the standalone Cleanup Manager uses. Warmed in the background as
-    /// soon as a scan lands results, so the Review's panes paint instantly,
-    /// and reused across opens. Owned here — not as view `@State` — so it
-    /// survives section switches: dying with the view meant freeing its
-    /// per-file index (millions of entries on a large scan) on the main
-    /// thread mid-transition, which stalled every switch away from the
-    /// section. Loaded when a scan lands `.results`; unloaded on `reset()`
-    /// and scan failure.
+    /// Persistent, prebuilt model behind the junk Review — the same store the
+    /// standalone Cleanup Manager uses. Warmed as soon as a scan lands
+    /// results so the Review's panes paint instantly. Owned here — not as
+    /// view `@State` — so freeing its per-file index (millions of entries on
+    /// a large scan) never happens on the main thread mid-transition.
     @ObservationIgnored let junkManagerStore = CleanupManagerStore()
 
-    /// Combined count of filesystem items walked by the two file-walk sub-scans
-    /// (System Junk + My Clutter) during the in-flight Smart Scan. Reset to 0
-    /// at scan start and surfaced as "Scanned N items…" beneath the stage label
-    /// so the user sees the composite scan advancing.
-    private(set) var scannedItemCount: Int = 0
+    /// Per-unit live status for the scanning checklist.
+    private(set) var unitStatuses: [CareScanUnit: UnitStatus] = [:]
 
-    /// Running count of files the malware sub-scan has checked during the
-    /// in-flight Smart Scan. The file-walk tally (`scannedItemCount`) plateaus
-    /// the moment the two walks finish enumerating the disk, but the malware
-    /// content scan keeps running; surfacing its own count keeps the progress
-    /// readout honest about what is still happening. Reset to 0 at scan start.
-    private(set) var malwareFilesScanned: Int = 0
+    /// Findings streamed in by finished units during `.scanning`, so the
+    /// checklist can show each domain's result line the moment it lands —
+    /// before the whole scan completes.
+    private(set) var liveFindings: [CareFinding.Kind: CareFinding] = [:]
 
-    /// Determinate progress for the app-update sub-check: `appsChecked` of
-    /// `appsTotal` apps probed. The probe knows the total up front, so this
-    /// reads as bounded progress for the network-bound check that otherwise
-    /// outlasts the file walks with no visible movement. Both reset to 0 at
-    /// scan start.
-    private(set) var appsChecked: Int = 0
-    private(set) var appsTotal: Int = 0
+    /// Combined count of items examined across every in-flight unit, for the
+    /// menu bar's "Scanned N items…" line and the checklist header.
+    private(set) var scannedItemCount = 0
 
-    /// Per-sub-scan completion flags, set as each sub-scan returns and reset at
-    /// scan start. `currentStage` reads them to decide which phrase set the
-    /// progress screen shows. Observed (not `@ObservationIgnored`) so the view
-    /// re-evaluates `currentStage` when a stage boundary is crossed.
-    private(set) var junkWalkComplete = false
-    private(set) var clutterWalkComplete = false
-    private(set) var malwareScanComplete = false
+    /// Which results cards are included in the Run pass. Seeded to the
+    /// pre-approved findings; opt-in cards join automatically when their
+    /// review selection becomes non-empty and leave when it clears.
+    private(set) var includedFindings: Set<CareFinding.Kind> = []
 
-    /// Per-module presentation state for the staged scanning screen. Rebuilt
-    /// at the start of every scan; modules flip `.running` → `.finished` in
-    /// `Self.scanCollectionOrder` as `scan()` runs and collects each sub-scan's
-    /// results, so the "one at a time" read matches the order the sub-scans
-    /// actually run.
-    private(set) var moduleScanStates: [SmartScanModule: SmartScanModuleScanState] = [:]
-
-    /// The order the scanning screen walks the modules — the same order
-    /// `scan()` awaits the concurrently-running sub-scans.
-    static let scanCollectionOrder: [SmartScanModule] = [
-        .systemJunk, .myClutter, .performance, .malware, .applications,
-    ]
-
-    /// The module the scanning screen shows as its hero: the first still
-    /// running in collection order, or `nil` outside a scan.
-    var activeScanModule: SmartScanModule? {
-        Self.scanCollectionOrder.first { moduleScanStates[$0] == .running }
-    }
-
-    /// The staged screen's starting line-up: every module that will actually
-    /// run is `.pending` (Malware additionally requires ClamAV), the rest are
-    /// `.skipped`, and the first runnable module takes the hero slot.
-    static func startingModuleStates(
-        enabled: Set<SmartScanModule>,
-        clamAVAvailable: Bool
-    ) -> [SmartScanModule: SmartScanModuleScanState] {
-        var states: [SmartScanModule: SmartScanModuleScanState] = [:]
-        for module in scanCollectionOrder {
-            let runs = enabled.contains(module) && (module != .malware || clamAVAvailable)
-            states[module] = runs ? .pending : .skipped
-        }
-        if let first = scanCollectionOrder.first(where: { states[$0] == .pending }) {
-            states[first] = .running
-        }
-        return states
-    }
-
-    /// Records `module`'s result summary and hands the hero slot to the next
-    /// pending module in collection order. A skipped module's collection
-    /// point changes nothing — it never ran, so it must not surface a
-    /// summary or steal the hero.
-    static func finishing(
-        _ module: SmartScanModule,
-        in states: [SmartScanModule: SmartScanModuleScanState],
-        metric: String,
-        caption: String
-    ) -> [SmartScanModule: SmartScanModuleScanState] {
-        var updated = states
-        guard updated[module] == .running || updated[module] == .pending else { return updated }
-        updated[module] = .finished(metric: metric, caption: caption)
-        if let next = scanCollectionOrder.first(where: { updated[$0] == .pending }) {
-            updated[next] = .running
-        }
-        return updated
-    }
-
-    /// Shared `ByteCountFormatter` for the scanning screen's result
-    /// summaries ("33.4 GB of junk"). Static so the allocation happens once,
-    /// not per collection point.
-    private static let summaryByteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = .useAll
-        f.countStyle = .file
-        return f
-    }()
-
-    /// Both file walks have finished enumerating the disk.
-    private var fileWalksComplete: Bool { junkWalkComplete && clutterWalkComplete }
-
-    /// Which sub-scan the in-flight scan is currently focused on, by precedence
-    /// of the most foundational work still running. Only meaningful during
-    /// `.scanning`; the progress screen reads it to theme its rotating phrases.
-    var currentStage: SmartScanStage {
-        if !fileWalksComplete { return .sweepingFiles }
-        if !malwareScanComplete { return .scanningThreats }
-        return .checkingApps
-    }
-
-    /// One status line composing every active sub-scan signal — the file-walk
-    /// item count, the malware files-checked count, and the app-update
-    /// "N of M" — so the user always sees what the in-flight scan is doing,
-    /// even after the headline item count plateaus. Parts only appear once
-    /// their sub-scan has reported, so early ticks read as a plain item count.
-    var scanProgressDetail: String {
-        var parts = [ScanProgressFormatting.itemsScanned(scannedItemCount)]
-        if malwareFilesScanned > 0 {
-            parts.append(ScanProgressFormatting.threatsScanned(malwareFilesScanned))
-        }
-        if appsTotal > 0 {
-            parts.append(ScanProgressFormatting.appsChecked(appsChecked, of: appsTotal))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    /// Which tiles on the dashboard are checked. Empty at `.idle`; seeded on
-    /// the `.scanning → .results` transition to "every module that has
-    /// actionable work" (matching the reference's default-all-on behavior),
-    /// and cleared again on `reset()`. The Run pass iterates this set so a
-    /// deselected tile is skipped entirely.
-    private(set) var tileSelection: Set<SmartScanModule> = []
-
-    /// Whether a tile's Review (Manager) screen is currently open over the
-    /// results dashboard. Owned by `SmartScanView`'s local navigation state and
-    /// mirrored here so the floating Run disc — hosted in a separate panel that
-    /// only sees the view model — can hide itself while a Review is up. Reset
-    /// whenever the scan leaves `.results`.
+    /// Whether a Review screen is open over the results feed — mirrored here
+    /// so the floating Run disc (hosted in a separate panel) can hide.
     private(set) var isReviewing = false
 
-    /// Per-file gate inside the System Junk tile's Cleanup Manager, keyed by
-    /// `ScannedFile.url`. This is the source of truth for which junk files Run
-    /// removes — seeded to every scanned file (default-all-on) so the manager
-    /// opens fully checked. Category-level state is derived from it (see
-    /// `junkCategorySelection`).
+    // Per-finding selections. Pre-approved kinds seed full; opt-in kinds
+    // (real user data) seed empty — removal is always an explicit choice.
     private(set) var junkFileSelection: Set<URL> = []
-
-    /// Running total of selected junk bytes, maintained in lockstep with
-    /// `junkFileSelection`, so the Cleanup Manager footer reads it in O(1)
-    /// instead of reducing over the selection on every render.
     private(set) var selectedJunkBytes: Int64 = 0
-
-    /// Per-category running totals of selected junk bytes and count, maintained
-    /// in lockstep with `junkFileSelection`. Back the store-backed Cleanup
-    /// Manager's per-category selected-size badge and its "Select: None/All/Some"
-    /// menu without walking a category's (potentially huge) file list per render
-    /// — the same O(1) contract the standalone Cleanup Manager relies on.
     private(set) var selectedJunkBytesByCategory: [ScanCategory: Int64] = [:]
     private(set) var selectedJunkCountByCategory: [ScanCategory: Int] = [:]
-
-    /// Per-category view of `junkFileSelection`: a category counts as selected
-    /// when every one of its files is selected. Kept as a derived facade so the
-    /// dashboard's caption decisions and the older per-category call sites keep
-    /// working while per-file selection is the real model.
-    var junkCategorySelection: Set<ScanCategory> {
-        guard case .results(let result) = phase else { return [] }
-        return Set(result.junkResult.itemsByCategory.compactMap { category, files in
-            files.allSatisfy { junkFileSelection.contains($0.url) } ? category : nil
-        })
-    }
-
-    /// Per-threat gate inside the Malware tile's Review screen, keyed by
-    /// `MalwareThreat.filePath`. Seeded to every detected threat. Run filters
-    /// the threat list down to this set before handing it to the remover.
     private(set) var threatSelection: Set<URL> = []
-
-    /// Per-update gate inside the Applications tile's Review screen, keyed by
-    /// `UpdateInfo.bundleID`. Seeded to every available update; Run hands the
-    /// selected updates to the opener one by one.
     private(set) var updateSelection: Set<String> = []
+    private(set) var duplicateSelection: Set<URL> = []
+    private(set) var largeOldFileSelection: Set<URL> = []
+    private(set) var unusedAppSelection: Set<String> = []
+    private(set) var leftoverSelection: Set<String> = []
+    private(set) var installerSelection: Set<String> = []
+    private(set) var browserPrivacySelection: Set<BrowserPrivacyKey> = []
 
-    /// Per-copy gate inside the My Clutter tile's Review screen, keyed by
-    /// `ScannedFile.url`. Seeded to every **redundant copy** (every duplicate
-    /// except the kept original) — deleting a duplicate always leaves one copy
-    /// behind, so default-on is safe and matches Smart Care. Kept originals are
-    /// never added here, so Run can never delete the last copy.
-    private(set) var largeFileSelection: Set<URL> = []
+    // MARK: - Private state
 
-    /// Per-source walked counts for the two concurrent file-walk sub-scans.
-    /// `scannedItemCount` is their sum; tracking them separately lets each
-    /// scanner's monotonic count update the combined total independently.
-    @ObservationIgnored private var junkWalkCount = 0
-    @ObservationIgnored private var clutterWalkCount = 0
+    /// Latest progress count per unit; `scannedItemCount` is their sum.
+    @ObservationIgnored private var unitProgressCounts: [CareScanUnit: Int] = [:]
 
-    /// Incremented at the start of every scan so a progress tick that hops back
-    /// to the main actor after a newer scan began is dropped.
+    /// Incremented at the start of every scan so an event that hops back to
+    /// the main actor after a newer scan (or a reset) began is dropped.
     @ObservationIgnored private var scanGeneration = 0
 
-    @ObservationIgnored private let junkScanner: JunkScanner
-    @ObservationIgnored private let malwareInstalled: MalwareInstalled
-    @ObservationIgnored private let malwareScanner: MalwareScanner
-    @ObservationIgnored private let loginItemsLoader: LoginItemsLoader
-    @ObservationIgnored private let duplicatesScanner: ClutterScanner
-    @ObservationIgnored private let updatesChecker: UpdatesChecker
+    @ObservationIgnored private let scanEngine: ScanEngine
     @ObservationIgnored private let junkCleaner: JunkCleaner
     @ObservationIgnored private let threatRemover: ThreatRemover
-    @ObservationIgnored private let maintenanceRunner: MaintenanceRunner
-    /// Flushes the system DNS cache via the privileged helper. Part of the
-    /// Performance/Performance module alongside the maintenance scripts,
-    /// matching Smart Care (which runs maintenance scripts *and* Flush DNS).
-    /// Needs no `periodic`, so it runs even on macOS 26 where the scripts are
-    /// gone — which is why Performance always has Run work.
-    @ObservationIgnored private let dnsFlusher: MaintenanceRunner
     @ObservationIgnored private let updateOpener: UpdateOpener
-    @ObservationIgnored private let largeFileDeleter: LargeFileDeleter
-    /// Whether `/usr/sbin/periodic` exists — false on macOS 26+, where Apple
-    /// removed it. When false the Performance tile's maintenance-scripts action
-    /// has nothing to run, so it is not auto-selected and Run skips it.
-    @ObservationIgnored private let maintenanceScriptsAvailable: Bool
-
-    /// Awaited before a module's sub-scan begins, once that module has taken the
-    /// hero slot, so scanning starts only after the hero hand-off has settled
-    /// into place. Defaults to a no-op (tests and previews don't wait);
-    /// `.live()` supplies a pause matching the hero swap's duration.
-    @ObservationIgnored private let heroSettle: @Sendable () async -> Void
-
-    /// "Customize Smart Care" gate: the set of modules the user includes in
-    /// Smart Scan. Read once per `scan()` (snapshot, like the exclusions store)
-    /// so a preference change takes effect on the next scan. Defaults to all
-    /// modules so unconfigured installs scan everything.
-    @ObservationIgnored private let enabledModules: () -> Set<SmartScanModule>
-    /// Companion gate for the Cleanup (System Junk) sub-tree: the categories the
-    /// user includes. Only consulted when `.systemJunk` is enabled. Defaults to
-    /// every System Junk category.
+    @ObservationIgnored private let recycleFiles: RecycleFiles
+    @ObservationIgnored private let maintenanceTaskRunner: MaintenanceTaskRunner
+    @ObservationIgnored private let recordMaintenanceRun: (String) -> Void
+    @ObservationIgnored private let privacyRemover: PrivacyRemover
+    @ObservationIgnored private let malwareEngineAvailable: () -> Bool
+    /// "Customize Smart Care" gates, read once per `scan()` (snapshot, like
+    /// the exclusions store) so a preference change applies to the next scan.
+    @ObservationIgnored private let enabledDomains: () -> Set<CareDomain>
     @ObservationIgnored private let enabledJunkCategories: () -> Set<ScanCategory>
 
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
 
     init(
-        junkScanner: @escaping JunkScanner,
-        malwareInstalled: @escaping MalwareInstalled,
-        malwareScanner: @escaping MalwareScanner,
-        loginItemsLoader: @escaping LoginItemsLoader,
-        duplicatesScanner: @escaping ClutterScanner,
-        updatesChecker: @escaping UpdatesChecker,
-        junkCleaner: @escaping JunkCleaner,
-        threatRemover: @escaping ThreatRemover,
-        maintenanceRunner: @escaping MaintenanceRunner,
-        dnsFlusher: @escaping MaintenanceRunner = { "" },
-        updateOpener: @escaping UpdateOpener,
-        largeFileDeleter: @escaping LargeFileDeleter,
-        maintenanceScriptsAvailable: Bool = true,
-        heroSettle: @escaping @Sendable () async -> Void = {},
-        enabledModules: @escaping () -> Set<SmartScanModule> = { Set(SmartScanModule.allCases) },
+        scanEngine: @escaping ScanEngine,
+        junkCleaner: @escaping JunkCleaner = { _ in 0 },
+        threatRemover: @escaping ThreatRemover = { _ in [] },
+        updateOpener: @escaping UpdateOpener = { _ in },
+        recycleFiles: @escaping RecycleFiles = { _ in [] },
+        maintenanceTaskRunner: @escaping MaintenanceTaskRunner = { _ in },
+        recordMaintenanceRun: @escaping (String) -> Void = { _ in },
+        privacyRemover: @escaping PrivacyRemover = { _ in },
+        malwareEngineAvailable: @escaping () -> Bool = { true },
+        enabledDomains: @escaping () -> Set<CareDomain> = { Set(CareDomain.allCases) },
         enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) }
     ) {
-        self.junkScanner = junkScanner
-        self.malwareInstalled = malwareInstalled
-        self.malwareScanner = malwareScanner
-        self.loginItemsLoader = loginItemsLoader
-        self.duplicatesScanner = duplicatesScanner
-        self.updatesChecker = updatesChecker
+        self.scanEngine = scanEngine
         self.junkCleaner = junkCleaner
         self.threatRemover = threatRemover
-        self.maintenanceRunner = maintenanceRunner
-        self.dnsFlusher = dnsFlusher
         self.updateOpener = updateOpener
-        self.largeFileDeleter = largeFileDeleter
-        self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
-        self.heroSettle = heroSettle
-        self.enabledModules = enabledModules
+        self.recycleFiles = recycleFiles
+        self.maintenanceTaskRunner = maintenanceTaskRunner
+        self.recordMaintenanceRun = recordMaintenanceRun
+        self.privacyRemover = privacyRemover
+        self.malwareEngineAvailable = malwareEngineAvailable
+        self.enabledDomains = enabledDomains
         self.enabledJunkCategories = enabledJunkCategories
     }
 
     // MARK: - Scan
 
-    /// Holds a module's sub-scan until its hero hand-off has settled, so
-    /// scanning — and the hero's border animation reading its final size —
-    /// only begins once the tile has arrived in the hero slot. Only the module
-    /// currently occupying the hero waits; a skipped module is never the hero,
-    /// so it falls straight through without an idle pause.
-    private func settlingHero(_ module: SmartScanModule) async {
-        guard activeScanModule == module else { return }
-        await heroSettle()
-    }
-
-    /// Runs the five sub-scans one at a time, in `scanCollectionOrder`, and
-    /// lands `.results` (or `.failed` if the junk scan throws). Each sub-scan
-    /// runs to completion before the next begins, so the staged scanning
-    /// screen's hero advances in lockstep with the work genuinely running. The
-    /// ClamAV install check is read once up front so the result can record
-    /// whether the malware scan was actually performed.
-    ///
-    /// Re-entrant calls while a scan or clean is already in flight are
-    /// ignored, so a double-tap (or a programmatic caller) can't leave two
-    /// scans racing the `phase` updates. The guard is read synchronously
-    /// before the first `await`, so it is reliable under `@MainActor`.
+    /// Runs one Smart Scan through the engine and lands `.results` (or
+    /// `.failed` when every attempted unit failed — a partially-broken scan
+    /// still shows what it found). Re-entrant calls while a scan or Run is
+    /// in flight are ignored; the guard reads synchronously before the first
+    /// `await`, so it is reliable under `@MainActor`.
     func scan() async {
         switch phase {
-        case .scanning, .cleaning:
+        case .scanning, .running:
             return
         case .idle, .results, .done, .failed:
             break
         }
 
-        phase = .scanning(phase: String(
-            localized: "Scanning cleanup, protection, performance, applications, and duplicates…",
-            comment: "Progress label shown while the Smart Scan runs all five sub-scans — uses the user-facing tile names from the results dashboard."
-        ))
-
-        scanGeneration &+= 1
+        scanGeneration += 1
         let generation = scanGeneration
-        scannedItemCount = 0
-        junkWalkCount = 0
-        clutterWalkCount = 0
-        malwareFilesScanned = 0
-        appsChecked = 0
-        appsTotal = 0
-        junkWalkComplete = false
-        clutterWalkComplete = false
-        malwareScanComplete = false
+        clearScanState()
 
-        // The two file-walk sub-scans each report their own monotonic walked
-        // count; sum them into one "Scanned N items…" tally. The scanners run
-        // off the main actor, so hop back before touching the observable count,
-        // and drop ticks from a superseded scan.
-        // These hops are unstructured, so they can land out of order; each
-        // sub-scan's walked count is monotonic, so ignore any tick that would
-        // move its counter backwards rather than let the combined total jitter.
-        let onJunkProgress: @Sendable (Int) -> Void = { [weak self] count in
-            Task { @MainActor in
-                // Drop the tick if a newer scan started, if it would move the
-                // count backwards, or if the scan has already left `.scanning`
-                // (a tick enqueued just before the terminal phase must not
-                // re-trigger observation once the dashboard is showing).
-                guard let self,
-                      self.scanGeneration == generation,
-                      case .scanning = self.phase,
-                      count > self.junkWalkCount else { return }
-                self.junkWalkCount = count
-                self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
-            }
-        }
-        let onClutterProgress: @Sendable (Int) -> Void = { [weak self] count in
-            Task { @MainActor in
-                guard let self,
-                      self.scanGeneration == generation,
-                      case .scanning = self.phase,
-                      count > self.clutterWalkCount else { return }
-                self.clutterWalkCount = count
-                self.scannedItemCount = self.junkWalkCount + self.clutterWalkCount
-            }
-        }
-        // The two silent sub-scans report their own progress so the readout
-        // keeps moving after the file walks plateau. Same guard shape as the
-        // walk ticks: drop ticks from a superseded scan, from a terminal
-        // phase, or that would move a monotonic counter backwards.
-        let onMalwareProgress: @Sendable (Int) -> Void = { [weak self] count in
-            Task { @MainActor in
-                guard let self,
-                      self.scanGeneration == generation,
-                      case .scanning = self.phase,
-                      count > self.malwareFilesScanned else { return }
-                self.malwareFilesScanned = count
-            }
-        }
-        let onUpdatesProgress: @Sendable (Int, Int) -> Void = { [weak self] checked, total in
-            Task { @MainActor in
-                guard let self,
-                      self.scanGeneration == generation,
-                      case .scanning = self.phase,
-                      checked >= self.appsChecked else { return }
-                self.appsChecked = checked
-                self.appsTotal = total
+        let domains = enabledDomains()
+        var units = Set(domains.flatMap(\.units))
+        // Health telemetry is instant and non-destructive — it always rides
+        // along so the verdict hero has a base tier.
+        units.insert(.healthSnapshot)
+        let configuration = CareScanEngine.Configuration(
+            enabledUnits: units,
+            enabledJunkCategories: enabledJunkCategories(),
+            malwareEngineAvailable: malwareEngineAvailable()
+        )
+
+        unitStatuses = Dictionary(uniqueKeysWithValues: CareScanUnit.allCases.map { ($0, .pending) })
+        phase = .scanning
+
+        let plan = await scanEngine(configuration) { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handle(event, generation: generation)
             }
         }
 
-        let clamAVAvailable = malwareInstalled()
+        guard generation == scanGeneration, case .scanning = phase else { return }
+        await land(plan)
+    }
 
-        // "Customize Smart Care" gate: snapshot the user's module/category
-        // choices once up front (mirroring the exclusions snapshot) so a
-        // disabled module's sub-scan is skipped entirely and a disabled System
-        // Junk category is filtered out of the results below.
-        let mods = enabledModules()
-        let cats = enabledJunkCategories()
+    /// Applies one engine event to the checklist state. Events from a
+    /// superseded scan, or arriving after the scan left `.scanning`, are
+    /// dropped — the engine already clamps progress monotonic per unit.
+    private func handle(_ event: CareScanEngine.Event, generation: Int) {
+        guard generation == scanGeneration, case .scanning = phase else { return }
+        switch event {
+        case .unitStarted(let unit):
+            unitStatuses[unit] = .running(itemsScanned: 0)
+        case .unitProgress(let unit, let count):
+            unitStatuses[unit] = .running(itemsScanned: count)
+            unitProgressCounts[unit] = count
+            scannedItemCount = unitProgressCounts.values.reduce(0, +)
+        case .unitFinished(let unit, let outcome, let finding):
+            unitStatuses[unit] = .finished(outcome)
+            if let finding, !finding.isEmpty {
+                liveFindings[finding.kind] = finding
+            }
+        }
+    }
 
-        // Line up the staged scanning screen: skipped modules are marked up
-        // front, and the first runnable module takes the hero slot.
-        moduleScanStates = Self.startingModuleStates(enabled: mods, clamAVAvailable: clamAVAvailable)
-
-        do {
-            // The five sub-scans run one at a time, in collection order, so each
-            // hero on the staged scanning screen tracks the sub-scan genuinely
-            // running right now. Every collection point runs its sub-scan to
-            // completion, flips the matching completion flag, and advances the
-            // staged screen: the collected module flips to its result summary and
-            // the next runnable module takes the hero slot.
-            //
-            // The System Junk findings are filtered down to the categories the
-            // user kept enabled in the Cleanup sub-tree here (rather than in the
-            // scanner) so the scanner stays category-agnostic and the same walk
-            // serves every caller.
-            await settlingHero(.systemJunk)
-            let junkResult = Self.filteringJunkCategories(
-                try await scanJunkIfEnabled(mods.contains(.systemJunk), onProgress: onJunkProgress),
-                to: cats
+    /// Lands a completed plan: decide failed-vs-results, warm the junk
+    /// manager store, and seed every selection tier off-main where the data
+    /// can be large.
+    private func land(_ plan: CarePlan) async {
+        let attempted = CareScanUnit.allCases.filter { unit in
+            switch plan.unitOutcomes[unit] {
+            case .completed, .failed: return true
+            case .skipped, nil: return false
+            }
+        }
+        let allFailed = attempted.allSatisfy { unit in
+            if case .failed = plan.unitOutcomes[unit] { return true }
+            return false
+        }
+        if attempted.isEmpty || allFailed {
+            let message = plan.failedUnits.compactMap { unit -> String? in
+                if case .failed(let message)? = plan.unitOutcomes[unit] { return message }
+                return nil
+            }.first ?? String(
+                localized: "The scan couldn't check anything this time.",
+                comment: "Fallback failure message when every scan unit failed."
             )
-            junkWalkComplete = true
-            moduleScanStates = Self.finishing(
-                .systemJunk, in: moduleScanStates,
-                metric: junkResult.totalSize > 0
-                    ? String(
-                        localized: "\(Self.summaryByteFormatter.string(fromByteCount: junkResult.totalSize)) of junk",
-                        comment: "Scanning-screen summary on the Cleanup tile; the interpolation is a byte count like '33.4 GB'."
-                    )
-                    : String(localized: "No junk", comment: "Zero-work scanning-screen summary on the Cleanup tile."),
-                caption: String(localized: "to clean", comment: "Caption under the Cleanup tile's scanning-screen summary.")
-            )
-            await settlingHero(.myClutter)
-            let duplicates = mods.contains(.myClutter) ? await duplicatesScanner(onClutterProgress) : []
-            clutterWalkComplete = true
-            let reclaimable = duplicates.reduce(Int64(0)) { $0 + $1.reclaimableBytes }
-            moduleScanStates = Self.finishing(
-                .myClutter, in: moduleScanStates,
-                metric: reclaimable > 0
-                    ? String(
-                        localized: "\(Self.summaryByteFormatter.string(fromByteCount: reclaimable)) of duplicates",
-                        comment: "Scanning-screen summary on the My Clutter tile; the interpolation is a byte count like '1.2 GB'."
-                    )
-                    : String(localized: "No duplicates", comment: "Zero-work scanning-screen summary on the My Clutter tile."),
-                caption: String(localized: "to review", comment: "Caption under the My Clutter tile's scanning-screen summary.")
-            )
-            await settlingHero(.performance)
-            let loginItems = mods.contains(.performance) ? await loginItemsLoader() : []
-            moduleScanStates = Self.finishing(
-                .performance, in: moduleScanStates,
-                metric: loginItems.isEmpty
-                    ? String(localized: "No items", comment: "Zero-work scanning-screen summary on the Performance tile.")
-                    : loginItems.count == 1
-                        ? String(localized: "1 item", comment: "Singular scanning-screen summary on the Performance tile.")
-                        : String(localized: "\(loginItems.count) items", comment: "Plural scanning-screen summary on the Performance tile."),
-                caption: String(localized: "to review", comment: "Caption under the Performance tile's scanning-screen summary.")
-            )
-            await settlingHero(.malware)
-            let foundThreats = await scanForThreatsIfPossible(
-                clamAVAvailable: clamAVAvailable && mods.contains(.malware),
-                onProgress: onMalwareProgress
-            )
-            malwareScanComplete = true
-            moduleScanStates = Self.finishing(
-                .malware, in: moduleScanStates,
-                metric: foundThreats.isEmpty
-                    ? String(localized: "No threats", comment: "Zero-work scanning-screen summary on the Protection tile.")
-                    : foundThreats.count == 1
-                        ? String(localized: "1 threat", comment: "Singular scanning-screen summary on the Protection tile.")
-                        : String(localized: "\(foundThreats.count) threats", comment: "Plural scanning-screen summary on the Protection tile."),
-                caption: String(localized: "to remove", comment: "Caption under the Protection tile's scanning-screen summary.")
-            )
-            await settlingHero(.applications)
-            let foundUpdates = mods.contains(.applications) ? await updatesChecker(onUpdatesProgress) : []
-            moduleScanStates = Self.finishing(
-                .applications, in: moduleScanStates,
-                metric: foundUpdates.isEmpty
-                    ? String(localized: "No vital updates", comment: "Zero-work scanning-screen summary on the Applications tile.")
-                    : foundUpdates.count == 1
-                        ? String(localized: "1 update", comment: "Singular scanning-screen summary on the Applications tile.")
-                        : String(localized: "\(foundUpdates.count) updates", comment: "Plural scanning-screen summary on the Applications tile."),
-                caption: String(localized: "to install", comment: "Caption under the Applications tile's scanning-screen summary.")
-            )
-
-            let result = SmartScanResult(
-                junkResult: junkResult,
-                threats: foundThreats,
-                performanceItems: loginItems,
-                duplicateGroups: duplicates,
-                availableUpdates: foundUpdates,
-                clamAVAvailable: clamAVAvailable
-            )
-            // Warm the System Junk Review's manager model in the background
-            // right away, so its panes are instant by the time results land.
-            junkManagerStore.load(result: junkResult)
-            // Intersect with the enabled modules so a module the user excluded
-            // never comes back auto-selected — notably Performance, which
-            // otherwise always auto-selects (its DNS flush always has work).
-            tileSelection = Self.defaultTileSelection(for: result).intersection(mods)
-            // Pre-check only the safe (regenerable / already-discarded) junk
-            // categories so a one-tap Run never removes user data. Risky
-            // categories are still listed in the Cleanup Manager, just unchecked.
-            await seedJunkSelection(from: result.junkResult)
-            threatSelection = Set(foundThreats.map(\.filePath))
-            updateSelection = Set(foundUpdates.map(\.bundleID))
-            // Seed every redundant copy (every duplicate except the kept
-            // original) so Run removes the extras by default — a copy is always
-            // retained, so this is safe. The scanner already orders groups by
-            // reclaimable bytes, so no re-sort is needed for the Review list.
-            largeFileSelection = Set(duplicates.flatMap { $0.redundantCopies.map(\.url) })
-            phase = .results(result)
-            // Hand the aggregated result to whoever wired seeding (ContentView)
-            // so the same-scope standalone sections can show these results
-            // without making the user scan them again.
-            onScanCompleted?(result)
-        } catch {
-            log.error("Smart Scan failed: \(String(describing: error), privacy: .public)")
+            log.error("Smart Scan failed: every attempted unit failed")
             junkManagerStore.unload()
-            phase = .failed(message: error.localizedDescription)
-        }
-    }
-
-    /// Runs the System Junk scan only when its module is enabled. Factored out
-    /// of `scan()` so the throwing `async let` site stays readable — a ternary
-    /// around a `try await` call reads poorly. Disabled yields an empty result,
-    /// which still flips `junkWalkComplete` cleanly when awaited.
-    private func scanJunkIfEnabled(
-        _ enabled: Bool,
-        onProgress: @escaping @Sendable (Int) -> Void
-    ) async throws -> ScanResult {
-        guard enabled else { return ScanResult(items: []) }
-        return try await junkScanner(onProgress)
-    }
-
-    /// Returns a `ScanResult` containing only the files whose category the user
-    /// kept enabled in the Cleanup sub-tree. A no-op (returns the input) when
-    /// every category is enabled, so the common path allocates nothing extra.
-    private static func filteringJunkCategories(
-        _ result: ScanResult,
-        to categories: Set<ScanCategory>
-    ) -> ScanResult {
-        guard categories.count != SmartScanSettingsStore.junkCategories.count else {
-            return result
-        }
-        return ScanResult(items: result.items.filter { categories.contains($0.category) })
-    }
-
-    /// Runs the malware scan only when ClamAV is present. Factored out of
-    /// `scan()` so the `async let` site stays readable and the gating logic
-    /// isn't buried in a conditional async closure.
-    private func scanForThreatsIfPossible(
-        clamAVAvailable: Bool,
-        onProgress: @escaping @Sendable (Int) -> Void
-    ) async -> [MalwareThreat] {
-        guard clamAVAvailable else { return [] }
-        return await malwareScanner(onProgress)
-    }
-
-    // MARK: - Run
-
-    /// Single Run pass over the latest results, gated by `tileSelection` and
-    /// the per-tile sub-selections. A deselected tile is skipped entirely;
-    /// within a selected tile, items the user deselected via Review are
-    /// filtered out before the collaborator is called. Each module's work
-    /// runs inside its own do/catch (Open Decision 1 in the plan) so a
-    /// single module's failure leaves every other module's results intact —
-    /// failures are recorded in `summary.failedModules` instead of
-    /// collapsing the whole pass to `.failed`.
-    /// A no-op unless we are showing results.
-    func run() async {
-        guard case .results(let result) = phase else { return }
-        phase = .cleaning
-
-        var bytesFreed: Int64 = 0
-        var threatsRemoved = 0
-        var maintenanceOutput: String? = nil
-        var updatesOpened = 0
-        var clutterFilesRemoved = 0
-        var clutterBytesRemoved: Int64 = 0
-        var failedModules: Set<SmartScanModule> = []
-
-        if tileSelection.contains(.systemJunk) {
-            // Per-file selection: clean exactly the files the user left checked
-            // in the Cleanup Manager. The full junk result is a million files on
-            // a busy Mac, so filter it against the selection off the main actor —
-            // hashing that many URLs on the main thread froze the Run tap.
-            let selected = junkFileSelection
-            let selectedJunk = await ScanFileFilter.selected(from: result.junkResult.items) { selected.contains($0.url) }
-            if !selectedJunk.isEmpty {
-                do {
-                    bytesFreed = try await junkCleaner(selectedJunk)
-                } catch {
-                    log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
-                    failedModules.insert(.systemJunk)
-                }
-            }
+            phase = .failed(message: message)
+            return
         }
 
-        if tileSelection.contains(.malware) {
-            let selectedThreats = result.threats.filter {
-                threatSelection.contains($0.filePath)
-            }
-            if !selectedThreats.isEmpty {
-                let failures = await threatRemover(selectedThreats)
-                threatsRemoved = selectedThreats.count - failures.count
-                if !failures.isEmpty {
-                    log.error("\(failures.count, privacy: .public) of \(selectedThreats.count, privacy: .public) threats could not be removed during Smart Scan run")
-                    failedModules.insert(.malware)
-                }
-            }
-        }
-
-        // Performance runs two tasks, matching Smart Care: the periodic
-        // maintenance scripts and a DNS-cache flush. Each is in its own catch so
-        // one failing doesn't sink the other, and their result lines are folded
-        // into one `maintenanceOutput`. `maintenanceScriptsAvailable` still gates
-        // the scripts (periodic was removed in macOS 26, so running it would only
-        // surface "The file 'periodic' doesn't exist."); the DNS flush needs no
-        // periodic, so it always runs when the tile is selected.
-        if tileSelection.contains(.performance) {
-            var lines: [String] = []
-            if maintenanceScriptsAvailable {
-                do {
-                    lines.append(try await maintenanceRunner())
-                } catch {
-                    log.error("Smart Scan maintenance failed: \(String(describing: error), privacy: .public)")
-                    failedModules.insert(.performance)
-                }
-            }
-            do {
-                let dnsLine = try await dnsFlusher()
-                if !dnsLine.isEmpty { lines.append(dnsLine) }
-            } catch {
-                log.error("Smart Scan DNS flush failed: \(String(describing: error), privacy: .public)")
-                failedModules.insert(.performance)
-            }
-            if !lines.isEmpty { maintenanceOutput = lines.joined(separator: "\n") }
-        }
-
-        if tileSelection.contains(.applications) {
-            let selectedUpdates = result.availableUpdates.filter {
-                updateSelection.contains($0.bundleID)
-            }
-            for update in selectedUpdates {
-                await updateOpener(update.updateURL)
-                updatesOpened += 1
-            }
-        }
-
-        if tileSelection.contains(.myClutter), !largeFileSelection.isEmpty {
-            let urls = Array(largeFileSelection)
-            let removed = await largeFileDeleter(urls)
-            clutterFilesRemoved = removed.count
-            // Walk every duplicate copy the scan recorded to total bytes the
-            // deleter actually freed, since the deleter only reports URLs.
-            clutterBytesRemoved = result.duplicateGroups
-                .flatMap { $0.files }
-                .filter { removed.contains($0.url) }
-                .reduce(Int64(0)) { $0 + $1.size }
-            if removed.count < urls.count {
-                log.error("\(urls.count - removed.count, privacy: .public) of \(urls.count, privacy: .public) clutter files could not be removed during Smart Scan run")
-                failedModules.insert(.myClutter)
-            }
-        }
-
-        phase = .done(summary: SmartScanSummary(
-            bytesFreed: bytesFreed,
-            threatsRemoved: threatsRemoved,
-            maintenanceOutput: maintenanceOutput,
-            updatesOpened: updatesOpened,
-            clutterFilesRemoved: clutterFilesRemoved,
-            clutterBytesRemoved: clutterBytesRemoved,
-            failedModules: failedModules
-        ))
-    }
-
-    // MARK: - Tile selection
-
-    /// Whether the given module's tile is currently checked on the dashboard.
-    func isModuleSelected(_ module: SmartScanModule) -> Bool {
-        tileSelection.contains(module)
-    }
-
-    /// Flips the given module's checked state on the dashboard. A no-op-safe
-    /// add/remove on the published set so SwiftUI's `Toggle` can bind through
-    /// a synthesized `Binding`.
-    func toggleModule(_ module: SmartScanModule) {
-        if tileSelection.contains(module) {
-            tileSelection.remove(module)
+        let junkResult: ScanResult
+        if case .junk(let result)? = plan.finding(.junkCleanup)?.payload {
+            junkResult = result
         } else {
-            tileSelection.insert(module)
+            junkResult = ScanResult(items: [])
         }
-    }
+        // Warm the junk Review's manager model in the background right away,
+        // so its panes are instant by the time the user opens Review.
+        junkManagerStore.load(result: junkResult)
 
-    // MARK: - Sub-selections (per-tile Review screens)
-
-    /// Seed the junk selection and its running tallies from a fresh scan:
-    /// pre-check every file in a safe-to-auto-remove category and leave user-data
-    /// categories unchecked, building the per-category byte/count totals in the
-    /// same pass so the Cleanup Manager's badges are correct without a re-walk.
-    /// Async because the walk runs off the main actor (see `ScanSelectionSeed`)
-    /// — hashing a large result's URLs into the selection set on the main
-    /// thread froze the scan-complete transition for seconds.
-    private func seedJunkSelection(from result: ScanResult) async {
-        let seed = await ScanSelectionSeed.safeDefaults(from: result)
+        // Pre-check only the safe (regenerable / already-discarded) junk
+        // categories so a one-tap Run never removes user data. Built off the
+        // main actor — hashing a large result's URLs here froze the
+        // scan-complete transition for seconds.
+        let seed = await ScanSelectionSeed.safeDefaults(from: junkResult)
         junkFileSelection = seed.urls
         selectedJunkBytes = seed.totalBytes
         selectedJunkBytesByCategory = seed.bytesByCategory
         selectedJunkCountByCategory = seed.countByCategory
+
+        if case .threats(let threats)? = plan.finding(.threats)?.payload {
+            threatSelection = Set(threats.map(\.filePath))
+        }
+        if case .appUpdates(let updates)? = plan.finding(.appUpdates)?.payload {
+            updateSelection = Set(updates.map(\.bundleID))
+        }
+        // Every redundant copy (never the kept original) — a copy always
+        // survives, so default-on is safe.
+        if case .duplicates(let groups)? = plan.finding(.duplicates)?.payload {
+            duplicateSelection = Set(groups.flatMap { $0.redundantCopies.map(\.url) })
+        }
+        // Opt-in tiers (large/old files, unused apps, leftovers, installers,
+        // browser privacy) stay empty: these are the user's own files and
+        // data, and nothing is removed unless they choose it.
+
+        includedFindings = Set(
+            plan.findings
+                .filter { $0.actionability == .preApproved && !$0.isEmpty }
+                .map(\.kind)
+        )
+
+        phase = .results(plan)
+        onScanCompleted?(plan)
     }
 
-    func isJunkCategorySelected(_ category: ScanCategory) -> Bool {
-        junkCategorySelection.contains(category)
+    /// Resets every per-scan accumulator ahead of a fresh scan.
+    private func clearScanState() {
+        unitStatuses = [:]
+        liveFindings = [:]
+        unitProgressCounts = [:]
+        scannedItemCount = 0
+        includedFindings = []
+        isReviewing = false
+        junkFileSelection = []
+        selectedJunkBytes = 0
+        selectedJunkBytesByCategory = [:]
+        selectedJunkCountByCategory = [:]
+        threatSelection = []
+        updateSelection = []
+        duplicateSelection = []
+        largeOldFileSelection = []
+        unusedAppSelection = []
+        leftoverSelection = []
+        installerSelection = []
+        browserPrivacySelection = []
     }
 
-    /// Toggling a category is a bulk operation over its files: if every file is
-    /// currently selected, clear them all; otherwise select them all. Routed
-    /// through the batched setter so the per-category tallies stay in sync.
-    func toggleJunkCategory(_ category: ScanCategory) {
-        guard case .results(let result) = phase,
-              let files = result.junkResult.itemsByCategory[category] else { return }
-        setJunkFiles(files, selected: !areAllJunkFilesSelected(files))
+    // MARK: - Checklist derivation
+
+    /// The domains this scan shows as checklist rows, in display order.
+    var checklistDomains: [CareDomain] { CareDomain.allCases }
+
+    /// One checklist row's rolled-up state. A domain is running while any of
+    /// its units run, finished (with its plain result line) once all landed,
+    /// skipped when every unit was skipped, and failed when any unit failed.
+    func domainStatus(_ domain: CareDomain) -> DomainStatus {
+        let statuses = domain.units.map { unitStatuses[$0] ?? .pending }
+        var outcomes: [CareUnitOutcome] = []
+        for status in statuses {
+            if case .finished(let outcome) = status { outcomes.append(outcome) }
+        }
+        if outcomes.count == statuses.count {
+            if outcomes.allSatisfy({ outcome in
+                if case .skipped = outcome { return true }
+                return false
+            }) {
+                return .skipped
+            }
+            if outcomes.contains(where: { outcome in
+                if case .failed = outcome { return true }
+                return false
+            }) {
+                return .failed
+            }
+            return .finished(
+                line: CareFindingCopy.domainResultLine(domain, findings: Array(liveFindings.values))
+            )
+        }
+        let running = domain.units.reduce(into: 0) { total, unit in
+            if case .running(let items) = unitStatuses[unit] { total += items }
+            else if let count = unitProgressCounts[unit] { total += count }
+        }
+        let anyRunning = statuses.contains { status in
+            if case .running = status { return true }
+            return false
+        }
+        // A domain with some units landed and none currently running is
+        // between units in its lane — still "running" from the user's seat.
+        let anyFinished = !outcomes.isEmpty
+        return (anyRunning || anyFinished) ? .running(itemsScanned: running) : .pending
     }
 
-    /// Whether an individual junk file is checked for removal in the Cleanup
-    /// Manager's file pane.
+    // MARK: - Results derivation
+
+    /// The plan on screen, or `nil` outside `.results`.
+    var currentPlan: CarePlan? {
+        if case .results(let plan) = phase { return plan }
+        return nil
+    }
+
+    /// The hero verdict for the current results, derived on demand (pure and
+    /// cheap) so it can never disagree with the plan on screen.
+    var verdict: CareVerdict? {
+        currentPlan.map(CareVerdictEngine.verdict(for:))
+    }
+
+    /// The feed in display order: threats first, then space, then advisories.
+    var rankedFindings: [CareFinding] {
+        currentPlan.map { CarePlanRanker.ranked($0.findings) } ?? []
+    }
+
+    // MARK: - Card inclusion
+
+    func isFindingIncluded(_ kind: CareFinding.Kind) -> Bool {
+        includedFindings.contains(kind)
+    }
+
+    /// How many items the user's review selection currently covers for a
+    /// finding — the feed uses this to deep-link an opt-in card with nothing
+    /// selected into Review instead of silently selecting everything.
+    func selectionCount(for kind: CareFinding.Kind) -> Int {
+        switch kind {
+        case .junkCleanup: return junkFileSelection.count
+        case .threats: return threatSelection.count
+        case .appUpdates: return updateSelection.count
+        case .duplicates: return duplicateSelection.count
+        case .largeOldFiles: return largeOldFileSelection.count
+        case .unusedApps: return unusedAppSelection.count
+        case .appLeftovers: return leftoverSelection.count
+        case .installers: return installerSelection.count
+        case .browserPrivacy: return browserPrivacySelection.count
+        case .maintenanceDue: return currentPlan?.finding(.maintenanceDue)?.itemCount ?? 0
+        case .loginItems, .lowDiskSpace: return 0
+        }
+    }
+
+    /// Sets a card's inclusion in the Run pass. Informational findings never
+    /// join. The feed only calls this with `true` for an opt-in card when its
+    /// selection is non-empty (otherwise it deep-links into Review).
+    func setFindingIncluded(_ kind: CareFinding.Kind, _ included: Bool) {
+        guard let finding = currentPlan?.finding(kind),
+              finding.actionability != .informational else { return }
+        if included {
+            includedFindings.insert(kind)
+        } else {
+            includedFindings.remove(kind)
+        }
+    }
+
+    /// Opt-in cards follow their review selection: items checked → card on,
+    /// selection cleared → card off. Called by every opt-in selection setter.
+    private func syncOptInInclusion(_ kind: CareFinding.Kind, hasSelection: Bool) {
+        if hasSelection {
+            includedFindings.insert(kind)
+        } else {
+            includedFindings.remove(kind)
+        }
+    }
+
+    // MARK: - Junk selection (shared contract with the Cleanup Manager)
+
+    /// The junk scan on screen, or an empty result outside `.results`.
+    var junkResult: ScanResult {
+        if case .junk(let result)? = currentPlan?.finding(.junkCleanup)?.payload { return result }
+        return ScanResult(items: [])
+    }
+
+    /// Per-category view of `junkFileSelection`: a category counts as
+    /// selected when every one of its files is selected.
+    var junkCategorySelection: Set<ScanCategory> {
+        Set(junkResult.itemsByCategory.compactMap { category, files in
+            files.allSatisfy { junkFileSelection.contains($0.url) } ? category : nil
+        })
+    }
+
     func isJunkFileSelected(_ file: ScannedFile) -> Bool {
         junkFileSelection.contains(file.url)
     }
 
-    /// Selected junk bytes in one category — an O(1) read backing the store-
-    /// backed Cleanup Manager's per-category selected-size badge.
+    /// Selected junk bytes in one category — an O(1) read backing the
+    /// Cleanup Manager's per-category selected-size badge.
     func selectedJunkBytes(in category: ScanCategory) -> Int64 {
         selectedJunkBytesByCategory[category] ?? 0
     }
@@ -949,31 +471,28 @@ final class SmartScanViewModel {
         selectedJunkCountByCategory[category] ?? 0
     }
 
-    /// Whether every file in `files` is currently selected. Short-circuits on the
-    /// first unselected file, so the common "nothing selected yet" case is O(1).
-    /// Backs the Cleanup Manager folder-row checkbox's checked state.
+    /// Whether every file in `files` is currently selected. Short-circuits on
+    /// the first unselected file.
     func areAllJunkFilesSelected(_ files: [ScannedFile]) -> Bool {
         !files.isEmpty && files.allSatisfy { junkFileSelection.contains($0.url) }
     }
 
-    /// Flips a single junk file's checked state.
     func toggleJunkFile(_ file: ScannedFile) {
         setJunkFiles([file], selected: !junkFileSelection.contains(file.url))
     }
 
-    /// Toggle a whole group of files as one unit — the Cleanup Manager's folder-
-    /// row checkbox, covering every file beneath a folder. A fully-selected group
-    /// clears; otherwise the whole group is selected (a partial folder fills in).
+    /// Toggle a whole group of files as one unit — the Cleanup Manager's
+    /// folder-row checkbox. A fully-selected group clears; otherwise the
+    /// whole group is selected.
     func toggleJunkFiles(_ files: [ScannedFile]) {
         setJunkFiles(files, selected: !areAllJunkFilesSelected(files))
     }
 
-    /// Select or clear a whole group of junk files in a single pass, writing each
-    /// observable property exactly once. Toggling a folder that covers tens of
-    /// thousands of files one-at-a-time re-hashes each URL and fires an
-    /// observation mutation per file — the work that froze the Cleanup Manager on
-    /// large folders. Building the new values on local copies and assigning once
-    /// collapses that to a handful of mutations total.
+    /// Select or clear a group of junk files in a single pass, writing each
+    /// observable property exactly once. Toggling a folder covering tens of
+    /// thousands of files one at a time re-hashes each URL and fires an
+    /// observation mutation per file — the work that froze the Cleanup
+    /// Manager on large folders.
     func setJunkFiles(_ files: [ScannedFile], selected: Bool) {
         guard !files.isEmpty else { return }
         var urls = junkFileSelection
@@ -999,13 +518,25 @@ final class SmartScanViewModel {
         selectedJunkCountByCategory = counts
     }
 
+    func isJunkCategorySelected(_ category: ScanCategory) -> Bool {
+        junkCategorySelection.contains(category)
+    }
+
+    /// Toggling a category is a bulk operation over its files: fully selected
+    /// clears, anything less selects all.
+    func toggleJunkCategory(_ category: ScanCategory) {
+        guard let files = junkResult.itemsByCategory[category] else { return }
+        setJunkFiles(files, selected: !areAllJunkFilesSelected(files))
+    }
+
     /// Check or uncheck every file in a category in one write — backs the
     /// Cleanup Manager's "Select: All / None" menu.
     func setJunkCategory(_ category: ScanCategory, selected: Bool) {
-        guard case .results(let result) = phase,
-              let files = result.junkResult.itemsByCategory[category] else { return }
+        guard let files = junkResult.itemsByCategory[category] else { return }
         setJunkFiles(files, selected: selected)
     }
+
+    // MARK: - Threat selection
 
     func isThreatSelected(_ threat: MalwareThreat) -> Bool {
         threatSelection.contains(threat.filePath)
@@ -1019,12 +550,13 @@ final class SmartScanViewModel {
         }
     }
 
-    /// Check or uncheck every detected threat in one write — backs the
-    /// Protection Manager's "Select: All / None" menu.
+    /// Check or uncheck every detected threat in one write.
     func setAllThreats(selected: Bool) {
-        guard case .results(let result) = phase else { return }
-        threatSelection = selected ? Set(result.threats.map(\.filePath)) : []
+        guard case .threats(let threats)? = currentPlan?.finding(.threats)?.payload else { return }
+        threatSelection = selected ? Set(threats.map(\.filePath)) : []
     }
+
+    // MARK: - Update selection
 
     func isUpdateSelected(_ update: UpdateInfo) -> Bool {
         updateSelection.contains(update.bundleID)
@@ -1038,153 +570,376 @@ final class SmartScanViewModel {
         }
     }
 
-    /// Check or uncheck every available update in one write — backs the
-    /// Applications Manager's "Select: All / None" menu.
+    /// Check or uncheck every available update in one write.
     func setAllUpdates(selected: Bool) {
-        guard case .results(let result) = phase else { return }
-        updateSelection = selected ? Set(result.availableUpdates.map(\.bundleID)) : []
+        guard case .appUpdates(let updates)? = currentPlan?.finding(.appUpdates)?.payload else { return }
+        updateSelection = selected ? Set(updates.map(\.bundleID)) : []
     }
 
-    func isLargeFileSelected(_ file: ScannedFile) -> Bool {
-        largeFileSelection.contains(file.url)
+    // MARK: - Duplicate selection
+
+    func isDuplicateSelected(_ file: ScannedFile) -> Bool {
+        duplicateSelection.contains(file.url)
     }
 
-    func toggleLargeFile(_ file: ScannedFile) {
-        if largeFileSelection.contains(file.url) {
-            largeFileSelection.remove(file.url)
+    func toggleDuplicate(_ file: ScannedFile) {
+        if duplicateSelection.contains(file.url) {
+            duplicateSelection.remove(file.url)
         } else {
-            largeFileSelection.insert(file.url)
+            duplicateSelection.insert(file.url)
         }
     }
 
-    /// Select every redundant duplicate copy for removal in one write to
-    /// `largeFileSelection` (kept originals are never included, so a copy always
-    /// survives). A single set assignment so SwiftUI observes one publish instead
-    /// of N (one per `toggleLargeFile` call), which on large scans would
-    /// otherwise stall the UI behind the cascade of refreshes.
-    func selectAllLargeFiles() {
-        guard case .results(let result) = phase else { return }
-        largeFileSelection = Set(result.duplicateGroups.flatMap { $0.redundantCopies.map(\.url) })
-    }
-
-    /// Opt every file back out — single-write counterpart to
-    /// `selectAllLargeFiles()`.
-    func clearLargeFileSelection() {
-        largeFileSelection = []
-    }
-
-    /// Check or uncheck a specific set of clutter files in one write — backs
-    /// the Clutter Manager's per-category "Select: All / None" menu.
-    func setLargeFiles(_ urls: [URL], selected: Bool) {
+    /// Check or uncheck a specific set of duplicate copies in one write.
+    func setDuplicates(_ urls: [URL], selected: Bool) {
         if selected {
-            largeFileSelection.formUnion(urls)
+            duplicateSelection.formUnion(urls)
         } else {
-            largeFileSelection.subtract(urls)
+            duplicateSelection.subtract(urls)
         }
+    }
+
+    /// Select every redundant copy in one write (kept originals are never
+    /// included, so a copy always survives).
+    func selectAllDuplicates() {
+        guard case .duplicates(let groups)? = currentPlan?.finding(.duplicates)?.payload else { return }
+        duplicateSelection = Set(groups.flatMap { $0.redundantCopies.map(\.url) })
+    }
+
+    func clearDuplicateSelection() {
+        duplicateSelection = []
+    }
+
+    // MARK: - Opt-in selections (large/old files, apps, installers, privacy)
+
+    func isLargeOldFileSelected(_ file: ScannedFile) -> Bool {
+        largeOldFileSelection.contains(file.url)
+    }
+
+    func toggleLargeOldFile(_ file: ScannedFile) {
+        setLargeOldFiles([file.url], selected: !largeOldFileSelection.contains(file.url))
+    }
+
+    /// Check or uncheck a set of large/old files in one write.
+    func setLargeOldFiles(_ urls: [URL], selected: Bool) {
+        if selected {
+            largeOldFileSelection.formUnion(urls)
+        } else {
+            largeOldFileSelection.subtract(urls)
+        }
+        syncOptInInclusion(.largeOldFiles, hasSelection: !largeOldFileSelection.isEmpty)
+    }
+
+    func isUnusedAppSelected(_ app: UnusedApp) -> Bool {
+        unusedAppSelection.contains(app.id)
+    }
+
+    func toggleUnusedApp(_ app: UnusedApp) {
+        setUnusedApps([app.id], selected: !unusedAppSelection.contains(app.id))
+    }
+
+    func setUnusedApps(_ ids: [String], selected: Bool) {
+        if selected {
+            unusedAppSelection.formUnion(ids)
+        } else {
+            unusedAppSelection.subtract(ids)
+        }
+        syncOptInInclusion(.unusedApps, hasSelection: !unusedAppSelection.isEmpty)
+    }
+
+    func isLeftoverSelected(_ group: LeftoverGroup) -> Bool {
+        leftoverSelection.contains(group.bundleID)
+    }
+
+    func toggleLeftover(_ group: LeftoverGroup) {
+        setLeftovers([group.bundleID], selected: !leftoverSelection.contains(group.bundleID))
+    }
+
+    func setLeftovers(_ bundleIDs: [String], selected: Bool) {
+        if selected {
+            leftoverSelection.formUnion(bundleIDs)
+        } else {
+            leftoverSelection.subtract(bundleIDs)
+        }
+        syncOptInInclusion(.appLeftovers, hasSelection: !leftoverSelection.isEmpty)
+    }
+
+    func isInstallerSelected(_ file: InstallationFile) -> Bool {
+        installerSelection.contains(file.id)
+    }
+
+    func toggleInstaller(_ file: InstallationFile) {
+        setInstallers([file.id], selected: !installerSelection.contains(file.id))
+    }
+
+    func setInstallers(_ ids: [String], selected: Bool) {
+        if selected {
+            installerSelection.formUnion(ids)
+        } else {
+            installerSelection.subtract(ids)
+        }
+        syncOptInInclusion(.installers, hasSelection: !installerSelection.isEmpty)
+    }
+
+    func isBrowserPrivacySelected(_ key: BrowserPrivacyKey) -> Bool {
+        browserPrivacySelection.contains(key)
+    }
+
+    /// Only removable categories are selectable; the informational ones
+    /// (passwords, autofill, history) are shown for awareness and can never
+    /// join the Run pass.
+    func toggleBrowserPrivacy(_ key: BrowserPrivacyKey) {
+        guard key.category.kind == .removable else { return }
+        if browserPrivacySelection.contains(key) {
+            browserPrivacySelection.remove(key)
+        } else {
+            browserPrivacySelection.insert(key)
+        }
+        syncOptInInclusion(.browserPrivacy, hasSelection: !browserPrivacySelection.isEmpty)
     }
 
     // MARK: - Executable work surface
 
-    /// Whether the given module would actually produce work if Run were
-    /// pressed right now. The tile must be selected, *and* its sub-selection
-    /// must filter down to at least one item. Performance always produces work
-    /// because its DNS-cache flush needs no `periodic` (the maintenance scripts
-    /// are an extra task that's skipped where `periodic` is gone in macOS 26).
-    ///
-    /// Read by both the dashboard's per-tile caption decisions and the
-    /// floating Run disc's visibility gate, so the two surfaces share one
-    /// source of truth.
-    func willExecute(_ module: SmartScanModule) -> Bool {
-        guard case .results(let result) = phase else { return false }
-        guard isModuleSelected(module) else { return false }
-        switch module {
-        case .systemJunk:
-            // At least one scanned junk file is still checked. `contains(where:)`
-            // short-circuits on the first hit, so this stays cheap even under
-            // heavy junk scans where `hasExecutableWork` calls it every refresh.
-            return result.junkResult.items.contains { junkFileSelection.contains($0.url) }
-        case .malware:
-            return result.threats.contains {
-                threatSelection.contains($0.filePath)
-            }
-        case .performance:
-            // The DNS-cache flush always has work (no `periodic` dependency),
-            // so Performance is actionable on every macOS — even where the
-            // maintenance scripts are gone.
-            return true
-        case .applications:
-            return result.availableUpdates.contains {
-                updateSelection.contains($0.bundleID)
-            }
-        case .myClutter:
-            return !largeFileSelection.isEmpty
+    /// Whether the given finding would actually do work if Run were pressed:
+    /// its card must be included and its selection must cover at least one
+    /// item. Read by the feed's captions and the floating Run disc's gate.
+    func willExecute(_ kind: CareFinding.Kind) -> Bool {
+        guard currentPlan?.finding(kind) != nil, includedFindings.contains(kind) else { return false }
+        switch kind {
+        case .maintenanceDue:
+            return (currentPlan?.finding(.maintenanceDue)?.itemCount ?? 0) > 0
+        case .loginItems, .lowDiskSpace:
+            return false
+        default:
+            return selectionCount(for: kind) > 0
         }
     }
 
-    /// `true` iff at least one selected module would actually do work
-    /// during Run. The floating Run disc gates its visibility on this — a
-    /// disc whose Run wouldn't execute anything reads as a no-op trap.
+    /// `true` iff at least one included finding would actually do work. The
+    /// floating Run disc gates its visibility on this.
     var hasExecutableWork: Bool {
-        SmartScanModule.allCases.contains { willExecute($0) }
+        CareFinding.Kind.allCases.contains { willExecute($0) }
     }
 
-    /// Whether the floating Run disc should be on screen: only on the results
-    /// dashboard, only when a selected module would do work, and never while a
-    /// Review (Manager) screen is up — the Review owns the bottom bar and the
-    /// Run disc would overlap it.
+    /// Whether the floating Run disc should be on screen: only on the
+    /// results feed, only with work to do, and never while a Review is up.
     var isRunDiscVisible: Bool {
         guard case .results = phase else { return false }
         return hasExecutableWork && !isReviewing
     }
 
-    /// Records whether a tile's Review screen is open, so the floating Run disc
-    /// can hide while the user is inside a Manager. Driven by `SmartScanView`.
+    /// Records whether a Review screen is open, so the floating Run disc can
+    /// hide while the user is inside one. Driven by `SmartScanView`.
     func setReviewing(_ isReviewing: Bool) {
         self.isReviewing = isReviewing
     }
 
-    /// Default tile-selection seed for a freshly-landed `.results` payload.
-    /// A module starts checked iff it has actionable work for Run. Performance
-    /// always starts on because its DNS-cache flush always has work (the
-    /// maintenance scripts are an extra, gated at Run time). The user can still
-    /// deselect any tile on the dashboard.
-    private static func defaultTileSelection(
-        for result: SmartScanResult
-    ) -> Set<SmartScanModule> {
-        var selection: Set<SmartScanModule> = [.performance]
-        if result.totalJunkBytes > 0 { selection.insert(.systemJunk) }
-        if !result.threats.isEmpty { selection.insert(.malware) }
-        if !result.availableUpdates.isEmpty { selection.insert(.applications) }
-        if !result.duplicateGroups.isEmpty { selection.insert(.myClutter) }
-        return selection
+    // MARK: - Run
+
+    /// One Run pass over the included findings, in feed order. Every finding
+    /// executes inside its own do/catch and lands one receipt line, so a
+    /// single failure leaves the rest of the pass intact. A no-op unless the
+    /// results feed is showing.
+    func run() async {
+        guard case .results(let plan) = phase else { return }
+        phase = .running
+
+        var lines: [CareReceiptLine] = []
+        for finding in CarePlanRanker.ranked(plan.findings) where willExecuteDuringRun(finding) {
+            if let line = await execute(finding, plan: plan) {
+                lines.append(line)
+            }
+        }
+        phase = .done(receipt: CareReceipt(date: Date(), lines: lines))
+    }
+
+    /// `willExecute` reads `phase == .results`; during the pass the phase is
+    /// `.running`, so Run re-checks inclusion and selection directly.
+    private func willExecuteDuringRun(_ finding: CareFinding) -> Bool {
+        guard includedFindings.contains(finding.kind) else { return false }
+        switch finding.kind {
+        case .maintenanceDue: return finding.itemCount > 0
+        case .loginItems, .lowDiskSpace: return false
+        default: return selectionCount(for: finding.kind) > 0
+        }
+    }
+
+    private func execute(_ finding: CareFinding, plan: CarePlan) async -> CareReceiptLine? {
+        switch finding.payload {
+        case .junk(let result):
+            // The full junk result is a million files on a busy Mac; filter
+            // against the selection off the main actor — hashing that many
+            // URLs on the main thread froze the Run tap.
+            let selected = junkFileSelection
+            let selectedJunk = await ScanFileFilter.selected(from: result.items) { selected.contains($0.url) }
+            guard !selectedJunk.isEmpty else { return nil }
+            do {
+                let bytes = try await junkCleaner(selectedJunk)
+                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
+            } catch {
+                log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
+                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
+            }
+
+        case .threats(let threats):
+            let selected = threats.filter { threatSelection.contains($0.filePath) }
+            guard !selected.isEmpty else { return nil }
+            let failures = await threatRemover(selected)
+            let removed = selected.count - failures.count
+            return CareReceiptLine(
+                kind: .threats,
+                itemsProcessed: removed,
+                bytesFreed: 0,
+                outcome: failures.isEmpty ? .success : .partial(failedCount: failures.count)
+            )
+
+        case .duplicates(let groups):
+            return await recycleLine(
+                kind: .duplicates,
+                urls: Array(duplicateSelection),
+                sizeOf: Dictionary(
+                    groups.flatMap { $0.files.map { ($0.url, $0.size) } },
+                    uniquingKeysWith: { size, _ in size }
+                )
+            )
+
+        case .largeOldFiles(let files):
+            return await recycleLine(
+                kind: .largeOldFiles,
+                urls: Array(largeOldFileSelection),
+                sizeOf: Dictionary(files.map { ($0.url, $0.size) }, uniquingKeysWith: { size, _ in size })
+            )
+
+        case .installers(let files):
+            let selected = files.filter { installerSelection.contains($0.id) }
+            return await recycleLine(
+                kind: .installers,
+                urls: selected.map(\.url),
+                sizeOf: Dictionary(selected.map { ($0.url, $0.sizeBytes) }, uniquingKeysWith: { size, _ in size })
+            )
+
+        case .unusedApps(let apps):
+            let selected = apps.filter { unusedAppSelection.contains($0.id) }
+            return await recycleLine(
+                kind: .unusedApps,
+                urls: selected.map(\.app.bundleURL),
+                sizeOf: Dictionary(selected.map { ($0.app.bundleURL, $0.sizeBytes) }, uniquingKeysWith: { size, _ in size })
+            )
+
+        case .appLeftovers(let groups):
+            let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
+            guard !selected.isEmpty else { return nil }
+            let recycled = await recycleFiles(selected.flatMap(\.urls))
+            // Byte credit per fully-recycled group — LeftoverGroup only
+            // carries a group total, so a partial group credits nothing.
+            let fullyRemoved = selected.filter { group in group.urls.allSatisfy(recycled.contains) }
+            let outcome: CareReceiptLine.Outcome = fullyRemoved.count == selected.count
+                ? .success
+                : .partial(failedCount: selected.count - fullyRemoved.count)
+            return CareReceiptLine(
+                kind: .appLeftovers,
+                itemsProcessed: fullyRemoved.count,
+                bytesFreed: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
+                outcome: outcome
+            )
+
+        case .appUpdates(let updates):
+            let selected = updates.filter { updateSelection.contains($0.bundleID) }
+            guard !selected.isEmpty else { return nil }
+            for update in selected {
+                await updateOpener(update.updateURL)
+            }
+            return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
+
+        case .maintenanceDue(let taskIDs):
+            guard !taskIDs.isEmpty else { return nil }
+            var completed = 0
+            var lastError: String?
+            for taskID in taskIDs {
+                do {
+                    try await maintenanceTaskRunner(taskID)
+                    recordMaintenanceRun(taskID)
+                    completed += 1
+                } catch {
+                    log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    lastError = error.localizedDescription
+                }
+            }
+            let outcome: CareReceiptLine.Outcome
+            if completed == taskIDs.count {
+                outcome = .success
+            } else if completed > 0 {
+                outcome = .partial(failedCount: taskIDs.count - completed)
+            } else {
+                outcome = .failed(message: lastError ?? "")
+            }
+            return CareReceiptLine(kind: .maintenanceDue, itemsProcessed: completed, bytesFreed: 0, outcome: outcome)
+
+        case .browserPrivacy:
+            let selected = browserPrivacySelection
+            guard !selected.isEmpty else { return nil }
+            let requests = selected.map {
+                PrivacyRemovalRequest(browser: $0.browser, category: $0.category, scope: .wholeCategory)
+            }
+            do {
+                try await privacyRemover(requests)
+                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: requests.count, bytesFreed: 0, outcome: .success)
+            } catch let PrivacyRemovalError.browserRunning(browser) {
+                let message = String.localizedStringWithFormat(
+                    String(
+                        localized: "Close %@ first, then try again.",
+                        comment: "Receipt failure line when a browser must quit before its data can be cleared."
+                    ),
+                    browser.displayName
+                )
+                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: message))
+            } catch {
+                log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .public)")
+                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
+            }
+
+        case .loginItems, .lowDiskSpace:
+            return nil
+        }
+    }
+
+    /// Shared Trash-based removal: recycle the URLs, credit the bytes that
+    /// actually moved, report partial success honestly.
+    private func recycleLine(
+        kind: CareFinding.Kind,
+        urls: [URL],
+        sizeOf: [URL: Int64]
+    ) async -> CareReceiptLine? {
+        guard !urls.isEmpty else { return nil }
+        let recycled = await recycleFiles(urls)
+        let bytes = recycled.reduce(Int64(0)) { $0 + (sizeOf[$1] ?? 0) }
+        let outcome: CareReceiptLine.Outcome = recycled.count == urls.count
+            ? .success
+            : .partial(failedCount: urls.count - recycled.count)
+        if recycled.isEmpty {
+            return CareReceiptLine(
+                kind: kind,
+                itemsProcessed: 0,
+                bytesFreed: 0,
+                outcome: .failed(message: String(
+                    localized: "These files couldn't be moved to the Trash.",
+                    comment: "Receipt failure line when no selected file could be recycled."
+                ))
+            )
+        }
+        return CareReceiptLine(kind: kind, itemsProcessed: recycled.count, bytesFreed: bytes, outcome: outcome)
     }
 
     // MARK: - Recovery
 
     /// Returns to idle from a terminal phase so the user can start over.
-    /// Tile selection clears in lockstep so a fresh scan starts from the
-    /// default-all-on seed rather than carrying the previous user's
-    /// deselections forward.
+    /// Selections clear in lockstep so a fresh scan starts from the default
+    /// seed rather than carrying the previous run's choices forward.
     func reset() {
+        scanGeneration += 1
         phase = .idle
         junkManagerStore.unload()
-        tileSelection = []
-        isReviewing = false
-        junkFileSelection = []
-        selectedJunkBytes = 0
-        selectedJunkBytesByCategory = [:]
-        selectedJunkCountByCategory = [:]
-        threatSelection = []
-        updateSelection = []
-        largeFileSelection = []
-        scannedItemCount = 0
-        malwareFilesScanned = 0
-        appsChecked = 0
-        appsTotal = 0
-        junkWalkComplete = false
-        clutterWalkComplete = false
-        malwareScanComplete = false
-        moduleScanStates = [:]
+        clearScanState()
     }
 }
 
@@ -1192,128 +947,61 @@ final class SmartScanViewModel {
 
 extension SmartScanViewModel {
 
-    /// Builds a view-model wired to the real System Junk scanner/deleter, the
-    /// ClamAV detector/scanner, the malware threat remover, the login-item
-    /// manager, the Large & Old Files scanner/deleter, the App Updater
-    /// discovery + per-channel checkers, the privileged maintenance-script
-    /// runner, and `NSWorkspace.open` for opening update URLs — the same
-    /// collaborators the individual feature `.live()` factories use, so
-    /// Smart Scan and the standalone sections never diverge.
-    ///
-    /// The exclusions snapshot is captured per scan so a freshly-added
-    /// Preferences exclusion takes effect on the next run, matching
-    /// `SystemJunkViewModel.live`. The Scanning preferences (`settings`) are
-    /// captured the same way, so a module or category the user toggles in
-    /// Settings → Scanning takes effect on the next Smart Scan.
+    /// Builds a view model wired to the live `CareScanEngine` runners and the
+    /// same cleanup collaborators the standalone sections use. The exclusions
+    /// and Scanning-preferences snapshots are captured per scan so a change
+    /// takes effect on the next run.
     @MainActor
     static func live(
         exclusions: ExclusionsStore,
         settings: SmartScanSettingsStore,
-        webDevScanScope: WebDevScanScopeStore? = nil
+        webDevScanScope: WebDevScanScopeStore? = nil,
+        statsService: SystemStatsService
     ) -> SmartScanViewModel {
+        let engine = CareScanEngine(
+            runners: .live(
+                exclusions: exclusions,
+                webDevScanScope: webDevScanScope,
+                statsService: statsService
+            )
+        )
         let detector = ClamAVDetector()
-        let scanner = ClamAVScanner(detector: detector)
-        let remover = MalwareThreatRemover()
-        let loginManager = LoginItemsManager.live()
+        let threatRemover = MalwareThreatRemover()
+        let privacyRemover = BrowserPrivacyRemover(pathProvider: DefaultBrowserDataPathProvider())
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "SmartScanViewModel.live")
 
         return SmartScanViewModel(
-            junkScanner: { [weak exclusions, weak webDevScanScope] onProgress in
-                let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                let projectRoots = webDevScanScope?.scanRoots
-                return try await SystemJunkScanner.live(projectScanRoots: projectRoots)
-                    .scan(excluding: excluded, onProgress: onProgress)
+            scanEngine: { configuration, onEvent in
+                await engine.scan(configuration: configuration, onEvent: onEvent)
             },
-            malwareInstalled: { detector.isInstalled() },
-            // Best-effort: a missing signature database or a broken clamscan
-            // binary must not sink an otherwise-useful Smart Scan. We log the
-            // failure (rather than swallow it silently) so an unexpectedly
-            // empty Malware card is debuggable, then degrade to "no threats".
-            //
-            // Scope matches the standalone Malware screen's default Quick Scan
-            // — the high-risk home subdirectories (Downloads/Desktop/Documents)
-            // rather than all of $HOME. A full-home clamscan reads every file's
-            // contents and dominated Smart Scan's wall-clock time, since the
-            // dashboard waits for every sub-scan before it can render.
-            malwareScanner: { onProgress in
-                let quickPaths = MalwareViewModel.defaultQuickScanPaths()
-                // clamscan prints one line per file it checks and reports the
-                // running files-checked total (counted at the source, delivered
-                // through its progress throttle), which we forward to the view
-                // model's monotonic progress sink — the same derivation the
-                // standalone Malware screen uses.
-                do {
-                    return try await scanner.scan(paths: quickPaths, progress: { _, filesScanned in
-                        onProgress(filesScanned)
-                    })
-                } catch {
-                    log.error("Smart Scan malware sub-scan failed, treating as no threats: \(String(describing: error), privacy: .public)")
-                    return []
-                }
-            },
-            loginItemsLoader: { loginManager.items() },
-            // Duplicate files in Downloads, fronting the My Clutter tile to match
-            // Smart Care. A partly-blocked filesystem walk must not sink the
-            // whole Smart Scan, so failures are logged and degraded to an empty
-            // list (same partial-degradation contract as the malware scanner).
-            duplicatesScanner: { [weak exclusions] onProgress in
-                let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                do {
-                    return try await DuplicateScanner().scan(excluding: excluded, onProgress: onProgress)
-                } catch {
-                    log.error("Smart Scan duplicates sub-scan failed, treating as no files: \(String(describing: error), privacy: .public)")
-                    return []
-                }
-            },
-            // App Updater wiring: discover installed apps, then fan out
-            // per-app version probes against the App Store and Sparkle
-            // channels. The underlying collaborators (`DefaultAppDiscovery`,
-            // `UpdateProbe.live()`) are the same ones
-            // `AppUpdaterViewModel.live` uses, so the two surfaces produce
-            // identical update lists.
-            updatesChecker: { onProgress in await Self.fetchAvailableUpdates(log: log, onProgress: onProgress) },
             junkCleaner: { try await SystemJunkDeleter().delete($0) },
-            threatRemover: { await remover.remove($0) },
-            // Wires identical to `PerformanceViewModel.live` so Smart Scan's
-            // Performance tile runs the same maintenance scripts the
-            // standalone Performance screen does.
-            maintenanceRunner: { try await MaintenanceScriptRunner().run() },
-            // Flush the DNS cache through the same privileged helper task the
-            // standalone Performance screen uses, matching Smart Care's
-            // Performance module (maintenance scripts + Flush DNS).
-            dnsFlusher: { try await DNSCacheFlusher().run() },
-            // Open every selected update URL via `NSWorkspace.open`. Mirrors
-            // `AppUpdaterViewModel.live`'s opener — kept local rather than
-            // shared because the two surfaces have no other state to share.
+            threatRemover: { await threatRemover.remove($0) },
             updateOpener: { url in
-                await MainActor.run {
-                    _ = NSWorkspace.shared.open(url)
+                await MainActor.run { _ = NSWorkspace.shared.open(url) }
+            },
+            recycleFiles: { urls in await Self.recycle(urls, log: log) },
+            maintenanceTaskRunner: { taskID in
+                switch MaintenanceTask.Kind(rawValue: taskID) {
+                case .runMaintenanceScripts: _ = try await MaintenanceScriptRunner().run()
+                case .flushDNS: _ = try await DNSCacheFlusher().run()
+                case .reindexSpotlight: _ = try await SpotlightReindexer().run()
+                case .speedUpMail: _ = try await MailReindexer().run()
+                case .freeUpRAM, .thinTimeMachineSnapshots, nil:
+                    // Not part of the maintenance cocktail Smart Scan runs.
+                    break
                 }
             },
-            // A standalone per-URL `FileManager.removeItem` loop, kept local so
-            // this slice doesn't touch unrelated code (CLAUDE.md rule). Failures
-            // are logged with hash-masked privacy and skipped; the surviving
-            // files would stay in the dashboard if Run is re-run.
-            largeFileDeleter: { urls in
-                await Self.removeClutterFiles(at: urls, log: log)
-            },
-            // `periodic` was removed in macOS 26; when it's absent the
-            // Performance tile's maintenance action is skipped rather than
-            // erroring with "The file 'periodic' doesn't exist."
-            maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic"),
-            // Hold each sub-scan until its hero tile has animated into the hero
-            // slot, so scanning starts only once the module is the settled hero.
-            // Matched to the hero swap's duration so the pause ends as the tile
-            // arrives, not before or well after.
-            heroSettle: {
-                try? await Task.sleep(for: .seconds(VaderMotion.surfaceDuration))
-            },
-            // Snapshot the "Customize Smart Care" choices per scan so a toggle in
-            // Settings → Scanning takes effect on the next run, mirroring the
-            // exclusions snapshot above.
-            enabledModules: { [weak settings] in
-                settings?.enabledModules ?? Set(SmartScanModule.allCases)
+            recordMaintenanceRun: { MaintenanceRunLog().record($0) },
+            privacyRemover: { try await privacyRemover.remove($0) },
+            malwareEngineAvailable: { detector.isInstalled() },
+            // Interim domain gate until the settings store migrates to
+            // CareDomain (the raw values already match): Browser Privacy is
+            // new and defaults on, like every other module on fresh installs.
+            enabledDomains: { [weak settings] in
+                let modules = settings?.enabledModules ?? Set(SmartScanModule.allCases)
+                return Set(modules.compactMap { CareDomain(rawValue: $0.rawValue) })
+                    .union([.browserPrivacy])
             },
             enabledJunkCategories: { [weak settings] in
                 settings?.enabledJunkCategories ?? Set(SmartScanSettingsStore.junkCategories)
@@ -1321,50 +1009,20 @@ extension SmartScanViewModel {
         )
     }
 
-    /// Discover-and-probe loop for the Applications tile. Delegates the
-    /// bounded-concurrency fan-out (≤6 in-flight HTTPS requests) to
-    /// `UpdateProbe` so a heavily-installed machine never stampedes the
-    /// iTunes Search API or assorted Sparkle hosts during Smart Scan.
-    /// Marked `nonisolated` so the HTTP fan-out runs off the main actor —
-    /// without this annotation the static would inherit `@MainActor` from
-    /// the class extension and serialize on the UI thread, freezing every
-    /// per-app hop on the scan's progress label.
-    nonisolated private static func fetchAvailableUpdates(
-        log: Logger,
-        onProgress: @escaping @Sendable (_ checked: Int, _ total: Int) -> Void
-    ) async -> [UpdateInfo] {
-        let discovery = DefaultAppDiscovery()
-        do {
-            let apps = try await discovery.installedApps(includingSystemApps: false)
-            return await UpdateProbe.live().availableUpdates(for: apps, onProgress: onProgress)
-        } catch {
-            log.error("Smart Scan updates check failed: \(String(describing: error), privacy: .public)")
-            return []
-        }
-    }
-
-    /// Deletes the given user files and returns the set of URLs whose
-    /// removal succeeded. Errors are logged with hash-masked privacy so OS
-    /// Log redacts paths and error messages outside the user's machine.
-    /// Marked `nonisolated` so a multi-gigabyte batch doesn't block the
-    /// main actor while `FileManager.removeItem` iterates.
-    private nonisolated static func removeClutterFiles(
-        at urls: [URL],
-        log: Logger
-    ) async -> Set<URL> {
-        var deleted: Set<URL> = []
-        let manager = FileManager.default
-        for url in urls {
-            do {
-                try manager.removeItem(at: url)
-                deleted.insert(url)
-            } catch {
-                log.debug(
-                    "Smart Scan clutter delete skipped \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private(mask: .hash))"
-                )
+    /// Default recycler: move each file to the user's Trash via
+    /// `NSWorkspace.recycle` (restorable) and return the URLs that actually
+    /// moved. Marked `nonisolated` so a multi-gigabyte batch runs off the
+    /// main actor. Failures are logged with hash-masked privacy.
+    nonisolated private static func recycle(_ urls: [URL], log: Logger) async -> Set<URL> {
+        guard !urls.isEmpty else { return [] }
+        return await withCheckedContinuation { continuation in
+            NSWorkspace.shared.recycle(urls) { trashed, error in
+                if let error {
+                    log.error("Smart Scan recycle reported: \(error.localizedDescription, privacy: .private(mask: .hash))")
+                }
+                continuation.resume(returning: Set(trashed.keys))
             }
         }
-        return deleted
     }
 }
 
@@ -1373,7 +1031,7 @@ extension SmartScanViewModel {
 extension SmartScanViewModel: ScanCoordinating {
 
     /// Projects the rich `Phase` onto the three coarse phases ContentView
-    /// switches on. `.results`/`.cleaning`/`.done`/`.failed` all want the
+    /// switches on. `.results`/`.running`/`.done`/`.failed` all want the
     /// section's own detail UI, whose internal switch renders the specifics.
     var scanPresentation: ScanPresentation {
         switch phase {
@@ -1381,7 +1039,7 @@ extension SmartScanViewModel: ScanCoordinating {
             return .intro
         case .scanning:
             return .working
-        case .results, .cleaning, .done, .failed:
+        case .results, .running, .done, .failed:
             return .results
         }
     }

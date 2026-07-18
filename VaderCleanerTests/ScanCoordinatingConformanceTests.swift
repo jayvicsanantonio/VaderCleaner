@@ -81,7 +81,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     // MARK: - SmartScanViewModel
-    // Mapping: .idle→.intro; .scanning→.working; .results/.cleaning/.done/.failed→.results.
+    // Mapping: .idle→.intro; .scanning→.working; .results/.running/.done/.failed→.results.
 
     func test_smartScan_idleMapsToIntro() {
         XCTAssertEqual(makeSmartScan().scanPresentation, .intro)
@@ -89,9 +89,9 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
 
     func test_smartScan_scanningMapsToWorking() async {
         let gate = ScanGate()
-        let vm = makeSmartScan(junkScanner: {
+        let vm = makeSmartScan(engine: { _, _ in
             await gate.wait()
-            return ScanResult(items: [])
+            return Self.emptyCarePlan()
         })
 
         let task = Task { await vm.scan() }
@@ -109,11 +109,15 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         XCTAssertEqual(vm.scanPresentation, .results)
     }
 
-    func test_smartScan_cleaningMapsToResults() async {
+    func test_smartScan_runningMapsToResults() async {
         let gate = ScanGate()
         let junkFile = makeFile(name: "a")
         let vm = makeSmartScan(
-            junkScanner: { ScanResult(items: [junkFile]) },
+            engine: { _, _ in
+                Self.carePlan(findings: [
+                    CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [junkFile])))
+                ])
+            },
             junkCleaner: { _ in
                 await gate.wait()
                 return 0
@@ -122,7 +126,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         await vm.scan() // → .results, the only phase run() acts from.
 
         let task = Task { await vm.run() }
-        await yieldUntil({ vm.phase == .cleaning }, ".cleaning")
+        await yieldUntil({ vm.phase == .running }, ".running")
         XCTAssertEqual(vm.scanPresentation, .results)
 
         gate.open()
@@ -138,7 +142,12 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_smartScan_failedMapsToResults() async {
-        let vm = makeSmartScan(junkScanner: { throw Boom() })
+        let vm = makeSmartScan(engine: { _, _ in
+            Self.carePlan(
+                findings: [],
+                outcomes: [.systemJunk: .failed(message: "boom")]
+            )
+        })
         await vm.scan()
         if case .failed = vm.phase {} else { XCTFail("expected .failed, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)
@@ -604,31 +613,34 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     // One per view model, mirroring the defaults each VM's own
     // *ViewModelTests use so a test only overrides the closure it exercises.
 
+    /// A plan with one completed unit so landing decides `.results`, not the
+    /// every-unit-failed `.failed` path.
+    private nonisolated static func emptyCarePlan() -> CarePlan {
+        carePlan(findings: [])
+    }
+
+    private nonisolated static func carePlan(
+        findings: [CareFinding],
+        outcomes: [CareScanUnit: CareUnitOutcome] = [.loginItems: .completed]
+    ) -> CarePlan {
+        CarePlan(
+            findings: findings,
+            health: nil,
+            unitOutcomes: outcomes,
+            startedAt: Date(timeIntervalSinceReferenceDate: 0),
+            finishedAt: Date(timeIntervalSinceReferenceDate: 1)
+        )
+    }
+
     private func makeSmartScan(
-        junkScanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
-        malwareInstalled: @escaping SmartScanViewModel.MalwareInstalled = { true },
-        malwareScanner: @escaping () async -> [MalwareThreat] = { [] },
-        loginItemsLoader: @escaping SmartScanViewModel.LoginItemsLoader = { [] },
-        duplicatesScanner: @escaping () async -> [DuplicateGroup] = { [] },
-        updatesChecker: @escaping () async -> [UpdateInfo] = { [] },
-        junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 },
-        threatRemover: @escaping SmartScanViewModel.ThreatRemover = { _ in [] },
-        maintenanceRunner: @escaping SmartScanViewModel.MaintenanceRunner = { "" },
-        updateOpener: @escaping SmartScanViewModel.UpdateOpener = { _ in },
-        largeFileDeleter: @escaping SmartScanViewModel.LargeFileDeleter = { _ in [] }
+        engine: @escaping SmartScanViewModel.ScanEngine = { _, _ in
+            ScanCoordinatingConformanceTests.emptyCarePlan()
+        },
+        junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 }
     ) -> SmartScanViewModel {
         SmartScanViewModel(
-            junkScanner: { _ in try await junkScanner() },
-            malwareInstalled: malwareInstalled,
-            malwareScanner: { _ in await malwareScanner() },
-            loginItemsLoader: loginItemsLoader,
-            duplicatesScanner: { _ in await duplicatesScanner() },
-            updatesChecker: { _ in await updatesChecker() },
-            junkCleaner: junkCleaner,
-            threatRemover: threatRemover,
-            maintenanceRunner: maintenanceRunner,
-            updateOpener: updateOpener,
-            largeFileDeleter: largeFileDeleter
+            scanEngine: engine,
+            junkCleaner: junkCleaner
         )
     }
 

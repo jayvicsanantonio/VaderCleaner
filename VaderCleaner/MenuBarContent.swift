@@ -837,7 +837,8 @@ private struct MenuActionLink: View {
         ))
         .environment(SmartScanViewModel.live(
             exclusions: ExclusionsStore(defaults: previewDefaults),
-            settings: SmartScanSettingsStore(defaults: previewDefaults)
+            settings: SmartScanSettingsStore(defaults: previewDefaults),
+            statsService: SystemStatsService(autostart: false)
         ))
         .environment(MenuRouter())
 }

@@ -166,6 +166,87 @@ enum CareFindingCopy {
         }
     }
 
+    /// The scanning checklist's per-domain result line, composed from the
+    /// findings that domain's units landed. One plain sentence: what was
+    /// found, or an explicit all-clear so silence never reads as "unchecked".
+    static func domainResultLine(_ domain: CareDomain, findings: [CareFinding]) -> String {
+        let relevant = findings.filter { $0.kind.unit.domain == domain && !$0.isEmpty }
+        switch domain {
+        case .systemJunk:
+            guard let junk = relevant.first(where: { $0.kind == .junkCleanup }) else {
+                return String(localized: "No junk worth clearing", comment: "Checklist all-clear line for the Cleanup domain.")
+            }
+            return String.localizedStringWithFormat(
+                String(localized: "%@ of junk to clear — all safe", comment: "Checklist result line for the Cleanup domain (bytes)."),
+                formattedBytes(junk.reclaimableBytes)
+            )
+        case .myClutter:
+            let bytes = relevant.reduce(Int64(0)) { $0 + $1.reclaimableBytes }
+            guard bytes > 0 else {
+                return String(localized: "No clutter found", comment: "Checklist all-clear line for the My Clutter domain.")
+            }
+            return String.localizedStringWithFormat(
+                String(localized: "%@ in duplicates and old files", comment: "Checklist result line for the My Clutter domain (bytes)."),
+                formattedBytes(bytes)
+            )
+        case .malware:
+            guard let threats = relevant.first(where: { $0.kind == .threats }) else {
+                return String(localized: "No threats found", comment: "Checklist all-clear line for the Protection domain.")
+            }
+            return metric(for: threats)
+        case .browserPrivacy:
+            guard let traces = relevant.first(where: { $0.kind == .browserPrivacy }) else {
+                return String(localized: "No browsing traces found", comment: "Checklist all-clear line for the Browser Privacy domain.")
+            }
+            return String.localizedStringWithFormat(
+                String(localized: "%d browsing traces", comment: "Checklist result line for the Browser Privacy domain (item count)."),
+                traces.itemCount
+            )
+        case .applications:
+            var parts: [String] = []
+            if let updates = relevant.first(where: { $0.kind == .appUpdates }) {
+                parts.append(String.localizedStringWithFormat(
+                    String(localized: "%d updates", comment: "Checklist fragment: available update count."),
+                    updates.itemCount
+                ))
+            }
+            if let unused = relevant.first(where: { $0.kind == .unusedApps }) {
+                parts.append(String.localizedStringWithFormat(
+                    String(localized: "%d unused apps", comment: "Checklist fragment: unused app count."),
+                    unused.itemCount
+                ))
+            }
+            if let leftovers = relevant.first(where: { $0.kind == .appLeftovers }) {
+                parts.append(String.localizedStringWithFormat(
+                    String(localized: "%d apps left files behind", comment: "Checklist fragment: leftover group count."),
+                    leftovers.itemCount
+                ))
+            }
+            if let installers = relevant.first(where: { $0.kind == .installers }) {
+                parts.append(String.localizedStringWithFormat(
+                    String(localized: "%d old installers", comment: "Checklist fragment: leftover installer count."),
+                    installers.itemCount
+                ))
+            }
+            guard !parts.isEmpty else {
+                return String(localized: "Your apps look good", comment: "Checklist all-clear line for the Applications domain.")
+            }
+            return parts.joined(separator: " · ")
+        case .performance:
+            var parts: [String] = []
+            if let due = relevant.first(where: { $0.kind == .maintenanceDue }) {
+                parts.append(metric(for: due))
+            }
+            if let items = relevant.first(where: { $0.kind == .loginItems }) {
+                parts.append(metric(for: items))
+            }
+            guard !parts.isEmpty else {
+                return String(localized: "Nothing due right now", comment: "Checklist all-clear line for the Performance domain.")
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+
     /// The big number on a card: bytes for reclaimable-space findings,
     /// pluralized counts for count findings, percent-full for disk space.
     static func metric(for finding: CareFinding) -> String {

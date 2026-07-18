@@ -34,15 +34,15 @@ struct FloatingRunOverlay: View {
             if isShown {
                 FloatingScanButton(
                     title: String(
-                        localized: "Run",
-                        comment: "Title on the floating Run disc shown on the Smart Scan results dashboard."
+                        localized: "Fix",
+                        comment: "Title on the floating Fix disc shown on the Smart Scan care-plan feed."
                     ),
                     accent: accent,
                     diameter: FloatingScanButton.floatingDiameter,
                     accessibilityIdentifier: "smartScan.run",
                     accessibilityLabel: String(
-                        localized: "Run Smart Scan",
-                        comment: "VoiceOver label for the floating Run disc on the Smart Scan results dashboard."
+                        localized: "Fix the included findings",
+                        comment: "VoiceOver label for the floating Fix disc on the Smart Scan care-plan feed."
                     ),
                     action: { Task { await viewModel.run() } }
                 )
