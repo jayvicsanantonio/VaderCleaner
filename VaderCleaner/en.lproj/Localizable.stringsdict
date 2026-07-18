@@ -130,5 +130,85 @@
             <string>%d files</string>
         </dict>
     </dict>
+    <key>%d updates available</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@updates@ available</string>
+        <key>updates</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d update</string>
+            <key>other</key>
+            <string>%d updates</string>
+        </dict>
+    </dict>
+    <key>%d tasks due</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@tasks@ due</string>
+        <key>tasks</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d task</string>
+            <key>other</key>
+            <string>%d tasks</string>
+        </dict>
+    </dict>
+    <key>%d items</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d item</string>
+            <key>other</key>
+            <string>%d items</string>
+        </dict>
+    </dict>
+    <key>%d things worth doing — %@ can be freed safely.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@things@ worth doing — %@ can be freed safely.</string>
+        <key>things</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d thing</string>
+            <key>other</key>
+            <string>%d things</string>
+        </dict>
+    </dict>
+    <key>%d things worth doing.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@things@ worth doing.</string>
+        <key>things</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d thing</string>
+            <key>other</key>
+            <string>%d things</string>
+        </dict>
+    </dict>
 </dict>
 </plist>

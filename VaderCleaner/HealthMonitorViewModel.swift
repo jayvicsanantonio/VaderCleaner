@@ -99,7 +99,7 @@ final class HealthMonitorViewModel {
     /// Returns `nil` when the volume is unmeasured (`totalBytes == 0`) so the
     /// hero can show a neutral measuring state rather than a confident verdict
     /// off a zero reading.
-    static func macHealthStatus(
+    nonisolated static func macHealthStatus(
         disk: DiskStats,
         smart: SMARTStatus,
         battery: BatteryAvailability
@@ -135,7 +135,7 @@ final class HealthMonitorViewModel {
     /// full disk escalates. The 0.80 / 0.95 edges line up with
     /// `diskWarningThreshold` / `diskCriticalThreshold` so the verdict and the
     /// Disk Space card's status dot never tell contradictory stories.
-    static func diskSpaceTier(for stats: DiskStats) -> MacHealthStatus {
+    nonisolated static func diskSpaceTier(for stats: DiskStats) -> MacHealthStatus {
         let ratio = diskUsageRatio(stats)
         if ratio >= 0.98 { return .critical }
         if ratio >= diskCriticalThreshold { return .requiresAttention }
@@ -147,7 +147,7 @@ final class HealthMonitorViewModel {
     /// Disk hardware-health contribution. A failing SMART self-assessment is the
     /// most serious problem — the user needs to back up immediately — so it
     /// forces `.critical`. `.good` and `.unknown` are not problems.
-    static func smartTier(for status: SMARTStatus) -> MacHealthStatus {
+    nonisolated static func smartTier(for status: SMARTStatus) -> MacHealthStatus {
         switch status {
         case .failing: return .critical
         case .good, .unknown: return .excellent
@@ -159,7 +159,7 @@ final class HealthMonitorViewModel {
     /// health" factor. A healthy, absent, unknown, or merely-unreadable
     /// condition is never penalized — capacity fade alone does not lower the
     /// overall verdict.
-    static func batteryTier(for availability: BatteryAvailability) -> MacHealthStatus {
+    nonisolated static func batteryTier(for availability: BatteryAvailability) -> MacHealthStatus {
         guard case .present(let stats) = availability else { return .excellent }
         switch stats.condition {
         case "Service Battery", "Service Recommended", "Replace Soon", "Replace Now", "Permanent Failure":
@@ -260,7 +260,7 @@ final class HealthMonitorViewModel {
 
     /// `usedBytes / totalBytes` clamped to `[0, 1]`. Returns `0` for zero-byte
     /// totals (pre-first-refresh) so the % bar stays empty rather than NaN.
-    static func diskUsageRatio(_ stats: DiskStats) -> Double {
+    nonisolated static func diskUsageRatio(_ stats: DiskStats) -> Double {
         guard stats.totalBytes > 0 else { return 0.0 }
         let raw = Double(stats.usedBytes) / Double(stats.totalBytes)
         return max(0.0, min(1.0, raw))
