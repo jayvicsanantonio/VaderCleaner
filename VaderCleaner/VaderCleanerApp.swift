@@ -29,6 +29,7 @@ struct VaderCleanerApp: App {
     @State private var myClutterScanScope: MyClutterScanScopeStore
     @State private var webDevScanScope: WebDevScanScopeStore
     @State private var smartScanSettings: SmartScanSettingsStore
+    @State private var careHistory: CareHistoryStore
     @State private var protectionSettings: ProtectionSettingsStore
     @State private var systemJunkViewModel: SystemJunkViewModel
     @State private var myClutterViewModel: MyClutterViewModel
@@ -107,6 +108,11 @@ struct VaderCleanerApp: App {
         // on the next run.
         let smartScanSettings = SmartScanSettingsStore()
         _smartScanSettings = State(initialValue: smartScanSettings)
+        // Smart Scan's persisted history (last scan date, lifetime bytes
+        // freed). One instance app-wide: the Smart Scan view model writes it
+        // and the feed/receipt views read it from the environment.
+        let careHistory = CareHistoryStore()
+        _careHistory = State(initialValue: careHistory)
         // Protection scan options and mode. Captured by `MalwareViewModel.live`
         // below, which reads it per scan so a Settings → Protection change
         // takes effect on the next scan.
@@ -181,7 +187,13 @@ struct VaderCleanerApp: App {
         // the standalone junk scanner uses and snapshots it per scan, so an
         // exclusion added in Preferences takes effect on the next Smart Scan.
         _smartScanViewModel = State(
-            initialValue: SmartScanViewModel.live(exclusions: exclusions, settings: smartScanSettings, webDevScanScope: webDevScanScope)
+            initialValue: SmartScanViewModel.live(
+                exclusions: exclusions,
+                settings: smartScanSettings,
+                webDevScanScope: webDevScanScope,
+                statsService: stats,
+                history: careHistory
+            )
         )
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
@@ -279,6 +291,7 @@ struct VaderCleanerApp: App {
                 .environment(myClutterScanScope)
                 .environment(webDevScanScope)
                 .environment(smartScanSettings)
+                .environment(careHistory)
                 .environment(protectionSettings)
                 .environment(settingsRouter)
                 .environment(systemStats)

@@ -34,15 +34,15 @@ struct FloatingRunOverlay: View {
             if isShown {
                 FloatingScanButton(
                     title: String(
-                        localized: "Run",
-                        comment: "Title on the floating Run disc shown on the Smart Scan results dashboard."
+                        localized: "Fix",
+                        comment: "Title on the floating Fix disc shown on the Smart Scan care-plan feed."
                     ),
                     accent: accent,
                     diameter: FloatingScanButton.floatingDiameter,
                     accessibilityIdentifier: "smartScan.run",
                     accessibilityLabel: String(
-                        localized: "Run Smart Scan",
-                        comment: "VoiceOver label for the floating Run disc on the Smart Scan results dashboard."
+                        localized: "Fix the included findings",
+                        comment: "VoiceOver label for the floating Fix disc on the Smart Scan care-plan feed."
                     ),
                     action: { Task { await viewModel.run() } }
                 )
@@ -50,8 +50,10 @@ struct FloatingRunOverlay: View {
             }
         }
         // Fade as the dashboard's hasExecutableWork flips so toggling a
-        // tile slides the disc in or out rather than popping.
-        .animation(.smooth(duration: 0.35), value: viewModel.phase)
+        // tile slides the disc in or out rather than popping. Animates on
+        // the cheap `phaseID` — the payload-carrying `Phase` would drag the
+        // whole plan through `Equatable` on every overlay render.
+        .animation(.smooth(duration: 0.35), value: viewModel.phaseID)
         .animation(.smooth(duration: 0.35), value: isShown)
         .onAppear { onPresenceChanged(isShown) }
         .onChange(of: isShown) { _, newValue in

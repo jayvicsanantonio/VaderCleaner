@@ -202,15 +202,22 @@ struct ScanningTab: View {
                     moduleNode(.malware, features: [
                         ("Malware Removal", "scanBadgeMalware"),
                     ]),
+                    moduleNode(.browserPrivacy, features: [
+                        ("Cookies & Browsing Traces", "scanBadgeCookies"),
+                    ]),
                     moduleNode(.performance, features: [
                         ("Background Items", "scanBadgePerformance"),
                         ("Login Items", "scanBadgePerformance"),
+                        ("Maintenance Tasks", "scanBadgePerformance"),
                     ]),
                     moduleNode(.applications, features: [
                         ("Updater", "scanBadgeApplications"),
+                        ("Unused Apps", "scanBadgeApplications"),
+                        ("Leftovers & Installers", "scanBadgeApplications"),
                     ]),
                     moduleNode(.myClutter, features: [
                         ("Duplicates", "scanBadgeMyClutter"),
+                        ("Large & Old Files", "scanBadgeMyClutter"),
                     ])]
         }
     }
@@ -276,7 +283,7 @@ struct ScanningTab: View {
             checkboxID: "scanning.junkGroup.systemJunk",
             state: { self.groupState(categories) },
             toggle: { self.setCategories(categories, enabled: !self.allEnabled(categories)) },
-            isEnabled: { self.settings.isModuleEnabled(.systemJunk) },
+            isEnabled: { self.settings.isDomainEnabled(.systemJunk) },
             children: Self.systemJunkDisplays.map { categoryNode($0.category, title: $0.title, badge: $0.badge) }
         )
     }
@@ -290,7 +297,7 @@ struct ScanningTab: View {
             checkboxID: "scanning.junkCategory.\(category.rawValue)",
             state: { self.settings.isJunkCategoryEnabled(category) ? .on : .off },
             toggle: { self.settings.setJunkCategory(category, enabled: !self.settings.isJunkCategoryEnabled(category)) },
-            isEnabled: { self.settings.isModuleEnabled(.systemJunk) }
+            isEnabled: { self.settings.isDomainEnabled(.systemJunk) }
         )
     }
 
@@ -298,9 +305,9 @@ struct ScanningTab: View {
     /// matching the reference (Protection → Malware Removal, Performance →
     /// Background Items / Login Items, etc.). The parent and every child share
     /// the same toggle — the module's on/off state.
-    private func moduleNode(_ module: SmartScanModule, features: [(title: String, badge: String)]) -> ScanNode {
-        let toggle = { self.settings.setModule(module, enabled: !self.settings.isModuleEnabled(module)) }
-        let state = { self.settings.isModuleEnabled(module) ? ScanState.on : .off }
+    private func moduleNode(_ module: CareDomain, features: [(title: String, badge: String)]) -> ScanNode {
+        let toggle = { self.settings.setDomain(module, enabled: !self.settings.isDomainEnabled(module)) }
+        let state = { self.settings.isDomainEnabled(module) ? ScanState.on : .off }
         return ScanNode(
             id: "module.\(module.rawValue)",
             title: Self.title(module),
@@ -351,10 +358,10 @@ struct ScanningTab: View {
     /// clicking it while excluded includes the module and every category. The
     /// mixed dash signals that some categories are individually deselected.
     private func toggleCleanup() {
-        if settings.isModuleEnabled(.systemJunk) {
-            settings.setModule(.systemJunk, enabled: false)
+        if settings.isDomainEnabled(.systemJunk) {
+            settings.setDomain(.systemJunk, enabled: false)
         } else {
-            settings.setModule(.systemJunk, enabled: true)
+            settings.setDomain(.systemJunk, enabled: true)
             for category in SmartScanSettingsStore.junkCategories {
                 settings.setJunkCategory(category, enabled: true)
             }
@@ -363,23 +370,25 @@ struct ScanningTab: View {
 
     // MARK: Presentation
 
-    private static func title(_ module: SmartScanModule) -> String {
+    private static func title(_ module: CareDomain) -> String {
         switch module {
         case .systemJunk: return "Cleanup"
         case .malware: return "Protection"
         case .performance: return "Performance"
         case .applications: return "Applications"
         case .myClutter: return "My Clutter"
+        case .browserPrivacy: return "Browser Privacy"
         }
     }
 
-    private static func badge(_ module: SmartScanModule) -> String {
+    private static func badge(_ module: CareDomain) -> String {
         switch module {
         case .systemJunk: return "scanBadgeCleanup"
         case .malware: return "scanBadgeProtection"
         case .performance: return "scanBadgePerformance"
         case .applications: return "scanBadgeApplications"
         case .myClutter: return "scanBadgeMyClutter"
+        case .browserPrivacy: return "scanBadgeCookies"
         }
     }
 

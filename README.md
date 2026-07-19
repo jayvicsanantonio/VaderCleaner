@@ -54,12 +54,13 @@ Every tool that runs a scan — Smart Scan, System Junk, Large & Old Files, Spac
 
 ### ✨ Smart Scan
 
-**The one-button checkup.** Smart Scan runs the three most important checks at once — junk files, malware, and startup items — and shows you a single summary of everything it found. If you only do one thing, do this.
+**The one-button checkup.** Smart Scan checks the whole Mac at once — junk files, duplicates, large and forgotten files, malware, browser traces, app updates, unused apps, leftovers from deleted apps, old installers, and routine tune-up tasks — and turns everything into a plain-language care plan. If you only do one thing, do this.
 
-- Finds reclaimable junk, scans for malware (if ClamAV is installed), and lists apps that launch automatically when you log in.
-- Shows total space you can free and how many threats were found.
-- You review the findings and confirm before anything is removed.
-- If the malware scanner isn't installed, Smart Scan still works — it just marks the malware result as "not checked" instead of failing.
+- While it scans you watch a live checklist: each area fills in with what was found the moment its check finishes, and anything skipped or unreachable says so instead of hiding.
+- Results open with a health verdict in everyday words ("Your Mac is in good shape — 2 things worth doing") over a prioritized feed of cards. Each card explains what was found, why it matters, and carries a safety pill: green for "safe to clean", amber for "your files — you choose".
+- Safe, regenerable things (caches, logs, duplicate copies) come pre-checked; anything that's really yours (large files, unused apps, browser data) is opt-in and never touched unless you choose it in Review.
+- One floating **Fix** button does everything you approved, moving your files to the Trash (restorable) rather than deleting them, then shows a readable receipt of exactly what happened — including anything that couldn't be done and why.
+- If the malware scanner isn't installed, Smart Scan still works — the checklist marks that row "couldn't check" instead of failing.
 
 <a id="system-junk"></a>
 
@@ -309,7 +310,7 @@ Run a single unit test class:
 ```bash
 xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner \
   -destination 'platform=macOS' \
-  -only-testing:VaderCleanerTests/SmartScanViewModelTests
+  -only-testing:VaderCleanerTests/SmartScanViewModelScanTests
 ```
 
 Run a single UI test:
