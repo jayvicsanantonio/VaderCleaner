@@ -162,4 +162,47 @@ final class TestHelpersTests: XCTestCase {
 
         XCTAssertEqual(result, root, "Expected depth=0 to return the root directory unchanged")
     }
+
+    // MARK: - value(of:within:)
+
+    func test_value_returnsResultWhenTaskFinishesInTime() async throws {
+        let task = Task<Int, Error> { 42 }
+        let value = try await TestHelpers.value(of: task, within: 5)
+        XCTAssertEqual(value, 42)
+    }
+
+    func test_value_throwsDeadlineExceededWhenTaskOverruns() async {
+        // The overrun only needs to outlast the deadline comfortably. Kept
+        // short so this test costs ~0.2s even in the worst case where the
+        // sleep isn't interrupted — a 30s sleep here made the test itself
+        // take 30s, which is the sort of drag this helper exists to prevent.
+        let task = Task<Int, Error> {
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            return 1
+        }
+        do {
+            _ = try await TestHelpers.value(of: task, within: 0.2)
+            XCTFail("expected the deadline to be exceeded")
+        } catch is TestHelpers.TaskDeadlineExceeded {
+            // Expected — and the overrunning task must be cancelled so it
+            // can't outlive the test (a stray child process would poison
+            // later runs).
+            XCTAssertTrue(task.isCancelled)
+        } catch {
+            XCTFail("expected TaskDeadlineExceeded, got \(error)")
+        }
+    }
+
+    func test_value_propagatesTheTasksOwnError() async {
+        struct Boom: Error {}
+        let task = Task<Int, Error> { throw Boom() }
+        do {
+            _ = try await TestHelpers.value(of: task, within: 5)
+            XCTFail("expected the task's error to propagate")
+        } catch is Boom {
+            // Expected.
+        } catch {
+            XCTFail("expected Boom, got \(error)")
+        }
+    }
 }

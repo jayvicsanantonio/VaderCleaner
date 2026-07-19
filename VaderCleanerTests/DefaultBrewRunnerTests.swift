@@ -67,7 +67,15 @@ final class DefaultBrewRunnerTests: XCTestCase {
     }
 
     func test_runStreaming_terminatesChildOnCancellation() async throws {
-        let brew = try makeFakeBrew(body: "sleep 30")
+        // `exec` matters: without it `sh` *forks* the sleep as a grandchild,
+        // and `Process.terminate()` signals only the direct child. The
+        // orphaned grandchild survives still holding its inherited dup of
+        // the stdout pipe's write end, so the reader never sees EOF and
+        // `runStreaming` never returns — which used to wedge the entire
+        // `xcodebuild test` session rather than fail. `exec` replaces the
+        // shell with the sleep so SIGTERM reaches the process that actually
+        // holds the pipe, which is what this test is about.
+        let brew = try makeFakeBrew(body: "exec sleep 30")
         let runner = DefaultBrewRunner(brewURL: brew)
         let task = Task<Int32, Error> {
             try await runner.runStreaming([], onLine: { _ in })
@@ -75,7 +83,9 @@ final class DefaultBrewRunnerTests: XCTestCase {
         try await Task.sleep(nanoseconds: 200_000_000)
         let start = Date()
         task.cancel()
-        _ = try await task.value
+        // Bounded: a regression fails here with a diagnostic instead of
+        // hanging the suite forever.
+        _ = try await TestHelpers.value(of: task, within: 10)
         XCTAssertLessThan(Date().timeIntervalSince(start), 2.0, "cancellation must SIGTERM the child within ~1s")
     }
 
