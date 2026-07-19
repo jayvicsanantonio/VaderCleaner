@@ -68,12 +68,12 @@ final class SmartScanUITests: XCTestCase {
             checklist.waitForExistence(timeout: 10),
             "Expected the scanning checklist after tapping Scan"
         )
-        // The checklist renders one row per care domain, keyed by the stable
-        // domain raw values — the honest-concurrency contract.
+        // The checklist renders one grid tile per care domain, keyed by the
+        // stable domain raw values — the honest-concurrency contract.
         for domain in ["systemJunk", "myClutter", "malware", "browserPrivacy", "applications", "performance"] {
             XCTAssertTrue(
-                app.descendants(matching: .any)["smartScan.scanning.row.\(domain)"].waitForExistence(timeout: 5),
-                "Expected a checklist row for the \(domain) domain"
+                app.descendants(matching: .any)["smartScan.scanning.tile.\(domain)"].waitForExistence(timeout: 5),
+                "Expected a checklist tile for the \(domain) domain"
             )
         }
     }
