@@ -87,6 +87,48 @@ enum TestHelpers {
         return current
     }
 
+    // MARK: - Bounded awaits
+
+    /// Raised when `value(of:within:)` gives up on a task.
+    struct TaskDeadlineExceeded: Error, CustomStringConvertible {
+        let seconds: TimeInterval
+        var description: String { "task did not finish within \(seconds)s" }
+    }
+
+    /// Awaits `task`, giving up after `seconds` instead of waiting forever.
+    ///
+    /// Cancellation tests await a task that is *supposed* to finish promptly;
+    /// when the code under test regresses, a plain `await task.value` never
+    /// returns and takes the whole `xcodebuild test` session down with it —
+    /// the run stalls with no failing test to point at. Racing the await
+    /// against a sleep converts that into an ordinary, diagnosable failure.
+    /// The task is cancelled on timeout so nothing is left running.
+    static func value<Success: Sendable>(
+        of task: Task<Success, Error>,
+        within seconds: TimeInterval
+    ) async throws -> Success {
+        do {
+            return try await withThrowingTaskGroup(of: Success.self) { group in
+                group.addTask { try await task.value }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    throw TaskDeadlineExceeded(seconds: seconds)
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next() else {
+                    throw TaskDeadlineExceeded(seconds: seconds)
+                }
+                return first
+            }
+        } catch {
+            // Cancelling the group only unblocks *our* waiter; the task we
+            // were handed keeps running (and keeps its child process alive)
+            // unless we cancel it explicitly.
+            task.cancel()
+            throw error
+        }
+    }
+
     // MARK: - Progress collection
 
     /// Thread-safe collector for `@Sendable (Int) -> Void` progress callbacks.

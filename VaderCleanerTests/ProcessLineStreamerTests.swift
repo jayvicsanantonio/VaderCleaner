@@ -98,7 +98,9 @@ final class ProcessLineStreamerTests: XCTestCase {
         try await Task.sleep(nanoseconds: 200_000_000) // 200ms
         let start = Date()
         task.cancel()
-        _ = try await task.value
+        // Bounded: if cancellation regresses, this fails with a diagnostic
+        // rather than blocking the whole `xcodebuild test` session.
+        _ = try await TestHelpers.value(of: task, within: 10)
         let elapsed = Date().timeIntervalSince(start)
         XCTAssertLessThan(
             elapsed,
