@@ -137,6 +137,7 @@
 		4E43B8F6DFA386900DC8CA24 /* com.personal.VaderCleaner.helper.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = 36FD121EC3D77731E8032A96 /* com.personal.VaderCleaner.helper.plist */; };
 		4ED4E093FE7E2ADB381708F4 /* ScanDiscWindowFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = E75515819550B2B92260F57B /* ScanDiscWindowFrame.swift */; };
 		4EF8BA012B966F984D9569E7 /* CleanupManagerStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DC35796A9897B1CE0113EC /* CleanupManagerStoreTests.swift */; };
+		4F9AE95037A18C5D602D8C05 /* CareDomainArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EC705702591249D4387C078 /* CareDomainArt.swift */; };
 		501740B00BAF4BDC50747510 /* MaintenanceTaskRunnersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F08CF19441CB25F982CDCD2 /* MaintenanceTaskRunnersTests.swift */; };
 		5095D3CA2B218FF05EA5EF5C /* BrewOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FC72A58DD884F84ABDEF378 /* BrewOutputParser.swift */; };
 		50B0458DB3351E7011490C1D /* LargeOldFilesScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 603E7AED5C7A32BB0FE282B8 /* LargeOldFilesScannerTests.swift */; };
@@ -644,6 +645,7 @@
 		5BEF15F03C44736F01598323 /* ScanSelectionSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanSelectionSeed.swift; sourceTree = "<group>"; };
 		5CC50A90E584320709971BCB /* ScanCategoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCategoryTests.swift; sourceTree = "<group>"; };
 		5E978BB01AD677AEDE122B1C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5EC705702591249D4387C078 /* CareDomainArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareDomainArt.swift; sourceTree = "<group>"; };
 		5F498579A77E1DAED6AC00AF /* SmartScanMyClutterReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanMyClutterReview.swift; sourceTree = "<group>"; };
 		5F8471EE937FF43BBE01CD61 /* LoginItemsManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemsManagerTests.swift; sourceTree = "<group>"; };
 		5FD6A6FB847C87B47474C7A3 /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
@@ -1007,6 +1009,7 @@
 				9F2BB8E9DD31E37B171CC32D /* BrowserPrivacyRemover.swift */,
 				3FFEFF66138A13C7E229C7E9 /* BrowserPrivacyStore.swift */,
 				0282664DFAA58CB5A5C87FFE /* BundledClamAVRuntime.swift */,
+				5EC705702591249D4387C078 /* CareDomainArt.swift */,
 				94A82D5244030E4D76B05075 /* CareFinding.swift */,
 				4B98864B02BC97A0F73DECC7 /* CareFindingCopy.swift */,
 				5434D5AB85B496CCA6EEA9E1 /* CareHistoryStore.swift */,
@@ -1873,6 +1876,7 @@
 				2094AB11AA0400630E413C6F /* BrowserPrivacyRemover.swift in Sources */,
 				B9191339ED6535F682352580 /* BrowserPrivacyStore.swift in Sources */,
 				F7CA4D7A9B843507613DEEBE /* BundledClamAVRuntime.swift in Sources */,
+				4F9AE95037A18C5D602D8C05 /* CareDomainArt.swift in Sources */,
 				3A7D0E6F48725F9AEE582E3F /* CareFinding.swift in Sources */,
 				CDE083A5F55C5DEDE05B6A67 /* CareFindingCopy.swift in Sources */,
 				3A0E6980109BFF2A0641BD34 /* CareHistoryStore.swift in Sources */,

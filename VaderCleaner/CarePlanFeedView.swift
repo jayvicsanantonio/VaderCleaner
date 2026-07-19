@@ -1,17 +1,19 @@
 // CarePlanFeedView.swift
-// The results experience: a plain-language health verdict hero over a prioritized feed of care cards, each saying what was found, why it matters, and whether acting is safe.
+// The results experience: a plain-language verdict hero over a zoned grid of care tiles — "Fix will handle these" (safe, pre-approved), "Worth a look" (the user's files, opt-in), and "Good to know" advisories.
 
 import SwiftUI
 
-/// The care-plan feed shown when a scan lands. Threats lead, space findings
-/// follow by size, advisory notes close the feed; every card carries a
-/// safety pill so a non-technical user always knows whether acting can lose
-/// anything. The floating Run disc (hosted in a separate panel) is the one
-/// "fix it" action; cards only toggle inclusion or open Review.
+/// The care-plan results shown when a scan lands, in the scanning grid's
+/// visual language: glass tiles with each domain's 3D art glowing in its own
+/// accent. Findings group into three zones by what Run may do — the zone
+/// header states each tier's safety promise once, so every tile can stay
+/// visual instead of repeating the same pill. The floating Fix disc (hosted
+/// in a separate panel) is the one "fix it" action; tiles only toggle
+/// inclusion or open Review.
 struct CarePlanFeedView: View {
 
     var viewModel: SmartScanViewModel
-    /// Kinds whose Review screen exists; cards for other kinds hide the
+    /// Kinds whose Review screen exists; tiles for other kinds hide the
     /// Review affordance rather than dead-ending.
     let reviewableKinds: Set<CareFinding.Kind>
     let onRequestReview: (CareFinding.Kind) -> Void
@@ -20,9 +22,14 @@ struct CarePlanFeedView: View {
     /// Optional so previews and tests need not inject a store.
     @Environment(CareHistoryStore.self) private var history: CareHistoryStore?
 
+    private static let gridColumns = Array(
+        repeating: GridItem(.flexible(), spacing: 14, alignment: .top),
+        count: 2
+    )
+
     var body: some View {
         ScrollView {
-            // One glass container for the hero and every card: independent
+            // One glass container for the hero and every tile: independent
             // glass surfaces each pay their own render pass, which made
             // scrolling the feed stutter; merged they resolve together.
             GlassEffectContainer(spacing: 14) {
@@ -34,48 +41,119 @@ struct CarePlanFeedView: View {
     }
 
     private var feedContent: some View {
-            VStack(spacing: 24) {
-                topBar
-                if let verdict = viewModel.verdict {
-                    CareVerdictHero(
-                        verdict: verdict,
-                        historyLine: history?.lifetimeFreedLine(),
-                        coverageNote: coverageNote
-                    )
-                }
-                if viewModel.rankedFindings.isEmpty {
-                    ReassuranceCard(
-                        content: ReassuranceContent(
-                            id: "smartScan.allClear",
-                            title: String(localized: "Nothing needs your attention", comment: "All-clear card title on the care-plan feed."),
-                            detail: String(
-                                localized: "We checked junk, threats, apps, and more — your Mac is in good hands.",
-                                comment: "All-clear card detail on the care-plan feed."
-                            ),
-                            icon: "checkmark.seal.fill"
-                        ),
-                        accent: accent
-                    )
-                    .frame(maxWidth: 560)
-                } else {
-                    VStack(spacing: 14) {
-                        ForEach(viewModel.rankedFindings) { finding in
-                            CareCardView(
-                                finding: finding,
-                                isIncluded: viewModel.isFindingIncluded(finding.kind),
-                                showsReview: reviewableKinds.contains(finding.kind),
-                                onToggleInclusion: { toggleInclusion(of: finding) },
-                                onReview: { onRequestReview(finding.kind) }
-                            )
-                        }
-                    }
-                    .frame(maxWidth: 640)
-                }
-                Spacer(minLength: 80)
+        VStack(spacing: 22) {
+            topBar
+            if let verdict = viewModel.verdict {
+                CareVerdictHero(
+                    verdict: verdict,
+                    historyLine: history?.lifetimeFreedLine(),
+                    coverageNote: coverageNote
+                )
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 18)
-            .frame(maxWidth: .infinity)
+            if viewModel.rankedFindings.isEmpty {
+                ReassuranceCard(
+                    content: ReassuranceContent(
+                        id: "smartScan.allClear",
+                        title: String(localized: "Nothing needs your attention", comment: "All-clear card title on the care-plan feed."),
+                        detail: String(
+                            localized: "We checked junk, threats, apps, and more — your Mac is in good hands.",
+                            comment: "All-clear card detail on the care-plan feed."
+                        ),
+                        icon: "checkmark.seal.fill"
+                    ),
+                    accent: accent
+                )
+                .frame(maxWidth: 560)
+            } else {
+                zones
+            }
+            Spacer(minLength: 140)
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 18)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The three safety zones, each rendered only when it has findings.
+    @ViewBuilder
+    private var zones: some View {
+        let ready = viewModel.rankedFindings.filter { $0.actionability == .preApproved }
+        let optIn = viewModel.rankedFindings.filter { $0.actionability == .optIn }
+        let info = viewModel.rankedFindings.filter { $0.actionability == .informational }
+
+        VStack(spacing: 26) {
+            if !ready.isEmpty {
+                zone(
+                    title: String(localized: "Fix will handle these", comment: "Results zone header for pre-approved findings."),
+                    subtitle: CareFindingCopy.safetyLine(for: .preApproved),
+                    subtitleColor: .green,
+                    findings: ready
+                )
+            }
+            if !optIn.isEmpty {
+                zone(
+                    title: String(localized: "Worth a look", comment: "Results zone header for opt-in findings."),
+                    subtitle: CareFindingCopy.safetyLine(for: .optIn),
+                    subtitleColor: .orange,
+                    findings: optIn
+                )
+            }
+            if !info.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    zoneHeader(
+                        title: String(localized: "Good to know", comment: "Results zone header for informational findings."),
+                        subtitle: CareFindingCopy.safetyLine(for: .informational),
+                        subtitleColor: .white.opacity(0.6)
+                    )
+                    ForEach(info) { finding in
+                        CareAdvisoryChip(
+                            finding: finding,
+                            showsReview: reviewableKinds.contains(finding.kind),
+                            onReview: { onRequestReview(finding.kind) }
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: 960)
+    }
+
+    private func zone(
+        title: String,
+        subtitle: String,
+        subtitleColor: Color,
+        findings: [CareFinding]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            zoneHeader(title: title, subtitle: subtitle, subtitleColor: subtitleColor)
+            LazyVGrid(columns: Self.gridColumns, spacing: 14) {
+                ForEach(findings) { finding in
+                    CareResultTile(
+                        finding: finding,
+                        isIncluded: viewModel.isFindingIncluded(finding.kind),
+                        showsReview: reviewableKinds.contains(finding.kind),
+                        onToggleInclusion: { toggleInclusion(of: finding) },
+                        onReview: { onRequestReview(finding.kind) }
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A zone's safety promise, stated once so the tiles below stay clean.
+    private func zoneHeader(title: String, subtitle: String, subtitleColor: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+            Text(subtitle)
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(subtitleColor)
+        }
+        .padding(.leading, 4)
     }
 
     private var topBar: some View {
@@ -91,7 +169,7 @@ struct CarePlanFeedView: View {
             .accessibilityIdentifier("smartScan.startOver")
             Spacer()
         }
-        .frame(maxWidth: 640)
+        .frame(maxWidth: 960)
     }
 
     /// Honest coverage line when parts of the scan were skipped or failed.
@@ -125,8 +203,8 @@ struct CarePlanFeedView: View {
         }
     }
 
-    /// Turning an opt-in card on with nothing selected silently selecting
-    /// everything would betray the safety pill — deep-link into Review so
+    /// Turning an opt-in tile on with nothing selected silently selecting
+    /// everything would betray the zone's promise — deep-link into Review so
     /// the user picks what goes.
     private func toggleInclusion(of finding: CareFinding) {
         let isIncluded = viewModel.isFindingIncluded(finding.kind)
@@ -180,7 +258,7 @@ private struct CareVerdictHero: View {
             }
         }
         .padding(24)
-        .frame(maxWidth: 640)
+        .frame(maxWidth: 960)
         .vaderTileGlass()
     }
 
@@ -213,9 +291,11 @@ private struct CareVerdictHero: View {
     }
 }
 
-/// One finding's card: icon, plain-language copy, safety pill, metric, an
-/// inclusion checkbox for actionable findings, and Review.
-struct CareCardView: View {
+/// One finding's tile, in the scanning grid's visual language: the domain's
+/// 3D art over its accent bloom in the top-right corner, title and
+/// explanation left, big metric bottom-left, Review bottom-right, and an
+/// inclusion checkbox for actionable findings.
+struct CareResultTile: View {
 
     let finding: CareFinding
     let isIncluded: Bool
@@ -224,52 +304,56 @@ struct CareCardView: View {
     let onReview: () -> Void
     @Environment(\.sectionAccent) private var accent
 
+    private var domain: CareDomain? { finding.kind.unit.domain }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            icon
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(CareFindingCopy.title(for: finding.kind))
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                    // On-device Apple Intelligence explanation, availability-
-                    // gated inside the sparkle. Pure augmentation: the card's
-                    // own copy is always the rendered text.
-                    SmartInsightsSparkle(
-                        itemTitle: CareFindingCopy.title(for: finding.kind),
-                        accent: accent,
-                        topic: .careFinding
-                    )
-                    Spacer(minLength: 8)
-                    Text(CareFindingCopy.metric(for: finding))
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if finding.actionability != .informational {
+                    inclusionCheckbox
                 }
-                Text(CareFindingCopy.explanation(for: finding.kind))
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    safetyPill
-                    Spacer(minLength: 0)
-                    if showsReview {
-                        Button(action: onReview) {
-                            Text(reviewTitle)
-                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                        }
-                        .buttonStyle(.vaderGlass)
-                        .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).review")
-                    }
-                }
-                .padding(.top, 4)
+                Text(CareFindingCopy.title(for: finding.kind))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                // On-device Apple Intelligence explanation, availability-
+                // gated inside the sparkle. Pure augmentation: the tile's
+                // own copy is always the rendered text.
+                SmartInsightsSparkle(
+                    itemTitle: CareFindingCopy.title(for: finding.kind),
+                    accent: accent,
+                    topic: .careFinding
+                )
             }
-            if finding.actionability != .informational {
-                inclusionCheckbox
+            // Clear the corner art so the copy never runs beneath it.
+            .padding(.trailing, 64)
+            Text(CareFindingCopy.explanation(for: finding.kind))
+                .font(.system(size: 12.5, weight: .regular, design: .rounded))
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.trailing, 56)
+            Spacer(minLength: 8)
+            HStack(alignment: .lastTextBaseline) {
+                Text(CareFindingCopy.metric(for: finding))
+                    .font(.system(size: 21, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if showsReview {
+                    Button(action: onReview) {
+                        Text(reviewTitle)
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    }
+                    .buttonStyle(.vaderGlass)
+                    .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).review")
+                }
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)
+        .background(artCorner)
         .vaderTileGlass()
         .overlay(alignment: .leading) {
             if finding.urgency == .critical {
@@ -280,57 +364,47 @@ struct CareCardView: View {
                     .padding(.leading, 5)
             }
         }
+        .opacity(dimmed ? 0.75 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue)")
     }
 
+    /// An actionable tile the user has left out of Fix mutes slightly, the
+    /// same "not participating" read the scanning grid gives waiting tiles.
+    private var dimmed: Bool {
+        finding.actionability != .informational && !isIncluded
+    }
+
     private var reviewTitle: String {
         finding.actionability == .optIn
-            ? String(localized: "Choose What Goes", comment: "Review button title on opt-in care cards.")
-            : String(localized: "Review", comment: "Review button title on care cards.")
+            ? String(localized: "Choose What Goes", comment: "Review button title on opt-in care tiles.")
+            : String(localized: "Review", comment: "Review button title on care tiles.")
     }
 
-    private var icon: some View {
-        Image(systemName: iconName)
-            .font(.system(size: 20, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(finding.urgency == .critical ? Color.red : Color.white.opacity(0.9))
-            .frame(width: 40, height: 40)
-            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-            .accessibilityHidden(true)
-    }
-
-    private var iconName: String {
-        switch finding.kind {
-        case .threats: return "exclamationmark.shield.fill"
-        case .lowDiskSpace: return "externaldrive.fill.badge.exclamationmark"
-        case .junkCleanup: return "sparkles"
-        case .duplicates: return "doc.on.doc.fill"
-        case .largeOldFiles: return "shippingbox.fill"
-        case .unusedApps: return "square.grid.3x3.slash"
-        case .appLeftovers: return "puzzlepiece.extension.fill"
-        case .installers: return "arrow.down.circle.fill"
-        case .appUpdates: return "arrow.triangle.2.circlepath"
-        case .maintenanceDue: return "wrench.and.screwdriver.fill"
-        case .browserPrivacy: return "hand.raised.fill"
-        case .loginItems: return "power"
-        }
-    }
-
-    private var safetyPill: some View {
-        Text(CareFindingCopy.safetyLine(for: finding.actionability))
-            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-            .foregroundStyle(pillColor)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(pillColor.opacity(0.14), in: Capsule())
-    }
-
-    private var pillColor: Color {
-        switch finding.actionability {
-        case .preApproved: return .green
-        case .optIn: return .orange
-        case .informational: return Color.white.opacity(0.6)
+    /// The domain's art over its accent bloom — the same corner treatment as
+    /// the scanning grid, so scan and results read as one surface.
+    @ViewBuilder
+    private var artCorner: some View {
+        if let domain {
+            RadialGradient(
+                colors: [domain.artTint.opacity(dimmed ? 0.15 : 0.5), domain.artTint.opacity(0.0)],
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: 190
+            )
+            .overlay(alignment: .topTrailing) {
+                Image(domain.artAsset)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 64, height: 64)
+                    .padding(8)
+                    .saturation(dimmed ? 0.3 : 1.0)
+                    .opacity(dimmed ? 0.7 : 1.0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .allowsHitTesting(false)
         }
     }
 
@@ -339,18 +413,70 @@ struct CareCardView: View {
     private var inclusionCheckbox: some View {
         Button(action: onToggleInclusion) {
             Image(systemName: isIncluded ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(isIncluded ? Color.green : Color.white.opacity(0.45))
-                .frame(width: 32, height: 32)
+                .frame(width: 26, height: 26)
                 .background(Color.black.opacity(0.001))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
             isIncluded
-                ? String(localized: "Included in Fix", comment: "Accessibility label for a checked care-card checkbox.")
-                : String(localized: "Not included in Fix", comment: "Accessibility label for an unchecked care-card checkbox.")
+                ? String(localized: "Included in Fix", comment: "Accessibility label for a checked care-tile checkbox.")
+                : String(localized: "Not included in Fix", comment: "Accessibility label for an unchecked care-tile checkbox.")
         )
         .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).toggle")
+    }
+}
+
+/// A slim full-width row for an informational finding: icon, title, metric,
+/// and Review where one exists. Nothing here is ever removed, so it reads as
+/// a note, not a task.
+private struct CareAdvisoryChip: View {
+
+    let finding: CareFinding
+    let showsReview: Bool
+    let onReview: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.system(size: 15, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 30, height: 30)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                .accessibilityHidden(true)
+            Text(CareFindingCopy.title(for: finding.kind))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Text(CareFindingCopy.metric(for: finding))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.85))
+                .monospacedDigit()
+            if showsReview {
+                Button(action: onReview) {
+                    Text(String(localized: "Have a Look", comment: "Review button title on an advisory chip."))
+                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                }
+                .buttonStyle(.vaderGlass)
+                .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).review")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vaderTileGlass()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue)")
+    }
+
+    private var iconName: String {
+        switch finding.kind {
+        case .lowDiskSpace: return "externaldrive.fill.badge.exclamationmark"
+        case .loginItems: return "power"
+        default: return "info.circle"
+        }
     }
 }

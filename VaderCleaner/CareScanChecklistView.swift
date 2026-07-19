@@ -100,7 +100,7 @@ private struct CareScanTile: View {
         // scanned, so it reads as actively working even between count ticks.
         .overlay {
             if isRunning {
-                CareScanTileBorder(tint: domain.scanArtTint)
+                CareScanTileBorder(tint: domain.artTint)
             }
         }
         .opacity(isDimmed ? 0.6 : 1)
@@ -115,13 +115,13 @@ private struct CareScanTile: View {
     /// section. Waiting/skipped tiles desaturate so activity draws the eye.
     private var artCorner: some View {
         RadialGradient(
-            colors: [domain.scanArtTint.opacity(isDimmed ? 0.0 : 0.55), domain.scanArtTint.opacity(0.0)],
+            colors: [domain.artTint.opacity(isDimmed ? 0.0 : 0.55), domain.artTint.opacity(0.0)],
             center: .topTrailing,
             startRadius: 0,
             endRadius: 200
         )
         .overlay(alignment: .topTrailing) {
-            Image(domain.scanArtAsset)
+            Image(domain.artAsset)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
@@ -288,29 +288,3 @@ private struct CareScanTileBorder: View {
     }
 }
 
-/// Per-domain art and accent for the scanning grid — the same section
-/// artwork and accents the rest of the app uses, so each tile reads
-/// instantly as its section.
-private extension CareDomain {
-    var scanArtAsset: String {
-        switch self {
-        case .systemJunk: return "systemJunk"
-        case .malware: return "malwareRemoval"
-        case .performance: return "performance"
-        case .applications: return "applications"
-        case .myClutter: return "largeOldFiles"
-        case .browserPrivacy: return "scanBadgeCookies"
-        }
-    }
-
-    var scanArtTint: Color {
-        switch self {
-        case .systemJunk: return NavigationSection.systemJunk.theme.accent
-        case .malware: return NavigationSection.malwareRemoval.theme.accent
-        case .performance: return NavigationSection.performance.theme.accent
-        case .applications: return NavigationSection.applications.theme.accent
-        case .myClutter: return NavigationSection.largeOldFiles.theme.accent
-        case .browserPrivacy: return .indigo
-        }
-    }
-}
