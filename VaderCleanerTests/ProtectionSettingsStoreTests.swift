@@ -62,6 +62,35 @@ final class ProtectionSettingsStoreTests: XCTestCase {
         XCTAssertEqual(reader.scanMode, .deep)
     }
 
+    // MARK: - Restore defaults
+
+    func test_restoreDefaults_resetsEveryOptionToSpec() {
+        let sut = ProtectionSettingsStore(defaults: defaults)
+        sut.scanEmailAttachments = false
+        sut.scanArchives = false
+        sut.excludeDownloadedICloudFiles = false
+        sut.scanMode = .deep
+
+        sut.restoreDefaults()
+
+        XCTAssertEqual(sut.scanEmailAttachments, ProtectionSettingsStore.defaultScanEmailAttachments)
+        XCTAssertEqual(sut.scanArchives, ProtectionSettingsStore.defaultScanArchives)
+        XCTAssertEqual(sut.excludeDownloadedICloudFiles, ProtectionSettingsStore.defaultExcludeDownloadedICloudFiles)
+        XCTAssertEqual(sut.scanMode, ProtectionSettingsStore.defaultScanMode)
+    }
+
+    func test_restoreDefaults_persistsAcrossInstances() {
+        let writer = ProtectionSettingsStore(defaults: defaults)
+        writer.scanArchives = false
+        writer.scanMode = .deep
+
+        writer.restoreDefaults()
+
+        let reader = ProtectionSettingsStore(defaults: defaults)
+        XCTAssertEqual(reader.scanArchives, ProtectionSettingsStore.defaultScanArchives)
+        XCTAssertEqual(reader.scanMode, ProtectionSettingsStore.defaultScanMode)
+    }
+
     // MARK: - ScanMode contract
 
     func test_scanMode_rawValuesAreStable() {

@@ -114,6 +114,18 @@ final class SmartScanSettingsStore {
         persistDomains()
     }
 
+    // MARK: - Restore defaults
+
+    /// Resets Smart Care to a fresh-install profile: every care domain enabled
+    /// and every System Junk category included. Clearing `domainStates` restores
+    /// the "missing entry means enabled" default for all domains at once.
+    func restoreDefaults() {
+        domainStates = [:]
+        enabledJunkCategories = Set(Self.junkCategories)
+        persistDomains()
+        persistJunkCategories()
+    }
+
     // MARK: - System Junk categories
 
     func isJunkCategoryEnabled(_ category: ScanCategory) -> Bool {

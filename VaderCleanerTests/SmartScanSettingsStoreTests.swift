@@ -130,6 +130,34 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         XCTAssertEqual(sut.enabledJunkCategories, [.userCache])
     }
 
+    // MARK: - Restore defaults
+
+    func test_restoreDefaults_reEnablesEveryDomainAndCategory() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setDomain(.myClutter, enabled: false)
+        sut.setDomain(.performance, enabled: false)
+        sut.setJunkCategory(.userCache, enabled: false)
+        sut.setJunkCategory(.languageFiles, enabled: false)
+
+        sut.restoreDefaults()
+
+        XCTAssertEqual(sut.enabledDomains, Set(CareDomain.allCases))
+        XCTAssertEqual(sut.enabledJunkCategories, Set(SmartScanSettingsStore.junkCategories))
+        XCTAssertEqual(sut.junkCategoryState, .on)
+    }
+
+    func test_restoreDefaults_persistsAcrossInstances() {
+        let writer = SmartScanSettingsStore(defaults: defaults)
+        writer.setDomain(.malware, enabled: false)
+        writer.setJunkCategory(.userCache, enabled: false)
+
+        writer.restoreDefaults()
+
+        let reader = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertTrue(reader.isDomainEnabled(.malware))
+        XCTAssertTrue(reader.isJunkCategoryEnabled(.userCache))
+    }
+
     // MARK: - Cleanup tri-state
 
     func test_junkCategoryState_triState() {
