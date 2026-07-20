@@ -246,59 +246,39 @@ struct ScanningTab: View {
 
     // MARK: Tree model
 
-    /// Every scannable area, top to bottom. Each is a parent row over the named
-    /// things it covers; Browser Privacy nests under Protection since both guard
-    /// the Mac, and only Cleanup exposes per-category control.
+    /// Every scannable area, top to bottom. Each is a parent row over the real
+    /// sub-scans (`CareScanUnit`s) it covers — each an independent checkbox so a
+    /// user can scan, say, Duplicates but skip Large & Old Files. Browser Privacy
+    /// nests under Protection since both guard the Mac; only Cleanup drills
+    /// further, to its System Junk categories.
     private var rootNodes: [ScanNode] {
         [cleanupNode,
          moduleNode(.malware,
-                    features: [("Malware Removal", "ladybug.fill")],
+                    units: [(.malware, "Malware Removal", "ladybug.fill")],
                     extraChildren: [browserPrivacyNode]),
-         moduleNode(.performance, features: [
-             ("Background Items", "gearshape.2.fill"),
-             ("Login Items", "arrow.right.circle.fill"),
-             ("Maintenance Tasks", "wrench.and.screwdriver.fill"),
+         moduleNode(.performance, units: [
+             (.loginItems, "Login Items", "arrow.right.circle.fill"),
+             (.maintenanceDue, "Maintenance Tasks", "wrench.and.screwdriver.fill"),
          ]),
-         moduleNode(.applications, features: [
-             ("Updater", "arrow.down.circle.fill"),
-             ("Unused Apps", "app.dashed"),
-             ("Leftovers & Installers", "shippingbox.fill"),
+         moduleNode(.applications, units: [
+             (.appUpdates, "App Updates", "arrow.down.circle.fill"),
+             (.unusedApps, "Unused Apps", "app.dashed"),
+             (.appLeftovers, "App Leftovers", "shippingbox.fill"),
+             (.installers, "Installers", "arrow.down.app.fill"),
          ]),
-         moduleNode(.myClutter, features: [
-             ("Duplicates", "doc.on.doc.fill"),
-             ("Large & Old Files", "externaldrive.fill"),
+         moduleNode(.myClutter, units: [
+             (.duplicates, "Duplicates", "doc.on.doc.fill"),
+             (.largeOldFiles, "Large & Old Files", "externaldrive.fill"),
          ])]
     }
 
     /// Browser Privacy — its own scannable domain, shown as a sub-row under
-    /// Protection with its own toggle, tinted to match the Protection group.
+    /// Protection with its own tri-state toggle, tinted to match the Protection
+    /// group rather than its own hue.
     private var browserPrivacyNode: ScanNode {
-        let module = CareDomain.browserPrivacy
-        let tint = CareDomain.malware.artTint
-        return ScanNode(
-            id: "module.\(module.rawValue)",
-            title: Self.title(module),
-            subtitle: Self.subtitle(module),
-            icon: .tinted(symbol: Self.symbol(module), tint: tint),
-            canMix: false,
-            checkboxID: "scanning.module.\(module.rawValue)",
-            state: { self.settings.isDomainEnabled(module) ? .on : .off },
-            toggle: { self.settings.setDomain(module, enabled: !self.settings.isDomainEnabled(module)) },
-            isEnabled: { true },
-            children: [
-                ScanNode(
-                    id: "feature.\(module.rawValue).cookies",
-                    title: "Cookies & Browsing Traces",
-                    icon: .tinted(symbol: "circle.grid.cross.fill", tint: tint),
-                    canMix: false,
-                    checkboxID: "",
-                    state: { .on },
-                    toggle: {},
-                    isEnabled: { self.settings.isDomainEnabled(module) },
-                    isDescriptive: true
-                )
-            ]
-        )
+        moduleNode(.browserPrivacy,
+                   units: [(.browserPrivacy, "Cookies & Browsing Traces", "circle.grid.cross.fill")],
+                   tintOverride: CareDomain.malware.artTint)
     }
 
     /// Cleanup → System Junk (further expandable) / Mail Attachments / Trash
@@ -385,41 +365,40 @@ struct ScanningTab: View {
         )
     }
 
-    /// A non-Cleanup module rendered as a parent over its named features. The
-    /// module carries the only checkbox — the scan engine includes or excludes
-    /// the module as a whole — and its features are read-only rows describing
-    /// what the module covers, each tinted to the module's section colour so the
-    /// subtree reads as one hue. `extraChildren` lets a module host a real
-    /// sub-module (Protection hosts Browser Privacy).
+    /// A non-Cleanup module rendered as a tri-state parent over its real
+    /// sub-scans. Each unit child is an independent checkbox, so a user can keep
+    /// a module on while skipping one of its scans; the parent shows the dash
+    /// when only some are on. The children grey out when the module is off — the
+    /// scan configuration ANDs domain and unit. `extraChildren` lets a module
+    /// host a nested sub-module (Protection hosts Browser Privacy);
+    /// `tintOverride` lets that guest borrow the host's colour.
     private func moduleNode(
         _ module: CareDomain,
-        features: [(title: String, symbol: String)],
-        extraChildren: [ScanNode] = []
+        units: [(unit: CareScanUnit, title: String, symbol: String)],
+        extraChildren: [ScanNode] = [],
+        tintOverride: Color? = nil
     ) -> ScanNode {
-        let tint = module.artTint
+        let tint = tintOverride ?? module.artTint
         return ScanNode(
             id: "module.\(module.rawValue)",
             title: Self.title(module),
             subtitle: Self.subtitle(module),
             icon: .tinted(symbol: Self.symbol(module), tint: tint),
-            canMix: false,
+            canMix: true,
             checkboxID: "scanning.module.\(module.rawValue)",
-            state: { self.settings.isDomainEnabled(module) ? .on : .off },
-            toggle: { self.settings.setDomain(module, enabled: !self.settings.isDomainEnabled(module)) },
+            state: { self.settings.unitState(for: module) },
+            toggle: { self.toggleModule(module) },
             isEnabled: { true },
-            children: features.map { feature in
+            children: units.map { u in
                 ScanNode(
-                    id: "feature.\(module.rawValue).\(feature.title)",
-                    title: feature.title,
-                    icon: .tinted(symbol: feature.symbol, tint: tint),
+                    id: "unit.\(u.unit.rawValue)",
+                    title: u.title,
+                    icon: .tinted(symbol: u.symbol, tint: tint),
                     canMix: false,
-                    checkboxID: "",
-                    state: { .on },
-                    toggle: {},
-                    // Features grey out with their module so the subtree reads as
-                    // one unit, without ever offering an independent toggle.
-                    isEnabled: { self.settings.isDomainEnabled(module) },
-                    isDescriptive: true
+                    checkboxID: "scanning.unit.\(u.unit.rawValue)",
+                    state: { self.settings.isUnitEnabled(u.unit) ? .on : .off },
+                    toggle: { self.settings.setUnit(u.unit, enabled: !self.settings.isUnitEnabled(u.unit)) },
+                    isEnabled: { self.settings.isDomainEnabled(module) }
                 )
             } + extraChildren
         )
@@ -458,6 +437,21 @@ struct ScanningTab: View {
             for category in SmartScanSettingsStore.junkCategories {
                 settings.setJunkCategory(category, enabled: true)
             }
+        }
+    }
+
+    /// A module's parent checkbox, driven by the visible tri-state: clicking it
+    /// while anything is on (checked or dashed) excludes the whole area; clicking
+    /// it while fully off — whether the domain is off or every unit was
+    /// individually deselected — re-includes the module and all its sub-scans.
+    private func toggleModule(_ module: CareDomain) {
+        if settings.unitState(for: module) == .off {
+            settings.setDomain(module, enabled: true)
+            for unit in module.units {
+                settings.setUnit(unit, enabled: true)
+            }
+        } else {
+            settings.setDomain(module, enabled: false)
         }
     }
 

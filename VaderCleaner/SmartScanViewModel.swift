@@ -139,6 +139,7 @@ final class SmartScanViewModel {
     /// "Customize Smart Care" gates, read once per `scan()` (snapshot, like
     /// the exclusions store) so a preference change applies to the next scan.
     @ObservationIgnored private let enabledDomains: () -> Set<CareDomain>
+    @ObservationIgnored private let enabledUnits: () -> Set<CareScanUnit>
     @ObservationIgnored private let enabledJunkCategories: () -> Set<ScanCategory>
 
     /// History hooks, stamped when a scan lands and when a Run pass
@@ -161,6 +162,7 @@ final class SmartScanViewModel {
         privacyRemover: @escaping PrivacyRemover = { _ in },
         malwareEngineAvailable: @escaping () -> Bool = { true },
         enabledDomains: @escaping () -> Set<CareDomain> = { Set(CareDomain.allCases) },
+        enabledUnits: @escaping () -> Set<CareScanUnit> = { Set(CareScanUnit.allCases) },
         enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) },
         recordScan: @escaping (Date) -> Void = { _ in },
         recordReceipt: @escaping (CareReceipt) -> Void = { _ in }
@@ -177,6 +179,7 @@ final class SmartScanViewModel {
         self.privacyRemover = privacyRemover
         self.malwareEngineAvailable = malwareEngineAvailable
         self.enabledDomains = enabledDomains
+        self.enabledUnits = enabledUnits
         self.enabledJunkCategories = enabledJunkCategories
     }
 
@@ -200,7 +203,9 @@ final class SmartScanViewModel {
         clearScanState()
 
         let domains = enabledDomains()
-        var units = Set(domains.flatMap(\.units))
+        // A unit runs only when both its domain and the unit itself are on — the
+        // per-feature checkboxes narrow within an enabled domain.
+        var units = Set(domains.flatMap(\.units)).intersection(enabledUnits())
         // Health telemetry is instant and non-destructive — it always rides
         // along so the verdict hero has a base tier.
         units.insert(.healthSnapshot)
@@ -1030,6 +1035,9 @@ extension SmartScanViewModel {
             malwareEngineAvailable: { detector.isInstalled() },
             enabledDomains: { [weak settings] in
                 settings?.enabledDomains ?? Set(CareDomain.allCases)
+            },
+            enabledUnits: { [weak settings] in
+                settings?.enabledUnits ?? Set(CareScanUnit.allCases)
             },
             enabledJunkCategories: { [weak settings] in
                 settings?.enabledJunkCategories ?? Set(SmartScanSettingsStore.junkCategories)

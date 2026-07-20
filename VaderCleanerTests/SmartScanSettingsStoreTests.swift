@@ -130,19 +130,52 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         XCTAssertEqual(sut.enabledJunkCategories, [.userCache])
     }
 
+    // MARK: - Scan units (per-feature granularity)
+
+    func test_freshInstall_everyUnitEnabled() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertEqual(sut.enabledUnits, Set(CareScanUnit.allCases))
+        for unit in CareScanUnit.allCases {
+            XCTAssertTrue(sut.isUnitEnabled(unit), "\(unit) should default to enabled")
+        }
+    }
+
+    func test_setUnit_persistsAcrossInstances() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setUnit(.duplicates, enabled: false)
+        XCTAssertFalse(sut.isUnitEnabled(.duplicates))
+        XCTAssertFalse(sut.enabledUnits.contains(.duplicates))
+
+        let reloaded = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(reloaded.isUnitEnabled(.duplicates))
+        XCTAssertTrue(reloaded.isUnitEnabled(.largeOldFiles))
+    }
+
+    func test_missingUnitEntry_meansEnabled() {
+        // A future build's new unit won't be in an old install's dictionary;
+        // absent must read as enabled so new sub-scans default on.
+        defaults.set(["duplicates": false], forKey: "smartScan.unitStates")
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(sut.isUnitEnabled(.duplicates))
+        XCTAssertTrue(sut.isUnitEnabled(.installers))
+    }
+
     // MARK: - Restore defaults
 
-    func test_restoreDefaults_reEnablesEveryDomainAndCategory() {
+    func test_restoreDefaults_reEnablesEveryDomainCategoryAndUnit() {
         let sut = SmartScanSettingsStore(defaults: defaults)
         sut.setDomain(.myClutter, enabled: false)
         sut.setDomain(.performance, enabled: false)
         sut.setJunkCategory(.userCache, enabled: false)
         sut.setJunkCategory(.languageFiles, enabled: false)
+        sut.setUnit(.duplicates, enabled: false)
+        sut.setUnit(.loginItems, enabled: false)
 
         sut.restoreDefaults()
 
         XCTAssertEqual(sut.enabledDomains, Set(CareDomain.allCases))
         XCTAssertEqual(sut.enabledJunkCategories, Set(SmartScanSettingsStore.junkCategories))
+        XCTAssertEqual(sut.enabledUnits, Set(CareScanUnit.allCases))
         XCTAssertEqual(sut.junkCategoryState, .on)
     }
 
