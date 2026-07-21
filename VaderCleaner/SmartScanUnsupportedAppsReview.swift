@@ -62,7 +62,7 @@ struct SmartScanUnsupportedAppsReview: View {
                     ),
                     size: nil,
                     sizeText: nil,
-                    systemImage: "exclamationmark.app.fill",
+                    systemImage: "xmark.app.fill",
                     tint: .blue,
                     usesFileIcon: true
                 )

@@ -254,7 +254,18 @@ struct ScanningTab: View {
     /// of sub-scans each lists, in display order. `rootNodes` builds the tree
     /// from this, and `toggleableUnits` derives from it, so a domain can never
     /// gain a scan the settings quietly omit — the completeness test guards it.
+    /// Order follows the app's navigation rail (`NavigationSection.allCases`):
+    /// Cleanup → My Clutter → Protection → Performance → Applications, so the
+    /// settings read in the same sequence as the sidebar. Cleanup leads the tree
+    /// from `rootNodes`; Browser Privacy is listed here for its units but renders
+    /// nested under Protection.
     private static let moduleUnitDisplays: [(domain: CareDomain, units: [UnitDisplay])] = [
+        (.myClutter, [
+            (.duplicates, "Duplicates", "doc.on.doc.fill"),
+            (.similarImages, "Similar Photos", "photo.on.rectangle.angled"),
+            (.largeOldFiles, "Large & Old Files", "externaldrive.fill"),
+            (.downloads, "Downloads", "arrow.down.circle.fill"),
+        ]),
         (.malware, [(.malware, "Malware Removal", "ladybug.fill")]),
         (.browserPrivacy, [(.browserPrivacy, "Cookies & Browsing Traces", "circle.grid.cross.fill")]),
         (.performance, [
@@ -265,16 +276,10 @@ struct ScanningTab: View {
         (.applications, [
             (.appUpdates, "App Updates", "arrow.down.circle.fill"),
             (.unusedApps, "Unused Apps", "app.dashed"),
-            (.unsupportedApps, "Unsupported Apps", "exclamationmark.app"),
+            (.unsupportedApps, "Unsupported Apps", "xmark.app.fill"),
             (.extensions, "Extensions", "puzzlepiece.extension.fill"),
             (.appLeftovers, "App Leftovers", "shippingbox.fill"),
             (.installers, "Installers", "arrow.down.app.fill"),
-        ]),
-        (.myClutter, [
-            (.duplicates, "Duplicates", "doc.on.doc.fill"),
-            (.similarImages, "Similar Photos", "photo.on.rectangle.angled"),
-            (.largeOldFiles, "Large & Old Files", "externaldrive.fill"),
-            (.downloads, "Downloads", "arrow.down.circle.fill"),
         ]),
     ]
 
