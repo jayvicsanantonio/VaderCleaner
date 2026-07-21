@@ -161,6 +161,74 @@ final class SmartScanViewModelScanTests: XCTestCase {
         XCTAssertEqual(configuration?.malwareEngineAvailable, false)
     }
 
+    /// Every switch in Settings → Scanning must actually gate the scan. This
+    /// wires the view model to a real `SmartScanSettingsStore` exactly the way
+    /// `live()` does, then unchecks each option in turn and asserts the built
+    /// engine configuration drops it — so no checkbox can ever be decorative.
+    func test_uncheckingAnyScanningOption_excludesItFromTheScan() async {
+        let suiteName = "VaderCleanerTests.ScanGating.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = SmartScanSettingsStore(defaults: defaults)
+
+        func configuration() async -> CareScanEngine.Configuration? {
+            let captured = ConfigurationBox()
+            let vm = SmartScanViewModel(
+                scanEngine: { configuration, _ in
+                    captured.value = configuration
+                    return self.plan()
+                },
+                enabledDomains: { settings.enabledDomains },
+                enabledUnits: { settings.enabledUnits },
+                enabledJunkCategories: { settings.enabledJunkCategories }
+            )
+            await vm.scan()
+            return captured.value
+        }
+
+        // Baseline: everything on scans everything (health telemetry always rides along).
+        let all = await configuration()
+        for unit in CareScanUnit.allCases {
+            XCTAssertTrue(all?.enabledUnits.contains(unit) ?? false, "\(unit) should scan by default")
+        }
+
+        // Each sub-scan checkbox.
+        for unit in CareScanUnit.allCases where unit.domain != nil {
+            settings.setUnit(unit, enabled: false)
+            let config = await configuration()
+            XCTAssertFalse(
+                config?.enabledUnits.contains(unit) ?? true,
+                "unchecking \(unit) must exclude it from the scan"
+            )
+            settings.setUnit(unit, enabled: true)
+        }
+
+        // Each area (domain) checkbox excludes its whole subtree.
+        for domain in CareDomain.allCases {
+            settings.setDomain(domain, enabled: false)
+            let config = await configuration()
+            for unit in domain.units {
+                XCTAssertFalse(
+                    config?.enabledUnits.contains(unit) ?? true,
+                    "unchecking the \(domain) area must exclude its \(unit) scan"
+                )
+            }
+            settings.setDomain(domain, enabled: true)
+        }
+
+        // Each System Junk category checkbox (including the Cleanup-level
+        // leaves: Mail Attachments, iOS Backups, Trash Bins).
+        for category in SmartScanSettingsStore.junkCategories {
+            settings.setJunkCategory(category, enabled: false)
+            let config = await configuration()
+            XCTAssertFalse(
+                config?.enabledJunkCategories.contains(category) ?? true,
+                "unchecking the \(category) category must exclude it from the junk scan"
+            )
+            settings.setJunkCategory(category, enabled: true)
+        }
+    }
+
     // MARK: - Checklist statuses
 
     func test_events_driveUnitStatuses_andItemTotals() async {
