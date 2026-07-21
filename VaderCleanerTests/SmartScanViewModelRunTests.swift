@@ -91,6 +91,50 @@ final class SmartScanViewModelRunTests: XCTestCase {
         XCTAssertTrue(entries.contains("task:flushDNS"))
     }
 
+    func test_run_similarImagesAndDownloads_recycleOnlyChosen() async {
+        let recorder = Recorder()
+        let simGroup = SimilarImageGroup(files: [
+            file("/Pictures/best.jpg", size: 100, category: .largeFile),
+            file("/Pictures/near.jpg", size: 90, category: .largeFile),
+        ])
+        let download = DownloadItem(
+            file: file("/Downloads/old.dmg", size: 500, category: .largeFile),
+            sourceApp: "Safari"
+        )
+        let plan = CarePlan(
+            findings: [
+                CareFinding(kind: .similarImages, payload: .similarImages([simGroup])),
+                CareFinding(kind: .downloads, payload: .downloads([download])),
+            ],
+            health: nil,
+            unitOutcomes: [.similarImages: .completed, .downloads: .completed],
+            startedAt: Date(),
+            finishedAt: Date()
+        )
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in plan },
+            recycleFiles: { urls in
+                for u in urls { recorder.record("recycle:\(u.path)") }
+                return Set(urls)
+            }
+        )
+        await vm.scan()
+
+        // Both are opt-in, so they seed empty — nothing is selected until chosen.
+        XCTAssertEqual(vm.selectionCount(for: .similarImages), 0)
+        XCTAssertEqual(vm.selectionCount(for: .downloads), 0)
+
+        // Choose one near-duplicate and the download, then run once.
+        vm.setSimilarImages([URL(fileURLWithPath: "/Pictures/near.jpg")], selected: true)
+        vm.setDownloads([URL(fileURLWithPath: "/Downloads/old.dmg")], selected: true)
+        await vm.run()
+
+        let entries = Set(recorder.entries)
+        XCTAssertTrue(entries.contains("recycle:/Pictures/near.jpg"), "the chosen near-duplicate runs")
+        XCTAssertFalse(entries.contains("recycle:/Pictures/best.jpg"), "the kept best shot is never touched")
+        XCTAssertTrue(entries.contains("recycle:/Downloads/old.dmg"), "the chosen download runs")
+    }
+
     // MARK: - Receipt math
 
     func test_run_buildsReceipt_withBytesAndOrder() async {

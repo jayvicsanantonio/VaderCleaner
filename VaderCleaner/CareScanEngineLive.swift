@@ -43,6 +43,12 @@ extension CareScanEngine.UnitRunners {
             duplicates: { onProgress in
                 try await DuplicateScanner().scan(excluding: await excludedURLs(), onProgress: onProgress)
             },
+            similarImages: { onProgress in
+                try await SimilarImageScanner().scan(excluding: await excludedURLs(), onProgress: onProgress)
+            },
+            downloads: { onProgress in
+                try await DownloadsScanner().scan(excluding: await excludedURLs(), onProgress: onProgress)
+            },
             largeOldFiles: { onProgress in
                 try await LargeOldFilesScanner().scan(excluding: await excludedURLs(), onProgress: onProgress)
             },
@@ -68,8 +74,22 @@ extension CareScanEngine.UnitRunners {
             unusedApps: { apps in
                 await DefaultUnusedAppScanner().scan(apps: apps)
             },
+            unsupportedApps: { apps in
+                await DefaultUnsupportedAppScanner().scan(apps: apps)
+            },
             appLeftovers: { installedBundleIDs in
                 await DefaultAppLeftoverScanner().scan(installedBundleIDs: installedBundleIDs)
+            },
+            extensions: {
+                async let safari = SafariExtensionDiscovery().extensions()
+                async let browser = BrowserExtensionDiscovery().extensions()
+                async let mail = MailPluginDiscovery().extensions()
+                async let internet = InternetPluginDiscovery().extensions()
+                return await safari + browser + mail + internet
+            },
+            backgroundItems: {
+                let manager = LaunchAgentManager()
+                return manager.userAgents() + manager.systemAgents()
             },
             loginItems: {
                 await MainActor.run { LoginItemsManager.live().items() }

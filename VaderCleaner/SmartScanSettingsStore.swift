@@ -40,6 +40,7 @@ final class SmartScanSettingsStore {
         static let moduleStates = "smartScan.moduleStates"
         static let legacyEnabledModules = "smartScan.enabledModules"
         static let enabledJunkCategories = "smartScan.enabledJunkCategories"
+        static let unitStates = "smartScan.unitStates"
     }
 
     /// The System Junk categories shown as the Cleanup domain's sub-tree, in
@@ -55,6 +56,12 @@ final class SmartScanSettingsStore {
     /// System Junk categories currently included. Defaults to all of
     /// `junkCategories`.
     private(set) var enabledJunkCategories: Set<ScanCategory>
+
+    /// Explicitly-set per-unit (sub-scan) states. A missing entry means enabled,
+    /// so a unit added in a future build defaults on even for installs that
+    /// customized the older set — the same "missing means enabled" contract the
+    /// domain states use.
+    private(set) var unitStates: [CareScanUnit: Bool]
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -90,6 +97,18 @@ final class SmartScanSettingsStore {
         } else {
             self.enabledJunkCategories = Set(Self.junkCategories)
         }
+        if let stored = defaults.dictionary(forKey: Key.unitStates) {
+            // Same discipline as the domain dictionary: unknown keys and
+            // non-bool values are dropped so corrupt data can only ever enable.
+            var states: [CareScanUnit: Bool] = [:]
+            for (raw, value) in stored {
+                guard let unit = CareScanUnit(rawValue: raw), let flag = value as? Bool else { continue }
+                states[unit] = flag
+            }
+            self.unitStates = states
+        } else {
+            self.unitStates = [:]
+        }
         // Persist the migrated (or freshly-parsed) dictionary so the legacy
         // key stops being authoritative from now on.
         if defaults.dictionary(forKey: Key.moduleStates) == nil,
@@ -112,6 +131,50 @@ final class SmartScanSettingsStore {
     func setDomain(_ domain: CareDomain, enabled: Bool) {
         domainStates[domain] = enabled
         persistDomains()
+    }
+
+    // MARK: - Units (per-feature sub-scans)
+
+    /// The scan units the user hasn't switched off. A unit still only runs when
+    /// its domain is also enabled — the scan configuration ANDs the two — so this
+    /// set carries only the per-unit choice, not the domain gate.
+    var enabledUnits: Set<CareScanUnit> {
+        Set(CareScanUnit.allCases.filter { isUnitEnabled($0) })
+    }
+
+    func isUnitEnabled(_ unit: CareScanUnit) -> Bool {
+        unitStates[unit] ?? true
+    }
+
+    func setUnit(_ unit: CareScanUnit, enabled: Bool) {
+        unitStates[unit] = enabled
+        persistUnits()
+    }
+
+    /// Tri-state for a multi-unit domain's parent row: `.off` when the domain is
+    /// disabled, `.on` when it is enabled and every one of its units is on,
+    /// `.mixed` when some units are switched off.
+    func unitState(for domain: CareDomain) -> CheckState {
+        guard isDomainEnabled(domain) else { return .off }
+        let units = domain.units
+        let on = units.filter { isUnitEnabled($0) }.count
+        if on == units.count { return .on }
+        if on == 0 { return .off }
+        return .mixed
+    }
+
+    // MARK: - Restore defaults
+
+    /// Resets Smart Care to a fresh-install profile: every care domain, System
+    /// Junk category, and sub-scan unit enabled. Clearing the state dictionaries
+    /// restores the "missing entry means enabled" default all at once.
+    func restoreDefaults() {
+        domainStates = [:]
+        enabledJunkCategories = Set(Self.junkCategories)
+        unitStates = [:]
+        persistDomains()
+        persistJunkCategories()
+        persistUnits()
     }
 
     // MARK: - System Junk categories
@@ -149,5 +212,13 @@ final class SmartScanSettingsStore {
 
     private func persistJunkCategories() {
         defaults.set(enabledJunkCategories.map(\.rawValue), forKey: Key.enabledJunkCategories)
+    }
+
+    private func persistUnits() {
+        var stored: [String: Bool] = [:]
+        for (unit, enabled) in unitStates {
+            stored[unit.rawValue] = enabled
+        }
+        defaults.set(stored, forKey: Key.unitStates)
     }
 }

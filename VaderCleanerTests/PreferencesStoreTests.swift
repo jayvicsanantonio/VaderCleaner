@@ -125,6 +125,79 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertTrue(reader.menuBarShowsReading)
     }
 
+    // MARK: - Restore defaults
+
+    func test_restoreDefaults_resetsEveryPreferenceToSpec() {
+        let sut = PreferencesStore(defaults: defaults)
+        // Flip every tracked property away from its default.
+        sut.notifyLowDisk = false
+        sut.notifyHighRAM = false
+        sut.notifyMalwareFound = false
+        sut.notifyLargeFilesFound = false
+        sut.diskFreeThresholdGB = 200
+        sut.remindSmartCare = false
+        sut.notifyScanFinished = false
+        sut.smartCareFrequency = .monthly
+        sut.notifyTrashSize = false
+        sut.trashSizeThresholdGB = 20
+        sut.notifyDeviceBatteryLow = false
+        sut.notifyDriveConnected = false
+        sut.notifyOverfilledDrives = false
+        sut.offerUninstallOnTrash = false
+        sut.notifyHungApps = false
+        sut.showMenuBar = false
+        sut.menuBarShowsReading = true
+
+        sut.restoreDefaults()
+
+        XCTAssertEqual(sut.notifyLowDisk, PreferencesStore.defaultNotifyLowDisk)
+        XCTAssertEqual(sut.notifyHighRAM, PreferencesStore.defaultNotifyHighRAM)
+        XCTAssertEqual(sut.notifyMalwareFound, PreferencesStore.defaultNotifyMalwareFound)
+        XCTAssertEqual(sut.notifyLargeFilesFound, PreferencesStore.defaultNotifyLargeFilesFound)
+        XCTAssertEqual(sut.diskFreeThresholdGB, PreferencesStore.defaultDiskFreeThresholdGB)
+        XCTAssertEqual(sut.remindSmartCare, PreferencesStore.defaultRemindSmartCare)
+        XCTAssertEqual(sut.notifyScanFinished, PreferencesStore.defaultNotifyScanFinished)
+        XCTAssertEqual(sut.smartCareFrequency, PreferencesStore.defaultSmartCareFrequency)
+        XCTAssertEqual(sut.notifyTrashSize, PreferencesStore.defaultNotifyTrashSize)
+        XCTAssertEqual(sut.trashSizeThresholdGB, PreferencesStore.defaultTrashSizeThresholdGB)
+        XCTAssertEqual(sut.notifyDeviceBatteryLow, PreferencesStore.defaultNotifyDeviceBatteryLow)
+        XCTAssertEqual(sut.notifyDriveConnected, PreferencesStore.defaultNotifyDriveConnected)
+        XCTAssertEqual(sut.notifyOverfilledDrives, PreferencesStore.defaultNotifyOverfilledDrives)
+        XCTAssertEqual(sut.offerUninstallOnTrash, PreferencesStore.defaultOfferUninstallOnTrash)
+        XCTAssertEqual(sut.notifyHungApps, PreferencesStore.defaultNotifyHungApps)
+        XCTAssertEqual(sut.showMenuBar, PreferencesStore.defaultShowMenuBar)
+        XCTAssertEqual(sut.menuBarShowsReading, PreferencesStore.defaultMenuBarShowsReading)
+    }
+
+    func test_restoreDefaults_persistsAcrossInstances() {
+        let writer = PreferencesStore(defaults: defaults)
+        writer.notifyLowDisk = false
+        writer.trashSizeThresholdGB = 20
+
+        writer.restoreDefaults()
+
+        let reader = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(reader.notifyLowDisk, PreferencesStore.defaultNotifyLowDisk)
+        XCTAssertEqual(reader.trashSizeThresholdGB, PreferencesStore.defaultTrashSizeThresholdGB)
+    }
+
+    func test_restoreDefaults_reappliesLaunchAtLoginThroughHandler() {
+        var received: [Bool] = []
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { received.append($0) }
+        )
+        sut.launchAtLogin = false
+        received.removeAll()
+
+        sut.restoreDefaults()
+
+        // Restoring flips launchAtLogin back to its default and reconciles the
+        // login item through the same handler a manual toggle uses.
+        XCTAssertEqual(sut.launchAtLogin, PreferencesStore.defaultLaunchAtLogin)
+        XCTAssertEqual(received, [PreferencesStore.defaultLaunchAtLogin])
+    }
+
     // MARK: - Launch-at-login wiring
 
     func test_didSet_invokesLaunchAtLoginHandler() {

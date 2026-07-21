@@ -130,6 +130,90 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         XCTAssertEqual(sut.enabledJunkCategories, [.userCache])
     }
 
+    // MARK: - Scanning tree completeness
+
+    func test_scanningTree_exposesAToggleForEveryScannableUnit() {
+        // Every domain-bound sub-scan must have a user-facing checkbox in the
+        // Scanning settings tree, so a scan can never run with no way to skip it.
+        // `healthSnapshot` is intentionally excluded — it has no domain, is
+        // instant and non-destructive, and always rides along.
+        let domainBound = Set(CareScanUnit.allCases.filter { $0.domain != nil })
+        XCTAssertEqual(
+            ScanningTab.toggleableUnits, domainBound,
+            "Scanning tree is missing a toggle for: \(domainBound.subtracting(ScanningTab.toggleableUnits))"
+        )
+    }
+
+    func test_scanningTree_exposesAToggleForEveryJunkCategory() {
+        // The System Junk categories (plus the Cleanup-level leaves) must each be
+        // toggleable, so no scanned-and-filtered category is silently forced on.
+        XCTAssertEqual(
+            ScanningTab.toggleableJunkCategories,
+            Set(SmartScanSettingsStore.junkCategories)
+        )
+    }
+
+    // MARK: - Scan units (per-feature granularity)
+
+    func test_freshInstall_everyUnitEnabled() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertEqual(sut.enabledUnits, Set(CareScanUnit.allCases))
+        for unit in CareScanUnit.allCases {
+            XCTAssertTrue(sut.isUnitEnabled(unit), "\(unit) should default to enabled")
+        }
+    }
+
+    func test_setUnit_persistsAcrossInstances() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setUnit(.duplicates, enabled: false)
+        XCTAssertFalse(sut.isUnitEnabled(.duplicates))
+        XCTAssertFalse(sut.enabledUnits.contains(.duplicates))
+
+        let reloaded = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(reloaded.isUnitEnabled(.duplicates))
+        XCTAssertTrue(reloaded.isUnitEnabled(.largeOldFiles))
+    }
+
+    func test_missingUnitEntry_meansEnabled() {
+        // A future build's new unit won't be in an old install's dictionary;
+        // absent must read as enabled so new sub-scans default on.
+        defaults.set(["duplicates": false], forKey: "smartScan.unitStates")
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertFalse(sut.isUnitEnabled(.duplicates))
+        XCTAssertTrue(sut.isUnitEnabled(.installers))
+    }
+
+    // MARK: - Restore defaults
+
+    func test_restoreDefaults_reEnablesEveryDomainCategoryAndUnit() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setDomain(.myClutter, enabled: false)
+        sut.setDomain(.performance, enabled: false)
+        sut.setJunkCategory(.userCache, enabled: false)
+        sut.setJunkCategory(.languageFiles, enabled: false)
+        sut.setUnit(.duplicates, enabled: false)
+        sut.setUnit(.loginItems, enabled: false)
+
+        sut.restoreDefaults()
+
+        XCTAssertEqual(sut.enabledDomains, Set(CareDomain.allCases))
+        XCTAssertEqual(sut.enabledJunkCategories, Set(SmartScanSettingsStore.junkCategories))
+        XCTAssertEqual(sut.enabledUnits, Set(CareScanUnit.allCases))
+        XCTAssertEqual(sut.junkCategoryState, .on)
+    }
+
+    func test_restoreDefaults_persistsAcrossInstances() {
+        let writer = SmartScanSettingsStore(defaults: defaults)
+        writer.setDomain(.malware, enabled: false)
+        writer.setJunkCategory(.userCache, enabled: false)
+
+        writer.restoreDefaults()
+
+        let reader = SmartScanSettingsStore(defaults: defaults)
+        XCTAssertTrue(reader.isDomainEnabled(.malware))
+        XCTAssertTrue(reader.isJunkCategoryEnabled(.userCache))
+    }
+
     // MARK: - Cleanup tri-state
 
     func test_junkCategoryState_triState() {

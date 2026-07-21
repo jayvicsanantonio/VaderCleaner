@@ -118,6 +118,17 @@ final class ProtectionSettingsStore {
         didSet { defaults.set(scanMode.rawValue, forKey: Key.scanMode) }
     }
 
+    // MARK: - Restore defaults
+
+    /// Resets every Protection option to its shipped default. Assigning through
+    /// the tracked properties re-runs each `didSet`, so the new values persist.
+    func restoreDefaults() {
+        scanEmailAttachments = Self.defaultScanEmailAttachments
+        scanArchives = Self.defaultScanArchives
+        excludeDownloadedICloudFiles = Self.defaultExcludeDownloadedICloudFiles
+        scanMode = Self.defaultScanMode
+    }
+
     // MARK: - Init
 
     @ObservationIgnored private let defaults: UserDefaults

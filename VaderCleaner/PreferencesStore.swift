@@ -288,6 +288,34 @@ final class PreferencesStore {
         }
     }
 
+    // MARK: - Restore defaults
+
+    /// Resets every user-tweakable preference to its shipped default. Assigning
+    /// through the tracked properties re-runs each `didSet`, so the new values
+    /// persist and the launch-at-login change reconciles the login item through
+    /// the same handler a manual toggle uses. The Ignore List is deliberately
+    /// left untouched — those paths are user data, not a preference.
+    func restoreDefaults() {
+        notifyLowDisk = Self.defaultNotifyLowDisk
+        notifyHighRAM = Self.defaultNotifyHighRAM
+        notifyMalwareFound = Self.defaultNotifyMalwareFound
+        notifyLargeFilesFound = Self.defaultNotifyLargeFilesFound
+        diskFreeThresholdGB = Self.defaultDiskFreeThresholdGB
+        remindSmartCare = Self.defaultRemindSmartCare
+        notifyScanFinished = Self.defaultNotifyScanFinished
+        smartCareFrequency = Self.defaultSmartCareFrequency
+        notifyTrashSize = Self.defaultNotifyTrashSize
+        trashSizeThresholdGB = Self.defaultTrashSizeThresholdGB
+        notifyDeviceBatteryLow = Self.defaultNotifyDeviceBatteryLow
+        notifyDriveConnected = Self.defaultNotifyDriveConnected
+        notifyOverfilledDrives = Self.defaultNotifyOverfilledDrives
+        offerUninstallOnTrash = Self.defaultOfferUninstallOnTrash
+        notifyHungApps = Self.defaultNotifyHungApps
+        launchAtLogin = Self.defaultLaunchAtLogin
+        showMenuBar = Self.defaultShowMenuBar
+        menuBarShowsReading = Self.defaultMenuBarShowsReading
+    }
+
     // MARK: - Side effects
 
     /// Throwing entry point for surfaces that present their own inline failure

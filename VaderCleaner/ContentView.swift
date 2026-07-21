@@ -404,11 +404,12 @@ struct ContentView: View {
                 SmartScanView(
                     viewModel: smartScanViewModel,
                     // Review buttons inside the Smart Scan dashboard now
-                    // push their own in-place manager screens; only the
-                    // Performance Review's "Open Performance" link still
-                    // hops to the standalone section. The other two
-                    // selectSection calls disappear with the inline push.
-                    onOpenPerformance: { selectSection(.performance) }
+                    // push their own in-place manager screens; the
+                    // review-only findings (Login/Background Items,
+                    // Extensions) keep a jump-link to their standalone
+                    // section rather than acting in place.
+                    onOpenPerformance: { selectSection(.performance) },
+                    onOpenApplications: { selectSection(.applications) }
                 )
             }
         case .healthMonitor:
