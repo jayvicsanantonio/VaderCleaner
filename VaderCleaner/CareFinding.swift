@@ -60,6 +60,11 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         case maintenanceDue
         case browserPrivacy
         case loginItems
+        case similarImages
+        case downloads
+        case unsupportedApps
+        case extensions
+        case backgroundItems
 
         /// The scan unit that produces this finding — the checklist and the
         /// review screens group findings by the unit's domain.
@@ -77,6 +82,11 @@ struct CareFinding: Identifiable, Equatable, Sendable {
             case .maintenanceDue: return .maintenanceDue
             case .browserPrivacy: return .browserPrivacy
             case .loginItems: return .loginItems
+            case .similarImages: return .similarImages
+            case .downloads: return .downloads
+            case .unsupportedApps: return .unsupportedApps
+            case .extensions: return .extensions
+            case .backgroundItems: return .backgroundItems
             }
         }
     }
@@ -87,6 +97,11 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         case junk(ScanResult)
         case threats([MalwareThreat])
         case duplicates([DuplicateGroup])
+        case similarImages([SimilarImageGroup])
+        case downloads([DownloadItem])
+        case unsupportedApps([UnsupportedApp])
+        case extensions([ExtensionItem])
+        case backgroundItems([LaunchAgent])
         case largeOldFiles([ScannedFile])
         case unusedApps([UnusedApp])
         case appLeftovers([LeftoverGroup])
@@ -127,6 +142,11 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         case .junk(let result): return result.items.count
         case .threats(let threats): return threats.count
         case .duplicates(let groups): return groups.reduce(0) { $0 + $1.redundantCopies.count }
+        case .similarImages(let groups): return groups.reduce(0) { $0 + $1.redundantCopies.count }
+        case .downloads(let items): return items.count
+        case .unsupportedApps(let apps): return apps.count
+        case .extensions(let items): return items.count
+        case .backgroundItems(let agents): return agents.count
         case .largeOldFiles(let files): return files.count
         case .unusedApps(let apps): return apps.count
         case .appLeftovers(let groups): return groups.count
@@ -143,11 +163,14 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         switch payload {
         case .junk(let result): return result.totalSize
         case .duplicates(let groups): return groups.reduce(0) { $0 + $1.reclaimableBytes }
+        case .similarImages(let groups): return groups.reduce(0) { $0 + $1.reclaimableBytes }
+        case .downloads(let items): return items.reduce(0) { $0 + $1.file.size }
         case .largeOldFiles(let files): return files.reduce(0) { $0 + $1.size }
         case .unusedApps(let apps): return apps.reduce(0) { $0 + $1.sizeBytes }
         case .appLeftovers(let groups): return groups.reduce(0) { $0 + $1.totalBytes }
         case .installers(let files): return files.reduce(0) { $0 + $1.sizeBytes }
-        case .threats, .appUpdates, .loginItems, .maintenanceDue, .browserPrivacy, .lowDiskSpace:
+        case .threats, .appUpdates, .loginItems, .maintenanceDue, .browserPrivacy, .lowDiskSpace,
+             .unsupportedApps, .extensions, .backgroundItems:
             return 0
         }
     }
@@ -163,9 +186,11 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         switch kind {
         case .threats:
             return .critical
-        case .lowDiskSpace, .appUpdates, .maintenanceDue, .browserPrivacy, .loginItems:
+        case .lowDiskSpace, .appUpdates, .maintenanceDue, .browserPrivacy, .loginItems,
+             .unsupportedApps, .extensions, .backgroundItems:
             return .attention
-        case .junkCleanup, .duplicates, .largeOldFiles, .unusedApps, .appLeftovers, .installers:
+        case .junkCleanup, .duplicates, .largeOldFiles, .unusedApps, .appLeftovers, .installers,
+             .similarImages, .downloads:
             return .space
         }
     }
@@ -177,9 +202,10 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         switch kind {
         case .junkCleanup, .threats, .duplicates, .appUpdates, .maintenanceDue:
             return .preApproved
-        case .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy:
+        case .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy,
+             .similarImages, .downloads, .unsupportedApps:
             return .optIn
-        case .loginItems, .lowDiskSpace:
+        case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
             return .informational
         }
     }

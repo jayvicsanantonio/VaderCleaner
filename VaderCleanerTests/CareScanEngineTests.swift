@@ -86,13 +86,18 @@ final class CareScanEngineTests: XCTestCase {
         CareScanEngine.UnitRunners(
             junk: { _ in ScanResult(items: []) },
             duplicates: { _ in [] },
+            similarImages: { _ in [] },
+            downloads: { _ in [] },
             largeOldFiles: { _ in [] },
             malware: { _ in [] },
             installers: { [] },
             installedApps: { [] },
             appUpdates: { _, _ in [] },
             unusedApps: { _ in [] },
+            unsupportedApps: { _ in [] },
             appLeftovers: { _ in [] },
+            extensions: { [] },
+            backgroundItems: { [] },
             loginItems: { [] },
             dueMaintenanceTaskIDs: { [] },
             browserPrivacy: { [] },
@@ -171,6 +176,58 @@ final class CareScanEngineTests: XCTestCase {
             return XCTFail("expected a junk finding")
         }
         XCTAssertEqual(result.items.map(\.category), [.userCache])
+    }
+
+    func test_scan_producesSimilarImagesAndDownloadsFindings() async {
+        var runners = emptyRunners()
+        runners.similarImages = { _ in
+            [SimilarImageGroup(files: [
+                self.file("/Pictures/shot.jpg", size: 100, category: .largeFile),
+                self.file("/Pictures/shot-copy.jpg", size: 90, category: .largeFile),
+            ])]
+        }
+        runners.downloads = { _ in
+            [DownloadItem(file: self.file("/Downloads/old.dmg", size: 500, category: .largeFile), sourceApp: "Safari")]
+        }
+        let engine = CareScanEngine(runners: runners)
+        let plan = await engine.scan(configuration: configuration()) { _ in }
+
+        guard case .similarImages(let groups)? = plan.finding(.similarImages)?.payload else {
+            return XCTFail("expected a similar-images finding")
+        }
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(plan.finding(.similarImages)?.reclaimableBytes, 90)
+        XCTAssertEqual(plan.unitOutcomes[.similarImages], .completed)
+
+        guard case .downloads(let items)? = plan.finding(.downloads)?.payload else {
+            return XCTFail("expected a downloads finding")
+        }
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(plan.finding(.downloads)?.reclaimableBytes, 500)
+        XCTAssertEqual(plan.unitOutcomes[.downloads], .completed)
+    }
+
+    func test_scan_producesUnsupportedExtensionsAndBackgroundFindings() async {
+        var runners = emptyRunners()
+        runners.installedApps = { [AppInfo(name: "Old", bundleID: "com.old", version: "1.0", bundleURL: URL(fileURLWithPath: "/Applications/Old.app"), isAppStore: false)] }
+        runners.unsupportedApps = { apps in
+            apps.map { UnsupportedApp(app: $0, reason: .incompatibleArchitecture) }
+        }
+        runners.extensions = {
+            [ExtensionItem(name: "Ext", path: URL(fileURLWithPath: "/ext"), bundleID: nil, type: .safariExtension, isEnabled: true, size: 100)]
+        }
+        runners.backgroundItems = {
+            [LaunchAgent(label: "com.agent", path: URL(fileURLWithPath: "/agent.plist"), programPath: "/bin/agent", isEnabled: true, domain: .user)]
+        }
+        let engine = CareScanEngine(runners: runners)
+        let plan = await engine.scan(configuration: configuration()) { _ in }
+
+        XCTAssertEqual(plan.finding(.unsupportedApps)?.itemCount, 1)
+        XCTAssertEqual(plan.finding(.extensions)?.itemCount, 1)
+        XCTAssertEqual(plan.finding(.backgroundItems)?.itemCount, 1)
+        XCTAssertEqual(plan.unitOutcomes[.unsupportedApps], .completed)
+        XCTAssertEqual(plan.unitOutcomes[.extensions], .completed)
+        XCTAssertEqual(plan.unitOutcomes[.backgroundItems], .completed)
     }
 
     // MARK: - Skips

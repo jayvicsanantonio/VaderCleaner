@@ -117,6 +117,9 @@ final class SmartScanViewModel {
     private(set) var leftoverSelection: Set<String> = []
     private(set) var installerSelection: Set<String> = []
     private(set) var browserPrivacySelection: Set<BrowserPrivacyKey> = []
+    private(set) var similarImageSelection: Set<URL> = []
+    private(set) var downloadSelection: Set<URL> = []
+    private(set) var unsupportedAppSelection: Set<String> = []
 
     // MARK: - Private state
 
@@ -337,6 +340,9 @@ final class SmartScanViewModel {
         threatSelection = []
         updateSelection = []
         duplicateSelection = []
+        similarImageSelection = []
+        downloadSelection = []
+        unsupportedAppSelection = []
         largeOldFileSelection = []
         unusedAppSelection = []
         leftoverSelection = []
@@ -443,8 +449,11 @@ final class SmartScanViewModel {
         case .appLeftovers: return leftoverSelection.count
         case .installers: return installerSelection.count
         case .browserPrivacy: return browserPrivacySelection.count
+        case .similarImages: return similarImageSelection.count
+        case .downloads: return downloadSelection.count
+        case .unsupportedApps: return unsupportedAppSelection.count
         case .maintenanceDue: return currentPlan?.finding(.maintenanceDue)?.itemCount ?? 0
-        case .loginItems, .lowDiskSpace: return 0
+        case .loginItems, .lowDiskSpace, .extensions, .backgroundItems: return 0
         }
     }
 
@@ -642,6 +651,48 @@ final class SmartScanViewModel {
         duplicateSelection = []
     }
 
+    // MARK: - Similar image selection (opt-in)
+
+    func isSimilarImageSelected(_ file: ScannedFile) -> Bool {
+        similarImageSelection.contains(file.url)
+    }
+
+    func toggleSimilarImage(_ file: ScannedFile) {
+        setSimilarImages([file.url], selected: !similarImageSelection.contains(file.url))
+    }
+
+    /// Check or uncheck a set of similar-image copies in one write. The best
+    /// shot (the group's kept original) is never offered, so a photo always
+    /// survives.
+    func setSimilarImages(_ urls: [URL], selected: Bool) {
+        if selected {
+            similarImageSelection.formUnion(urls)
+        } else {
+            similarImageSelection.subtract(urls)
+        }
+        syncOptInInclusion(.similarImages, hasSelection: !similarImageSelection.isEmpty)
+    }
+
+    // MARK: - Downloads selection (opt-in)
+
+    func isDownloadSelected(_ item: DownloadItem) -> Bool {
+        downloadSelection.contains(item.file.url)
+    }
+
+    func toggleDownload(_ item: DownloadItem) {
+        setDownloads([item.file.url], selected: !downloadSelection.contains(item.file.url))
+    }
+
+    /// Check or uncheck a set of downloads in one write.
+    func setDownloads(_ urls: [URL], selected: Bool) {
+        if selected {
+            downloadSelection.formUnion(urls)
+        } else {
+            downloadSelection.subtract(urls)
+        }
+        syncOptInInclusion(.downloads, hasSelection: !downloadSelection.isEmpty)
+    }
+
     // MARK: - Opt-in selections (large/old files, apps, installers, privacy)
 
     func isLargeOldFileSelected(_ file: ScannedFile) -> Bool {
@@ -677,6 +728,23 @@ final class SmartScanViewModel {
             unusedAppSelection.subtract(ids)
         }
         syncOptInInclusion(.unusedApps, hasSelection: !unusedAppSelection.isEmpty)
+    }
+
+    func isUnsupportedAppSelected(_ app: UnsupportedApp) -> Bool {
+        unsupportedAppSelection.contains(app.id)
+    }
+
+    func toggleUnsupportedApp(_ app: UnsupportedApp) {
+        setUnsupportedApps([app.id], selected: !unsupportedAppSelection.contains(app.id))
+    }
+
+    func setUnsupportedApps(_ ids: [String], selected: Bool) {
+        if selected {
+            unsupportedAppSelection.formUnion(ids)
+        } else {
+            unsupportedAppSelection.subtract(ids)
+        }
+        syncOptInInclusion(.unsupportedApps, hasSelection: !unsupportedAppSelection.isEmpty)
     }
 
     func isLeftoverSelected(_ group: LeftoverGroup) -> Bool {
@@ -837,6 +905,23 @@ final class SmartScanViewModel {
                 )
             )
 
+        case .similarImages(let groups):
+            return await recycleLine(
+                kind: .similarImages,
+                urls: Array(similarImageSelection),
+                sizeOf: Dictionary(
+                    groups.flatMap { $0.files.map { ($0.url, $0.size) } },
+                    uniquingKeysWith: { size, _ in size }
+                )
+            )
+
+        case .downloads(let items):
+            return await recycleLine(
+                kind: .downloads,
+                urls: Array(downloadSelection),
+                sizeOf: Dictionary(items.map { ($0.file.url, $0.file.size) }, uniquingKeysWith: { size, _ in size })
+            )
+
         case .largeOldFiles(let files):
             return await recycleLine(
                 kind: .largeOldFiles,
@@ -858,6 +943,16 @@ final class SmartScanViewModel {
                 kind: .unusedApps,
                 urls: selected.map(\.app.bundleURL),
                 sizeOf: Dictionary(selected.map { ($0.app.bundleURL, $0.sizeBytes) }, uniquingKeysWith: { size, _ in size })
+            )
+
+        case .unsupportedApps(let apps):
+            // Incompatible apps carry no measured size (the value is removing a
+            // dead app, not the space) — recycle the chosen bundles, credit 0.
+            let selected = apps.filter { unsupportedAppSelection.contains($0.id) }
+            return await recycleLine(
+                kind: .unsupportedApps,
+                urls: selected.map { $0.app.bundleURL },
+                sizeOf: [:]
             )
 
         case .appLeftovers(let groups):
@@ -932,7 +1027,7 @@ final class SmartScanViewModel {
                 return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
             }
 
-        case .loginItems, .lowDiskSpace:
+        case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
             return nil
         }
     }

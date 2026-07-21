@@ -22,6 +22,11 @@ enum CareScanUnit: String, CaseIterable, Hashable, Sendable {
     case loginItems
     case maintenanceDue
     case browserPrivacy
+    case similarImages
+    case downloads
+    case unsupportedApps
+    case extensions
+    case backgroundItems
     case healthSnapshot
 
     /// The settings/checklist domain this unit belongs to, or `nil` for the
@@ -31,13 +36,13 @@ enum CareScanUnit: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .systemJunk:
             return .systemJunk
-        case .duplicates, .largeOldFiles:
+        case .duplicates, .largeOldFiles, .similarImages, .downloads:
             return .myClutter
         case .malware:
             return .malware
-        case .appUpdates, .unusedApps, .appLeftovers, .installers:
+        case .appUpdates, .unusedApps, .appLeftovers, .installers, .unsupportedApps, .extensions:
             return .applications
-        case .loginItems, .maintenanceDue:
+        case .loginItems, .maintenanceDue, .backgroundItems:
             return .performance
         case .browserPrivacy:
             return .browserPrivacy

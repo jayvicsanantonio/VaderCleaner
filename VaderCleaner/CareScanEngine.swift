@@ -21,13 +21,18 @@ struct CareScanEngine: Sendable {
     struct UnitRunners: Sendable {
         var junk: @Sendable (_ onProgress: @escaping @Sendable (Int) -> Void) async throws -> ScanResult
         var duplicates: @Sendable (_ onProgress: @escaping @Sendable (Int) -> Void) async throws -> [DuplicateGroup]
+        var similarImages: @Sendable (_ onProgress: @escaping @Sendable (Int) -> Void) async throws -> [SimilarImageGroup]
+        var downloads: @Sendable (_ onProgress: @escaping @Sendable (Int) -> Void) async throws -> [DownloadItem]
         var largeOldFiles: @Sendable (_ onProgress: @escaping @Sendable (Int) -> Void) async throws -> [ScannedFile]
         var malware: @Sendable (_ onProgress: @escaping @Sendable (Int) -> Void) async throws -> [MalwareThreat]
         var installers: @Sendable () async throws -> [InstallationFile]
         var installedApps: @Sendable () async throws -> [AppInfo]
         var appUpdates: @Sendable (_ apps: [AppInfo], _ onProgress: @escaping @Sendable (Int) -> Void) async throws -> [UpdateInfo]
         var unusedApps: @Sendable (_ apps: [AppInfo]) async throws -> [UnusedApp]
+        var unsupportedApps: @Sendable (_ apps: [AppInfo]) async throws -> [UnsupportedApp]
         var appLeftovers: @Sendable (_ installedBundleIDs: Set<String>) async throws -> [LeftoverGroup]
+        var extensions: @Sendable () async throws -> [ExtensionItem]
+        var backgroundItems: @Sendable () async throws -> [LaunchAgent]
         var loginItems: @Sendable () async throws -> [LoginItem]
         var dueMaintenanceTaskIDs: @Sendable () async throws -> [String]
         var browserPrivacy: @Sendable () async throws -> [BrowserPrivacySummary]
@@ -64,14 +69,14 @@ struct CareScanEngine: Sendable {
         let layout: [[CareScanUnit]] = [
             // ~/Library + system junk walk.
             [.systemJunk],
-            // User-file walks that overlap on Downloads — serialized.
-            [.duplicates, .largeOldFiles, .installers],
+            // User-file walks that overlap on Downloads/Pictures — serialized.
+            [.duplicates, .largeOldFiles, .installers, .downloads, .similarImages],
             // CPU-bound content scan over quick paths.
             [.malware],
             // App metadata: one shared discovery, then network + Spotlight.
-            [.appUpdates, .unusedApps, .appLeftovers],
+            [.appUpdates, .unusedApps, .appLeftovers, .unsupportedApps],
             // Cheap local reads.
-            [.loginItems, .maintenanceDue, .browserPrivacy, .healthSnapshot]
+            [.loginItems, .maintenanceDue, .browserPrivacy, .extensions, .backgroundItems, .healthSnapshot]
         ]
         return layout
             .map { $0.filter(units.contains) }
@@ -168,7 +173,7 @@ struct CareScanEngine: Sendable {
         onEvent: @escaping @Sendable (Event) -> Void
     ) async -> [UnitResult] {
         // The app-metadata lane shares one discovery pass across its units.
-        let needsDiscovery = !Set(lane).isDisjoint(with: [.appUpdates, .unusedApps, .appLeftovers])
+        let needsDiscovery = !Set(lane).isDisjoint(with: [.appUpdates, .unusedApps, .appLeftovers, .unsupportedApps])
         var discoveredApps: [AppInfo] = []
         if needsDiscovery {
             onEvent(.unitStarted(lane[0]))
@@ -230,6 +235,12 @@ struct CareScanEngine: Sendable {
             case .duplicates:
                 let groups = try await runners.duplicates(progress)
                 return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .duplicates, payload: .duplicates(groups)))
+            case .similarImages:
+                let groups = try await runners.similarImages(progress)
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .similarImages, payload: .similarImages(groups)))
+            case .downloads:
+                let items = try await runners.downloads(progress)
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .downloads, payload: .downloads(items)))
             case .largeOldFiles:
                 let files = try await runners.largeOldFiles(progress)
                 return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .largeOldFiles, payload: .largeOldFiles(files)))
@@ -245,6 +256,15 @@ struct CareScanEngine: Sendable {
             case .unusedApps:
                 let unused = try await runners.unusedApps(apps)
                 return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .unusedApps, payload: .unusedApps(unused)))
+            case .unsupportedApps:
+                let unsupported = try await runners.unsupportedApps(apps)
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .unsupportedApps, payload: .unsupportedApps(unsupported)))
+            case .extensions:
+                let items = try await runners.extensions()
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .extensions, payload: .extensions(items)))
+            case .backgroundItems:
+                let agents = try await runners.backgroundItems()
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .backgroundItems, payload: .backgroundItems(agents)))
             case .appLeftovers:
                 let groups = try await runners.appLeftovers(Set(apps.map(\.bundleID)))
                 return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .appLeftovers, payload: .appLeftovers(groups)))

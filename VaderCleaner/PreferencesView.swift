@@ -179,12 +179,13 @@ private struct SettingsBadgeIcon: View {
 struct ScanningTab: View {
 
     @Environment(SmartScanSettingsStore.self) private var settings
-    /// Node ids whose children are revealed. Every area opens by default so the
-    /// list shows what each one covers on first view; the deeper System Junk
-    /// sub-group stays collapsed until the user opens it.
+    /// Node ids whose children are revealed. Every area — and Cleanup's System
+    /// Junk sub-group — opens by default so the list shows its complete set of
+    /// options on first view (System Caches, Xcode Junk, Web Development Junk, …).
     @State private var expanded: Set<String> = [
-        "module.systemJunk", "module.malware", "module.browserPrivacy",
-        "module.performance", "module.applications", "module.myClutter",
+        "module.systemJunk", "group.systemJunk", "module.malware",
+        "module.browserPrivacy", "module.performance", "module.applications",
+        "module.myClutter",
     ]
 
     var body: some View {
@@ -246,30 +247,61 @@ struct ScanningTab: View {
 
     // MARK: Tree model
 
+    /// One sub-scan row: the `CareScanUnit` it toggles, its label, and its icon.
+    typealias UnitDisplay = (unit: CareScanUnit, title: String, symbol: String)
+
+    /// The single source of truth for the non-Cleanup areas and the complete set
+    /// of sub-scans each lists, in display order. `rootNodes` builds the tree
+    /// from this, and `toggleableUnits` derives from it, so a domain can never
+    /// gain a scan the settings quietly omit — the completeness test guards it.
+    private static let moduleUnitDisplays: [(domain: CareDomain, units: [UnitDisplay])] = [
+        (.malware, [(.malware, "Malware Removal", "ladybug.fill")]),
+        (.browserPrivacy, [(.browserPrivacy, "Cookies & Browsing Traces", "circle.grid.cross.fill")]),
+        (.performance, [
+            (.loginItems, "Login Items", "arrow.right.circle.fill"),
+            (.backgroundItems, "Background Items", "gearshape.2.fill"),
+            (.maintenanceDue, "Maintenance Tasks", "wrench.and.screwdriver.fill"),
+        ]),
+        (.applications, [
+            (.appUpdates, "App Updates", "arrow.down.circle.fill"),
+            (.unusedApps, "Unused Apps", "app.dashed"),
+            (.unsupportedApps, "Unsupported Apps", "exclamationmark.app"),
+            (.extensions, "Extensions", "puzzlepiece.extension.fill"),
+            (.appLeftovers, "App Leftovers", "shippingbox.fill"),
+            (.installers, "Installers", "arrow.down.app.fill"),
+        ]),
+        (.myClutter, [
+            (.duplicates, "Duplicates", "doc.on.doc.fill"),
+            (.similarImages, "Similar Photos", "photo.on.rectangle.angled"),
+            (.largeOldFiles, "Large & Old Files", "externaldrive.fill"),
+            (.downloads, "Downloads", "arrow.down.circle.fill"),
+        ]),
+    ]
+
+    /// Every sub-scan unit the tree exposes a toggle for — the direct unit rows
+    /// plus the `systemJunk` unit that Cleanup covers through its category tree.
+    /// A test asserts this equals every domain-bound `CareScanUnit`, so no scan
+    /// can ship without a user-facing switch.
+    static var toggleableUnits: Set<CareScanUnit> {
+        Set(moduleUnitDisplays.flatMap { $0.units.map(\.unit) }).union([.systemJunk])
+    }
+
+    private static func units(for domain: CareDomain) -> [UnitDisplay] {
+        moduleUnitDisplays.first { $0.domain == domain }?.units ?? []
+    }
+
     /// Every scannable area, top to bottom. Each is a parent row over the real
     /// sub-scans (`CareScanUnit`s) it covers — each an independent checkbox so a
     /// user can scan, say, Duplicates but skip Large & Old Files. Browser Privacy
     /// nests under Protection since both guard the Mac; only Cleanup drills
     /// further, to its System Junk categories.
     private var rootNodes: [ScanNode] {
-        [cleanupNode,
-         moduleNode(.malware,
-                    units: [(.malware, "Malware Removal", "ladybug.fill")],
-                    extraChildren: [browserPrivacyNode]),
-         moduleNode(.performance, units: [
-             (.loginItems, "Login Items", "arrow.right.circle.fill"),
-             (.maintenanceDue, "Maintenance Tasks", "wrench.and.screwdriver.fill"),
-         ]),
-         moduleNode(.applications, units: [
-             (.appUpdates, "App Updates", "arrow.down.circle.fill"),
-             (.unusedApps, "Unused Apps", "app.dashed"),
-             (.appLeftovers, "App Leftovers", "shippingbox.fill"),
-             (.installers, "Installers", "arrow.down.app.fill"),
-         ]),
-         moduleNode(.myClutter, units: [
-             (.duplicates, "Duplicates", "doc.on.doc.fill"),
-             (.largeOldFiles, "Large & Old Files", "externaldrive.fill"),
-         ])]
+        var nodes: [ScanNode] = [cleanupNode]
+        for (domain, units) in Self.moduleUnitDisplays where domain != .browserPrivacy {
+            let extra: [ScanNode] = domain == .malware ? [browserPrivacyNode] : []
+            nodes.append(moduleNode(domain, units: units, extraChildren: extra))
+        }
+        return nodes
     }
 
     /// Browser Privacy — its own scannable domain, shown as a sub-row under
@@ -277,7 +309,7 @@ struct ScanningTab: View {
     /// group rather than its own hue.
     private var browserPrivacyNode: ScanNode {
         moduleNode(.browserPrivacy,
-                   units: [(.browserPrivacy, "Cookies & Browsing Traces", "circle.grid.cross.fill")],
+                   units: Self.units(for: .browserPrivacy),
                    tintOverride: CareDomain.malware.artTint)
     }
 

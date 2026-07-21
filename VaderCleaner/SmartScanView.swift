@@ -14,6 +14,7 @@ struct SmartScanView: View {
 
     private var viewModel: SmartScanViewModel
     private let onOpenPerformance: () -> Void
+    private let onOpenApplications: () -> Void
 
     /// The finding whose Review screen is currently up, or `nil` if the feed
     /// is visible. Local state because Review is a transient UI mode.
@@ -40,14 +41,17 @@ struct SmartScanView: View {
     static let reviewableKinds: Set<CareFinding.Kind> = [
         .junkCleanup, .threats, .appUpdates, .duplicates, .loginItems,
         .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy,
+        .similarImages, .downloads, .unsupportedApps, .extensions, .backgroundItems,
     ]
 
     init(
         viewModel: SmartScanViewModel,
-        onOpenPerformance: @escaping () -> Void
+        onOpenPerformance: @escaping () -> Void,
+        onOpenApplications: @escaping () -> Void = {}
     ) {
         self.viewModel = viewModel
         self.onOpenPerformance = onOpenPerformance
+        self.onOpenApplications = onOpenApplications
     }
 
     var body: some View {
@@ -187,6 +191,36 @@ struct SmartScanView: View {
                 files: largeOldFiles,
                 onBack: { review = nil }
             )
+        case .similarImages:
+            SmartScanSimilarImagesReview(
+                viewModel: viewModel,
+                groups: similarImageGroups,
+                onBack: { review = nil }
+            )
+        case .downloads:
+            SmartScanDownloadsReview(
+                viewModel: viewModel,
+                items: downloadItems,
+                onBack: { review = nil }
+            )
+        case .unsupportedApps:
+            SmartScanUnsupportedAppsReview(
+                viewModel: viewModel,
+                apps: unsupportedApps,
+                onBack: { review = nil }
+            )
+        case .extensions:
+            SmartScanExtensionsReview(
+                extensions: extensions,
+                onBack: { review = nil },
+                onOpenApplications: onOpenApplications
+            )
+        case .backgroundItems:
+            SmartScanBackgroundItemsReview(
+                agents: backgroundItems,
+                onBack: { review = nil },
+                onOpenPerformance: onOpenPerformance
+            )
         case .unusedApps:
             SmartScanUnusedAppsReview(
                 viewModel: viewModel,
@@ -243,6 +277,31 @@ struct SmartScanView: View {
 
     private var largeOldFiles: [ScannedFile] {
         if case .largeOldFiles(let files)? = viewModel.currentPlan?.finding(.largeOldFiles)?.payload { return files }
+        return []
+    }
+
+    private var similarImageGroups: [SimilarImageGroup] {
+        if case .similarImages(let groups)? = viewModel.currentPlan?.finding(.similarImages)?.payload { return groups }
+        return []
+    }
+
+    private var downloadItems: [DownloadItem] {
+        if case .downloads(let items)? = viewModel.currentPlan?.finding(.downloads)?.payload { return items }
+        return []
+    }
+
+    private var unsupportedApps: [UnsupportedApp] {
+        if case .unsupportedApps(let apps)? = viewModel.currentPlan?.finding(.unsupportedApps)?.payload { return apps }
+        return []
+    }
+
+    private var extensions: [ExtensionItem] {
+        if case .extensions(let items)? = viewModel.currentPlan?.finding(.extensions)?.payload { return items }
+        return []
+    }
+
+    private var backgroundItems: [LaunchAgent] {
+        if case .backgroundItems(let agents)? = viewModel.currentPlan?.finding(.backgroundItems)?.payload { return agents }
         return []
     }
 

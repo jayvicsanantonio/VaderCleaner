@@ -154,7 +154,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
         let configuration = captured.value
         XCTAssertEqual(
             configuration?.enabledUnits,
-            [.systemJunk, .loginItems, .maintenanceDue, .healthSnapshot],
+            [.systemJunk, .loginItems, .maintenanceDue, .backgroundItems, .healthSnapshot],
             "units come from the enabled domains, with health telemetry always riding along"
         )
         XCTAssertEqual(configuration?.enabledJunkCategories, [.userCache])

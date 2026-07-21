@@ -52,6 +52,16 @@ enum CareFindingCopy {
             return String(localized: "Browsing traces", comment: "Care card title: browser cookies/history counts.")
         case .loginItems:
             return String(localized: "Apps that start with your Mac", comment: "Care card title: login items list.")
+        case .similarImages:
+            return String(localized: "Similar photos", comment: "Care card title: near-duplicate images.")
+        case .downloads:
+            return String(localized: "Old downloads", comment: "Care card title: forgotten files in the Downloads folder.")
+        case .unsupportedApps:
+            return String(localized: "Apps that won't run", comment: "Care card title: apps incompatible with this macOS.")
+        case .extensions:
+            return String(localized: "Browser & app extensions", comment: "Care card title: installed extensions and plug-ins.")
+        case .backgroundItems:
+            return String(localized: "Items running in the background", comment: "Care card title: launch agents/daemons.")
         }
     }
 
@@ -119,6 +129,31 @@ enum CareFindingCopy {
                 localized: "These apps open by themselves every time you turn on your Mac. Fewer of them usually means a quicker start.",
                 comment: "Care card explanation for login items."
             )
+        case .similarImages:
+            return String(
+                localized: "Photos that look nearly the same — bursts and near-duplicates. Keep the best shot and clear the rest.",
+                comment: "Care card explanation for similar images."
+            )
+        case .downloads:
+            return String(
+                localized: "Files in your Downloads folder you likely opened once and forgot. Clearing them out frees up space.",
+                comment: "Care card explanation for old downloads."
+            )
+        case .unsupportedApps:
+            return String(
+                localized: "Apps that aren't compatible with this version of macOS — they can't open, so removing them just reclaims space.",
+                comment: "Care card explanation for unsupported apps."
+            )
+        case .extensions:
+            return String(
+                localized: "Extensions and plug-ins added to your browsers and apps. Worth a look — disable anything you don't recognize.",
+                comment: "Care card explanation for extensions."
+            )
+        case .backgroundItems:
+            return String(
+                localized: "Helpers and agents that run quietly in the background. Fewer of them can mean a lighter, faster Mac.",
+                comment: "Care card explanation for background items."
+            )
         }
     }
 
@@ -155,14 +190,15 @@ enum CareFindingCopy {
             return String(localized: "Clean Up", comment: "Care card action verb for junk.")
         case .duplicates:
             return String(localized: "Remove Copies", comment: "Care card action verb for duplicates.")
-        case .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy:
+        case .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy,
+             .similarImages, .downloads, .unsupportedApps:
             return String(localized: "Review", comment: "Care card action verb for opt-in findings.")
         case .appUpdates:
             return String(localized: "Update", comment: "Care card action verb for app updates.")
         case .maintenanceDue:
             return String(localized: "Tune Up", comment: "Care card action verb for maintenance.")
-        case .loginItems:
-            return String(localized: "Have a Look", comment: "Care card action verb for login items.")
+        case .loginItems, .extensions, .backgroundItems:
+            return String(localized: "Have a Look", comment: "Care card action verb for review-only findings.")
         }
     }
 
@@ -186,7 +222,7 @@ enum CareFindingCopy {
                 return String(localized: "No clutter found", comment: "Checklist all-clear line for the My Clutter domain.")
             }
             return String.localizedStringWithFormat(
-                String(localized: "%@ in duplicates and old files", comment: "Checklist result line for the My Clutter domain (bytes)."),
+                String(localized: "%@ of clutter to sort through", comment: "Checklist result line for the My Clutter domain (bytes)."),
                 formattedBytes(bytes)
             )
         case .malware:
@@ -228,6 +264,18 @@ enum CareFindingCopy {
                     installers.itemCount
                 ))
             }
+            if let unsupported = relevant.first(where: { $0.kind == .unsupportedApps }) {
+                parts.append(String.localizedStringWithFormat(
+                    String(localized: "%d won't run", comment: "Checklist fragment: unsupported app count."),
+                    unsupported.itemCount
+                ))
+            }
+            if let extensions = relevant.first(where: { $0.kind == .extensions }) {
+                parts.append(String.localizedStringWithFormat(
+                    String(localized: "%d extensions", comment: "Checklist fragment: extension count."),
+                    extensions.itemCount
+                ))
+            }
             guard !parts.isEmpty else {
                 return String(localized: "Your apps look good", comment: "Checklist all-clear line for the Applications domain.")
             }
@@ -240,6 +288,9 @@ enum CareFindingCopy {
             if let items = relevant.first(where: { $0.kind == .loginItems }) {
                 parts.append(metric(for: items))
             }
+            if let background = relevant.first(where: { $0.kind == .backgroundItems }) {
+                parts.append(metric(for: background))
+            }
             guard !parts.isEmpty else {
                 return String(localized: "Nothing due right now", comment: "Checklist all-clear line for the Performance domain.")
             }
@@ -251,7 +302,8 @@ enum CareFindingCopy {
     /// pluralized counts for count findings, percent-full for disk space.
     static func metric(for finding: CareFinding) -> String {
         switch finding.payload {
-        case .junk, .duplicates, .largeOldFiles, .unusedApps, .appLeftovers, .installers:
+        case .junk, .duplicates, .largeOldFiles, .unusedApps, .appLeftovers, .installers,
+             .similarImages, .downloads:
             return formattedBytes(finding.reclaimableBytes)
         case .threats:
             return String.localizedStringWithFormat(
@@ -276,6 +328,21 @@ enum CareFindingCopy {
         case .browserPrivacy:
             return String.localizedStringWithFormat(
                 String(localized: "%d items", comment: "Care card metric: browser privacy item count."),
+                finding.itemCount
+            )
+        case .unsupportedApps:
+            return String.localizedStringWithFormat(
+                String(localized: "%d incompatible apps", comment: "Care card metric: unsupported app count."),
+                finding.itemCount
+            )
+        case .extensions:
+            return String.localizedStringWithFormat(
+                String(localized: "%d extensions", comment: "Care card metric: extension count."),
+                finding.itemCount
+            )
+        case .backgroundItems:
+            return String.localizedStringWithFormat(
+                String(localized: "%d background items", comment: "Care card metric: background item count."),
                 finding.itemCount
             )
         case .lowDiskSpace(let stats):

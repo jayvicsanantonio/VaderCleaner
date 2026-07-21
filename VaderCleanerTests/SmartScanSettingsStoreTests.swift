@@ -130,6 +130,29 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         XCTAssertEqual(sut.enabledJunkCategories, [.userCache])
     }
 
+    // MARK: - Scanning tree completeness
+
+    func test_scanningTree_exposesAToggleForEveryScannableUnit() {
+        // Every domain-bound sub-scan must have a user-facing checkbox in the
+        // Scanning settings tree, so a scan can never run with no way to skip it.
+        // `healthSnapshot` is intentionally excluded — it has no domain, is
+        // instant and non-destructive, and always rides along.
+        let domainBound = Set(CareScanUnit.allCases.filter { $0.domain != nil })
+        XCTAssertEqual(
+            ScanningTab.toggleableUnits, domainBound,
+            "Scanning tree is missing a toggle for: \(domainBound.subtracting(ScanningTab.toggleableUnits))"
+        )
+    }
+
+    func test_scanningTree_exposesAToggleForEveryJunkCategory() {
+        // The System Junk categories (plus the Cleanup-level leaves) must each be
+        // toggleable, so no scanned-and-filtered category is silently forced on.
+        XCTAssertEqual(
+            ScanningTab.toggleableJunkCategories,
+            Set(SmartScanSettingsStore.junkCategories)
+        )
+    }
+
     // MARK: - Scan units (per-feature granularity)
 
     func test_freshInstall_everyUnitEnabled() {
