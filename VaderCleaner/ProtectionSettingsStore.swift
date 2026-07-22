@@ -30,16 +30,16 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .quick:    return String(localized: "Fast", comment: "Protection scan mode speed.")
         case .balanced: return String(localized: "Moderate", comment: "Protection scan mode speed.")
-        case .deep:     return String(localized: "Slowest", comment: "Protection scan mode speed.")
+        case .deep:     return String(localized: "Slow", comment: "Protection scan mode speed.")
         }
     }
 
     /// One-word depth characterization shown on the Protection settings tab.
     var depth: String {
         switch self {
-        case .quick:    return String(localized: "Surface-level", comment: "Protection scan mode depth.")
-        case .balanced: return String(localized: "Thorough", comment: "Protection scan mode depth.")
-        case .deep:     return String(localized: "Comprehensive", comment: "Protection scan mode depth.")
+        case .quick:    return String(localized: "Key areas", comment: "Protection scan mode depth.")
+        case .balanced: return String(localized: "Most files", comment: "Protection scan mode depth.")
+        case .deep:     return String(localized: "Every file", comment: "Protection scan mode depth.")
         }
     }
 
@@ -48,17 +48,17 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .quick:
             return String(
-                localized: "Scans the most vulnerable areas of your system for immediate threats. Ideal for regular checkups or if you're simply short on time.",
+                localized: "Checks the places threats usually hide, like your Downloads and Desktop. Good for a regular checkup, or when you're short on time.",
                 comment: "Protection Quick Scan purpose."
             )
         case .balanced:
             return String(
-                localized: "Scans your whole home folder while skipping large media and cloud caches. A good balance of coverage and speed for a routine deep check.",
+                localized: "Goes through all your personal files, skipping big photo and cloud libraries. A thorough look that still finishes at a reasonable pace.",
                 comment: "Protection Balanced Scan purpose."
             )
         case .deep:
             return String(
-                localized: "Conducts an exhaustive examination of your entire system, diving into every file and folder. Best used when maximum security assurance is needed or after a suspected malware activity.",
+                localized: "Looks at every single file and folder on your Mac. Worth the wait when you want to be certain, or if you think something slipped through.",
                 comment: "Protection Deep Scan purpose."
             )
         }

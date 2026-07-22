@@ -4,7 +4,7 @@
 import Foundation
 import Observation
 
-/// How often the "Remind to run regular Smart Care" notification repeats.
+/// How often the "Remind me to run a Smart Scan" notification repeats.
 enum SmartCareFrequency: String, CaseIterable, Identifiable, Sendable {
     case daily
     case weekly
@@ -14,9 +14,9 @@ enum SmartCareFrequency: String, CaseIterable, Identifiable, Sendable {
 
     var label: String {
         switch self {
-        case .daily:   return String(localized: "Daily", comment: "Smart Care reminder frequency.")
-        case .weekly:  return String(localized: "Weekly", comment: "Smart Care reminder frequency.")
-        case .monthly: return String(localized: "Monthly", comment: "Smart Care reminder frequency.")
+        case .daily:   return String(localized: "Daily", comment: "Smart Scan reminder frequency.")
+        case .weekly:  return String(localized: "Weekly", comment: "Smart Scan reminder frequency.")
+        case .monthly: return String(localized: "Monthly", comment: "Smart Scan reminder frequency.")
         }
     }
 }

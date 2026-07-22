@@ -21,9 +21,9 @@ struct WebDevScanFolderPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Folders to scan for project junk:")
+            Text("Where to look for project junk:")
                 .font(.subheadline.weight(.semibold))
-            Text("node_modules, build output, and package caches are found under these folders.")
+            Text("Coding projects leave behind build files and package caches. These are the folders VaderCleaner checks for them.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             picker
@@ -141,7 +141,7 @@ struct WebDevScanFolderPicker: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Scan"
-        panel.message = "Choose a folder to scan for web and dev project junk"
+        panel.message = "Choose a folder to check for leftover project files"
         panel.directoryURL = scanScope.selectedFolderURL
             ?? FileManager.default.homeDirectoryForCurrentUser
 

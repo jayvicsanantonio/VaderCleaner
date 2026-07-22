@@ -235,7 +235,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
 
     static func makeSmartCareReminderContent() -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = "Time for Smart Care"
+        content.title = "Time for a Smart Scan"
         content.body = "Run a Smart Scan to keep your Mac clean, fast, and protected."
         content.sound = .default
         return content

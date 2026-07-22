@@ -79,6 +79,65 @@ final class CareHistoryStoreTests: XCTestCase {
         )
     }
 
+    // MARK: - Clearing
+
+    func test_clear_resetsEveryFieldInMemory() {
+        let sut = CareHistoryStore(defaults: defaults)
+        sut.recordScan(at: Date(timeIntervalSinceReferenceDate: 700_000_000))
+        sut.recordReceipt(receipt(bytes: 4_000))
+
+        sut.clear()
+
+        XCTAssertNil(sut.lastScanDate)
+        XCTAssertEqual(sut.cumulativeBytesFreed, 0)
+        XCTAssertTrue(sut.receipts.isEmpty)
+        XCTAssertNil(sut.lifetimeFreedLine())
+    }
+
+    func test_clear_removesPersistedValues_soAReloadStaysEmpty() {
+        let sut = CareHistoryStore(defaults: defaults)
+        sut.recordScan(at: Date(timeIntervalSinceReferenceDate: 700_000_000))
+        sut.recordReceipt(receipt(bytes: 4_000))
+
+        sut.clear()
+
+        let reloaded = CareHistoryStore(defaults: defaults)
+        XCTAssertNil(reloaded.lastScanDate)
+        XCTAssertEqual(reloaded.cumulativeBytesFreed, 0)
+        XCTAssertTrue(reloaded.receipts.isEmpty)
+    }
+
+    func test_clear_onAFreshStore_isHarmless() {
+        let sut = CareHistoryStore(defaults: defaults)
+        sut.clear()
+        XCTAssertNil(sut.lastScanDate)
+        XCTAssertEqual(sut.cumulativeBytesFreed, 0)
+        XCTAssertTrue(sut.receipts.isEmpty)
+    }
+
+    /// Clearing history must not disturb anything else living in the same
+    /// suite — it owns only its three keys.
+    func test_clear_leavesUnrelatedDefaultsAlone() {
+        defaults.set("keep me", forKey: "preferences.somethingElse")
+        let sut = CareHistoryStore(defaults: defaults)
+        sut.recordReceipt(receipt(bytes: 10))
+
+        sut.clear()
+
+        XCTAssertEqual(defaults.string(forKey: "preferences.somethingElse"), "keep me")
+    }
+
+    func test_recordingAfterClear_startsFromZero() {
+        let sut = CareHistoryStore(defaults: defaults)
+        sut.recordReceipt(receipt(bytes: 9_000))
+        sut.clear()
+
+        sut.recordReceipt(receipt(bytes: 25))
+
+        XCTAssertEqual(sut.cumulativeBytesFreed, 25)
+        XCTAssertEqual(sut.receipts.count, 1)
+    }
+
     func test_corruptStoredReceipts_degradeToEmpty() {
         defaults.set("not json".data(using: .utf8), forKey: "smartScan.history.receipts")
         defaults.set(Data([0x01]), forKey: "smartScan.history.receipts")

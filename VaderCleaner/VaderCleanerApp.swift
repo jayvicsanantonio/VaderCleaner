@@ -329,6 +329,10 @@ struct VaderCleanerApp: App {
                 .environment(smartScanSettings)
                 .environment(protectionSettings)
                 .environment(settingsRouter)
+                // General reports Full Disk Access and lifetime freed, so the
+                // Settings scene needs these two as well.
+                .environment(appState)
+                .environment(careHistory)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user
