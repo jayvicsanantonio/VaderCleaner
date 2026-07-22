@@ -20,10 +20,13 @@ extension CareScanEngine.UnitRunners {
     static func live(
         exclusions: ExclusionsStore,
         webDevScanScope: WebDevScanScopeStore? = nil,
-        statsService: SystemStatsService
+        statsService: SystemStatsService,
+        protectionSettings: ProtectionSettingsStore? = nil
     ) -> CareScanEngine.UnitRunners {
-        let malwareScanner = ClamAVScanner(detector: ClamAVDetector())
-        let quickScanPaths = MalwareViewModel.defaultQuickScanPaths()
+        // Previews and tests may omit the store; default arguments evaluate
+        // outside the main actor, so the fallback is built here instead.
+        let protectionSettings = protectionSettings ?? ProtectionSettingsStore()
+        let detector = ClamAVDetector()
         let excludedURLs: @Sendable () async -> [URL] = { [weak exclusions] in
             await MainActor.run {
                 (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
@@ -52,11 +55,21 @@ extension CareScanEngine.UnitRunners {
             largeOldFiles: { onProgress in
                 try await LargeOldFilesScanner().scan(excluding: await excludedURLs(), onProgress: onProgress)
             },
-            // Scope matches the standalone Protection screen's Quick Scan —
-            // the high-risk home subdirectories rather than all of $HOME,
-            // which dominated Smart Scan's wall-clock time.
-            malware: { onProgress in
-                try await malwareScanner.scan(paths: quickScanPaths, progress: { _, filesScanned in
+            // The same sweep the standalone Protection screen runs on Quick.
+            // Read per scan (weak capture) so a Settings → Protection change
+            // takes effect on the next run, exactly like the exclusions above.
+            malware: { [weak protectionSettings] onProgress in
+                let scope = await MainActor.run {
+                    malwareScanScope(
+                        excludeICloud: protectionSettings?.excludeDownloadedICloudFiles
+                            ?? ProtectionSettingsStore.defaultExcludeDownloadedICloudFiles
+                    )
+                }
+                let scanner = ClamAVScanner(
+                    detector: detector,
+                    excludedDirectories: scope.excludedDirectories
+                )
+                return try await scanner.scan(paths: scope.paths, progress: { _, filesScanned in
                     onProgress(filesScanned)
                 })
             },
@@ -124,6 +137,19 @@ extension CareScanEngine.UnitRunners {
                 }
             }
         )
+    }
+
+    /// What Smart Scan's malware lane covers: the Protection screen's Quick
+    /// Scan, resolved through the one function that defines it so the two
+    /// surfaces can't drift into scanning different things. Smart Scan stays
+    /// on Quick whatever mode Protection is set to — a care scan runs all its
+    /// lanes in one pass, and a Deep sweep of `$HOME` would dominate it.
+    /// Pinned by `test_malwareScanScope_matchesTheProtectionQuickScan`.
+    @MainActor
+    static func malwareScanScope(
+        excludeICloud: Bool
+    ) -> (paths: [URL], excludedDirectories: [String]) {
+        MalwareViewModel.scanScope(for: .quick, excludeICloud: excludeICloud)
     }
 
     /// The maintenance-cocktail task ids currently due: the same catalog and

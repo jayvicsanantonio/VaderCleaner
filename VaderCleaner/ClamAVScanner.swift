@@ -70,12 +70,13 @@ struct ClamAVScanner {
     ]
 
     /// Extra exclusions stacked on top of `defaultExcludedDirectories`
-    /// only when running a Deep Scan over the entire `$HOME`. These
-    /// trees are too big to skip at Quick Scan scope (they aren't in
+    /// only by a Balanced Scan, which walks the entire `$HOME`. These
+    /// trees are irrelevant at Quick Scan scope (they aren't in
     /// Downloads/Desktop/Documents anyway) but dominate scan time on a
-    /// whole-home pass. Pinned by
-    /// `test_deepScanAdditionalExcludedDirectories_skipsMediaAndCloudCaches`.
-    static let deepScanAdditionalExcludedDirectories: [String] = [
+    /// whole-home pass — skipping them is exactly what separates Balanced
+    /// from Deep, which keeps them in scope. Pinned by
+    /// `test_mediaAndCloudExcludedDirectories_skipsBulkMediaAndCloudMirrors`.
+    static let mediaAndCloudExcludedDirectories: [String] = [
         // Photos libraries are routinely 50–500 GB of binary image and
         // video data. Image-parser CVEs aren't what ClamAV signatures
         // catch — that's an XProtect / kernel concern.

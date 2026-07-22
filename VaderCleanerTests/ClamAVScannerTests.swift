@@ -225,9 +225,10 @@ final class ClamAVScannerTests: XCTestCase {
         )
     }
 
-    func test_deepScanAdditionalExcludedDirectories_skipsMediaAndCloudCaches() {
-        // The Deep Scan stacks these on top of `defaultExcludedDirectories`
-        // when walking the entire $HOME. They cover trees that are too
+    func test_mediaAndCloudExcludedDirectories_skipsBulkMediaAndCloudMirrors() {
+        // A Balanced Scan stacks these on top of `defaultExcludedDirectories`
+        // when walking the entire $HOME; a Deep Scan is the mode that keeps
+        // them in scope. They cover trees that are too
         // big to scan in reasonable time and contribute ~zero detection
         // value: photo and video libraries (binary media, not the file
         // formats ClamAV signatures match), iCloud Drive's local cache
@@ -235,7 +236,7 @@ final class ClamAVScannerTests: XCTestCase {
         // Time Machine local snapshots (read-only, can't host malware
         // that isn't already in the source).
         XCTAssertEqual(
-            ClamAVScanner.deepScanAdditionalExcludedDirectories,
+            ClamAVScanner.mediaAndCloudExcludedDirectories,
             [
                 "/Photos Library\\.photoslibrary/",
                 "/Library/Mobile Documents/",

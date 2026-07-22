@@ -22,6 +22,43 @@ final class CareScanEngineLiveTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Malware lane scope
+
+    @MainActor
+    func test_malwareScanScope_matchesTheProtectionQuickScan() {
+        // Smart Scan's malware lane and the Protection screen's Quick Scan are
+        // the same sweep — that's the promise `live()` makes about every lane.
+        // The two drifted apart once already when Quick was redefined, so the
+        // lane resolves its scope through the same function rather than
+        // keeping a second path list of its own.
+        let scope = CareScanEngine.UnitRunners.malwareScanScope(excludeICloud: false)
+        let quick = MalwareViewModel.scanScope(for: .quick, excludeICloud: false)
+
+        XCTAssertEqual(scope.paths.map(\.path), quick.paths.map(\.path))
+        XCTAssertEqual(scope.excludedDirectories, quick.excludedDirectories)
+    }
+
+    @MainActor
+    func test_malwareScanScope_checksPersistenceVectorsNotTheUserFolders() {
+        // The behaviour the alignment is for: a care-plan sweep that stays
+        // fast. Pointing the lane back at the user folders would put Smart
+        // Scan's slowest lane back on everything the user ever downloaded.
+        let scope = CareScanEngine.UnitRunners.malwareScanScope(excludeICloud: false)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+
+        XCTAssertFalse(
+            scope.paths.contains { ["Downloads", "Desktop", "Documents"].contains($0.lastPathComponent) },
+            "the malware lane must not walk the user folders"
+        )
+        XCTAssertFalse(scope.paths.contains(home), "the malware lane must not walk the whole home")
+        XCTAssertTrue(
+            MalwareViewModel.systemPersistenceVectorPaths()
+                .map(\.path)
+                .allSatisfy(scope.paths.map(\.path).contains),
+            "the malware lane should check the system launch directories"
+        )
+    }
+
     // MARK: - Maintenance due
 
     func test_dueMaintenance_freshLog_allCocktailTasksDue() {
