@@ -73,6 +73,9 @@ final class PreferencesStore {
         static let notifyOverfilledDrives = "preferences.notifyOverfilledDrives"
         static let offerUninstallOnTrash = "preferences.offerUninstallOnTrash"
         static let notifyHungApps = "preferences.notifyHungApps"
+        static let notifyAppUpdates = "preferences.notifyAppUpdates"
+        static let notifyDefinitionsStale = "preferences.notifyDefinitionsStale"
+        static let notificationSoundsEnabled = "preferences.notificationSoundsEnabled"
     }
 
     // MARK: - Defaults
@@ -101,6 +104,12 @@ final class PreferencesStore {
     static let defaultNotifyOverfilledDrives = true
     static let defaultOfferUninstallOnTrash = true
     static let defaultNotifyHungApps = true
+    static let defaultNotifyAppUpdates = true
+    static let defaultNotifyDefinitionsStale = true
+    /// On by default: every banner carried an unconditional `.default` sound
+    /// before this preference existed, so silence is the new choice rather
+    /// than a silently changed default.
+    static let defaultNotificationSoundsEnabled = true
     /// Off by default: the menu bar shows just the icon. A wide live reading is
     /// prone to being hidden behind the notch on a crowded menu bar, so showing
     /// it is opt-in.
@@ -190,6 +199,27 @@ final class PreferencesStore {
         didSet { defaults.set(notifyHungApps, forKey: Key.notifyHungApps) }
     }
 
+    /// Notify when newer versions of the user's apps are available. Gates the
+    /// background check itself, not just the banner — off means no update
+    /// probing happens at all.
+    var notifyAppUpdates: Bool {
+        didSet { defaults.set(notifyAppUpdates, forKey: Key.notifyAppUpdates) }
+    }
+
+    /// Notify when the malware signature database hasn't been refreshed
+    /// recently — stale definitions mean quietly weaker protection.
+    var notifyDefinitionsStale: Bool {
+        didSet { defaults.set(notifyDefinitionsStale, forKey: Key.notifyDefinitionsStale) }
+    }
+
+    // MARK: Notifications — delivery
+
+    /// Whether banners play a sound. Applies to every notification the app
+    /// sends; macOS still owns per-app delivery style and Focus.
+    var notificationSoundsEnabled: Bool {
+        didSet { defaults.set(notificationSoundsEnabled, forKey: Key.notificationSoundsEnabled) }
+    }
+
     var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
@@ -272,6 +302,12 @@ final class PreferencesStore {
             ?? Self.defaultOfferUninstallOnTrash
         self.notifyHungApps = (defaults.object(forKey: Key.notifyHungApps) as? Bool)
             ?? Self.defaultNotifyHungApps
+        self.notifyAppUpdates = (defaults.object(forKey: Key.notifyAppUpdates) as? Bool)
+            ?? Self.defaultNotifyAppUpdates
+        self.notifyDefinitionsStale = (defaults.object(forKey: Key.notifyDefinitionsStale) as? Bool)
+            ?? Self.defaultNotifyDefinitionsStale
+        self.notificationSoundsEnabled = (defaults.object(forKey: Key.notificationSoundsEnabled) as? Bool)
+            ?? Self.defaultNotificationSoundsEnabled
         self.launchAtLogin = (defaults.object(forKey: Key.launchAtLogin) as? Bool)
             ?? Self.defaultLaunchAtLogin
         self.showMenuBar = (defaults.object(forKey: Key.showMenuBar) as? Bool)
@@ -311,6 +347,9 @@ final class PreferencesStore {
         notifyOverfilledDrives = Self.defaultNotifyOverfilledDrives
         offerUninstallOnTrash = Self.defaultOfferUninstallOnTrash
         notifyHungApps = Self.defaultNotifyHungApps
+        notifyAppUpdates = Self.defaultNotifyAppUpdates
+        notifyDefinitionsStale = Self.defaultNotifyDefinitionsStale
+        notificationSoundsEnabled = Self.defaultNotificationSoundsEnabled
         launchAtLogin = Self.defaultLaunchAtLogin
         showMenuBar = Self.defaultShowMenuBar
         menuBarShowsReading = Self.defaultMenuBarShowsReading

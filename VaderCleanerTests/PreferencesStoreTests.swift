@@ -49,6 +49,12 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertTrue(sut.notifyOverfilledDrives)
         XCTAssertTrue(sut.offerUninstallOnTrash)
         XCTAssertTrue(sut.notifyHungApps)
+        XCTAssertTrue(sut.notifyAppUpdates)
+        XCTAssertTrue(sut.notifyDefinitionsStale)
+        // Sounds ship on, matching the banners' previous unconditional
+        // `.default` sound — turning them off is the new choice, not the new
+        // default.
+        XCTAssertTrue(sut.notificationSoundsEnabled)
     }
 
     // MARK: - Persistence
@@ -80,8 +86,14 @@ final class PreferencesStoreTests: XCTestCase {
         writer.notifyOverfilledDrives = false
         writer.offerUninstallOnTrash = false
         writer.notifyHungApps = false
+        writer.notifyAppUpdates = false
+        writer.notifyDefinitionsStale = false
+        writer.notificationSoundsEnabled = false
 
         let reader = PreferencesStore(defaults: defaults)
+        XCTAssertFalse(reader.notifyAppUpdates)
+        XCTAssertFalse(reader.notifyDefinitionsStale)
+        XCTAssertFalse(reader.notificationSoundsEnabled)
         XCTAssertFalse(reader.remindSmartCare)
         XCTAssertEqual(reader.smartCareFrequency, .monthly)
         XCTAssertFalse(reader.notifyTrashSize)
@@ -145,6 +157,9 @@ final class PreferencesStoreTests: XCTestCase {
         sut.notifyOverfilledDrives = false
         sut.offerUninstallOnTrash = false
         sut.notifyHungApps = false
+        sut.notifyAppUpdates = false
+        sut.notifyDefinitionsStale = false
+        sut.notificationSoundsEnabled = false
         sut.showMenuBar = false
         sut.menuBarShowsReading = true
 
@@ -165,6 +180,9 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(sut.notifyOverfilledDrives, PreferencesStore.defaultNotifyOverfilledDrives)
         XCTAssertEqual(sut.offerUninstallOnTrash, PreferencesStore.defaultOfferUninstallOnTrash)
         XCTAssertEqual(sut.notifyHungApps, PreferencesStore.defaultNotifyHungApps)
+        XCTAssertEqual(sut.notifyAppUpdates, PreferencesStore.defaultNotifyAppUpdates)
+        XCTAssertEqual(sut.notifyDefinitionsStale, PreferencesStore.defaultNotifyDefinitionsStale)
+        XCTAssertEqual(sut.notificationSoundsEnabled, PreferencesStore.defaultNotificationSoundsEnabled)
         XCTAssertEqual(sut.showMenuBar, PreferencesStore.defaultShowMenuBar)
         XCTAssertEqual(sut.menuBarShowsReading, PreferencesStore.defaultMenuBarShowsReading)
     }

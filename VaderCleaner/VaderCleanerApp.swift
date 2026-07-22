@@ -69,6 +69,7 @@ struct VaderCleanerApp: App {
     // size, drive mounts, device batteries, hung apps, trashed apps, Smart Care
     // reminder). Started from the same post-launch path that requests permission.
     @State private var notificationMonitors: NotificationMonitors
+    @State private var notificationSettings: NotificationSettingsModel
     // Fires a "scan complete" banner when a user-initiated scan finishes.
     @State private var scanCompletionNotifier: ScanCompletionNotifier
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
@@ -161,7 +162,11 @@ struct VaderCleanerApp: App {
         // itself as the `UNUserNotificationCenter` delegate (a weak property);
         // a second instance would silently steal that registration, so the
         // threshold monitor and the Malware feature share this one.
-        let notificationManager = NotificationManager()
+        // The sound preference is read through a closure at dispatch time, so
+        // toggling it applies to the very next banner without a relaunch.
+        let notificationManager = NotificationManager(
+            soundEnabled: { [prefs] in prefs.notificationSoundsEnabled }
+        )
         // Wired after `stats` so manual malware scans surface a detection
         // banner through the same dispatcher the threshold monitor uses, and
         // honour the same `notifyMalwareFound` preference.
@@ -215,6 +220,15 @@ struct VaderCleanerApp: App {
         )
         _scanCompletionNotifier = State(
             initialValue: ScanCompletionNotifier(preferences: prefs, dispatcher: notificationManager)
+        )
+        // Backs the Notifications pane's permission row. Shares the one
+        // NotificationManager so the test banner goes through the same
+        // delegate-registered center as every other alert.
+        _notificationSettings = State(
+            initialValue: NotificationSettingsModel(
+                dispatcher: notificationManager,
+                permissionRequester: { await notificationManager.requestPermission() }
+            )
         )
     }
 
@@ -333,6 +347,7 @@ struct VaderCleanerApp: App {
                 // Settings scene needs these two as well.
                 .environment(appState)
                 .environment(careHistory)
+                .environment(notificationSettings)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user

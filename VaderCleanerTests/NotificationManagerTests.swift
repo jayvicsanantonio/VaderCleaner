@@ -69,6 +69,56 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertTrue(content.body.contains("GB") || content.body.contains("MB"))
     }
 
+    /// The app-updates banner leads with the count, since "how many" is what
+    /// decides whether the user opens the app now or later.
+    func test_appUpdates_buildsContentWithCount() {
+        let content = NotificationManager.makeAppUpdatesContent(count: 7)
+        XCTAssertTrue(content.body.contains("7"))
+        XCTAssertFalse(content.title.isEmpty)
+    }
+
+    /// Stale definitions are only actionable if the banner says how stale, so
+    /// the age has to reach the body.
+    func test_definitionsStale_buildsContentWithAge() {
+        let content = NotificationManager.makeDefinitionsStaleContent(daysSinceUpdate: 30)
+        XCTAssertTrue(content.body.contains("30"))
+        XCTAssertTrue(content.title.lowercased().contains("protection") ||
+                      content.title.lowercased().contains("malware") ||
+                      content.title.lowercased().contains("definition"))
+    }
+
+    // MARK: - Sound
+
+    /// Every banner played an unconditional sound before the preference
+    /// existed, so `sound: true` must stay the default behaviour.
+    func test_content_carriesSoundByDefault() {
+        XCTAssertNotNil(NotificationManager.makeLowDiskContent(freeBytes: 1).sound)
+        XCTAssertNotNil(NotificationManager.makeScanFinishedContent(scanName: "Smart Scan").sound)
+    }
+
+    /// With sounds off the banner must still be delivered — silently. A `nil`
+    /// sound is what makes `UNUserNotificationCenter` present it quietly.
+    func test_content_omitsSoundWhenDisabled() {
+        XCTAssertNil(NotificationManager.makeLowDiskContent(freeBytes: 1, sound: false).sound)
+        XCTAssertNil(NotificationManager.makeHighRAMContent(pressureLevel: "Critical", sound: false).sound)
+        XCTAssertNil(NotificationManager.makeMalwareDetectedContent(threatName: "X", sound: false).sound)
+        XCTAssertNil(NotificationManager.makeAppUpdatesContent(count: 1, sound: false).sound)
+        XCTAssertNil(NotificationManager.makeDefinitionsStaleContent(daysSinceUpdate: 1, sound: false).sound)
+    }
+
+    /// The manager reads the live preference through its injected closure, so
+    /// flipping the toggle takes effect on the next banner without a relaunch.
+    func test_manager_readsSoundPreferenceAtDispatchTime() {
+        var soundsOn = true
+        let manager = NotificationManager(
+            authorizationRequester: { true },
+            soundEnabled: { soundsOn }
+        )
+        XCTAssertTrue(manager.currentSoundEnabled)
+        soundsOn = false
+        XCTAssertFalse(manager.currentSoundEnabled)
+    }
+
     // MARK: - Foreground presentation delegate
 
     /// Without this delegate hook, `UNUserNotificationCenter` suppresses

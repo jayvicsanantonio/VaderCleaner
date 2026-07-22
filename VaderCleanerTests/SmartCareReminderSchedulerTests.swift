@@ -28,6 +28,28 @@ final class SmartCareReminderSchedulerTests: XCTestCase {
         )
     }
 
+    /// The reminder is built ahead of time and handed to the system, so it has
+    /// to bake in the sound preference at schedule time — otherwise turning
+    /// sounds off leaves this one banner still chiming.
+    func test_update_honoursTheSoundPreference() {
+        preferences.remindSmartCare = true
+        preferences.notificationSoundsEnabled = false
+
+        makeScheduler().update()
+
+        XCTAssertEqual(scheduled.count, 1)
+        XCTAssertNil(scheduled.first?.content.sound)
+    }
+
+    func test_update_keepsTheSoundWhenSoundsAreOn() {
+        preferences.remindSmartCare = true
+        preferences.notificationSoundsEnabled = true
+
+        makeScheduler().update()
+
+        XCTAssertNotNil(scheduled.first?.content.sound)
+    }
+
     func test_dateComponents_mapEachFrequency() {
         let daily = SmartCareReminderScheduler.dateComponents(for: .daily)
         XCTAssertNil(daily.weekday)

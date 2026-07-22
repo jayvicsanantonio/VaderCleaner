@@ -23,6 +23,8 @@ final class NotificationMonitors {
     @ObservationIgnored private let hungApp: HungAppMonitor
     @ObservationIgnored private let trashedApp: TrashedAppMonitor
     @ObservationIgnored private let smartCare: SmartCareReminderScheduler
+    @ObservationIgnored private let definitions: MalwareDefinitionsMonitor
+    @ObservationIgnored private let appUpdates: AppUpdatesMonitor
     @ObservationIgnored private var started = false
 
     init(preferences: PreferencesStore, dispatcher: NotificationDispatching) {
@@ -33,6 +35,8 @@ final class NotificationMonitors {
         self.hungApp = HungAppMonitor(preferences: preferences, dispatcher: dispatcher)
         self.trashedApp = TrashedAppMonitor(preferences: preferences, dispatcher: dispatcher)
         self.smartCare = SmartCareReminderScheduler(preferences: preferences)
+        self.definitions = MalwareDefinitionsMonitor(preferences: preferences, dispatcher: dispatcher)
+        self.appUpdates = AppUpdatesMonitor(preferences: preferences, dispatcher: dispatcher)
     }
 
     /// Starts every monitor and schedules the Smart Care reminder. Idempotent.
@@ -44,6 +48,8 @@ final class NotificationMonitors {
         deviceBattery.start()
         hungApp.start()
         trashedApp.start()
+        definitions.start()
+        appUpdates.start()
         smartCare.update()
         observeSmartCarePreference()
     }
@@ -54,6 +60,9 @@ final class NotificationMonitors {
         withObservationTracking {
             _ = preferences.remindSmartCare
             _ = preferences.smartCareFrequency
+            // The reminder's sound is baked into the pending request, so a
+            // change to the sound preference has to re-schedule it too.
+            _ = preferences.notificationSoundsEnabled
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
