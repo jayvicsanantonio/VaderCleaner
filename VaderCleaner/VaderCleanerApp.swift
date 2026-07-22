@@ -353,6 +353,8 @@ struct VaderCleanerApp: App {
                 .environment(notificationSettings)
                 // The Menu Bar tab applies a new refresh cadence live.
                 .environment(systemStats)
+                // Scanning hosts the My Clutter scan-folder picker.
+                .environment(myClutterScanScope)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user

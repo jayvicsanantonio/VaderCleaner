@@ -433,6 +433,11 @@ struct ScanningTab: View {
             state: { self.settings.unitState(for: module) },
             toggle: { self.toggleModule(module) },
             isEnabled: { true },
+            // My Clutter's scan folder is a durable preference, so it belongs
+            // beside the scan it configures — the same treatment Web
+            // Development Junk gets. The intro screen's picker remains the
+            // fast path; both write the same store.
+            accessory: module == .myClutter ? .myClutterScanFolder : nil,
             children: units.map { u in
                 ScanNode(
                     id: "unit.\(u.unit.rawValue)",
@@ -548,6 +553,9 @@ private typealias ScanState = SmartScanSettingsStore.CheckState
 private enum ScanNodeAccessory {
     /// The Web Development Junk folder chooser.
     case webDevScanFolder
+    /// The My Clutter scan-folder chooser. The same store backs the picker on
+    /// the My Clutter intro, so the two stay in sync without extra wiring.
+    case myClutterScanFolder
 }
 
 /// A tree row's icon: a top-level module wears its section's baked 3D art;
@@ -651,6 +659,8 @@ private struct ScanNodeRow: View {
         switch accessory {
         case .webDevScanFolder:
             WebDevScanFolderPicker()
+        case .myClutterScanFolder:
+            MyClutterFolderPicker(accent: .settingsAccent, style: .settings)
         }
     }
 
@@ -1805,4 +1815,5 @@ private struct MenuBarTab: View {
             )
         )
         .environment(SystemStatsService(autostart: false))
+        .environment(MyClutterScanScopeStore())
 }
