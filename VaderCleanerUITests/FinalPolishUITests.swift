@@ -301,7 +301,7 @@ final class FinalPolishUITests: XCTestCase {
 
         openPreferences()
 
-        for tab in ["Scanning", "Notifications", "Exclusions", "Startup", "Menu Bar"] {
+        for tab in ["General", "Scanning", "Notifications", "Menu Bar", "Protection", "Ignore List"] {
             let button = preferenceTab(tab)
             XCTAssertTrue(
                 button.waitForExistence(timeout: 5),
@@ -310,61 +310,51 @@ final class FinalPolishUITests: XCTestCase {
         }
 
         preferenceTab("Menu Bar").click()
-        let toggle = app.switches["preferences.showMenuBar"]
+        let presence = app.descendants(matching: .any)["preferences.menuBarPresence"]
         XCTAssertTrue(
-            toggle.waitForExistence(timeout: 5),
-            "Expected the Menu Bar tab to expose the show-in-menu-bar toggle"
+            presence.waitForExistence(timeout: 5),
+            "Expected the Menu Bar tab to expose the menu bar / Dock presence picker"
         )
     }
 
-    /// Toggling "Show VaderCleaner in the menu bar" off must flip the
-    /// control's value. (The status item lives in the system menu bar — a
-    /// separate accessibility tree — so its disappearance is verified by
-    /// `PreferencesStoreTests` + the `MenuBarExtra(isInserted:)` binding,
-    /// not here. This proves the control is wired and writable.)
-    func test_preferences_toggleMenuBarOff_flipsTheControl() throws {
+    /// Switching the presence picker to Dock must take, and switching back must
+    /// restore it. (The status item lives in the system menu bar — a separate
+    /// accessibility tree — so its disappearance is verified by
+    /// `MenuBarPreferencesTests` + the `MenuBarExtra(isInserted:)` binding, not
+    /// here. This proves the control is wired and writable.)
+    ///
+    /// The "neither menu bar nor Dock" state is unreachable by construction;
+    /// `MenuBarPreferencesTests.test_presence_cannotReachNeither` owns that
+    /// invariant, since a picker can't express the combination at all.
+    func test_preferences_presencePicker_isWritable() throws {
         dismissOnboardingIfNeeded()
 
         openPreferences()
         preferenceTab("Menu Bar").click()
 
-        let toggle = app.switches["preferences.showMenuBar"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5),
-                      "Expected the show-in-menu-bar toggle")
+        // A segmented Picker surfaces its options as radio buttons.
+        let menuBarOption = app.radioButtons["Menu bar"]
+        let dockOption = app.radioButtons["Dock"]
+        XCTAssertTrue(menuBarOption.waitForExistence(timeout: 5),
+                      "Expected the presence picker's Menu bar option")
+        XCTAssertTrue(dockOption.exists, "Expected the presence picker's Dock option")
 
-        // A macOS Switch reports its state via `value` as a Bool-tagged
-        // NSNumber — `as? Int` and `as? String` both fail on it, so
-        // normalize through every shape XCUIElement.value can take.
-        func isOn() -> Bool {
-            switch toggle.value {
-            case let n as NSNumber: return n.boolValue
-            case let b as Bool:     return b
-            case let s as String:   return s == "1"
-            case let i as Int:      return i == 1
-            default:                return false
-            }
-        }
-
-        let before = isOn()
-        toggle.click()
-
-        // Re-read `value` on each poll via a block predicate (the element
-        // arg is ignored) so we observe the post-click state.
-        let flippedPoll = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in isOn() != before },
+        dockOption.click()
+        let selectedPoll = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in dockOption.isSelected },
             object: nil
         )
-        flippedPoll.expectationDescription = "toggle flipped"
-        wait(for: [flippedPoll], timeout: 5)
+        selectedPoll.expectationDescription = "Dock selected"
+        wait(for: [selectedPoll], timeout: 5)
 
-        // Restore the original value so the test leaves no persisted side
-        // effect — `showMenuBar` is written through to real UserDefaults.
-        toggle.click()
+        // Restore so the test leaves no persisted side effect — the presence
+        // flags are written through to real UserDefaults.
+        menuBarOption.click()
         let restoredPoll = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in isOn() == before },
+            predicate: NSPredicate { _, _ in menuBarOption.isSelected },
             object: nil
         )
-        restoredPoll.expectationDescription = "toggle restored"
+        restoredPoll.expectationDescription = "Menu bar restored"
         wait(for: [restoredPoll], timeout: 5)
     }
 

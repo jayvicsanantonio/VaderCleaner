@@ -218,7 +218,7 @@ final class SystemStatsService {
     // MARK: Configuration
 
     /// Tick rate of the cheap-stats timer.
-    @ObservationIgnored private let interval: TimeInterval
+    @ObservationIgnored private var interval: TimeInterval
 
     /// Slow timer cadence for SMART + FileVault. Five minutes is a compromise:
     /// the values are near-static, but a manual change (toggling FileVault,
@@ -270,6 +270,46 @@ final class SystemStatsService {
     }
 
     // MARK: Init / lifecycle
+
+    /// How many surfaces currently want live stats. Polling runs only while
+    /// this is above zero — see `beginUpdates()`.
+    @ObservationIgnored private var observerCount = 0
+
+    /// Whether the timers are currently running. Exposed so the activation
+    /// contract is assertable without reaching into the timers.
+    var isPolling: Bool { timer != nil }
+
+    /// Registers interest in live stats, starting the timers if they weren't
+    /// already running. Balance every call with `endUpdates()`.
+    ///
+    /// Sampling RAM, disk, CPU and network every couple of seconds is not free
+    /// on battery, and for most of the app's life nothing is displaying the
+    /// result — the window is closed and the menu bar shows a static icon.
+    /// Gating on real observers is what keeps that cost proportional.
+    func beginUpdates() {
+        observerCount += 1
+        if observerCount == 1 { start() }
+    }
+
+    /// Releases interest taken by `beginUpdates()`, stopping the timers when
+    /// the last observer goes away. Tolerates unbalanced calls — SwiftUI can
+    /// fire `onDisappear` more often than `onAppear` across view rebuilds, and
+    /// a negative count would wedge polling off for the rest of the session.
+    func endUpdates() {
+        observerCount = max(0, observerCount - 1)
+        if observerCount == 0 { stop() }
+    }
+
+    /// The cheap-stats cadence. Assigning while polling re-arms the timer so a
+    /// new choice takes effect immediately rather than at the next restart.
+    var updateInterval: TimeInterval {
+        get { interval }
+        set {
+            guard newValue != interval else { return }
+            interval = newValue
+            if isPolling { start() }
+        }
+    }
 
     init(interval: TimeInterval = 2.0, autostart: Bool = true) {
         self.interval = interval

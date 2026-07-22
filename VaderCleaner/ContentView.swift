@@ -325,8 +325,13 @@ struct ContentView: View {
         .onChange(of: onboarding.isDismissed) { _, _ in
             Task { await maybeRequestNotificationPermission() }
         }
+        // The window's Health Monitor and dashboards read live stats, so it
+        // holds a polling claim for as long as it's open — and releases it on
+        // close, rather than leaving the timers running for nobody.
+        .onAppear { systemStats.beginUpdates() }
         .onDisappear {
             spaceLensViewModel.cancelScan()
+            systemStats.endUpdates()
         }
     }
 

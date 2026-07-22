@@ -150,7 +150,10 @@ struct VaderCleanerApp: App {
         // declaration would force a separate `SystemStatsService()` —
         // doubling the polling timer and decoupling the menu bar from the
         // service the Health Monitor consumes.
-        let stats = SystemStatsService()
+        // `autostart: false` — polling is claimed by whatever is actually
+        // displaying stats (the window, the panel, a live menu bar reading)
+        // via `beginUpdates()`, rather than running from launch to quit.
+        let stats = SystemStatsService(interval: prefs.statsUpdateInterval, autostart: false)
         _systemStats = State(initialValue: stats)
         // Wired after `stats` so the Performance RAM figures come from the
         // same polling service the Health Monitor and menu bar consume.
@@ -348,6 +351,8 @@ struct VaderCleanerApp: App {
                 .environment(appState)
                 .environment(careHistory)
                 .environment(notificationSettings)
+                // The Menu Bar tab applies a new refresh cadence live.
+                .environment(systemStats)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user
@@ -389,13 +394,17 @@ struct VaderCleanerApp: App {
             // want a number can opt into a short free-disk reading beside it
             // (Preferences → "Show free space in the menu bar"). The full
             // readings live in the panel; the text stays the accessibility label.
-            if preferences.menuBarShowsReading {
+            if let reading = menuBarViewModel.compactReading(for: preferences.menuBarReading) {
                 HStack(spacing: 4) {
                     Image(systemName: "waveform.path.ecg")
-                    Text(menuBarViewModel.menuBarCompactReading)
+                    Text(reading)
                         .monospacedDigit()
                 }
                 .accessibilityLabel(menuBarViewModel.menuBarLabelText)
+                // A live reading in the menu bar is the one thing that needs
+                // stats even when nothing is open, so it holds its own claim.
+                .onAppear { systemStats.beginUpdates() }
+                .onDisappear { systemStats.endUpdates() }
             } else {
                 Image(systemName: "waveform.path.ecg")
                     .accessibilityLabel(menuBarViewModel.menuBarLabelText)
@@ -524,7 +533,8 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
     private func applyPolicy(hasTitledWindow: Bool) {
         let policy = ActivationPolicyDecision.policy(
             hasTitledWindow: hasTitledWindow,
-            menuBarShown: PreferencesStore.isMenuBarShown()
+            menuBarShown: PreferencesStore.isMenuBarShown(),
+            keepDockIcon: PreferencesStore.isDockIconKept()
         )
         if NSApp.activationPolicy() != policy {
             NSApp.setActivationPolicy(policy)

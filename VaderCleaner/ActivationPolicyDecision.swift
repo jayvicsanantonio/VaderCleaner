@@ -20,10 +20,17 @@ enum ActivationPolicyDecision {
     ///     popover is borderless and does not.
     ///   - menuBarShown: Whether the user has the menu bar extra enabled (the
     ///     `showMenuBar` preference).
+    ///   - keepDockIcon: Whether the user asked to keep the Dock icon
+    ///     regardless of windows (the Dock/Both cases of `MenuBarPresence`).
     static func policy(
         hasTitledWindow: Bool,
-        menuBarShown: Bool
+        menuBarShown: Bool,
+        keepDockIcon: Bool = false
     ) -> NSApplication.ActivationPolicy {
+        // An explicit request for the Dock icon outranks everything else.
+        if keepDockIcon {
+            return .regular
+        }
         if hasTitledWindow {
             // A titled window means the Dock icon is needed.
             return .regular

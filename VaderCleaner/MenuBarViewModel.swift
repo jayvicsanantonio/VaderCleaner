@@ -221,6 +221,33 @@ final class MenuBarViewModel {
     /// far less prone to being hidden behind the notch than the full label.
     var menuBarCompactReading: String { Self.availableDiskString(service.diskSpace) }
 
+    /// The short string for the user's chosen menu bar reading, or `nil` when
+    /// they've asked for nothing beside the icon. Kept narrow — this sits in
+    /// the menu bar, where width is the scarcest resource on the screen.
+    func compactReading(for reading: MenuBarReading) -> String? {
+        switch reading {
+        case .none:      return nil
+        case .freeSpace: return Self.availableDiskString(service.diskSpace)
+        case .memory:    return Self.compactMemoryString(service.ramUsage)
+        case .cpu:       return Self.compactCPUString(service.cpuUsage)
+        }
+    }
+
+    /// Memory as a used-percentage — the pressure the user feels, in the
+    /// fewest characters.
+    static func compactMemoryString(_ stats: MemoryStats) -> String {
+        guard stats.totalBytes > 0 else { return "—" }
+        let percent = Int((Double(stats.usedBytes) / Double(stats.totalBytes) * 100).rounded())
+        return "\(percent)%"
+    }
+
+    /// CPU load as a whole percentage. `cpuUsage` is a unit interval, and is
+    /// clamped here so a transient out-of-range reading can't render "127%".
+    static func compactCPUString(_ usage: Double) -> String {
+        let percent = Int((min(max(usage, 0), 1) * 100).rounded())
+        return "\(percent)%"
+    }
+
     // MARK: - Pure formatters
 
     /// Formats `MemoryStats` to `"used / total"` in GB. We force the GB unit
