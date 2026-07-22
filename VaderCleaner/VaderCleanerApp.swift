@@ -142,7 +142,7 @@ struct VaderCleanerApp: App {
         // The Applications dashboard's own scan (installed-app count + update
         // count). The uninstall / update side-effects stay owned by the two
         // view models above, which the dashboard reuses as detail screens.
-        _applicationsViewModel = State(initialValue: ApplicationsViewModel.live())
+        _applicationsViewModel = State(initialValue: ApplicationsViewModel.live(exclusions: exclusions))
         _extensionsManagerViewModel = State(initialValue: ExtensionsManagerViewModel.live())
         // Construct the polling service and the menu bar view-model in the
         // same init so both `@StateObject` wrappers reference the *same*

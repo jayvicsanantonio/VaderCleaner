@@ -46,13 +46,21 @@ struct DefaultUnusedAppScanner: Sendable {
         self.now = now
     }
 
-    func scan(apps: [AppInfo]) async -> [UnusedApp] {
+    /// - Parameter excluding: paths from the user's Ignore List. An app bundle
+    ///   at or beneath one of these is never reported, so ignoring a folder
+    ///   also stops its apps being offered for removal.
+    func scan(apps: [AppInfo], excluding exclusions: [URL] = []) async -> [UnusedApp] {
         let provider = lastUsedDate
         let sizeProvider = bundleSize
         let cutoff = now().addingTimeInterval(-thresholdSeconds)
         let log = log
+        let excludedPaths = exclusions.map(PathExclusionMatcher.canonicalize)
         return await Task.detached(priority: .userInitiated) {
             let unused = apps.compactMap { app -> UnusedApp? in
+                guard !PathExclusionMatcher.isExcluded(
+                    path: PathExclusionMatcher.canonicalize(app.bundleURL),
+                    by: excludedPaths
+                ) else { return nil }
                 // Inclusive: an app last used exactly at the cutoff has not been
                 // opened *within* the window, so it qualifies.
                 guard let used = provider(app), used <= cutoff else { return nil }

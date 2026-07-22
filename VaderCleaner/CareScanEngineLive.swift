@@ -61,7 +61,7 @@ extension CareScanEngine.UnitRunners {
                 })
             },
             installers: {
-                await DefaultInstallationFileScanner().scan()
+                await DefaultInstallationFileScanner().scan(excluding: await excludedURLs())
             },
             installedApps: {
                 try await DefaultAppDiscovery().installedApps(includingSystemApps: false)
@@ -72,13 +72,16 @@ extension CareScanEngine.UnitRunners {
                 })
             },
             unusedApps: { apps in
-                await DefaultUnusedAppScanner().scan(apps: apps)
+                await DefaultUnusedAppScanner().scan(apps: apps, excluding: await excludedURLs())
             },
             unsupportedApps: { apps in
                 await DefaultUnsupportedAppScanner().scan(apps: apps)
             },
             appLeftovers: { installedBundleIDs in
-                await DefaultAppLeftoverScanner().scan(installedBundleIDs: installedBundleIDs)
+                await DefaultAppLeftoverScanner().scan(
+                    installedBundleIDs: installedBundleIDs,
+                    excluding: await excludedURLs()
+                )
             },
             extensions: {
                 async let safari = SafariExtensionDiscovery().extensions()

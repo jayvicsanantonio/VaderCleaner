@@ -59,10 +59,17 @@ struct DefaultAppLeftoverScanner: Sendable {
         ]
     }
 
-    func scan(installedBundleIDs: Set<String>) async -> [LeftoverGroup] {
+    /// - Parameter excluding: paths from the user's Ignore List. Leftover files
+    ///   at or beneath one are dropped, and a group left with no files at all
+    ///   disappears rather than being reported as an empty finding.
+    func scan(
+        installedBundleIDs: Set<String>,
+        excluding exclusions: [URL] = []
+    ) async -> [LeftoverGroup] {
         let roots = roots
         let fileManager = fileManager
         let log = log
+        let excludedPaths = exclusions.map(PathExclusionMatcher.canonicalize)
         return await Task.detached(priority: .userInitiated) {
             // Aggregate every matching URL under its bundle ID, preserving a
             // stable discovery order per root.
@@ -80,6 +87,10 @@ struct DefaultAppLeftoverScanner: Sendable {
                     guard let bundleID = Self.candidateBundleID(for: entry, kind: root.kind) else {
                         continue
                     }
+                    guard !PathExclusionMatcher.isExcluded(
+                        path: PathExclusionMatcher.canonicalize(entry),
+                        by: excludedPaths
+                    ) else { continue }
                     guard Self.looksLikeBundleID(bundleID),
                           !Self.isSystemBundleID(bundleID),
                           !Self.isCoveredByInstalled(bundleID, installed: installedBundleIDs) else {
