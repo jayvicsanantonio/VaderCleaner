@@ -102,6 +102,38 @@ final class ProtectionSettingsStoreTests: XCTestCase {
         XCTAssertEqual(ScanMode.allCases, [.quick, .balanced, .deep])
     }
 
+    func test_scanMode_quickPurposeDescribesPersistenceVectorsNotUserFolders() {
+        // Quick checks startup items and browser extensions, not the user
+        // folders (see `MalwareViewModel.scanScope`). Copy still promising
+        // Downloads or Desktop would describe a scan we no longer run, and
+        // would send someone worried about a fresh download to the wrong mode.
+        for folder in ["Downloads", "Desktop", "Documents"] {
+            XCTAssertFalse(
+                ScanMode.quick.purpose.contains(folder),
+                "Quick Scan copy must not promise \(folder) — Balanced and Deep cover it"
+            )
+        }
+        XCTAssertTrue(
+            ScanMode.quick.purpose.contains("startup items"),
+            "Quick Scan copy should name what it actually checks"
+        )
+    }
+
+    func test_scanMode_deepPurposeDescribesHomeFolderScope() {
+        // Every mode is rooted at $HOME (see `MalwareViewModel.scanScope`) —
+        // none of them walk /Applications, /Library or /System. The Deep card
+        // is the one that could overpromise, so pin its scope claim. This
+        // guards a correctness claim about coverage, not the prose style.
+        XCTAssertTrue(
+            ScanMode.deep.purpose.contains("home folder"),
+            "Deep Scan copy should name the home folder as its scope"
+        )
+        XCTAssertFalse(
+            ScanMode.deep.purpose.contains("on your Mac"),
+            "Deep Scan copy must not promise whole-Mac coverage it doesn't deliver"
+        )
+    }
+
     func test_scanMode_unknownPersistedValueFallsBackToDefault() {
         defaults.set("nonsense", forKey: "protection.scanMode")
         let sut = ProtectionSettingsStore(defaults: defaults)

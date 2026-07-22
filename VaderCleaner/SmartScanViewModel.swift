@@ -1086,7 +1086,8 @@ extension SmartScanViewModel {
         settings: SmartScanSettingsStore,
         webDevScanScope: WebDevScanScopeStore? = nil,
         statsService: SystemStatsService,
-        history: CareHistoryStore? = nil
+        history: CareHistoryStore? = nil,
+        protectionSettings: ProtectionSettingsStore? = nil
     ) -> SmartScanViewModel {
         // Default arguments evaluate outside the main actor, so the fallback
         // store (previews, tests) is built here instead.
@@ -1095,7 +1096,8 @@ extension SmartScanViewModel {
             runners: .live(
                 exclusions: exclusions,
                 webDevScanScope: webDevScanScope,
-                statsService: statsService
+                statsService: statsService,
+                protectionSettings: protectionSettings
             )
         )
         let detector = ClamAVDetector()

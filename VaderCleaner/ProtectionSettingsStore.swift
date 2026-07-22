@@ -4,11 +4,13 @@
 import Foundation
 import Observation
 
-/// How thorough a Protection scan is. Quick targets the high-risk home
-/// subdirectories for a fast checkup; Balanced walks the whole home with the
-/// heavy media/cloud trees excluded; Deep walks the whole home with the
-/// fewest exclusions for maximum coverage. The raw value is the persisted key
-/// and must stay stable across releases.
+/// How thorough a Protection scan is. Quick checks the persistence vectors —
+/// launch agents and browser extensions — for a fast checkup; Balanced walks
+/// the whole home with the heavy media/cloud trees excluded; Deep walks the
+/// whole home with the fewest exclusions for maximum coverage. Every mode
+/// covers the system launch directories. See `MalwareViewModel.scanScope` for
+/// the exact roots. The raw value is the persisted key and must stay stable
+/// across releases.
 enum ScanMode: String, CaseIterable, Identifiable, Sendable {
     case quick
     case balanced
@@ -48,17 +50,17 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .quick:
             return String(
-                localized: "Checks the places threats usually hide, like your Downloads and Desktop. Good for a regular checkup, or when you're short on time.",
+                localized: "Checks the startup items and browser extensions that malware uses to stick around after a restart. Good for a regular checkup, or when you're short on time.",
                 comment: "Protection Quick Scan purpose."
             )
         case .balanced:
             return String(
-                localized: "Goes through all your personal files, skipping big photo and cloud libraries. A thorough look that still finishes at a reasonable pace.",
+                localized: "Goes through all your personal files, including your Downloads and Desktop, plus everything Quick Scan checks. Skips big photo and cloud libraries so it still finishes at a reasonable pace.",
                 comment: "Protection Balanced Scan purpose."
             )
         case .deep:
             return String(
-                localized: "Looks at every single file and folder on your Mac. Worth the wait when you want to be certain, or if you think something slipped through.",
+                localized: "Looks at every file in your home folder and every startup item, including the photo, video, and cloud libraries the other scans skip. Worth the wait when you want to be certain, or if you think something slipped through.",
                 comment: "Protection Deep Scan purpose."
             )
         }
@@ -94,10 +96,10 @@ final class ProtectionSettingsStore {
     /// On by default: iCloud Drive's local copy mirrors a store Apple already
     /// scans, so skipping it trims scan time with little detection cost.
     static let defaultExcludeDownloadedICloudFiles = true
-    /// Quick by default: the high-risk home subdirectories
-    /// (Downloads/Desktop/Documents) only, matching Smart Scan's threat scope,
-    /// so a first Protection scan is fast rather than a whole-$HOME Deep pass.
-    /// Balanced and Deep stay one tap away in Protection settings.
+    /// Quick by default: the persistence vectors only, so a first Protection
+    /// scan is fast rather than a whole-$HOME Deep pass. Balanced and Deep
+    /// stay one tap away in Protection settings, and both cover the user
+    /// folders Quick leaves alone.
     static let defaultScanMode: ScanMode = .quick
 
     // MARK: - Tracked state

@@ -200,7 +200,8 @@ struct VaderCleanerApp: App {
                 settings: smartScanSettings,
                 webDevScanScope: webDevScanScope,
                 statsService: stats,
-                history: careHistory
+                history: careHistory,
+                protectionSettings: protectionSettings
             )
         )
         // Wire the notification monitor to the same stats + preferences
