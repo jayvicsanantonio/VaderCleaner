@@ -1147,7 +1147,12 @@ private struct NotificationsTab: View {
 private struct ExclusionsTab: View {
 
     @Environment(ExclusionsStore.self) private var exclusions
-    @State private var selection: String?
+    @State private var selection: Set<String> = []
+    /// Rebuilt whenever the pane appears or the list changes, so the existence
+    /// check touches disk on a change rather than on every render pass.
+    @State private var entries: [ExclusionEntry] = []
+    /// Highlights the list while a folder is dragged over it.
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.headerGap) {
@@ -1162,29 +1167,39 @@ private struct ExclusionsTab: View {
                     .fill(Color(nsColor: .textBackgroundColor))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(Color(nsColor: .separatorColor))
+                            .strokeBorder(isDropTargeted
+                                          ? Color.settingsAccent
+                                          : Color(nsColor: .separatorColor),
+                                          lineWidth: isDropTargeted ? 2 : 1)
                     )
 
-                if exclusions.exclusions.isEmpty {
+                if entries.isEmpty {
                     emptyState
                 } else {
                     List(selection: $selection) {
-                        ForEach(exclusions.exclusions, id: \.self) { path in
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder")
-                                    .foregroundStyle(.secondary)
-                                Text(path)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .help(path)
-                            }
-                            .tag(path)
+                        ForEach(entries) { entry in
+                            ExclusionRow(entry: entry)
+                                .tag(entry.path)
+                                .contextMenu {
+                                    Button("Reveal in Finder") { reveal(entry) }
+                                        .disabled(!entry.exists)
+                                    Button("Stop Ignoring") { remove([entry.path]) }
+                                }
                         }
                     }
                     .scrollContentBackground(.hidden)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Dragging a folder in from Finder is the natural gesture for a
+            // list like this; the + button stays for keyboard-driven use.
+            .dropDestination(for: URL.self) { urls, _ in
+                for url in urls { exclusions.add(path: url.path) }
+                refresh()
+                return !urls.isEmpty
+            } isTargeted: { isDropTargeted = $0 }
+            .onAppear(perform: refresh)
+            .onChange(of: exclusions.exclusions, refresh)
 
             HStack(spacing: 8) {
                 Button {
@@ -1195,21 +1210,26 @@ private struct ExclusionsTab: View {
                 .help("Add a file or folder for scans to leave alone")
 
                 Button(role: .destructive) {
-                    if let selected = selection {
-                        exclusions.remove(path: selected)
-                        selection = nil
-                    }
+                    remove(selection)
                 } label: {
                     Label("Remove", systemImage: "minus")
                 }
-                .disabled(selection == nil)
-                .help("Stop ignoring the selected item")
+                .disabled(selection.isEmpty)
+                .help("Stop ignoring the selected items")
+
+                if missingCount > 0 {
+                    Button {
+                        remove(Set(entries.filter { !$0.exists }.map(\.path)))
+                    } label: {
+                        Label("Clean Up", systemImage: "sparkles")
+                    }
+                    .help("Remove entries whose files no longer exist")
+                }
 
                 Spacer()
 
-                if !exclusions.exclusions.isEmpty {
-                    let count = exclusions.exclusions.count
-                    Text(count == 1 ? "1 item" : "\(count) items")
+                if !entries.isEmpty {
+                    Text(countLabel)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -1227,12 +1247,46 @@ private struct ExclusionsTab: View {
                 .foregroundStyle(.secondary)
             Text("Nothing is being ignored")
                 .font(.headline)
-            Text("Add a file or folder with the + button and every scan will leave it alone.")
+            Text("Drag a file or folder here — or use the + button — and every scan will leave it alone.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(24)
+    }
+
+    // MARK: Derived state
+
+    private var missingCount: Int {
+        entries.filter { !$0.exists }.count
+    }
+
+    private var countLabel: String {
+        let total = entries.count
+        let base = total == 1 ? "1 item" : "\(total) items"
+        guard missingCount > 0 else { return base }
+        return "\(base) · \(missingCount) missing"
+    }
+
+    // MARK: Actions
+
+    /// Recomputes the rows, including the on-disk existence check. Called when
+    /// the pane appears and whenever the stored list changes, rather than from
+    /// the view body — the check touches the file system.
+    private func refresh() {
+        entries = ExclusionEntry.entries(for: exclusions.exclusions)
+        // Drop any selection that no longer refers to a listed row.
+        selection = selection.intersection(entries.map(\.path))
+    }
+
+    private func remove(_ paths: Set<String>) {
+        for path in paths { exclusions.remove(path: path) }
+        selection.subtract(paths)
+        refresh()
+    }
+
+    private func reveal(_ entry: ExclusionEntry) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
     }
 
     /// Presents an `NSOpenPanel` so the user can pick any file or folder.
@@ -1242,12 +1296,44 @@ private struct ExclusionsTab: View {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.prompt = "Ignore"
-        panel.message = "Choose a file or folder for scans to leave alone"
+        panel.message = "Choose files or folders for scans to leave alone"
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        exclusions.add(path: url.path)
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { exclusions.add(path: url.path) }
+        refresh()
+    }
+}
+
+/// One Ignore List row: the item's own name with its location beneath, and a
+/// clear marker when the path no longer exists. Showing the raw absolute path
+/// as the headline buried the one word the user actually recognises.
+private struct ExclusionRow: View {
+
+    let entry: ExclusionEntry
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: entry.exists ? "folder" : "questionmark.folder")
+                .foregroundStyle(entry.exists ? Color.secondary : Color.orange)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(entry.exists ? entry.location : "\(entry.location) — no longer there")
+                    .font(.caption)
+                    .foregroundStyle(entry.exists ? Color.secondary : Color.orange)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        // The full path stays available on hover, since the row now shows an
+        // abbreviated form.
+        .help(entry.path)
+        .opacity(entry.exists ? 1 : 0.7)
     }
 }
 
