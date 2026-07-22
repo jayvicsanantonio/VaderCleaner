@@ -16,6 +16,13 @@ enum HelperRegistration {
     private static let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "HelperRegistration")
     private static let plistName = "com.personal.VaderCleaner.helper.plist"
 
+    /// The daemon's live registration status, for the General settings tab to
+    /// report. Read fresh each time — approving the helper in System Settings
+    /// changes it without the app being involved.
+    static var currentStatus: SMAppService.Status {
+        SMAppService.daemon(plistName: plistName).status
+    }
+
     static func registerIfNeeded() {
         let service = SMAppService.daemon(plistName: plistName)
         // Skip if already registered — register() throws when the service is already

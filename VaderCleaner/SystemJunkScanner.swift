@@ -108,7 +108,29 @@ struct SystemJunkScanner {
         // default enumerator returns nothing, so this is a no-op unless the
         // production scanner wired one in.
         let developerProjects = await developerProjectEnumerator { progress.report($0) }
-        return ScanResult(items: files + documentVersions + developerProjects)
+        // The two enumerators walk stores the main `fileScanner` pass never
+        // sees, so they don't get exclusions applied on the way in — filter
+        // their results here instead, or an ignored folder's Document Versions
+        // and project artifacts would still be offered for deletion.
+        let supplementary = Self.excluding(
+            documentVersions + developerProjects,
+            paths: excluding
+        )
+        return ScanResult(items: files + supplementary)
+    }
+
+    /// Drops files at or beneath any excluded path. Shared by both privileged
+    /// enumerators, which return already-collected results rather than being
+    /// filtered during the walk.
+    static func excluding(_ files: [ScannedFile], paths: [URL]) -> [ScannedFile] {
+        guard !paths.isEmpty else { return files }
+        let excluded = paths.map(PathExclusionMatcher.canonicalize)
+        return files.filter {
+            !PathExclusionMatcher.isExcluded(
+                path: PathExclusionMatcher.canonicalize($0.url),
+                by: excluded
+            )
+        }
     }
 }
 

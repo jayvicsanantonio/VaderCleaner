@@ -69,6 +69,7 @@ struct VaderCleanerApp: App {
     // size, drive mounts, device batteries, hung apps, trashed apps, Smart Care
     // reminder). Started from the same post-launch path that requests permission.
     @State private var notificationMonitors: NotificationMonitors
+    @State private var notificationSettings: NotificationSettingsModel
     // Fires a "scan complete" banner when a user-initiated scan finishes.
     @State private var scanCompletionNotifier: ScanCompletionNotifier
     @NSApplicationDelegateAdaptor(VaderCleanerAppDelegate.self) private var appDelegate
@@ -141,7 +142,7 @@ struct VaderCleanerApp: App {
         // The Applications dashboard's own scan (installed-app count + update
         // count). The uninstall / update side-effects stay owned by the two
         // view models above, which the dashboard reuses as detail screens.
-        _applicationsViewModel = State(initialValue: ApplicationsViewModel.live())
+        _applicationsViewModel = State(initialValue: ApplicationsViewModel.live(exclusions: exclusions))
         _extensionsManagerViewModel = State(initialValue: ExtensionsManagerViewModel.live())
         // Construct the polling service and the menu bar view-model in the
         // same init so both `@StateObject` wrappers reference the *same*
@@ -149,7 +150,10 @@ struct VaderCleanerApp: App {
         // declaration would force a separate `SystemStatsService()` —
         // doubling the polling timer and decoupling the menu bar from the
         // service the Health Monitor consumes.
-        let stats = SystemStatsService()
+        // `autostart: false` — polling is claimed by whatever is actually
+        // displaying stats (the window, the panel, a live menu bar reading)
+        // via `beginUpdates()`, rather than running from launch to quit.
+        let stats = SystemStatsService(interval: prefs.statsUpdateInterval, autostart: false)
         _systemStats = State(initialValue: stats)
         // Wired after `stats` so the Performance RAM figures come from the
         // same polling service the Health Monitor and menu bar consume.
@@ -161,7 +165,11 @@ struct VaderCleanerApp: App {
         // itself as the `UNUserNotificationCenter` delegate (a weak property);
         // a second instance would silently steal that registration, so the
         // threshold monitor and the Malware feature share this one.
-        let notificationManager = NotificationManager()
+        // The sound preference is read through a closure at dispatch time, so
+        // toggling it applies to the very next banner without a relaunch.
+        let notificationManager = NotificationManager(
+            soundEnabled: { [prefs] in prefs.notificationSoundsEnabled }
+        )
         // Wired after `stats` so manual malware scans surface a detection
         // banner through the same dispatcher the threshold monitor uses, and
         // honour the same `notifyMalwareFound` preference.
@@ -215,6 +223,15 @@ struct VaderCleanerApp: App {
         )
         _scanCompletionNotifier = State(
             initialValue: ScanCompletionNotifier(preferences: prefs, dispatcher: notificationManager)
+        )
+        // Backs the Notifications pane's permission row. Shares the one
+        // NotificationManager so the test banner goes through the same
+        // delegate-registered center as every other alert.
+        _notificationSettings = State(
+            initialValue: NotificationSettingsModel(
+                dispatcher: notificationManager,
+                permissionRequester: { await notificationManager.requestPermission() }
+            )
         )
     }
 
@@ -329,6 +346,15 @@ struct VaderCleanerApp: App {
                 .environment(smartScanSettings)
                 .environment(protectionSettings)
                 .environment(settingsRouter)
+                // General reports Full Disk Access and lifetime freed, so the
+                // Settings scene needs these two as well.
+                .environment(appState)
+                .environment(careHistory)
+                .environment(notificationSettings)
+                // The Menu Bar tab applies a new refresh cadence live.
+                .environment(systemStats)
+                // Scanning hosts the My Clutter scan-folder picker.
+                .environment(myClutterScanScope)
         }
 
         // `isInserted:` makes the menu bar extra disappear when the user
@@ -370,13 +396,17 @@ struct VaderCleanerApp: App {
             // want a number can opt into a short free-disk reading beside it
             // (Preferences → "Show free space in the menu bar"). The full
             // readings live in the panel; the text stays the accessibility label.
-            if preferences.menuBarShowsReading {
+            if let reading = menuBarViewModel.compactReading(for: preferences.menuBarReading) {
                 HStack(spacing: 4) {
                     Image(systemName: "waveform.path.ecg")
-                    Text(menuBarViewModel.menuBarCompactReading)
+                    Text(reading)
                         .monospacedDigit()
                 }
                 .accessibilityLabel(menuBarViewModel.menuBarLabelText)
+                // A live reading in the menu bar is the one thing that needs
+                // stats even when nothing is open, so it holds its own claim.
+                .onAppear { systemStats.beginUpdates() }
+                .onDisappear { systemStats.endUpdates() }
             } else {
                 Image(systemName: "waveform.path.ecg")
                     .accessibilityLabel(menuBarViewModel.menuBarLabelText)
@@ -505,7 +535,8 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
     private func applyPolicy(hasTitledWindow: Bool) {
         let policy = ActivationPolicyDecision.policy(
             hasTitledWindow: hasTitledWindow,
-            menuBarShown: PreferencesStore.isMenuBarShown()
+            menuBarShown: PreferencesStore.isMenuBarShown(),
+            keepDockIcon: PreferencesStore.isDockIconKept()
         )
         if NSApp.activationPolicy() != policy {
             NSApp.setActivationPolicy(policy)

@@ -24,6 +24,10 @@ protocol NotificationDispatching: AnyObject {
     func sendAppTrashedNotification(appName: String)
     func sendHungAppNotification(appName: String)
     func sendScanFinishedNotification(scanName: String)
+    func sendAppUpdatesNotification(count: Int)
+    func sendDefinitionsStaleNotification(daysSinceUpdate: Int)
+    /// Sends the "does this work?" banner from Settings. Ungated by design.
+    func sendTestNotification()
 }
 
 /// Production `NotificationDispatching` backed by
@@ -52,8 +56,18 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     /// which would block in CI on a clean machine.
     typealias AuthorizationRequester = @MainActor () async throws -> Bool
 
+    /// Reads the user's "play a sound" preference at dispatch time. A closure
+    /// rather than a stored flag so flipping the toggle applies to the very
+    /// next banner, and so the manager needs no reference to `PreferencesStore`.
+    typealias SoundPreferenceReader = @MainActor () -> Bool
+
     private let center: UNUserNotificationCenter
     private let authorizationRequester: AuthorizationRequester
+    private let soundEnabled: SoundPreferenceReader
+
+    /// The live value of the sound preference — exposed so the behaviour is
+    /// observable in tests without dispatching a real notification.
+    var currentSoundEnabled: Bool { soundEnabled() }
     private let log = OSLog(subsystem: "com.personal.VaderCleaner",
                             category: "NotificationManager")
 
@@ -78,9 +92,11 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     ///     never blocks waiting for user input.
     init(
         center: UNUserNotificationCenter = .current(),
-        authorizationRequester: AuthorizationRequester? = nil
+        authorizationRequester: AuthorizationRequester? = nil,
+        soundEnabled: @escaping SoundPreferenceReader = { true }
     ) {
         self.center = center
+        self.soundEnabled = soundEnabled
         // Capture `center` in the default requester closure so the seam still
         // routes through the supplied center instance when no override is
         // provided.
@@ -132,48 +148,64 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     // MARK: - Dispatch entry points
 
     func sendLowDiskNotification(freeBytes: Int64) {
-        deliver(content: Self.makeLowDiskContent(freeBytes: freeBytes))
+        deliver(content: Self.makeLowDiskContent(freeBytes: freeBytes, sound: soundEnabled()))
     }
 
     func sendHighRAMNotification(pressureLevel: String) {
-        deliver(content: Self.makeHighRAMContent(pressureLevel: pressureLevel))
+        deliver(content: Self.makeHighRAMContent(pressureLevel: pressureLevel, sound: soundEnabled()))
     }
 
     func sendMalwareDetectedNotification(threatName: String) {
-        deliver(content: Self.makeMalwareDetectedContent(threatName: threatName))
+        deliver(content: Self.makeMalwareDetectedContent(threatName: threatName, sound: soundEnabled()))
     }
 
     func sendLargeFilesFoundNotification(count: Int, totalSize: Int64) {
         deliver(content: Self.makeLargeFilesFoundContent(count: count,
-                                                         totalSize: totalSize))
+                                                         totalSize: totalSize,
+                                                         sound: soundEnabled()))
     }
 
     func sendTrashSizeNotification(sizeBytes: Int64) {
-        deliver(content: Self.makeTrashSizeContent(sizeBytes: sizeBytes))
+        deliver(content: Self.makeTrashSizeContent(sizeBytes: sizeBytes, sound: soundEnabled()))
     }
 
     func sendDeviceBatteryLowNotification(deviceName: String, percent: Int) {
-        deliver(content: Self.makeDeviceBatteryLowContent(deviceName: deviceName, percent: percent))
+        deliver(content: Self.makeDeviceBatteryLowContent(deviceName: deviceName, percent: percent, sound: soundEnabled()))
     }
 
     func sendDriveConnectedNotification(volumeName: String) {
-        deliver(content: Self.makeDriveConnectedContent(volumeName: volumeName))
+        deliver(content: Self.makeDriveConnectedContent(volumeName: volumeName, sound: soundEnabled()))
     }
 
     func sendOverfilledDriveNotification(volumeName: String, freeBytes: Int64, totalBytes: Int64) {
-        deliver(content: Self.makeOverfilledDriveContent(volumeName: volumeName, freeBytes: freeBytes, totalBytes: totalBytes))
+        deliver(content: Self.makeOverfilledDriveContent(volumeName: volumeName, freeBytes: freeBytes, totalBytes: totalBytes, sound: soundEnabled()))
     }
 
     func sendAppTrashedNotification(appName: String) {
-        deliver(content: Self.makeAppTrashedContent(appName: appName))
+        deliver(content: Self.makeAppTrashedContent(appName: appName, sound: soundEnabled()))
     }
 
     func sendHungAppNotification(appName: String) {
-        deliver(content: Self.makeHungAppContent(appName: appName))
+        deliver(content: Self.makeHungAppContent(appName: appName, sound: soundEnabled()))
     }
 
     func sendScanFinishedNotification(scanName: String) {
-        deliver(content: Self.makeScanFinishedContent(scanName: scanName))
+        deliver(content: Self.makeScanFinishedContent(scanName: scanName, sound: soundEnabled()))
+    }
+
+    func sendAppUpdatesNotification(count: Int) {
+        deliver(content: Self.makeAppUpdatesContent(count: count, sound: soundEnabled()))
+    }
+
+    func sendDefinitionsStaleNotification(daysSinceUpdate: Int) {
+        deliver(content: Self.makeDefinitionsStaleContent(daysSinceUpdate: daysSinceUpdate, sound: soundEnabled()))
+    }
+
+    /// Sends a banner the user asked for from Settings, so they can confirm
+    /// notifications actually arrive. Deliberately not gated by any toggle —
+    /// it exists precisely to test delivery.
+    func sendTestNotification() {
+        deliver(content: Self.makeTestContent(sound: soundEnabled()))
     }
 
     /// Schedules `content` for immediate delivery. A unique request identifier
@@ -197,105 +229,141 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
 
     // MARK: - Content builders (pure — unit-test surface)
 
-    static func makeLowDiskContent(freeBytes: Int64) -> UNMutableNotificationContent {
+    /// Builds a content object with the shared delivery settings. Every builder
+    /// funnels through here so "sounds off" can never be forgotten on one
+    /// banner — a `nil` sound is what makes the system present it quietly.
+    private static func content(title: String, body: String, sound: Bool) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = "Low Disk Space"
+        content.title = title
+        content.body = body
+        content.sound = sound ? .default : nil
+        return content
+    }
+
+    static func makeLowDiskContent(freeBytes: Int64, sound: Bool = true) -> UNMutableNotificationContent {
         // Reads in the same Finder-style units the Notifications picker offers
         // ("Less than 10 GB"), so the banner and the setting speak the same way.
         let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
-        content.body = "Only \(free) of disk space is free. Consider cleaning system junk."
-        content.sound = .default
-        return content
+        return content(
+            title: "Your disk is getting full",
+            body: "Only \(free) left. A quick clean-up will give your Mac room to breathe.",
+            sound: sound
+        )
     }
 
-    static func makeHighRAMContent(pressureLevel: String) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "High Memory Pressure"
-        content.body = "Memory pressure is \(pressureLevel). Closing some apps may help."
-        content.sound = .default
-        return content
+    static func makeHighRAMContent(pressureLevel: String, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Your Mac is low on memory",
+            body: "Memory pressure is \(pressureLevel). Closing a few apps should help.",
+            sound: sound
+        )
     }
 
-    static func makeMalwareDetectedContent(threatName: String) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Malware Detected"
-        content.body = "VaderCleaner found \(threatName). Open the Protection section to review."
-        content.sound = .default
-        return content
+    static func makeMalwareDetectedContent(threatName: String, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Malware found",
+            body: "VaderCleaner found \(threatName). Open Protection to deal with it.",
+            sound: sound
+        )
     }
 
-    static func makeLargeFilesFoundContent(count: Int, totalSize: Int64) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Large Files Found"
+    static func makeLargeFilesFoundContent(count: Int, totalSize: Int64, sound: Bool = true) -> UNMutableNotificationContent {
         let formattedSize = byteCountFormatter.string(fromByteCount: totalSize)
-        content.body = "Found \(count) large or old files totaling \(formattedSize)."
-        content.sound = .default
-        return content
+        return content(
+            title: "Large & forgotten files",
+            body: "\(count) files are taking up \(formattedSize). Worth a look.",
+            sound: sound
+        )
     }
 
-    static func makeSmartCareReminderContent() -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Time for Smart Care"
-        content.body = "Run a Smart Scan to keep your Mac clean, fast, and protected."
-        content.sound = .default
-        return content
+    static func makeSmartCareReminderContent(sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Time for a Smart Scan",
+            body: "A quick check keeps your Mac clean, fast, and protected.",
+            sound: sound
+        )
     }
 
-    static func makeTrashSizeContent(sizeBytes: Int64) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Trash Is Filling Up"
+    static func makeTrashSizeContent(sizeBytes: Int64, sound: Bool = true) -> UNMutableNotificationContent {
         let size = ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
-        content.body = "Your Trash holds \(size). Empty it to reclaim the space."
-        content.sound = .default
-        return content
+        return content(
+            title: "Your Trash is filling up",
+            body: "It's holding \(size). Emptying it gives that space back.",
+            sound: sound
+        )
     }
 
-    static func makeDeviceBatteryLowContent(deviceName: String, percent: Int) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Device Battery Low"
-        content.body = "\(deviceName) is at \(percent)%. Consider charging it soon."
-        content.sound = .default
-        return content
+    static func makeDeviceBatteryLowContent(deviceName: String, percent: Int, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "A connected device is low",
+            body: "\(deviceName) is at \(percent)%. Worth charging it soon.",
+            sound: sound
+        )
     }
 
-    static func makeDriveConnectedContent(volumeName: String) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Drive Connected"
-        content.body = "\(volumeName) was mounted. Scan it with Space Lens to see what's using the space."
-        content.sound = .default
-        return content
+    static func makeDriveConnectedContent(volumeName: String, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "\(volumeName) is connected",
+            body: "Space Lens can show you what's using room on it.",
+            sound: sound
+        )
     }
 
-    static func makeOverfilledDriveContent(volumeName: String, freeBytes: Int64, totalBytes: Int64) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "External Drive Almost Full"
+    static func makeOverfilledDriveContent(volumeName: String, freeBytes: Int64, totalBytes: Int64, sound: Bool = true) -> UNMutableNotificationContent {
         let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
-        content.body = "\(volumeName) has only \(free) free. Clean it up to make room."
-        content.sound = .default
-        return content
+        return content(
+            title: "\(volumeName) is nearly full",
+            body: "Only \(free) left on it. A clean-up will make room.",
+            sound: sound
+        )
     }
 
-    static func makeAppTrashedContent(appName: String) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Uninstall \(appName) Completely?"
-        content.body = "You moved \(appName) to the Trash. Open Applications to remove its leftover files too."
-        content.sound = .default
-        return content
+    static func makeAppTrashedContent(appName: String, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Remove \(appName) completely?",
+            body: "You put it in the Trash, but its leftover files are still here. VaderCleaner can clear those too.",
+            sound: sound
+        )
     }
 
-    static func makeHungAppContent(appName: String) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "\(appName) Is Not Responding"
-        content.body = "\(appName) stopped responding. You can force quit it from the menu bar."
-        content.sound = .default
-        return content
+    static func makeHungAppContent(appName: String, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "\(appName) isn't responding",
+            body: "You can force it to quit from the VaderCleaner menu bar icon.",
+            sound: sound
+        )
     }
 
-    static func makeScanFinishedContent(scanName: String) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = "Scan Complete"
-        content.body = "Your \(scanName) scan has finished. Open VaderCleaner to review the results."
-        content.sound = .default
-        return content
+    static func makeScanFinishedContent(scanName: String, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Your \(scanName) scan is done",
+            body: "Open VaderCleaner to see what turned up.",
+            sound: sound
+        )
+    }
+
+    static func makeAppUpdatesContent(count: Int, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "App updates are ready",
+            body: "\(count) of your apps have newer versions. Updates bring fixes and security improvements.",
+            sound: sound
+        )
+    }
+
+    static func makeDefinitionsStaleContent(daysSinceUpdate: Int, sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Malware definitions are out of date",
+            body: "They were last refreshed \(daysSinceUpdate) days ago. Updating helps Protection catch the newest threats.",
+            sound: sound
+        )
+    }
+
+    /// The "does this work?" banner sent from Settings.
+    static func makeTestContent(sound: Bool = true) -> UNMutableNotificationContent {
+        content(
+            title: "Notifications are working",
+            body: "This is what a VaderCleaner alert looks like.",
+            sound: sound
+        )
     }
 }

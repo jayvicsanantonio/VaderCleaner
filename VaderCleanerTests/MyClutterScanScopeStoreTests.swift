@@ -2,12 +2,65 @@
 // Pins the My Clutter scan-scope store: default home scope, custom-folder selection, persistence, and the home-collapse edge case.
 
 import XCTest
+import Observation
 @testable import VaderCleaner
 
 @MainActor
 final class MyClutterScanScopeStoreTests: XCTestCase {
 
     private let home = URL(fileURLWithPath: "/Users/tester")
+
+    // MARK: - Cross-screen sync
+
+    /// The Settings picker and the My Clutter intro picker read the same store
+    /// instance, so a change in one has to invalidate the other. That only
+    /// holds while the backing property stays Observation-tracked — marking it
+    /// `@ObservationIgnored` would leave both screens showing stale folders
+    /// with nothing failing to say so.
+    func test_selectingAFolder_notifiesObserversOfTheDisplayedName() {
+        let store = MyClutterScanScopeStore(defaults: makeDefaults(), homeDirectory: home)
+        var notified = false
+        withObservationTracking {
+            _ = store.displayName
+        } onChange: {
+            notified = true
+        }
+
+        store.selectFolder(URL(fileURLWithPath: "/Volumes/Media/Archive"))
+
+        XCTAssertTrue(notified, "a folder change must invalidate every screen showing it")
+    }
+
+    func test_returningToHome_notifiesObservers() {
+        let store = MyClutterScanScopeStore(defaults: makeDefaults(), homeDirectory: home)
+        store.selectFolder(URL(fileURLWithPath: "/Volumes/Media/Archive"))
+        var notified = false
+        withObservationTracking {
+            _ = store.selectedURL
+        } onChange: {
+            notified = true
+        }
+
+        store.selectHome()
+
+        XCTAssertTrue(notified)
+    }
+
+    /// The scan roots feed the scanner, not just the label — a change there
+    /// must invalidate too, or a screen could scan the previous folder.
+    func test_selectingAFolder_notifiesObserversOfTheScanRoots() {
+        let store = MyClutterScanScopeStore(defaults: makeDefaults(), homeDirectory: home)
+        var notified = false
+        withObservationTracking {
+            _ = store.scanRoots
+        } onChange: {
+            notified = true
+        }
+
+        store.selectFolder(URL(fileURLWithPath: "/Volumes/Media/Archive"))
+
+        XCTAssertTrue(notified)
+    }
 
     private func makeDefaults() -> UserDefaults {
         let suite = "MyClutterScanScopeStoreTests.\(UUID().uuidString)"

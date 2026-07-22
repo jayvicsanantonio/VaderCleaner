@@ -41,12 +41,16 @@ struct DefaultInstallationFileScanner: Sendable {
         ]
     }
 
-    func scan() async -> [InstallationFile] {
+    /// - Parameter excluding: paths from the user's Ignore List. Installers at
+    ///   or beneath one of these are skipped, so the list's promise holds here
+    ///   as it does in the file-walking scanners.
+    func scan(excluding exclusions: [URL] = []) async -> [InstallationFile] {
         // Hop off the calling actor so the directory listing and per-file stats
         // don't pin the main thread when a Downloads folder holds many items.
         let roots = roots
         let fileManager = fileManager
         let log = log
+        let excludedPaths = exclusions.map(PathExclusionMatcher.canonicalize)
         return await Task.detached(priority: .userInitiated) {
             var files: [InstallationFile] = []
             var seen = Set<String>()
@@ -64,6 +68,10 @@ struct DefaultInstallationFileScanner: Sendable {
                     guard let kind = InstallationFileKind.forExtension(entry.pathExtension) else {
                         continue
                     }
+                    guard !PathExclusionMatcher.isExcluded(
+                        path: PathExclusionMatcher.canonicalize(entry),
+                        by: excludedPaths
+                    ) else { continue }
                     let values = try? entry.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
                     // `.pkg` / `.dmg` / `.iso` are flat files; skip anything
                     // that isn't a regular file (e.g. a folder a user named

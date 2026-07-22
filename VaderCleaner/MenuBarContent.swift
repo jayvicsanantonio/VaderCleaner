@@ -20,6 +20,8 @@ import AppKit
 struct MenuBarContent: View {
 
     @Environment(MenuBarViewModel.self) private var menuBar
+    @Environment(PreferencesStore.self) private var preferences
+    @Environment(SystemStatsService.self) private var systemStats
     @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
     @Environment(MalwareViewModel.self) private var malware
     @Environment(SmartScanViewModel.self) private var smartScan
@@ -56,6 +58,10 @@ struct MenuBarContent: View {
         // Refresh the device list each time the panel opens — devices change
         // infrequently, so an on-open read beats a dedicated poll timer.
         .task { connectedDevices.refresh() }
+        // The panel is the main consumer of live stats; holding a claim only
+        // while it's open is what keeps polling from running all day.
+        .onAppear { systemStats.beginUpdates() }
+        .onDisappear { systemStats.endUpdates() }
     }
 
     // MARK: - Theme
@@ -359,7 +365,27 @@ struct MenuBarContent: View {
     /// inline links are reserved for actions that finish right in the panel
     /// (memory purge, speed test, eject).
     private var vitalsCard: some View {
+        // Dividers are emitted before each row after the first, so hiding any
+        // combination of rows can never leave a stray or doubled separator.
         VStack(spacing: 0) {
+            ForEach(visibleRows) { row in
+                if row != visibleRows.first { rowDivider }
+                vitalRow(for: row)
+            }
+        }
+        .padding(.vertical, 2)
+        .background(.white.opacity(0.05), in: .rect(cornerRadius: 14))
+    }
+
+    /// The rows the user has left switched on, in their fixed display order.
+    private var visibleRows: [MenuBarPanelRow] {
+        MenuBarPanelRow.allCases.filter { preferences.isPanelRowEnabled($0) }
+    }
+
+    @ViewBuilder
+    private func vitalRow(for row: MenuBarPanelRow) -> some View {
+        switch row {
+        case .protection:
             VitalRow(
                 icon: "shield.lefthalf.filled",
                 iconTint: NavigationSection.malwareRemoval.iconAccent,
@@ -369,7 +395,7 @@ struct MenuBarContent: View {
                 open: { openSection(.malwareRemoval) },
                 helpText: String(localized: "Open Protection")
             )
-            rowDivider
+        case .storage:
             VitalRow(
                 icon: "internaldrive",
                 iconTint: NavigationSection.systemJunk.iconAccent,
@@ -379,7 +405,7 @@ struct MenuBarContent: View {
                 open: { openSection(.systemJunk) },
                 helpText: String(localized: "Open Cleanup")
             )
-            rowDivider
+        case .memory:
             VitalRow(
                 icon: "memorychip",
                 iconTint: NavigationSection.performance.iconAccent,
@@ -390,7 +416,7 @@ struct MenuBarContent: View {
                 open: { openSection(.performance) },
                 helpText: String(localized: "Open Performance")
             )
-            rowDivider
+        case .cpu:
             VitalRow(
                 icon: "cpu",
                 iconTint: healthAccent,
@@ -400,12 +426,11 @@ struct MenuBarContent: View {
                 open: { openSection(.healthMonitor) },
                 helpText: String(localized: "Open Health Monitor")
             )
-            rowDivider
+        case .network:
             networkRow
+        case .devices:
             devicesRows
         }
-        .padding(.vertical, 2)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 14))
     }
 
     private var rowDivider: some View {

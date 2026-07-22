@@ -78,6 +78,16 @@ final class WebDevScanScopeStore {
             .filter { isDirectory($0) }
     }
 
+    /// True when this scan has nothing to look at: no folder picked, and none
+    /// of the common code directories exist on this Mac.
+    ///
+    /// Settings uses it to hide the Web Development Junk row entirely. Someone
+    /// who doesn't write code shouldn't be asked where their "project junk"
+    /// lives — and the scan would find nothing either way. An explicit pick
+    /// always counts, so a user who has configured this keeps the control even
+    /// if the folder later disappears.
+    var isDormant: Bool { isDefault && scanRoots.isEmpty }
+
     /// Switch back to scanning the default common code directories.
     func selectDefault() {
         guard selectedFolderPath != nil else { return }

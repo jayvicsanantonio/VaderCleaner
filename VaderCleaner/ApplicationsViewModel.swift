@@ -565,8 +565,17 @@ extension ApplicationsViewModel {
     /// `UpdateProbe.live()` — the same collaborators `AppUpdaterViewModel.live`
     /// uses, so the dashboard's update count matches the updater list it
     /// opens.
+    /// - Parameter exclusions: the user's Ignore List. Snapshotted per scan (as
+    ///   in every other section) and applied to the installer, unused-app and
+    ///   leftover passes, which previously ignored it entirely. `nil` keeps the
+    ///   previous unfiltered behaviour for previews.
     @MainActor
-    static func live() -> ApplicationsViewModel {
+    static func live(exclusions: ExclusionsStore? = nil) -> ApplicationsViewModel {
+        let excludedURLs: @Sendable () async -> [URL] = { [weak exclusions] in
+            await MainActor.run {
+                (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+            }
+        }
         let discovery = DefaultAppDiscovery()
         let probe = UpdateProbe.live()
         let installerScanner = DefaultInstallationFileScanner()
@@ -583,16 +592,19 @@ extension ApplicationsViewModel {
                 await probe.availableUpdates(for: apps)
             },
             scanInstallationFiles: {
-                await installerScanner.scan()
+                await installerScanner.scan(excluding: await excludedURLs())
             },
             scanUnsupportedApps: { apps in
                 await unsupportedScanner.scan(apps: apps)
             },
             scanUnusedApps: { apps in
-                await unusedScanner.scan(apps: apps)
+                await unusedScanner.scan(apps: apps, excluding: await excludedURLs())
             },
             scanLeftovers: { installedBundleIDs in
-                await leftoverScanner.scan(installedBundleIDs: installedBundleIDs)
+                await leftoverScanner.scan(
+                    installedBundleIDs: installedBundleIDs,
+                    excluding: await excludedURLs()
+                )
             },
             recycleFiles: { urls in
                 await Self.recycle(urls, log: log)

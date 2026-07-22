@@ -45,7 +45,13 @@ final class SmartCareReminderScheduler {
         )
         let request = UNNotificationRequest(
             identifier: Self.reminderIdentifier,
-            content: NotificationManager.makeSmartCareReminderContent(),
+            // The content is baked now and delivered by the system later, so
+            // the sound preference has to be captured here — there is no
+            // dispatch-time hook to consult like the other notifications have.
+            // `NotificationMonitors` re-applies the schedule when it changes.
+            content: NotificationManager.makeSmartCareReminderContent(
+                sound: preferences.notificationSoundsEnabled
+            ),
             trigger: trigger
         )
         schedule(request)

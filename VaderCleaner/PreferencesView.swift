@@ -56,7 +56,7 @@ struct PreferencesView: View {
                 .tag(SettingsTab.notifications)
 
             MenuBarTab()
-                .tabItem { Label("Menu", systemImage: "menubar.rectangle") }
+                .tabItem { Label("Menu Bar", systemImage: "menubar.rectangle") }
                 .tag(SettingsTab.menuBar)
 
             ProtectionTab()
@@ -179,6 +179,7 @@ private struct SettingsBadgeIcon: View {
 struct ScanningTab: View {
 
     @Environment(SmartScanSettingsStore.self) private var settings
+    @Environment(WebDevScanScopeStore.self) private var webDevScope
     /// Node ids whose children are revealed. Every area — and Cleanup's System
     /// Junk sub-group — opens by default so the list shows its complete set of
     /// options on first view (System Caches, Xcode Junk, Web Development Junk, …).
@@ -193,7 +194,7 @@ struct ScanningTab: View {
             SettingsPaneHeader(
                 symbol: "desktopcomputer",
                 title: "Scanning",
-                subtitle: "Choose what every Smart Care scan looks through. Turn off anything you'd rather skip."
+                subtitle: "Smart Scan looks through everything ticked below. Turn off anything you'd rather it left alone."
             )
 
             detail
@@ -215,16 +216,6 @@ struct ScanningTab: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(rootNodes) { node in
                         ScanNodeRow(node: node, level: 0, expanded: $expanded)
-                    }
-
-                    // The Web Development Junk scan walks the user's own code
-                    // folders, so it needs a folder choice the fixed-location
-                    // categories don't. It surfaces only once the user opens
-                    // System Junk, where Web Development Junk lives.
-                    if expanded.contains("group.systemJunk") {
-                        Divider()
-                            .padding(.vertical, 8)
-                        WebDevScanFolderPicker()
                     }
                 }
                 .padding(12)
@@ -385,8 +376,20 @@ struct ScanningTab: View {
             state: { self.groupState(categories) },
             toggle: { self.setCategories(categories, enabled: !self.allEnabled(categories)) },
             isEnabled: { self.settings.isDomainEnabled(.systemJunk) },
-            children: Self.systemJunkDisplays.map { categoryNode($0.category, title: $0.title, symbol: $0.symbol) }
+            children: visibleSystemJunkDisplays.map {
+                categoryNode($0.category, title: $0.title, symbol: $0.symbol)
+            }
         )
+    }
+
+    /// The System Junk categories worth showing. Web Development Junk drops out
+    /// when there are no coding-project folders on this Mac and none has been
+    /// picked — the scan would find nothing, and asking someone who doesn't
+    /// write code where their "project junk" lives is pure confusion. The full
+    /// `systemJunkDisplays` list still backs `toggleableJunkCategories`, so the
+    /// category stays scannable and its completeness test unaffected.
+    private var visibleSystemJunkDisplays: [(category: ScanCategory, title: String, symbol: String)] {
+        Self.systemJunkDisplays.filter { $0.category != .webDevJunk || !webDevScope.isDormant }
     }
 
     private func categoryNode(_ category: ScanCategory, title: String, symbol: String) -> ScanNode {
@@ -398,7 +401,11 @@ struct ScanningTab: View {
             checkboxID: "scanning.junkCategory.\(category.rawValue)",
             state: { self.settings.isJunkCategoryEnabled(category) ? .on : .off },
             toggle: { self.settings.setJunkCategory(category, enabled: !self.settings.isJunkCategoryEnabled(category)) },
-            isEnabled: { self.settings.isDomainEnabled(.systemJunk) }
+            isEnabled: { self.settings.isDomainEnabled(.systemJunk) },
+            // The folder choice belongs to Web Development Junk, so it renders
+            // directly beneath that row — not stranded at the bottom of the
+            // list, forty rows from the checkbox it configures.
+            accessory: category == .webDevJunk ? .webDevScanFolder : nil
         )
     }
 
@@ -426,6 +433,11 @@ struct ScanningTab: View {
             state: { self.settings.unitState(for: module) },
             toggle: { self.toggleModule(module) },
             isEnabled: { true },
+            // My Clutter's scan folder is a durable preference, so it belongs
+            // beside the scan it configures — the same treatment Web
+            // Development Junk gets. The intro screen's picker remains the
+            // fast path; both write the same store.
+            accessory: module == .myClutter ? .myClutterScanFolder : nil,
             children: units.map { u in
                 ScanNode(
                     id: "unit.\(u.unit.rawValue)",
@@ -509,12 +521,12 @@ struct ScanningTab: View {
     /// under the title so a non-technical user knows what turning it off skips.
     private static func subtitle(_ module: CareDomain) -> String {
         switch module {
-        case .systemJunk: return "Remove junk files, caches, and trash"
-        case .malware: return "Scan for malware and online threats"
-        case .performance: return "Manage background items and maintenance"
-        case .applications: return "Find updates, unused apps, and leftovers"
-        case .myClutter: return "Find duplicate, large, and old files"
-        case .browserPrivacy: return "Clear cookies and browsing traces"
+        case .systemJunk: return "Temporary files your Mac doesn't need"
+        case .malware: return "Malware and other threats"
+        case .performance: return "What starts up and runs in the background"
+        case .applications: return "Updates, apps you never open, and leftovers"
+        case .myClutter: return "Duplicates, large files, and old downloads"
+        case .browserPrivacy: return "Cookies and traces of where you've been"
         }
     }
 
@@ -535,6 +547,16 @@ struct ScanningTab: View {
 /// Tri-state of a checkbox in the Smart Care tree. Aliased to the store's
 /// `CheckState` so the view and store share one vocabulary.
 private typealias ScanState = SmartScanSettingsStore.CheckState
+
+/// An extra control a row carries beneath itself. Modelled as a marker rather
+/// than an erased view so `ScanNode` stays a plain data description of the tree.
+private enum ScanNodeAccessory {
+    /// The Web Development Junk folder chooser.
+    case webDevScanFolder
+    /// The My Clutter scan-folder chooser. The same store backs the picker on
+    /// the My Clutter intro, so the two stay in sync without extra wiring.
+    case myClutterScanFolder
+}
 
 /// A tree row's icon: a top-level module wears its section's baked 3D art;
 /// every sub-row wears a glossy badge tinted with that same section's colour,
@@ -569,6 +591,9 @@ private struct ScanNode: Identifiable {
     /// A descriptive row carries no checkbox — it names one thing the module
     /// covers rather than offering an independent toggle.
     var isDescriptive: Bool = false
+    /// An extra control rendered beneath the row, shown only while the row is
+    /// both enabled and ticked.
+    var accessory: ScanNodeAccessory? = nil
     var children: [ScanNode] = []
 }
 
@@ -612,11 +637,30 @@ private struct ScanNodeRow: View {
             .disabled(!enabled)
             .opacity(enabled ? 1 : 0.45)
 
+            // Only while the row is on: a folder choice for a scan the user has
+            // switched off is a decision about nothing.
+            if let accessory = node.accessory, enabled, node.state() != .off {
+                accessoryView(accessory)
+                    .padding(.leading, CGFloat(level + 1) * Self.indentStep)
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 6)
+            }
+
             if isOpen {
                 ForEach(node.children) { child in
                     ScanNodeRow(node: child, level: level + 1, expanded: $expanded)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func accessoryView(_ accessory: ScanNodeAccessory) -> some View {
+        switch accessory {
+        case .webDevScanFolder:
+            WebDevScanFolderPicker()
+        case .myClutterScanFolder:
+            MyClutterFolderPicker(accent: .settingsAccent, style: .settings)
         }
     }
 
@@ -804,7 +848,7 @@ private struct ProtectionTab: View {
                 SettingsPaneHeader(
                     symbol: "hand.raised",
                     title: "Protection",
-                    subtitle: "How the malware scan inspects your Mac."
+                    subtitle: "Choose how closely VaderCleaner checks your Mac for malware."
                 )
 
                 VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
@@ -825,19 +869,19 @@ private struct ProtectionTab: View {
     private var scanOptionsSection: some View {
         @Bindable var settings = settings
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Scan options")
+            Text("What to check")
                 .font(.headline)
 
-            Toggle("Scan email attachments", isOn: $settings.scanEmailAttachments)
+            Toggle("Look inside email attachments", isOn: $settings.scanEmailAttachments)
                 .accessibilityIdentifier("protection.scanEmailAttachments")
-            Toggle("Scan archives", isOn: $settings.scanArchives)
+            Toggle("Look inside zip files and other archives", isOn: $settings.scanArchives)
                 .accessibilityIdentifier("protection.scanArchives")
             HStack(spacing: 8) {
-                Toggle("Exclude downloaded iCloud files", isOn: $settings.excludeDownloadedICloudFiles)
+                Toggle("Skip iCloud files already saved on this Mac", isOn: $settings.excludeDownloadedICloudFiles)
                     .accessibilityIdentifier("protection.excludeDownloadedICloudFiles")
                 Image(systemName: "info.circle")
                     .foregroundStyle(.secondary)
-                    .help("Skips iCloud Drive files already downloaded to this Mac. Apple scans the canonical copies in iCloud, so excluding them speeds up scans.")
+                    .help("Apple already checks the copies kept in iCloud, so skipping the ones downloaded here makes scans finish sooner.")
             }
         }
         .toggleStyle(.settingsCheckbox)
@@ -848,7 +892,7 @@ private struct ProtectionTab: View {
     private var scanModeSection: some View {
         @Bindable var settings = settings
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Scan mode")
+            Text("How thorough to be")
                 .font(.headline)
 
             VStack(spacing: 10) {
@@ -952,6 +996,7 @@ private struct ScanModeCard: View {
 private struct NotificationsTab: View {
 
     @Environment(PreferencesStore.self) private var preferences
+    @Environment(NotificationSettingsModel.self) private var notifications
 
     /// Picker option sets for the inline dropdowns.
     private let trashSizeOptions = [1, 2, 5, 10, 20]
@@ -964,56 +1009,74 @@ private struct NotificationsTab: View {
                 SettingsPaneHeader(
                     symbol: "bell",
                     title: "Notifications",
-                    subtitle: "Pick which alerts VaderCleaner may send you."
+                    subtitle: "Choose what VaderCleaner should give you a heads-up about."
                 )
 
+                permissionRow
+
                 VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
-                section("General") {
-                    toggleRow("Remind to run regular Smart Care", isOn: $preferences.remindSmartCare) {
+                section("Smart Scan") {
+                    toggleRow("Remind me to run a Smart Scan", isOn: $preferences.remindSmartCare) {
                         Picker("", selection: $preferences.smartCareFrequency) {
                             ForEach(SmartCareFrequency.allCases) { freq in
                                 Text(freq.label).tag(freq)
                             }
                         }
                     }
-                    Toggle("Notify when a scan finishes", isOn: $preferences.notifyScanFinished)
-                    toggleRow("Notify if Trash size exceeds", isOn: $preferences.notifyTrashSize) {
-                        Picker("", selection: $preferences.trashSizeThresholdGB) {
-                            ForEach(trashSizeOptions, id: \.self) { gb in
-                                Text("\(gb) GB").tag(gb)
-                            }
-                        }
-                    }
-                    Toggle("Warn when connected device batteries are running low", isOn: $preferences.notifyDeviceBatteryLow)
-                    Toggle("Notify when too low on free RAM", isOn: $preferences.notifyHighRAM)
-                }
-
-                section("Scan Results") {
-                    Toggle("Notify when malware is found", isOn: $preferences.notifyMalwareFound)
-                    Toggle("Notify when large files are found", isOn: $preferences.notifyLargeFilesFound)
+                    Toggle("Tell me when a scan finishes", isOn: $preferences.notifyScanFinished)
                 }
 
                 section("Disk Space") {
-                    toggleRow("Warn when free space is less than", isOn: $preferences.notifyLowDisk) {
+                    toggleRow("Warn me when free space drops below", isOn: $preferences.notifyLowDisk) {
                         Picker("", selection: $preferences.diskFreeThresholdGB) {
                             ForEach(diskFreeOptions, id: \.self) { gb in
                                 Text("\(gb) GB").tag(gb)
                             }
                         }
                     }
-                    Toggle("Notify when a drive is connected to the Mac", isOn: $preferences.notifyDriveConnected)
-                    Toggle("Suggest to clean up overfilled external drives", isOn: $preferences.notifyOverfilledDrives)
+                    toggleRow("Tell me when my Trash grows past", isOn: $preferences.notifyTrashSize) {
+                        Picker("", selection: $preferences.trashSizeThresholdGB) {
+                            ForEach(trashSizeOptions, id: \.self) { gb in
+                                Text("\(gb) GB").tag(gb)
+                            }
+                        }
+                    }
+                    Toggle("Tell me when I plug in a drive", isOn: $preferences.notifyDriveConnected)
+                    Toggle("Offer to free up space on nearly full drives", isOn: $preferences.notifyOverfilledDrives)
                 }
 
-                section("Applications") {
+                section("Mac Health") {
+                    Toggle("Warn me when my Mac is running low on memory", isOn: $preferences.notifyHighRAM)
                     VStack(alignment: .leading, spacing: 4) {
-                        Toggle("Offer to uninstall applications correctly", isOn: $preferences.offerUninstallOnTrash)
-                        caption("If you put an application into Trash, you will be offered to uninstall it correctly.")
+                        Toggle("Tell me when an app stops responding", isOn: $preferences.notifyHungApps)
+                        caption("When an app freezes, VaderCleaner gives you an easy way to close it.")
+                    }
+                    Toggle("Warn me when a connected device's battery is low", isOn: $preferences.notifyDeviceBatteryLow)
+                }
+
+                section("Protection") {
+                    Toggle("Tell me right away if malware turns up", isOn: $preferences.notifyMalwareFound)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Warn me when malware definitions are out of date", isOn: $preferences.notifyDefinitionsStale)
+                        caption("Old definitions can't recognise the newest threats, so scans quietly come back cleaner than they should.")
+                    }
+                }
+
+                section("Apps & Files") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Tell me when app updates are available", isOn: $preferences.notifyAppUpdates)
+                        caption("VaderCleaner checks once a day. Turning this off stops the checks entirely.")
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Toggle("Notify about hung applications", isOn: $preferences.notifyHungApps)
-                        caption("If any of your apps stop responding, use an easy way of force quitting them.")
+                        Toggle("Offer to remove apps completely", isOn: $preferences.offerUninstallOnTrash)
+                        caption("Dragging an app to the Trash leaves its files behind. VaderCleaner will offer to clear those out too.")
                     }
+                    Toggle("Tell me when large or forgotten files turn up", isOn: $preferences.notifyLargeFilesFound)
+                }
+
+                section("Sound") {
+                    Toggle("Play a sound with alerts", isOn: $preferences.notificationSoundsEnabled)
+                    caption("VaderCleaner won't repeat the same alert more than once every few minutes, however many are switched on above.")
                 }
                 }
             }
@@ -1022,7 +1085,62 @@ private struct NotificationsTab: View {
             .padding(.top, SettingsMetrics.topPadding)
             .padding(.bottom, SettingsMetrics.bottomPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The system's decision changes outside the app, so re-read it on
+            // appear and whenever the user comes back to VaderCleaner.
+            .task { await notifications.refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await notifications.refresh() }
+            }
         }
+    }
+
+    /// Whether macOS is actually letting VaderCleaner through, plus the fix and
+    /// a way to prove delivery works. Sits above the toggles because when this
+    /// is unhealthy, none of them do anything.
+    private var permissionRow: some View {
+        let status = NotificationAccessStatus.display(for: notifications.authorizationStatus)
+        // Centered rather than top-aligned: unlike the General tab's access
+        // rows, this one has no title above its detail line, so the glyph and
+        // the button belong on the text's centre — including when a longer
+        // state wraps to two lines.
+        return HStack(alignment: .center, spacing: 12) {
+            Image(systemName: status.isHealthy ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(status.isHealthy ? Color.green : Color.orange)
+                .font(.system(size: 15))
+                .accessibilityLabel(status.isHealthy ? "Alerts allowed" : "Alerts blocked")
+
+            Text(status.detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            if let actionTitle = status.actionTitle {
+                Button(actionTitle) {
+                    if NotificationAccessStatus.canRequestPermission(for: notifications.authorizationStatus) {
+                        Task { await notifications.requestPermission() }
+                    } else {
+                        NSWorkspace.shared.open(NotificationAccessStatus.systemSettingsURL)
+                    }
+                }
+            } else {
+                Button("Send a Test") { notifications.sendTest() }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(status.isHealthy
+                      ? Color(nsColor: .textBackgroundColor).opacity(0.5)
+                      : Color.orange.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(status.isHealthy
+                              ? Color(nsColor: .separatorColor)
+                              : Color.orange.opacity(0.5))
+        )
     }
 
     /// One category: a bold title in a fixed leading column with the category's
@@ -1073,14 +1191,19 @@ private struct NotificationsTab: View {
 private struct ExclusionsTab: View {
 
     @Environment(ExclusionsStore.self) private var exclusions
-    @State private var selection: String?
+    @State private var selection: Set<String> = []
+    /// Rebuilt whenever the pane appears or the list changes, so the existence
+    /// check touches disk on a change rather than on every render pass.
+    @State private var entries: [ExclusionEntry] = []
+    /// Highlights the list while a folder is dragged over it.
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.headerGap) {
             SettingsPaneHeader(
                 symbol: "nosign",
                 title: "Ignore List",
-                subtitle: "Files and folders listed here are skipped by every scan."
+                subtitle: "Anything you add here is left alone — no scan will touch it."
             )
 
             ZStack {
@@ -1088,29 +1211,39 @@ private struct ExclusionsTab: View {
                     .fill(Color(nsColor: .textBackgroundColor))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(Color(nsColor: .separatorColor))
+                            .strokeBorder(isDropTargeted
+                                          ? Color.settingsAccent
+                                          : Color(nsColor: .separatorColor),
+                                          lineWidth: isDropTargeted ? 2 : 1)
                     )
 
-                if exclusions.exclusions.isEmpty {
+                if entries.isEmpty {
                     emptyState
                 } else {
                     List(selection: $selection) {
-                        ForEach(exclusions.exclusions, id: \.self) { path in
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder")
-                                    .foregroundStyle(.secondary)
-                                Text(path)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .help(path)
-                            }
-                            .tag(path)
+                        ForEach(entries) { entry in
+                            ExclusionRow(entry: entry)
+                                .tag(entry.path)
+                                .contextMenu {
+                                    Button("Reveal in Finder") { reveal(entry) }
+                                        .disabled(!entry.exists)
+                                    Button("Stop Ignoring") { remove([entry.path]) }
+                                }
                         }
                     }
                     .scrollContentBackground(.hidden)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Dragging a folder in from Finder is the natural gesture for a
+            // list like this; the + button stays for keyboard-driven use.
+            .dropDestination(for: URL.self) { urls, _ in
+                for url in urls { exclusions.add(path: url.path) }
+                refresh()
+                return !urls.isEmpty
+            } isTargeted: { isDropTargeted = $0 }
+            .onAppear(perform: refresh)
+            .onChange(of: exclusions.exclusions, refresh)
 
             HStack(spacing: 8) {
                 Button {
@@ -1118,24 +1251,29 @@ private struct ExclusionsTab: View {
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
-                .help("Add a file or folder to skip during scans")
+                .help("Add a file or folder for scans to leave alone")
 
                 Button(role: .destructive) {
-                    if let selected = selection {
-                        exclusions.remove(path: selected)
-                        selection = nil
-                    }
+                    remove(selection)
                 } label: {
                     Label("Remove", systemImage: "minus")
                 }
-                .disabled(selection == nil)
-                .help("Remove the selected item")
+                .disabled(selection.isEmpty)
+                .help("Stop ignoring the selected items")
+
+                if missingCount > 0 {
+                    Button {
+                        remove(Set(entries.filter { !$0.exists }.map(\.path)))
+                    } label: {
+                        Label("Clean Up", systemImage: "sparkles")
+                    }
+                    .help("Remove entries whose files no longer exist")
+                }
 
                 Spacer()
 
-                if !exclusions.exclusions.isEmpty {
-                    let count = exclusions.exclusions.count
-                    Text(count == 1 ? "1 item" : "\(count) items")
+                if !entries.isEmpty {
+                    Text(countLabel)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -1153,7 +1291,7 @@ private struct ExclusionsTab: View {
                 .foregroundStyle(.secondary)
             Text("Nothing is being ignored")
                 .font(.headline)
-            Text("Use the + button to skip a file or folder during every scan.")
+            Text("Drag a file or folder here — or use the + button — and every scan will leave it alone.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1161,19 +1299,98 @@ private struct ExclusionsTab: View {
         .padding(24)
     }
 
-    /// Presents an `NSOpenPanel` so the user can pick any file or folder.
+    // MARK: Derived state
+
+    private var missingCount: Int {
+        entries.filter { !$0.exists }.count
+    }
+
+    private var countLabel: String {
+        let total = entries.count
+        let base = total == 1 ? "1 item" : "\(total) items"
+        guard missingCount > 0 else { return base }
+        return "\(base) · \(missingCount) missing"
+    }
+
+    // MARK: Actions
+
+    /// Recomputes the rows, including the on-disk existence check. Called when
+    /// the pane appears and whenever the stored list changes, rather than from
+    /// the view body — the check touches the file system.
+    private func refresh() {
+        entries = ExclusionEntry.entries(for: exclusions.exclusions)
+        // Drop any selection that no longer refers to a listed row.
+        selection = selection.intersection(entries.map(\.path))
+    }
+
+    private func remove(_ paths: Set<String>) {
+        for path in paths { exclusions.remove(path: path) }
+        selection.subtract(paths)
+        refresh()
+    }
+
+    private func reveal(_ entry: ExclusionEntry) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
+    }
+
+    /// Presents an `NSOpenPanel` so the user can pick any files or folders.
     /// Whatever they pick gets added as an absolute path string — `ExclusionsStore`
     /// already dedupes so re-picking is harmless.
+    ///
+    /// Presented as a sheet on the Settings window rather than via `runModal()`.
+    /// A nested modal session run from a SwiftUI `Settings` scene takes the
+    /// settings window down with it when the panel dismisses; a sheet keeps the
+    /// window's own event handling intact.
     private func presentAddPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Exclude"
-        panel.message = "Choose a file or folder to exclude from scanning"
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Ignore"
+        panel.message = "Choose files or folders for scans to leave alone"
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        exclusions.add(path: url.path)
+        let handle: @Sendable (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            for url in panel.urls { exclusions.add(path: url.path) }
+            refresh()
+        }
+
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            panel.begin(completionHandler: handle)
+        }
+    }
+}
+
+/// One Ignore List row: the item's own name with its location beneath, and a
+/// clear marker when the path no longer exists. Showing the raw absolute path
+/// as the headline buried the one word the user actually recognises.
+private struct ExclusionRow: View {
+
+    let entry: ExclusionEntry
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: entry.exists ? "folder" : "questionmark.folder")
+                .foregroundStyle(entry.exists ? Color.secondary : Color.orange)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(entry.exists ? entry.location : "\(entry.location) — no longer there")
+                    .font(.caption)
+                    .foregroundStyle(entry.exists ? Color.secondary : Color.orange)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        // The full path stays available on hover, since the row now shows an
+        // abbreviated form.
+        .help(entry.path)
+        .opacity(entry.exists ? 1 : 0.7)
     }
 }
 
@@ -1184,8 +1401,17 @@ private struct GeneralTab: View {
     @Environment(PreferencesStore.self) private var preferences
     @Environment(ProtectionSettingsStore.self) private var protectionSettings
     @Environment(SmartScanSettingsStore.self) private var smartScanSettings
+    @Environment(CareHistoryStore.self) private var history
+    @Environment(AppState.self) private var appState
 
     @State private var isConfirmingRestore = false
+    @State private var isConfirmingClearHistory = false
+    @State private var isShowingAcknowledgements = false
+    /// The helper's live registration status, re-read whenever the pane appears
+    /// so approving it in System Settings reflects without a relaunch.
+    @State private var helperStatus = HelperRegistration.currentStatus
+    /// Set while a repair is in flight so the button can't be fired twice.
+    @State private var isRepairingHelper = false
 
     /// Marketing version and build from the running bundle, shown in the app
     /// identity header so the About-style info is always accurate.
@@ -1203,7 +1429,7 @@ private struct GeneralTab: View {
             SettingsPaneHeader(
                 symbol: "gearshape",
                 title: "General",
-                subtitle: "App information and startup options."
+                subtitle: "About VaderCleaner, what it's allowed to do, and how it starts up."
             )
             .padding(.horizontal, SettingsMetrics.horizontalPadding)
             .padding(.top, SettingsMetrics.topPadding)
@@ -1211,23 +1437,30 @@ private struct GeneralTab: View {
 
             Form {
                 Section {
-                    HStack(spacing: 14) {
-                        Image(nsImage: NSApplication.shared.applicationIconImage)
-                            .resizable()
-                            .interpolation(.high)
-                            .scaledToFit()
-                            .frame(width: 56, height: 56)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("VaderCleaner")
-                                .font(.title3.weight(.semibold))
-                            Text(versionText)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 4)
+                    identityCard
+                }
+
+                Section {
+                    AccessStatusRow(
+                        symbol: "folder.badge.person.crop",
+                        title: "Full Disk Access",
+                        status: SettingsAccessStatus.fullDiskAccess(hasAccess: appState.hasFullDiskAccess),
+                        isBusy: false,
+                        action: openFullDiskAccessSettings
+                    )
+                    AccessStatusRow(
+                        symbol: "wrench.adjustable",
+                        title: "Cleanup Helper",
+                        status: SettingsAccessStatus.helper(status: helperStatus),
+                        isBusy: isRepairingHelper,
+                        action: repairHelper
+                    )
+                } header: {
+                    Text("Access")
+                } footer: {
+                    Text("VaderCleaner needs these to check and clean everything on your Mac. Anything flagged here is worth sorting out — otherwise scans quietly come back with less than they should.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section {
@@ -1235,24 +1468,70 @@ private struct GeneralTab: View {
                 } header: {
                     Text("Startup")
                 } footer: {
-                    Text("VaderCleaner will start automatically when you log in.")
+                    Text("VaderCleaner opens quietly in the background when you log in, so it's ready whenever you need it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Section {
+                    Button {
+                        isConfirmingClearHistory = true
+                    } label: {
+                        Label("Clear Scan History…", systemImage: "clock.arrow.circlepath")
+                    }
+                    .disabled(!hasHistory)
+
                     Button(role: .destructive) {
                         isConfirmingRestore = true
                     } label: {
                         Label("Restore Defaults…", systemImage: "arrow.counterclockwise")
                     }
+                } header: {
+                    Text("Your Data")
                 } footer: {
-                    Text("Resets scanning, protection, notification, menu bar, and startup settings to their defaults. Your Ignore List is kept.")
+                    Text("Everything VaderCleaner records stays on this Mac. Clearing your history forgets what past scans found and how much they freed; restoring defaults puts every setting back the way it came. Your Ignore List is left alone either way.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Button {
+                        isShowingAcknowledgements = true
+                    } label: {
+                        Label("Open-Source Licenses…", systemImage: "doc.text")
+                    }
+                } header: {
+                    Text("About")
+                } footer: {
+                    Text("VaderCleaner is built on open-source software, including the ClamAV malware engine.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
+        }
+        // Both capabilities are changed outside the app, in System Settings, so
+        // re-read them when the pane appears and again whenever the user comes
+        // back to VaderCleaner — otherwise granting access leaves this pane
+        // showing the old state until Settings is reopened.
+        .onAppear(perform: refreshAccess)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshAccess()
+        }
+        .sheet(isPresented: $isShowingAcknowledgements) {
+            AcknowledgementsSheet()
+        }
+        .confirmationDialog(
+            "Clear your scan history?",
+            isPresented: $isConfirmingClearHistory,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) {
+                history.clear()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("VaderCleaner will forget when it last checked your Mac and how much it has freed. Nothing on your Mac is removed, and your settings stay as they are.")
         }
         .confirmationDialog(
             "Restore all settings to their defaults?",
@@ -1266,8 +1545,154 @@ private struct GeneralTab: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This can't be undone. Your Ignore List of skipped files and folders is left unchanged.")
+            Text("Your settings go back to how they started, and this can't be undone. Nothing on your Mac is removed, and your Ignore List stays as it is.")
         }
+    }
+
+    // MARK: Identity
+
+    /// App icon, name, version, and — once there's something to show for it —
+    /// the lifetime total Smart Scan has freed.
+    private var identityCard: some View {
+        HStack(spacing: 14) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 56, height: 56)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("VaderCleaner")
+                    .font(.title3.weight(.semibold))
+                Text(versionText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if let freed = history.lifetimeFreedLine() {
+                    Text(freed)
+                        .font(.callout)
+                        .foregroundStyle(Color.settingsAccent)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// Whether there is any recorded history to clear — the button stays
+    /// disabled on a fresh install rather than offering a no-op.
+    private var hasHistory: Bool {
+        history.lastScanDate != nil || history.cumulativeBytesFreed > 0 || !history.receipts.isEmpty
+    }
+
+    // MARK: Actions
+
+    /// Re-reads both capability states from the system.
+    private func refreshAccess() {
+        appState.refresh()
+        helperStatus = HelperRegistration.currentStatus
+    }
+
+    private func openFullDiskAccessSettings() {
+        NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
+    }
+
+    /// Re-registers the helper. A fresh registration commonly lands in
+    /// `.requiresApproval`, so send the user straight to Login Items when the
+    /// repair doesn't land enabled rather than leaving them to find it.
+    private func repairHelper() {
+        guard !isRepairingHelper else { return }
+        isRepairingHelper = true
+        Task {
+            let status = await HelperRegistration.reregister()
+            helperStatus = status
+            isRepairingHelper = false
+            if status != .enabled {
+                HelperRegistration.openLoginItemsSettings()
+            }
+        }
+    }
+}
+
+/// One capability row: a health glyph, the capability's name, a plain-language
+/// line about what its current state means, and the button that fixes it. The
+/// button is absent when there is nothing to fix.
+private struct AccessStatusRow: View {
+
+    let symbol: String
+    let title: String
+    let status: AccessStatusDisplay
+    let isBusy: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title)
+                    Image(systemName: status.isHealthy ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(status.isHealthy ? Color.green : Color.orange)
+                        .accessibilityLabel(status.isHealthy ? "Working" : "Needs attention")
+                }
+                Text(status.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            if let actionTitle = status.actionTitle {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button(actionTitle, action: action)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// The bundled open-source license text. Shown as a sheet rather than a link so
+/// the terms are readable with no network and no browser.
+private struct AcknowledgementsSheet: View {
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Open-Source Licenses")
+                .font(.headline)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+
+            ScrollView {
+                Text(Acknowledgements.load() ?? "License information isn't available in this build.")
+                    .font(.system(size: 12, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+            }
+            .background(Color(nsColor: .textBackgroundColor))
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(20)
+        }
+        .frame(width: 520, height: 420)
     }
 }
 
@@ -1276,14 +1701,22 @@ private struct GeneralTab: View {
 private struct MenuBarTab: View {
 
     @Environment(PreferencesStore.self) private var preferences
+    @Environment(SystemStatsService.self) private var systemStats
+
+    /// Cadences offered for the live readings, in seconds.
+    private let intervalOptions: [Double] = [2, 5, 10]
+
+    /// True when the menu bar icon is hidden, which makes everything about the
+    /// icon and its panel moot.
+    private var menuBarHidden: Bool { !preferences.showMenuBar }
 
     var body: some View {
         @Bindable var preferences = preferences
         VStack(alignment: .leading, spacing: 0) {
             SettingsPaneHeader(
                 symbol: "menubar.rectangle",
-                title: "Menu",
-                subtitle: "Show VaderCleaner and its live stats in the menu bar."
+                title: "Menu Bar",
+                subtitle: "Keep VaderCleaner and your Mac's vital signs within reach at the top of the screen."
             )
             .padding(.horizontal, SettingsMetrics.horizontalPadding)
             .padding(.top, SettingsMetrics.topPadding)
@@ -1291,13 +1724,71 @@ private struct MenuBarTab: View {
 
             Form {
                 Section {
-                    Toggle("Show VaderCleaner in the menu bar", isOn: $preferences.showMenuBar)
-                        .accessibilityIdentifier("preferences.showMenuBar")
-                    Toggle("Show free space next to the icon", isOn: $preferences.menuBarShowsReading)
-                        .accessibilityIdentifier("preferences.menuBarShowsReading")
-                        .disabled(!preferences.showMenuBar)
+                    Picker("Keep VaderCleaner in", selection: $preferences.menuBarPresence) {
+                        ForEach(MenuBarPresence.allCases) { presence in
+                            Text(presence.label).tag(presence)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("preferences.menuBarPresence")
+                } header: {
+                    Text("Where to find it")
                 } footer: {
-                    Text("When disabled, the VaderCleaner icon and live stats are hidden from the menu bar. The free-space reading sits next to the icon — note a wide menu bar can hide it behind the notch.")
+                    Text("You'll always keep at least one way back into VaderCleaner, so this can't leave you with no icon at all.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Picker("Show beside the icon", selection: $preferences.menuBarReading) {
+                        ForEach(MenuBarReading.allCases) { reading in
+                            Text(reading.label).tag(reading)
+                        }
+                    }
+                    .accessibilityIdentifier("preferences.menuBarReading")
+                } header: {
+                    Text("The icon")
+                } footer: {
+                    Text("The icon on its own always fits. A reading beside it takes up room, and on a crowded menu bar it can end up hidden behind the notch — free space in particular barely changes between glances.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(menuBarHidden)
+
+                Section {
+                    ForEach(MenuBarPanelRow.allCases) { row in
+                        Toggle(row.label, isOn: Binding(
+                            get: { preferences.isPanelRowEnabled(row) },
+                            set: { preferences.setPanelRow(row, enabled: $0) }
+                        ))
+                        .accessibilityIdentifier("preferences.panelRow.\(row.rawValue)")
+                    }
+                } header: {
+                    Text("In the panel")
+                } footer: {
+                    Text("Clicking the icon opens a panel with these rows. Hide the ones you don't need — Wi-Fi & network needs Location access to name your network, so it's worth turning off if you'd rather not grant that.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .toggleStyle(.settingsCheckbox)
+                .disabled(menuBarHidden)
+
+                Section {
+                    Picker("Refresh readings", selection: $preferences.statsUpdateInterval) {
+                        ForEach(intervalOptions, id: \.self) { seconds in
+                            Text("Every \(Int(seconds)) seconds").tag(seconds)
+                        }
+                    }
+                    .accessibilityIdentifier("preferences.statsUpdateInterval")
+                    .onChange(of: preferences.statsUpdateInterval) { _, newValue in
+                        // Apply immediately; the stored value is re-read at the
+                        // next launch.
+                        systemStats.updateInterval = newValue
+                    }
+                } header: {
+                    Text("Live readings")
+                } footer: {
+                    Text("VaderCleaner only measures your Mac while the panel or the main window is open, so a faster refresh costs nothing while you're not looking.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1315,4 +1806,14 @@ private struct MenuBarTab: View {
         .environment(SmartScanSettingsStore())
         .environment(ProtectionSettingsStore())
         .environment(SettingsRouter())
+        .environment(AppState())
+        .environment(CareHistoryStore())
+        .environment(
+            NotificationSettingsModel(
+                dispatcher: NotificationManager(authorizationRequester: { true }),
+                permissionRequester: {}
+            )
+        )
+        .environment(SystemStatsService(autostart: false))
+        .environment(MyClutterScanScopeStore())
 }

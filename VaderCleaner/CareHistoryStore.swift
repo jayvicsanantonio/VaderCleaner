@@ -68,6 +68,20 @@ final class CareHistoryStore {
         }
     }
 
+    /// Forgets every scan the app has recorded — the last-scan stamp, the
+    /// lifetime freed total, and the receipt log. Offered in Settings for
+    /// people who would rather the app kept no record of what it found.
+    /// Removes the keys outright so a reload starts from the fresh-install
+    /// state rather than from stored zeroes.
+    func clear() {
+        lastScanDate = nil
+        cumulativeBytesFreed = 0
+        receipts = []
+        defaults.removeObject(forKey: Key.lastScanDate)
+        defaults.removeObject(forKey: Key.cumulativeBytesFreed)
+        defaults.removeObject(forKey: Key.receipts)
+    }
+
     /// One line of lifetime progress for the feed hero and the receipt:
     /// how much Smart Scan has freed in total. `nil` until something has
     /// actually been freed, so the line never brags about nothing.

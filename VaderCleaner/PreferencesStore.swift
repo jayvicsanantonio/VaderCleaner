@@ -4,7 +4,7 @@
 import Foundation
 import Observation
 
-/// How often the "Remind to run regular Smart Care" notification repeats.
+/// How often the "Remind me to run a Smart Scan" notification repeats.
 enum SmartCareFrequency: String, CaseIterable, Identifiable, Sendable {
     case daily
     case weekly
@@ -14,9 +14,74 @@ enum SmartCareFrequency: String, CaseIterable, Identifiable, Sendable {
 
     var label: String {
         switch self {
-        case .daily:   return String(localized: "Daily", comment: "Smart Care reminder frequency.")
-        case .weekly:  return String(localized: "Weekly", comment: "Smart Care reminder frequency.")
-        case .monthly: return String(localized: "Monthly", comment: "Smart Care reminder frequency.")
+        case .daily:   return String(localized: "Daily", comment: "Smart Scan reminder frequency.")
+        case .weekly:  return String(localized: "Weekly", comment: "Smart Scan reminder frequency.")
+        case .monthly: return String(localized: "Monthly", comment: "Smart Scan reminder frequency.")
+        }
+    }
+}
+
+/// What VaderCleaner shows beside its menu bar icon. Free disk space barely
+/// moves between glances, so it is one option rather than the only one; the
+/// raw value is the persisted key and must stay stable across releases.
+enum MenuBarReading: String, CaseIterable, Identifiable, Sendable {
+    case none
+    case freeSpace
+    case memory
+    case cpu
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none:      return String(localized: "Nothing", comment: "Menu bar reading choice.")
+        case .freeSpace: return String(localized: "Free space", comment: "Menu bar reading choice.")
+        case .memory:    return String(localized: "Memory pressure", comment: "Menu bar reading choice.")
+        case .cpu:       return String(localized: "CPU load", comment: "Menu bar reading choice.")
+        }
+    }
+}
+
+/// Where VaderCleaner keeps an icon. Modelled as a three-way rather than two
+/// switches so "neither" is unreachable — with no menu bar icon and no Dock
+/// icon, a user whose window is closed has no way back into the app.
+enum MenuBarPresence: String, CaseIterable, Identifiable, Sendable {
+    case menuBarOnly
+    case dockOnly
+    case both
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .menuBarOnly: return String(localized: "Menu bar", comment: "Where the app keeps an icon.")
+        case .dockOnly:    return String(localized: "Dock", comment: "Where the app keeps an icon.")
+        case .both:        return String(localized: "Both", comment: "Where the app keeps an icon.")
+        }
+    }
+}
+
+/// A row in the menu bar panel's vitals list. Users can hide the ones they
+/// don't care about — Devices is dead weight with nothing connected, and
+/// Network needs Location access to name the Wi-Fi network.
+enum MenuBarPanelRow: String, CaseIterable, Identifiable, Sendable {
+    case protection
+    case storage
+    case memory
+    case cpu
+    case network
+    case devices
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .protection: return String(localized: "Protection", comment: "Menu bar panel row.")
+        case .storage:    return String(localized: "Storage", comment: "Menu bar panel row.")
+        case .memory:     return String(localized: "Memory", comment: "Menu bar panel row.")
+        case .cpu:        return String(localized: "CPU", comment: "Menu bar panel row.")
+        case .network:    return String(localized: "Wi-Fi & network", comment: "Menu bar panel row.")
+        case .devices:    return String(localized: "Connected devices", comment: "Menu bar panel row.")
         }
     }
 }
@@ -73,6 +138,13 @@ final class PreferencesStore {
         static let notifyOverfilledDrives = "preferences.notifyOverfilledDrives"
         static let offerUninstallOnTrash = "preferences.offerUninstallOnTrash"
         static let notifyHungApps = "preferences.notifyHungApps"
+        static let notifyAppUpdates = "preferences.notifyAppUpdates"
+        static let notifyDefinitionsStale = "preferences.notifyDefinitionsStale"
+        static let notificationSoundsEnabled = "preferences.notificationSoundsEnabled"
+        static let menuBarReading = "preferences.menuBarReading"
+        static let keepDockIcon = "preferences.keepDockIcon"
+        static let panelRowStates = "preferences.menuBarPanelRows"
+        static let statsUpdateInterval = "preferences.statsUpdateInterval"
     }
 
     // MARK: - Defaults
@@ -101,10 +173,24 @@ final class PreferencesStore {
     static let defaultNotifyOverfilledDrives = true
     static let defaultOfferUninstallOnTrash = true
     static let defaultNotifyHungApps = true
+    static let defaultNotifyAppUpdates = true
+    static let defaultNotifyDefinitionsStale = true
+    /// On by default: every banner carried an unconditional `.default` sound
+    /// before this preference existed, so silence is the new choice rather
+    /// than a silently changed default.
+    static let defaultNotificationSoundsEnabled = true
     /// Off by default: the menu bar shows just the icon. A wide live reading is
     /// prone to being hidden behind the notch on a crowded menu bar, so showing
     /// it is opt-in.
     static let defaultMenuBarShowsReading = false
+    /// Nothing beside the icon by default — a wide label is the thing most
+    /// likely to end up hidden behind the notch.
+    static let defaultMenuBarReading: MenuBarReading = .none
+    /// Off by default, preserving the existing behaviour where the Dock icon
+    /// follows the window and the menu bar rather than being pinned.
+    static let defaultKeepDockIcon = false
+    /// Two seconds: live enough for the panel's memory and CPU rows.
+    static let defaultStatsUpdateInterval: Double = 2
 
     /// Reads the current `showMenuBar` value out of an arbitrary `UserDefaults`
     /// suite without instantiating the full store. Used by `VaderCleanerAppDelegate`
@@ -118,6 +204,12 @@ final class PreferencesStore {
     /// `.main`.
     nonisolated static func isMenuBarShown(in defaults: UserDefaults = .standard) -> Bool {
         (defaults.object(forKey: Key.showMenuBar) as? Bool) ?? defaultShowMenuBar
+    }
+
+    /// Companion to `isMenuBarShown(in:)` for the Dock half of the activation
+    /// policy, read from the same non-isolated contexts.
+    nonisolated static func isDockIconKept(in defaults: UserDefaults = .standard) -> Bool {
+        (defaults.object(forKey: Key.keepDockIcon) as? Bool) ?? defaultKeepDockIcon
     }
 
     // MARK: - Tracked state
@@ -190,6 +282,27 @@ final class PreferencesStore {
         didSet { defaults.set(notifyHungApps, forKey: Key.notifyHungApps) }
     }
 
+    /// Notify when newer versions of the user's apps are available. Gates the
+    /// background check itself, not just the banner — off means no update
+    /// probing happens at all.
+    var notifyAppUpdates: Bool {
+        didSet { defaults.set(notifyAppUpdates, forKey: Key.notifyAppUpdates) }
+    }
+
+    /// Notify when the malware signature database hasn't been refreshed
+    /// recently — stale definitions mean quietly weaker protection.
+    var notifyDefinitionsStale: Bool {
+        didSet { defaults.set(notifyDefinitionsStale, forKey: Key.notifyDefinitionsStale) }
+    }
+
+    // MARK: Notifications — delivery
+
+    /// Whether banners play a sound. Applies to every notification the app
+    /// sends; macOS still owns per-app delivery style and Focus.
+    var notificationSoundsEnabled: Bool {
+        didSet { defaults.set(notificationSoundsEnabled, forKey: Key.notificationSoundsEnabled) }
+    }
+
     var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
@@ -209,8 +322,69 @@ final class PreferencesStore {
     }
 
     /// When on, the menu bar shows a compact free-disk reading next to the icon.
+    /// Superseded by `menuBarReading`; kept so an existing choice can be
+    /// migrated on first launch after the upgrade.
     var menuBarShowsReading: Bool {
         didSet { defaults.set(menuBarShowsReading, forKey: Key.menuBarShowsReading) }
+    }
+
+    /// What, if anything, is shown beside the menu bar icon.
+    var menuBarReading: MenuBarReading {
+        didSet { defaults.set(menuBarReading.rawValue, forKey: Key.menuBarReading) }
+    }
+
+    /// Keeps the Dock icon regardless of whether a window is open. Paired with
+    /// `showMenuBar` through `menuBarPresence`, which enforces that at least
+    /// one entry point survives.
+    var keepDockIcon: Bool {
+        didSet { defaults.set(keepDockIcon, forKey: Key.keepDockIcon) }
+    }
+
+    /// How often the live stats behind the panel and menu bar refresh.
+    var statsUpdateInterval: Double {
+        didSet { defaults.set(statsUpdateInterval, forKey: Key.statsUpdateInterval) }
+    }
+
+    /// Which panel rows the user has switched off. Absent means visible, so a
+    /// row added in a later release shows up rather than being silently off.
+    private var panelRowStates: [String: Bool] {
+        didSet { defaults.set(panelRowStates, forKey: Key.panelRowStates) }
+    }
+
+    func isPanelRowEnabled(_ row: MenuBarPanelRow) -> Bool {
+        panelRowStates[row.rawValue] ?? true
+    }
+
+    func setPanelRow(_ row: MenuBarPanelRow, enabled: Bool) {
+        panelRowStates[row.rawValue] = enabled
+    }
+
+    /// Where the app keeps an icon, derived from `showMenuBar` + `keepDockIcon`.
+    /// Writing it can never produce "neither", which is what makes this safe to
+    /// expose as a picker.
+    var menuBarPresence: MenuBarPresence {
+        get {
+            switch (showMenuBar, keepDockIcon) {
+            case (true, true):  return .both
+            case (true, false): return .menuBarOnly
+            // Both off shouldn't be reachable through the picker; report
+            // Dock-only so a hand-edited defaults file still renders.
+            case (false, _):    return .dockOnly
+            }
+        }
+        set {
+            switch newValue {
+            case .menuBarOnly:
+                showMenuBar = true
+                keepDockIcon = false
+            case .dockOnly:
+                showMenuBar = false
+                keepDockIcon = true
+            case .both:
+                showMenuBar = true
+                keepDockIcon = true
+            }
+        }
     }
 
     // MARK: - Init
@@ -272,10 +446,31 @@ final class PreferencesStore {
             ?? Self.defaultOfferUninstallOnTrash
         self.notifyHungApps = (defaults.object(forKey: Key.notifyHungApps) as? Bool)
             ?? Self.defaultNotifyHungApps
+        self.notifyAppUpdates = (defaults.object(forKey: Key.notifyAppUpdates) as? Bool)
+            ?? Self.defaultNotifyAppUpdates
+        self.notifyDefinitionsStale = (defaults.object(forKey: Key.notifyDefinitionsStale) as? Bool)
+            ?? Self.defaultNotifyDefinitionsStale
+        self.notificationSoundsEnabled = (defaults.object(forKey: Key.notificationSoundsEnabled) as? Bool)
+            ?? Self.defaultNotificationSoundsEnabled
         self.launchAtLogin = (defaults.object(forKey: Key.launchAtLogin) as? Bool)
             ?? Self.defaultLaunchAtLogin
         self.showMenuBar = (defaults.object(forKey: Key.showMenuBar) as? Bool)
             ?? Self.defaultShowMenuBar
+        self.keepDockIcon = (defaults.object(forKey: Key.keepDockIcon) as? Bool)
+            ?? Self.defaultKeepDockIcon
+        self.statsUpdateInterval = (defaults.object(forKey: Key.statsUpdateInterval) as? Double)
+            ?? Self.defaultStatsUpdateInterval
+        self.panelRowStates = (defaults.dictionary(forKey: Key.panelRowStates) as? [String: Bool]) ?? [:]
+        // An explicit choice wins; otherwise fall back to the boolean this
+        // replaced so someone who opted into the free-space readout keeps it.
+        if let raw = defaults.string(forKey: Key.menuBarReading),
+           let stored = MenuBarReading(rawValue: raw) {
+            self.menuBarReading = stored
+        } else if let legacy = defaults.object(forKey: Key.menuBarShowsReading) as? Bool {
+            self.menuBarReading = legacy ? .freeSpace : .none
+        } else {
+            self.menuBarReading = Self.defaultMenuBarReading
+        }
         self.menuBarShowsReading = (defaults.object(forKey: Key.menuBarShowsReading) as? Bool)
             ?? Self.defaultMenuBarShowsReading
 
@@ -311,9 +506,16 @@ final class PreferencesStore {
         notifyOverfilledDrives = Self.defaultNotifyOverfilledDrives
         offerUninstallOnTrash = Self.defaultOfferUninstallOnTrash
         notifyHungApps = Self.defaultNotifyHungApps
+        notifyAppUpdates = Self.defaultNotifyAppUpdates
+        notifyDefinitionsStale = Self.defaultNotifyDefinitionsStale
+        notificationSoundsEnabled = Self.defaultNotificationSoundsEnabled
         launchAtLogin = Self.defaultLaunchAtLogin
         showMenuBar = Self.defaultShowMenuBar
         menuBarShowsReading = Self.defaultMenuBarShowsReading
+        menuBarReading = Self.defaultMenuBarReading
+        keepDockIcon = Self.defaultKeepDockIcon
+        statsUpdateInterval = Self.defaultStatsUpdateInterval
+        panelRowStates = [:]
     }
 
     // MARK: - Side effects

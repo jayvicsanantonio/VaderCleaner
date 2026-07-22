@@ -22,6 +22,9 @@ final class StubNotificationDispatcher: NotificationDispatching {
         case appTrashed(appName: String)
         case hungApp(appName: String)
         case scanFinished(scanName: String)
+        case appUpdates(count: Int)
+        case definitionsStale(daysSinceUpdate: Int)
+        case test
     }
 
     private(set) var calls: [Call] = []
@@ -59,6 +62,15 @@ final class StubNotificationDispatcher: NotificationDispatching {
     }
     func sendScanFinishedNotification(scanName: String) {
         calls.append(.scanFinished(scanName: scanName))
+    }
+    func sendAppUpdatesNotification(count: Int) {
+        calls.append(.appUpdates(count: count))
+    }
+    func sendDefinitionsStaleNotification(daysSinceUpdate: Int) {
+        calls.append(.definitionsStale(daysSinceUpdate: daysSinceUpdate))
+    }
+    func sendTestNotification() {
+        calls.append(.test)
     }
 }
 
