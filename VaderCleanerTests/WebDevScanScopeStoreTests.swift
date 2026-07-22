@@ -2,6 +2,7 @@
 // Pins the Web Development Junk project-scan scope store: default scope resolves to the existing common code directories under home, custom-folder selection, persistence, and reset.
 
 import XCTest
+import Observation
 @testable import VaderCleaner
 
 @MainActor
@@ -31,6 +32,44 @@ final class WebDevScanScopeStoreTests: XCTestCase {
         let url = tempHome.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    // MARK: - Cross-screen sync
+
+    /// The Settings picker reads this store, and so does the visibility rule
+    /// that hides the whole Web Development Junk row. Both depend on the
+    /// backing property staying Observation-tracked.
+    func test_selectingAFolder_notifiesObservers() throws {
+        let picked = try makeHomeDir("Elsewhere")
+        let store = WebDevScanScopeStore(defaults: makeDefaults(), homeDirectory: tempHome)
+        var notified = false
+        withObservationTracking {
+            _ = store.selectedFolderURL
+        } onChange: {
+            notified = true
+        }
+
+        store.selectFolder(picked)
+
+        XCTAssertTrue(notified)
+    }
+
+    /// Picking a folder flips the row from hidden to visible, so `isDormant`
+    /// has to invalidate as well — otherwise the row a user just configured
+    /// wouldn't appear until Settings was reopened.
+    func test_selectingAFolder_notifiesObserversOfDormancy() throws {
+        let picked = try makeHomeDir("Elsewhere")
+        let store = WebDevScanScopeStore(defaults: makeDefaults(), homeDirectory: tempHome)
+        var notified = false
+        withObservationTracking {
+            _ = store.isDormant
+        } onChange: {
+            notified = true
+        }
+
+        store.selectFolder(picked)
+
+        XCTAssertTrue(notified)
     }
 
     // MARK: - Dormancy
