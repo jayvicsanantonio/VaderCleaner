@@ -172,6 +172,132 @@ final class CleanupManagerModelTests: XCTestCase {
         XCTAssertEqual(lazy.map(\.size), eager.map(\.size))
     }
 
+    // MARK: - Web Development Junk rows
+
+    /// Package caches keep the folder tree (`~/.npm` is one row, not its
+    /// hundreds of thousands of files) while each project artifact folder gets
+    /// its own row naming the project it belongs to — the row is the unit that
+    /// gets deleted, so it has to say so rather than hide two disclosures deep.
+    func test_webDevItems_cachesStayFoldedAndProjectsAreNamedRows() {
+        let files = [
+            file("/Users/me/.npm/_cacache/a", 300, .webDevJunk),
+            file("/Users/me/.pnpm-store/v3/b", 200, .webDevJunk),
+            file("/Users/me/Developer/pixel-prompt/node_modules", 100, .webDevJunk),
+            file("/Users/me/Developer/uigen/dist", 50, .webDevJunk),
+        ]
+
+        let items = CleanupManagerModel.webDevItems(
+            files,
+            cacheRoots: ["/Users/me/.npm", "/Users/me/.pnpm-store"]
+        )
+
+        XCTAssertEqual(
+            items.map(\.title),
+            [".npm", ".pnpm-store", "pixel-prompt / node_modules", "uigen / dist"]
+        )
+        // The cache half keeps its expandable folder node.
+        XCTAssertEqual(items[0].size, 300)
+        XCTAssertTrue(items[0].isExpandable)
+        // Each project artifact is a self-contained row: no disclosure, and it
+        // carries exactly the one path deleting it removes.
+        let project = items[2]
+        XCTAssertFalse(project.isExpandable)
+        XCTAssertEqual(project.selectionPaths, ["/Users/me/Developer/pixel-prompt/node_modules"])
+        XCTAssertEqual(project.subtitle, "/Users/me/Developer/pixel-prompt")
+    }
+
+    /// The category-aware builder routes Web Development Junk to the project
+    /// rows and leaves every other category on the folder hierarchy.
+    func test_buildItems_routesWebDevJunkOnly() {
+        let webDev = [file("/Users/me/Developer/pixel-prompt/node_modules", 100, .webDevJunk)]
+        let caches = [file("/Users/me/Library/Caches/Google/Chrome/a", 100, .userCache)]
+
+        XCTAssertEqual(
+            CleanupManagerModel.buildItems(for: .webDevJunk, files: webDev, cacheRoots: []).map(\.title),
+            ["pixel-prompt / node_modules"]
+        )
+        XCTAssertEqual(
+            CleanupManagerModel.buildItems(for: .userCache, files: caches, cacheRoots: []).map(\.title),
+            CleanupManagerModel.buildHierarchy(caches).map(\.title)
+        )
+    }
+
+    // MARK: - Bulk-select filters
+
+    /// Web Development Junk offers an idle-projects pick that selects exactly
+    /// the long-untouched project artifacts and clears everything else — the
+    /// one bulk action a user can take without weighing each project.
+    func test_selectFilters_idleProjectsClearsThenSelectsIdle() {
+        let idle = artifact("/Users/me/Developer/old-app/node_modules", 100, ageDays: 200, now: Date())
+        var clears = 0
+        var selectedPaths: [String]?
+
+        let filters = CleanupManagerModel.selectFilters(
+            forCategoryID: ScanCategory.webDevJunk.rawValue,
+            idleProjectFiles: [idle],
+            clearAll: { clears += 1 },
+            selectIdle: { files in selectedPaths = files.map(\.url.path) }
+        )
+
+        XCTAssertEqual(filters.count, 1)
+        filters[0].apply()
+
+        // Clear the category first, then check exactly the idle artifacts, so
+        // the pick is an exact selection rather than an addition to whatever
+        // was already checked.
+        XCTAssertEqual(clears, 1)
+        XCTAssertEqual(selectedPaths, ["/Users/me/Developer/old-app/node_modules"])
+    }
+
+    /// No idle projects, no pick: an option that would select nothing is worse
+    /// than no option at all.
+    func test_selectFilters_absentWhenNothingIsIdle() {
+        let filters = CleanupManagerModel.selectFilters(
+            forCategoryID: ScanCategory.webDevJunk.rawValue,
+            idleProjectFiles: [],
+            clearAll: {},
+            selectIdle: { _ in }
+        )
+
+        XCTAssertTrue(filters.isEmpty)
+    }
+
+    /// Other categories get no extra picks — the filter is specific to the
+    /// project-artifact problem, not a general manager feature.
+    func test_selectFilters_absentForOtherCategories() {
+        let idle = artifact("/Users/me/Developer/old-app/node_modules", 100, ageDays: 200, now: Date())
+        let filters = CleanupManagerModel.selectFilters(
+            forCategoryID: ScanCategory.userCache.rawValue,
+            idleProjectFiles: [idle],
+            clearAll: {},
+            selectIdle: { _ in }
+        )
+
+        XCTAssertTrue(filters.isEmpty)
+    }
+
+    /// The single-pass content builder both names the project rows and
+    /// identifies the idle artifacts, so the store computes both off-main in one
+    /// walk instead of rescanning the category on the main thread.
+    func test_webDevContent_returnsRowsAndIdleProjectsInOnePass() {
+        let now = Date(timeIntervalSince1970: 400 * 86_400)
+        let old = artifact("/Users/me/Developer/old-app/node_modules", 100, ageDays: 200, now: now)
+        let fresh = artifact("/Users/me/Developer/shipping-app/node_modules", 80, ageDays: 3, now: now)
+        let cache = file("/Users/me/.npm/_cacache/a", 300, .webDevJunk)
+
+        let content = CleanupManagerModel.webDevContent(
+            [old, fresh, cache],
+            now: now,
+            cacheRoots: ["/Users/me/.npm"]
+        )
+
+        // Rows: the cache folds into a folder tree; both projects are named rows.
+        XCTAssertTrue(content.items.contains { $0.title == "old-app / node_modules" })
+        XCTAssertTrue(content.items.contains { $0.title == "shipping-app / node_modules" })
+        // Idle list: only the long-untouched project, never a cache file.
+        XCTAssertEqual(content.idleProjectFiles.map(\.url.path), ["/Users/me/Developer/old-app/node_modules"])
+    }
+
     // MARK: - Pane descriptions
 
     /// Sections and categories carry the header descriptions the panes show.
@@ -209,6 +335,17 @@ final class CleanupManagerModelTests: XCTestCase {
             lastAccessDate: nil,
             lastModifiedDate: nil,
             category: category
+        )
+    }
+
+    /// A project artifact last modified `ageDays` before `now`.
+    private func artifact(_ path: String, _ size: Int64, ageDays: Double, now: Date) -> ScannedFile {
+        ScannedFile(
+            url: URL(fileURLWithPath: path),
+            size: size,
+            lastAccessDate: nil,
+            lastModifiedDate: now.addingTimeInterval(-ageDays * 86_400),
+            category: .webDevJunk
         )
     }
 }

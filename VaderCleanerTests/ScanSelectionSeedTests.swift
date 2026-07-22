@@ -53,6 +53,54 @@ final class ScanSelectionSeedTests: XCTestCase {
         XCTAssertEqual(seed, ScanSelectionSeed())
     }
 
+    /// Web Development Junk is only half regenerable-at-no-cost: the package
+    /// caches re-download on demand, but a project's `node_modules` costs that
+    /// project a full reinstall the next time it's touched. The caches are
+    /// pre-checked; the project artifacts stay an explicit choice, and the
+    /// tallies count only what's actually selected.
+    func test_safeDefaults_leavesProjectArtifactsUnchecked() async {
+        let cache = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/.npm/_cacache/a"),
+            size: 100, lastAccessDate: nil, lastModifiedDate: nil, category: .webDevJunk
+        )
+        let project = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Developer/pixel-prompt/node_modules"),
+            size: 900, lastAccessDate: nil, lastModifiedDate: nil, category: .webDevJunk
+        )
+        let userCache = file("c", 50, .userCache)
+        let result = ScanResult(items: [cache, project, userCache])
+
+        let seed = await ScanSelectionSeed.safeDefaults(from: result, cacheRoots: ["/Users/me/.npm"])
+
+        XCTAssertEqual(seed.urls, [cache.url, userCache.url])
+        XCTAssertEqual(seed.totalBytes, 150)
+        XCTAssertEqual(seed.bytesByCategory, [.webDevJunk: 100, .userCache: 50])
+        XCTAssertEqual(seed.countByCategory, [.webDevJunk: 1, .userCache: 1])
+    }
+
+    /// A card's Review seeds the same way: opening Web Development Junk must
+    /// not arrive with every project's dependencies already checked.
+    func test_selection_ofWebDevJunk_leavesProjectArtifactsUnchecked() async {
+        let cache = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/.npm/_cacache/a"),
+            size: 100, lastAccessDate: nil, lastModifiedDate: nil, category: .webDevJunk
+        )
+        let project = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Developer/pixel-prompt/node_modules"),
+            size: 900, lastAccessDate: nil, lastModifiedDate: nil, category: .webDevJunk
+        )
+        let result = ScanResult(items: [cache, project])
+
+        let seed = await ScanSelectionSeed.selection(
+            of: [.webDevJunk],
+            from: result,
+            cacheRoots: ["/Users/me/.npm"]
+        )
+
+        XCTAssertEqual(seed.urls, [cache.url])
+        XCTAssertEqual(seed.totalBytes, 100)
+    }
+
     // MARK: - Helpers
 
     private func file(_ name: String, _ size: Int64, _ category: ScanCategory) -> ScannedFile {

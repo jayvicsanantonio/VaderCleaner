@@ -105,7 +105,16 @@ final class SmartScanViewModel {
 
     // Per-finding selections. Pre-approved kinds seed full; opt-in kinds
     // (real user data) seed empty — removal is always an explicit choice.
-    private(set) var junkFileSelection: Set<URL> = []
+    private(set) var junkFileSelection: Set<URL> = [] {
+        didSet { junkSelectionRevision &+= 1 }
+    }
+
+    /// Bumped on every change to `junkFileSelection`, so a consumer can tell
+    /// whether a cached answer about the selection is still valid. Driven by
+    /// `didSet` rather than by each mutating method, so a future write site
+    /// can't forget to bump it and leave a stale checkbox on screen. Backs the
+    /// Cleanup Manager's per-row aggregate cache (see `CleanupManagerStore`).
+    private(set) var junkSelectionRevision = 0
     private(set) var selectedJunkBytes: Int64 = 0
     private(set) var selectedJunkBytesByCategory: [ScanCategory: Int64] = [:]
     private(set) var selectedJunkCountByCategory: [ScanCategory: Int] = [:]

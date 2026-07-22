@@ -38,6 +38,19 @@ final class CleanupManagerStore: @unchecked Sendable {
     /// Expandable-folder row id → its child row ids, so a folder's covered
     /// paths are the union of its children (resolved on demand).
     private var childRowIDsByRowID: [String: [String]] = [:]
+    /// Memoized `allFilesSelected` answers, valid only for
+    /// `cachedSelectionRevision`.
+    private var rowSelectionCache: [String: Bool] = [:]
+    /// The selection revision `rowSelectionCache` was built against; `nil`
+    /// before the first query.
+    private var cachedSelectionRevision: Int?
+    /// The idle project artifacts for Web Development Junk, computed off-main as
+    /// a byproduct of building that category's rows and read O(1) by the Select
+    /// menu. `nil` until the category's rows are built — the menu simply omits
+    /// the idle-projects pick until then, never blocking the main thread to
+    /// compute it (the separation walks the whole category, a third of a million
+    /// files under `~/.npm`).
+    private var webDevIdleProjectFilesCache: [ScannedFile]?
 
     /// Bumped on every `load` so a stale background prebuild stops early.
     private var token = 0
@@ -75,6 +88,9 @@ final class CleanupManagerStore: @unchecked Sendable {
         filesByPath = [:]
         pathsByRowID = [:]
         childRowIDsByRowID = [:]
+        rowSelectionCache = [:]
+        cachedSelectionRevision = nil
+        webDevIdleProjectFilesCache = nil
         token += 1
         return superseded
     }
@@ -156,7 +172,7 @@ final class CleanupManagerStore: @unchecked Sendable {
         return built
     }
 
-    /// The folder tree for one category (built once and cached). Indexes the
+    /// The rows for one category (built once and cached). Indexes the
     /// rows' selection paths so the selection callbacks can resolve them.
     func items(forCategoryID id: String) -> [ManagerItem] {
         lock.lock()
@@ -164,16 +180,38 @@ final class CleanupManagerStore: @unchecked Sendable {
             lock.unlock()
             return cached
         }
-        let files = ScanCategory(rawValue: id).flatMap { itemsByCategory[$0] } ?? []
+        let category = ScanCategory(rawValue: id)
+        let files = category.flatMap { itemsByCategory[$0] } ?? []
         lock.unlock()
 
-        let tree = CleanupManagerModel.buildHierarchy(files)
+        // Web Development Junk needs the same expensive cache/project split for
+        // both its rows and its idle-projects Select pick, so compute both in
+        // one off-main pass here and cache the idle list for the O(1) menu read.
+        let tree: [ManagerItem]
+        var idleProjectFiles: [ScannedFile]?
+        if category == .webDevJunk {
+            let content = CleanupManagerModel.webDevContent(files)
+            tree = content.items
+            idleProjectFiles = content.idleProjectFiles
+        } else {
+            tree = category.map { CleanupManagerModel.buildItems(for: $0, files: files) } ?? []
+        }
 
         lock.lock()
         itemsCache[id] = tree
+        if let idleProjectFiles { webDevIdleProjectFilesCache = idleProjectFiles }
         indexRows(tree)
         lock.unlock()
         return tree
+    }
+
+    /// The idle project artifacts for Web Development Junk, or `nil` until that
+    /// category's rows have been built (an O(1) read of the cache the build
+    /// populates). The Select menu uses it to offer the idle-projects pick
+    /// without ever rescanning the category on the main thread.
+    func webDevIdleProjectFiles() -> [ScannedFile]? {
+        lock.lock(); defer { lock.unlock() }
+        return webDevIdleProjectFilesCache
     }
 
     /// Records each row's selection index. A childless row stores the leaf paths
@@ -234,10 +272,35 @@ final class CleanupManagerStore: @unchecked Sendable {
     /// matching `files(forRowID:)`; a row that resolves to no files answers
     /// unchecked. `isSelected` runs under the store's lock and must not call
     /// back into the store.
-    func allFilesSelected(forRowID id: String, isSelected: (ScannedFile) -> Bool) -> Bool {
+    ///
+    /// Answers are memoized per `selectionRevision` — the view model's counter
+    /// over its selection set — and the whole cache is dropped the moment that
+    /// counter moves. Without it, an all-selected folder row has nothing to
+    /// short-circuit on and rescans its entire subtree every time the table
+    /// configures its cell: `~/.npm` covers a quarter of a million files, so
+    /// scrolling it back into view cost ~140 ms of `Set<URL>` lookups, once per
+    /// appearance. The manager's per-category fast path
+    /// (`SmartScanReviewManager.uniformSelection`) skips this call entirely
+    /// while a category is uniformly all- or none-selected, but a category with
+    /// a mixed selection — the normal state of Web Development Junk, whose
+    /// caches are pre-checked and whose project artifacts are not — falls
+    /// through to here for every row.
+    func allFilesSelected(
+        forRowID id: String,
+        selectionRevision: Int,
+        isSelected: (ScannedFile) -> Bool
+    ) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if cachedSelectionRevision != selectionRevision {
+            rowSelectionCache.removeAll(keepingCapacity: true)
+            cachedSelectionRevision = selectionRevision
+        } else if let cached = rowSelectionCache[id] {
+            return cached
+        }
         var foundFile = false
-        return allResolvedFilesSelected(forRowID: id, isSelected: isSelected, foundFile: &foundFile) && foundFile
+        let answer = allResolvedFilesSelected(forRowID: id, isSelected: isSelected, foundFile: &foundFile) && foundFile
+        rowSelectionCache[id] = answer
+        return answer
     }
 
     /// Recursive body of `allFilesSelected`, mirroring `resolvePaths`' index

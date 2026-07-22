@@ -67,7 +67,16 @@ final class SystemJunkViewModel {
     /// file in the latest scan on success (opt-out), and is cleared on
     /// `scanAgain()`. The view binds each review row's checkbox to
     /// `isSelected` + `toggleSelection`.
-    private(set) var selectedURLs: Set<URL> = []
+    private(set) var selectedURLs: Set<URL> = [] {
+        didSet { selectionRevision &+= 1 }
+    }
+
+    /// Bumped on every change to `selectedURLs`, so a consumer can tell whether
+    /// a cached answer about the selection is still valid. Driven by `didSet`
+    /// rather than by each mutating method, so a future write site can't forget
+    /// to bump it and leave a stale checkbox on screen. Backs the Cleanup
+    /// Manager's per-row aggregate cache (see `CleanupManagerStore`).
+    private(set) var selectionRevision = 0
 
     /// Running total of bytes for files in `selectedURLs`. Maintained
     /// incrementally on every `toggleSelection` so the footer label updates in

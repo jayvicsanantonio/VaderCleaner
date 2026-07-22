@@ -115,11 +115,61 @@ final class CleanupManagerStoreTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
         }
 
+        // Each predicate stands for a different selection, so each carries its
+        // own revision — answers are memoized within one.
         let selected: Set<URL> = [a.url, b.url]
-        XCTAssertTrue(store.allFilesSelected(forRowID: google!.id) { selected.contains($0.url) })
-        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id) { $0.url == a.url },
+        XCTAssertTrue(store.allFilesSelected(forRowID: google!.id, selectionRevision: 1) { selected.contains($0.url) })
+        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id, selectionRevision: 2) { $0.url == a.url },
                        "One unselected descendant must uncheck the folder")
-        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id) { _ in false })
+        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id, selectionRevision: 3) { _ in false })
+    }
+
+    /// Within one selection revision a row is walked once and the answer
+    /// reused: an all-selected folder row has nothing to short-circuit on, so
+    /// re-walking it every time the table configures its cell is what made
+    /// scrolling a huge category (a quarter-million files under `~/.npm`) jerk.
+    func test_allFilesSelected_memoizesWithinARevision() async {
+        let store = CleanupManagerStore()
+        let a = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        let b = file("/Users/me/Library/Caches/Google/Chrome/b", 200, .userCache)
+        let c = file("/Users/me/Library/Caches/Homebrew/d", 50, .userCache)
+        store.load(result: ScanResult(items: [a, b, c]))
+        var google: ManagerItem?
+        for _ in 0..<200 {
+            google = store.items(forCategoryID: "userCache").first { $0.title == "Google" }
+            if store.files(forRowID: google!.id).count == 2 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
+        }
+
+        var walks = 0
+        for _ in 0..<5 {
+            _ = store.allFilesSelected(forRowID: google!.id, selectionRevision: 7) { _ in
+                walks += 1
+                return true
+            }
+        }
+
+        XCTAssertEqual(walks, 2, "The row's two files must be visited once, not once per query")
+    }
+
+    /// A new revision drops the cache: a selection change has to reach the
+    /// checkboxes, never a stale answer.
+    func test_allFilesSelected_recomputesOnNewRevision() async {
+        let store = CleanupManagerStore()
+        let a = file("/Users/me/Library/Caches/Google/Chrome/a", 300, .userCache)
+        let b = file("/Users/me/Library/Caches/Google/Chrome/b", 200, .userCache)
+        let c = file("/Users/me/Library/Caches/Homebrew/d", 50, .userCache)
+        store.load(result: ScanResult(items: [a, b, c]))
+        var google: ManagerItem?
+        for _ in 0..<200 {
+            google = store.items(forCategoryID: "userCache").first { $0.title == "Google" }
+            if store.files(forRowID: google!.id).count == 2 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
+        }
+
+        XCTAssertTrue(store.allFilesSelected(forRowID: google!.id, selectionRevision: 1) { _ in true })
+        XCTAssertFalse(store.allFilesSelected(forRowID: google!.id, selectionRevision: 2) { _ in false })
+        XCTAssertTrue(store.allFilesSelected(forRowID: google!.id, selectionRevision: 3) { _ in true })
     }
 
     /// A row that resolves to no indexed files — an unknown id, or paths the
@@ -132,7 +182,40 @@ final class CleanupManagerStoreTests: XCTestCase {
         ]))
         _ = store.items(forCategoryID: "userCache")
 
-        XCTAssertFalse(store.allFilesSelected(forRowID: "/no/such/row") { _ in true })
+        XCTAssertFalse(store.allFilesSelected(forRowID: "/no/such/row", selectionRevision: 1) { _ in true })
+    }
+
+    /// Building Web Development Junk's rows also caches its idle project
+    /// artifacts, so the Select menu reads them O(1) instead of rescanning a
+    /// third-of-a-million-file category on the main thread. The list is `nil`
+    /// until the rows are built, so the menu simply omits the pick until then.
+    func test_webDevIdleProjectFiles_populatedByItemsBuild() {
+        let store = CleanupManagerStore()
+        let now = Date()
+        let idle = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Developer/old-app/node_modules"),
+            size: 100, lastAccessDate: nil,
+            lastModifiedDate: now.addingTimeInterval(-200 * 86_400), category: .webDevJunk
+        )
+        let fresh = ScannedFile(
+            url: URL(fileURLWithPath: "/Users/me/Developer/shipping-app/node_modules"),
+            size: 80, lastAccessDate: nil,
+            lastModifiedDate: now.addingTimeInterval(-3 * 86_400), category: .webDevJunk
+        )
+        store.load(result: ScanResult(items: [idle, fresh]))
+
+        // Not computed until the category's rows are built.
+        XCTAssertNil(store.webDevIdleProjectFiles())
+
+        _ = store.items(forCategoryID: ScanCategory.webDevJunk.rawValue)
+
+        XCTAssertEqual(
+            store.webDevIdleProjectFiles()?.map(\.url.path),
+            ["/Users/me/Developer/old-app/node_modules"]
+        )
+
+        store.unload()
+        XCTAssertNil(store.webDevIdleProjectFiles())
     }
 
     /// `unload()` drops everything the store serves: category trees come back
