@@ -179,6 +179,7 @@ private struct SettingsBadgeIcon: View {
 struct ScanningTab: View {
 
     @Environment(SmartScanSettingsStore.self) private var settings
+    @Environment(WebDevScanScopeStore.self) private var webDevScope
     /// Node ids whose children are revealed. Every area — and Cleanup's System
     /// Junk sub-group — opens by default so the list shows its complete set of
     /// options on first view (System Caches, Xcode Junk, Web Development Junk, …).
@@ -215,16 +216,6 @@ struct ScanningTab: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(rootNodes) { node in
                         ScanNodeRow(node: node, level: 0, expanded: $expanded)
-                    }
-
-                    // The Web Development Junk scan walks the user's own code
-                    // folders, so it needs a folder choice the fixed-location
-                    // categories don't. It surfaces only once the user opens
-                    // System Junk, where Web Development Junk lives.
-                    if expanded.contains("group.systemJunk") {
-                        Divider()
-                            .padding(.vertical, 8)
-                        WebDevScanFolderPicker()
                     }
                 }
                 .padding(12)
@@ -385,8 +376,20 @@ struct ScanningTab: View {
             state: { self.groupState(categories) },
             toggle: { self.setCategories(categories, enabled: !self.allEnabled(categories)) },
             isEnabled: { self.settings.isDomainEnabled(.systemJunk) },
-            children: Self.systemJunkDisplays.map { categoryNode($0.category, title: $0.title, symbol: $0.symbol) }
+            children: visibleSystemJunkDisplays.map {
+                categoryNode($0.category, title: $0.title, symbol: $0.symbol)
+            }
         )
+    }
+
+    /// The System Junk categories worth showing. Web Development Junk drops out
+    /// when there are no coding-project folders on this Mac and none has been
+    /// picked — the scan would find nothing, and asking someone who doesn't
+    /// write code where their "project junk" lives is pure confusion. The full
+    /// `systemJunkDisplays` list still backs `toggleableJunkCategories`, so the
+    /// category stays scannable and its completeness test unaffected.
+    private var visibleSystemJunkDisplays: [(category: ScanCategory, title: String, symbol: String)] {
+        Self.systemJunkDisplays.filter { $0.category != .webDevJunk || !webDevScope.isDormant }
     }
 
     private func categoryNode(_ category: ScanCategory, title: String, symbol: String) -> ScanNode {
@@ -398,7 +401,11 @@ struct ScanningTab: View {
             checkboxID: "scanning.junkCategory.\(category.rawValue)",
             state: { self.settings.isJunkCategoryEnabled(category) ? .on : .off },
             toggle: { self.settings.setJunkCategory(category, enabled: !self.settings.isJunkCategoryEnabled(category)) },
-            isEnabled: { self.settings.isDomainEnabled(.systemJunk) }
+            isEnabled: { self.settings.isDomainEnabled(.systemJunk) },
+            // The folder choice belongs to Web Development Junk, so it renders
+            // directly beneath that row — not stranded at the bottom of the
+            // list, forty rows from the checkbox it configures.
+            accessory: category == .webDevJunk ? .webDevScanFolder : nil
         )
     }
 
@@ -536,6 +543,13 @@ struct ScanningTab: View {
 /// `CheckState` so the view and store share one vocabulary.
 private typealias ScanState = SmartScanSettingsStore.CheckState
 
+/// An extra control a row carries beneath itself. Modelled as a marker rather
+/// than an erased view so `ScanNode` stays a plain data description of the tree.
+private enum ScanNodeAccessory {
+    /// The Web Development Junk folder chooser.
+    case webDevScanFolder
+}
+
 /// A tree row's icon: a top-level module wears its section's baked 3D art;
 /// every sub-row wears a glossy badge tinted with that same section's colour,
 /// so a subtree reads as one hue.
@@ -569,6 +583,9 @@ private struct ScanNode: Identifiable {
     /// A descriptive row carries no checkbox — it names one thing the module
     /// covers rather than offering an independent toggle.
     var isDescriptive: Bool = false
+    /// An extra control rendered beneath the row, shown only while the row is
+    /// both enabled and ticked.
+    var accessory: ScanNodeAccessory? = nil
     var children: [ScanNode] = []
 }
 
@@ -612,11 +629,28 @@ private struct ScanNodeRow: View {
             .disabled(!enabled)
             .opacity(enabled ? 1 : 0.45)
 
+            // Only while the row is on: a folder choice for a scan the user has
+            // switched off is a decision about nothing.
+            if let accessory = node.accessory, enabled, node.state() != .off {
+                accessoryView(accessory)
+                    .padding(.leading, CGFloat(level + 1) * Self.indentStep)
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 6)
+            }
+
             if isOpen {
                 ForEach(node.children) { child in
                     ScanNodeRow(node: child, level: level + 1, expanded: $expanded)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func accessoryView(_ accessory: ScanNodeAccessory) -> some View {
+        switch accessory {
+        case .webDevScanFolder:
+            WebDevScanFolderPicker()
         }
     }
 
@@ -1289,9 +1323,14 @@ private struct ExclusionsTab: View {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.path)])
     }
 
-    /// Presents an `NSOpenPanel` so the user can pick any file or folder.
+    /// Presents an `NSOpenPanel` so the user can pick any files or folders.
     /// Whatever they pick gets added as an absolute path string — `ExclusionsStore`
     /// already dedupes so re-picking is harmless.
+    ///
+    /// Presented as a sheet on the Settings window rather than via `runModal()`.
+    /// A nested modal session run from a SwiftUI `Settings` scene takes the
+    /// settings window down with it when the panel dismisses; a sheet keeps the
+    /// window's own event handling intact.
     private func presentAddPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -1300,9 +1339,17 @@ private struct ExclusionsTab: View {
         panel.prompt = "Ignore"
         panel.message = "Choose files or folders for scans to leave alone"
 
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls { exclusions.add(path: url.path) }
-        refresh()
+        let handle: @Sendable (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            for url in panel.urls { exclusions.add(path: url.path) }
+            refresh()
+        }
+
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            panel.begin(completionHandler: handle)
+        }
     }
 }
 

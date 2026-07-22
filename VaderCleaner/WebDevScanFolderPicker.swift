@@ -16,14 +16,14 @@ struct WebDevScanFolderPicker: View {
     /// Capsule shown when the default scope is active, where there is no single
     /// folder to name.
     private var defaultScopeName: String {
-        String(localized: "Default project folders", comment: "Web Development Junk scan scope: the common code directories under home.")
+        String(localized: "My usual project folders", comment: "Web Development Junk scan scope: the common code directories under home.")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Where to look for project junk:")
+            Text("Where do you keep your coding projects?")
                 .font(.subheadline.weight(.semibold))
-            Text("Coding projects leave behind build files and package caches. These are the folders VaderCleaner checks for them.")
+            Text("Coding projects build up big folders of downloaded code that can be recreated any time. Point VaderCleaner at where yours live and it'll clear those out.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             picker
@@ -145,7 +145,18 @@ struct WebDevScanFolderPicker: View {
         panel.directoryURL = scanScope.selectedFolderURL
             ?? FileManager.default.homeDirectoryForCurrentUser
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        scanScope.selectFolder(url)
+        // A sheet rather than `runModal()`: a nested modal session run from the
+        // SwiftUI `Settings` scene takes the settings window down with it when
+        // the panel dismisses.
+        let handle: @Sendable (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            scanScope.selectFolder(url)
+        }
+
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            panel.begin(completionHandler: handle)
+        }
     }
 }
