@@ -228,9 +228,10 @@ struct SmartScanReviewManager: View {
     /// Monotonic counter the host bumps on every selection change, forwarded to
     /// the row table so it refreshes visible checkbox state only when the
     /// selection actually moved — not on the incidental SwiftUI updates that
-    /// fire throughout a momentum scroll. Left `0` by the small flat managers,
-    /// which always refresh.
-    var selectionToken: Int = 0
+    /// fire throughout a momentum scroll. `nil` (the default) makes the small
+    /// flat managers always refresh, so their checkboxes repaint on every
+    /// toggle; only the Cleanup Manager, over huge scans, supplies a revision.
+    var selectionToken: Int? = nil
 
     /// The active section accent (purple in Smart Scan), used to tint the
     /// section/category selection so it matches the app rather than the grey
