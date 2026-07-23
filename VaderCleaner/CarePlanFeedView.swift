@@ -49,9 +49,16 @@ struct CarePlanFeedView: View {
     private var feedContent: some View {
         VStack(spacing: 22) {
             topBar
-            if let verdict = viewModel.verdict {
+            if let verdict = viewModel.verdict, let plan = viewModel.currentPlan {
                 CareVerdictHero(
                     verdict: verdict,
+                    // Pass the selected pre-approved bytes so the hero's
+                    // "can be freed safely" line agrees with the tiles and
+                    // the Fix caption instead of the gross total found.
+                    detail: CareVerdictEngine.detail(
+                        for: plan,
+                        safeFreeableBytes: viewModel.preApprovedFreeableBytes
+                    ),
                     historyLine: history?.lifetimeFreedLine(),
                     coverageNote: coverageNote
                 )
@@ -137,6 +144,7 @@ struct CarePlanFeedView: View {
                 ForEach(findings) { finding in
                     CareResultTile(
                         finding: finding,
+                        metric: metricText(for: finding),
                         isIncluded: viewModel.isFindingIncluded(finding.kind),
                         showsReview: reviewableKinds.contains(finding.kind),
                         onToggleInclusion: { toggleInclusion(of: finding) },
@@ -209,6 +217,19 @@ struct CarePlanFeedView: View {
         }
     }
 
+    /// The tile's big metric. Pre-approved space cards show what Fix will
+    /// actually free — its current selection — because junk seeds only the
+    /// categories safe to auto-remove, so the gross "found" total (what
+    /// `CareFindingCopy.metric` reports) would overstate what one tap does.
+    /// Opt-in cards keep the gross potential: they aren't in Fix by default,
+    /// so their number is "what you could free," not "what Fix does."
+    private func metricText(for finding: CareFinding) -> String {
+        if finding.actionability == .preApproved, finding.reclaimableBytes > 0 {
+            return CareFindingCopy.formattedBytes(viewModel.freeableBytes(for: finding.kind))
+        }
+        return CareFindingCopy.metric(for: finding)
+    }
+
     /// Turning an opt-in tile on with nothing selected silently selecting
     /// everything would betray the zone's promise — deep-link into Review so
     /// the user picks what goes.
@@ -229,6 +250,9 @@ struct CarePlanFeedView: View {
 private struct CareVerdictHero: View {
 
     let verdict: CareVerdict
+    /// The supporting line, supplied by the feed so its freeable-bytes figure
+    /// reflects the current selection rather than `verdict.detail`'s gross total.
+    let detail: String
     let historyLine: String?
     let coverageNote: String?
 
@@ -242,7 +266,7 @@ private struct CareVerdictHero: View {
                         .foregroundStyle(.white)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("smartScan.verdictHeading")
-                    Text(verdict.detail)
+                    Text(detail)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.75))
                         .accessibilityIdentifier("smartScan.verdictDetail")
@@ -304,6 +328,9 @@ private struct CareVerdictHero: View {
 struct CareResultTile: View {
 
     let finding: CareFinding
+    /// The big metric, resolved by the feed so pre-approved tiles show what Fix
+    /// will free (the selection) rather than the gross total found.
+    let metric: String
     let isIncluded: Bool
     let showsReview: Bool
     let onToggleInclusion: () -> Void
@@ -344,7 +371,7 @@ struct CareResultTile: View {
                 .padding(.trailing, 56)
             Spacer(minLength: 8)
             HStack(alignment: .lastTextBaseline) {
-                Text(CareFindingCopy.metric(for: finding))
+                Text(metric)
                     .font(.system(size: 21, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()

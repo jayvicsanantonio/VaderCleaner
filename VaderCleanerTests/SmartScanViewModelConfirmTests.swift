@@ -74,6 +74,37 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         XCTAssertEqual(vm.freeableBytes, 40, "only the duplicate copy remains")
     }
 
+    // MARK: - Freeable bytes reflect the safe selection
+
+    func test_freeableBytes_forJunk_countsOnlyTheSafeSelection() async {
+        // Junk found in an unsafe category (mail attachments) seeds unchecked,
+        // so what Fix frees — and the tile metric — is the safe subset only,
+        // not the gross total the scanner found.
+        let junk = ScanResult(items: [
+            file("/cache/safe", size: 1_000, category: .userCache),
+            file("/mail/attachment", size: 5_000, category: .mailAttachments),
+        ])
+        let plan = CarePlan(
+            findings: [CareFinding(kind: .junkCleanup, payload: .junk(junk))],
+            health: nil,
+            unitOutcomes: [.systemJunk: .completed],
+            startedAt: Date(),
+            finishedAt: Date()
+        )
+        let vm = SmartScanViewModel(scanEngine: { _, _ in plan })
+        await vm.scan()
+
+        XCTAssertEqual(vm.junkResult.totalSize, 6_000, "the gross total the card used to show")
+        XCTAssertEqual(vm.freeableBytes(for: .junkCleanup), 1_000, "only the safe-category junk is selected")
+        XCTAssertEqual(vm.preApprovedFreeableBytes, 1_000, "the hero reflects the same safe subset")
+    }
+
+    func test_preApprovedFreeableBytes_sumsJunkAndDuplicates() async {
+        let vm = await scannedViewModel()
+        // Junk safe file (1,000) + the seeded redundant duplicate copy (40).
+        XCTAssertEqual(vm.preApprovedFreeableBytes, 1_040)
+    }
+
     // MARK: - Permanent-delete detection
 
     func test_runIncludesPermanentDelete_trueWhenJunkIncluded() async {

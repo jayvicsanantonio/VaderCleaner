@@ -890,6 +890,23 @@ final class SmartScanViewModel {
         willExecute(.junkCleanup)
     }
 
+    /// Bytes a Run would free from one finding's current selection. The feed's
+    /// pre-approved tiles show this rather than the gross "found" total, so the
+    /// number a user reads matches what one tap actually frees — junk seeds its
+    /// selection to safe categories only, so the two differ.
+    func freeableBytes(for kind: CareFinding.Kind) -> Int64 {
+        selectedBytes(for: kind)
+    }
+
+    /// Selected freeable bytes across the pre-approved findings — what the
+    /// hero's "can be freed safely" line reflects, so it agrees with the tiles
+    /// and the disc caption instead of promising the gross total found.
+    var preApprovedFreeableBytes: Int64 {
+        (currentPlan?.findings ?? [])
+            .filter { $0.actionability == .preApproved }
+            .reduce(0) { $0 + selectedBytes(for: $1.kind) }
+    }
+
     /// Selected bytes for one finding, mirroring the size sources `execute`
     /// uses so the caption's total matches what the receipt will report.
     private func selectedBytes(for kind: CareFinding.Kind) -> Int64 {

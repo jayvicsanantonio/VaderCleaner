@@ -73,6 +73,14 @@ enum CareVerdictEngine {
     /// space is safely freeable. Informational findings are notes, not tasks,
     /// so they never inflate the count.
     static func detail(for plan: CarePlan) -> String {
+        detail(for: plan, safeFreeableBytes: safelyFreeableBytes(in: plan))
+    }
+
+    /// Same supporting line, but with the freeable bytes supplied by the
+    /// caller — the results feed passes the *selected* pre-approved bytes so
+    /// the hero reflects what one tap frees rather than the gross total found
+    /// (junk that isn't safe to auto-remove seeds unchecked).
+    static func detail(for plan: CarePlan, safeFreeableBytes: Int64) -> String {
         let actionable = plan.findings.filter { $0.actionability != .informational }
         if plan.findings.isEmpty {
             return String(
@@ -86,15 +94,14 @@ enum CareVerdictEngine {
                 comment: "Care verdict detail when only informational findings exist."
             )
         }
-        let safeBytes = safelyFreeableBytes(in: plan)
-        if safeBytes > 0 {
+        if safeFreeableBytes > 0 {
             return String.localizedStringWithFormat(
                 String(
                     localized: "%d things worth doing — %@ can be freed safely.",
                     comment: "Care verdict detail: actionable count and safely freeable bytes."
                 ),
                 actionable.count,
-                CareFindingCopy.formattedBytes(safeBytes)
+                CareFindingCopy.formattedBytes(safeFreeableBytes)
             )
         }
         return String.localizedStringWithFormat(

@@ -144,4 +144,19 @@ final class CareVerdictEngineTests: XCTestCase {
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [info], health: healthyTelemetry))
         XCTAssertFalse(verdict.detail.contains("1 thing"), "informational findings are not 'things worth doing'")
     }
+
+    func test_detail_withSuppliedBytes_quotesTheSelectedTotalNotTheGross() {
+        // The feed passes the *selected* pre-approved bytes so the hero agrees
+        // with the tiles and the Fix caption; the gross found total is larger.
+        let carePlan = plan(findings: [junkFinding(bytes: 110_000_000_000)], health: healthyTelemetry)
+        let detail = CareVerdictEngine.detail(for: carePlan, safeFreeableBytes: 94_650_000_000)
+        XCTAssertTrue(
+            detail.contains(CareFindingCopy.formattedBytes(94_650_000_000)),
+            "detail should quote the supplied selected total: \(detail)"
+        )
+        XCTAssertFalse(
+            detail.contains(CareFindingCopy.formattedBytes(110_000_000_000)),
+            "detail must not quote the gross found total"
+        )
+    }
 }
