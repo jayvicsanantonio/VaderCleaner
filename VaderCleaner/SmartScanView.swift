@@ -60,6 +60,22 @@ struct SmartScanView: View {
             .id(phaseTransitionID)
             .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
             .animation(VaderMotion.surface, value: phaseTransitionID)
+            // The run-confirmation sheet floats over the whole feed (not inside
+            // the transition host) so it can't be swept by the phase crossfade,
+            // and only appears for a run that permanently deletes junk.
+            .overlay {
+                if viewModel.isConfirmingRun {
+                    RunConfirmationSheet(
+                        itemCount: viewModel.runnableFindingCount,
+                        lines: viewModel.runActionSummary,
+                        accent: SectionPresentation.for(.smartScan)?.accent ?? .vaderCrimson,
+                        onConfirm: { Task { await viewModel.confirmRun() } },
+                        onCancel: { viewModel.cancelRun() }
+                    )
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97)))
+                }
+            }
+            .animation(VaderMotion.surface, value: viewModel.isConfirmingRun)
             .navigationTitle(NavigationSection.smartScan.title)
             // Every transition out of `.results` clears any in-flight Review
             // so a stale value can't re-emerge on the next results landing.

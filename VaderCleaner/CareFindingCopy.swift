@@ -353,4 +353,81 @@ enum CareFindingCopy {
             )
         }
     }
+
+    /// One plain-language line for the run-confirmation sheet, describing what
+    /// this finding's action will do to the chosen items. Junk names its size
+    /// and says "permanently" — it is the only step the Trash can't undo;
+    /// everything else is phrased as a restorable move to the Trash.
+    static func runConfirmationLine(for kind: CareFinding.Kind, bytes: Int64, count: Int) -> String {
+        switch kind {
+        case .junkCleanup:
+            return String.localizedStringWithFormat(
+                String(localized: "Permanently removes %@ of junk", comment: "Run confirmation line for junk cleanup (irreversible)."),
+                formattedBytes(bytes)
+            )
+        case .duplicates:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d duplicate copies to the Trash", comment: "Run confirmation line for duplicates."),
+                count
+            )
+        case .threats:
+            return String.localizedStringWithFormat(
+                String(localized: "Removes %d threats", comment: "Run confirmation line for malware threats."),
+                count
+            )
+        case .appUpdates:
+            return String.localizedStringWithFormat(
+                String(localized: "Opens %d app updates", comment: "Run confirmation line for app updates."),
+                count
+            )
+        case .maintenanceDue:
+            return String.localizedStringWithFormat(
+                String(localized: "Runs %d maintenance tasks", comment: "Run confirmation line for maintenance."),
+                count
+            )
+        case .largeOldFiles:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d large files to the Trash", comment: "Run confirmation line for large/old files."),
+                count
+            )
+        case .downloads:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d downloads to the Trash", comment: "Run confirmation line for downloads."),
+                count
+            )
+        case .installers:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d installers to the Trash", comment: "Run confirmation line for installers."),
+                count
+            )
+        case .similarImages:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d similar photos to the Trash", comment: "Run confirmation line for similar images."),
+                count
+            )
+        case .unusedApps:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d unused apps to the Trash", comment: "Run confirmation line for unused apps."),
+                count
+            )
+        case .unsupportedApps:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %d incompatible apps to the Trash", comment: "Run confirmation line for unsupported apps."),
+                count
+            )
+        case .appLeftovers:
+            return String.localizedStringWithFormat(
+                String(localized: "Clears leftovers from %d apps", comment: "Run confirmation line for app leftovers."),
+                count
+            )
+        case .browserPrivacy:
+            return String.localizedStringWithFormat(
+                String(localized: "Clears %d browser data items", comment: "Run confirmation line for browser privacy."),
+                count
+            )
+        case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
+            // Advisory findings never run, so they never reach the sheet.
+            return ""
+        }
+    }
 }

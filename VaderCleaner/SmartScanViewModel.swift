@@ -48,6 +48,16 @@ final class SmartScanViewModel {
         case failed
     }
 
+    /// One row of the run-confirmation sheet: the plain-language description of
+    /// what a finding's action will do, and whether it is the irreversible
+    /// (permanent junk delete) step so the sheet can mark it.
+    struct RunActionLine: Identifiable, Equatable {
+        let kind: CareFinding.Kind
+        let text: String
+        let isPermanent: Bool
+        var id: CareFinding.Kind { kind }
+    }
+
     // MARK: - Collaborator shapes
 
     typealias ScanEngine = @Sendable (
@@ -102,6 +112,12 @@ final class SmartScanViewModel {
     /// Whether a Review screen is open over the results feed — mirrored here
     /// so the floating Run disc (hosted in a separate panel) can hide.
     private(set) var isReviewing = false
+
+    /// Whether the run-confirmation sheet is up. Set by `requestRun()` only
+    /// when the pending run includes a permanent delete (junk); the sheet
+    /// confirms that one irreversible step before anything happens. The Run
+    /// disc hides while it is showing so it can't be tapped behind the sheet.
+    private(set) var isConfirmingRun = false
 
     // Per-finding selections. Pre-approved kinds seed full; opt-in kinds
     // (real user data) seed empty — removal is always an explicit choice.
@@ -342,6 +358,7 @@ final class SmartScanViewModel {
         scannedItemCount = 0
         includedFindings = []
         isReviewing = false
+        isConfirmingRun = false
         junkFileSelection = []
         selectedJunkBytes = 0
         selectedJunkBytesByCategory = [:]
@@ -830,11 +847,69 @@ final class SmartScanViewModel {
         CareFinding.Kind.allCases.contains { willExecute($0) }
     }
 
+    /// How many included findings would do work on a Run pass — the count the
+    /// disc's caption shows ("N items"). Kept live so toggling a card updates
+    /// it immediately.
+    var runnableFindingCount: Int {
+        CareFinding.Kind.allCases.count { willExecute($0) }
+    }
+
+    /// Bytes a Run pass would free right now, summed from each runnable
+    /// finding's current selection — the size the disc's caption shows. Only
+    /// findings that carry a measured size contribute (junk dominates); the
+    /// rest (updates, maintenance, threats) free no disk space and count zero.
+    var freeableBytes: Int64 {
+        CareFinding.Kind.allCases.reduce(0) { total, kind in
+            willExecute(kind) ? total + selectedBytes(for: kind) : total
+        }
+    }
+
+    /// Whether the pending Run pass includes a permanent delete. Junk cleanup
+    /// is the only action that bypasses the Trash (macOS rebuilds it), so it
+    /// is the only thing the confirmation sheet needs to flag as irreversible.
+    var runIncludesPermanentDelete: Bool {
+        willExecute(.junkCleanup)
+    }
+
+    /// Selected bytes for one finding, mirroring the size sources `execute`
+    /// uses so the caption's total matches what the receipt will report.
+    private func selectedBytes(for kind: CareFinding.Kind) -> Int64 {
+        guard let payload = currentPlan?.finding(kind)?.payload else { return 0 }
+        switch payload {
+        case .junk:
+            return selectedJunkBytes
+        case .duplicates(let groups):
+            return selectedBytes(in: duplicateSelection, sizes: groups.flatMap { $0.files.map { ($0.url, $0.size) } })
+        case .largeOldFiles(let files):
+            return selectedBytes(in: largeOldFileSelection, sizes: files.map { ($0.url, $0.size) })
+        case .similarImages(let groups):
+            return selectedBytes(in: similarImageSelection, sizes: groups.flatMap { $0.files.map { ($0.url, $0.size) } })
+        case .downloads(let items):
+            return selectedBytes(in: downloadSelection, sizes: items.map { ($0.file.url, $0.file.size) })
+        case .installers(let files):
+            return files.filter { installerSelection.contains($0.id) }.reduce(0) { $0 + $1.sizeBytes }
+        case .unusedApps(let apps):
+            return apps.filter { unusedAppSelection.contains($0.id) }.reduce(0) { $0 + $1.sizeBytes }
+        case .appLeftovers(let groups):
+            return groups.filter { leftoverSelection.contains($0.bundleID) }.reduce(0) { $0 + $1.totalBytes }
+        case .threats, .appUpdates, .maintenanceDue, .unsupportedApps, .browserPrivacy,
+             .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
+            return 0
+        }
+    }
+
+    /// Sums the sizes of the selected URLs against a (url, size) list.
+    private func selectedBytes(in selection: Set<URL>, sizes: [(URL, Int64)]) -> Int64 {
+        let table = Dictionary(sizes, uniquingKeysWith: { first, _ in first })
+        return selection.reduce(0) { $0 + (table[$1] ?? 0) }
+    }
+
     /// Whether the floating Run disc should be on screen: only on the
-    /// results feed, only with work to do, and never while a Review is up.
+    /// results feed, only with work to do, and never while a Review or the
+    /// confirmation sheet is up.
     var isRunDiscVisible: Bool {
         guard case .results = phase else { return false }
-        return hasExecutableWork && !isReviewing
+        return hasExecutableWork && !isReviewing && !isConfirmingRun
     }
 
     /// Records whether a Review screen is open, so the floating Run disc can
@@ -844,6 +919,50 @@ final class SmartScanViewModel {
     }
 
     // MARK: - Run
+
+    /// The disc's tap entry point. Runs immediately when nothing irreversible
+    /// is included, but raises the confirmation sheet first when the pass would
+    /// permanently delete junk — the one step the Trash can't undo. A no-op
+    /// unless the results feed has work to do.
+    func requestRun() async {
+        guard case .results = phase, hasExecutableWork else { return }
+        if runIncludesPermanentDelete {
+            isConfirmingRun = true
+        } else {
+            await run()
+        }
+    }
+
+    /// Confirms a run the sheet was gating and starts it.
+    func confirmRun() async {
+        guard isConfirmingRun else { return }
+        isConfirmingRun = false
+        await run()
+    }
+
+    /// Dismisses the confirmation sheet without running.
+    func cancelRun() {
+        isConfirmingRun = false
+    }
+
+    /// One line per finding the pending run would act on, in feed order — the
+    /// body of the confirmation sheet. Each says what will happen to the chosen
+    /// items; the permanent one is flagged so the sheet can mark it.
+    var runActionSummary: [RunActionLine] {
+        CarePlanRanker.ranked(currentPlan?.findings ?? [])
+            .filter { willExecute($0.kind) }
+            .map { finding in
+                RunActionLine(
+                    kind: finding.kind,
+                    text: CareFindingCopy.runConfirmationLine(
+                        for: finding.kind,
+                        bytes: selectedBytes(for: finding.kind),
+                        count: selectionCount(for: finding.kind)
+                    ),
+                    isPermanent: finding.kind == .junkCleanup
+                )
+            }
+    }
 
     /// One Run pass over the included findings, in feed order. Every finding
     /// executes inside its own do/catch and lands one receipt line, so a
