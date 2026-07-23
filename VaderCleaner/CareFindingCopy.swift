@@ -430,4 +430,57 @@ enum CareFindingCopy {
             return ""
         }
     }
+
+    /// Present-tense label for the action underway during a Run pass, shown on
+    /// the running screen so the wait is never blind.
+    static func runProgressLabel(for kind: CareFinding.Kind) -> String {
+        switch kind {
+        case .junkCleanup:
+            return String(localized: "Clearing out junk…", comment: "Run progress label while deleting junk.")
+        case .threats:
+            return String(localized: "Removing threats…", comment: "Run progress label while removing malware.")
+        case .duplicates:
+            return String(localized: "Removing duplicate copies…", comment: "Run progress label for duplicates.")
+        case .appUpdates:
+            return String(localized: "Opening app updates…", comment: "Run progress label for app updates.")
+        case .maintenanceDue:
+            return String(localized: "Running maintenance…", comment: "Run progress label for maintenance tasks.")
+        case .largeOldFiles:
+            return String(localized: "Clearing large files…", comment: "Run progress label for large/old files.")
+        case .downloads:
+            return String(localized: "Clearing old downloads…", comment: "Run progress label for downloads.")
+        case .installers:
+            return String(localized: "Clearing installers…", comment: "Run progress label for installers.")
+        case .similarImages:
+            return String(localized: "Clearing similar photos…", comment: "Run progress label for similar images.")
+        case .unusedApps:
+            return String(localized: "Removing unused apps…", comment: "Run progress label for unused apps.")
+        case .unsupportedApps:
+            return String(localized: "Removing incompatible apps…", comment: "Run progress label for unsupported apps.")
+        case .appLeftovers:
+            return String(localized: "Clearing app leftovers…", comment: "Run progress label for app leftovers.")
+        case .browserPrivacy:
+            return String(localized: "Clearing browser data…", comment: "Run progress label for browser privacy.")
+        case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
+            return String(localized: "Finishing up…", comment: "Run progress label fallback for non-running findings.")
+        }
+    }
+
+    /// The running screen's sub-line: how far through the queue the pass is,
+    /// and how much space it has freed so far. Bytes are omitted until there is
+    /// some to report so early steps don't read "0 bytes freed".
+    static func runProgressDetail(completed: Int, total: Int, bytesFreed: Int64) -> String {
+        let step = min(completed + 1, max(total, 1))
+        let stepLine = String.localizedStringWithFormat(
+            String(localized: "Step %d of %d", comment: "Run progress step count, e.g. 'Step 2 of 4'."),
+            step,
+            max(total, 1)
+        )
+        guard bytesFreed > 0 else { return stepLine }
+        return String.localizedStringWithFormat(
+            String(localized: "%@ · %@ freed", comment: "Run progress sub-line: step count and freed bytes."),
+            stepLine,
+            formattedBytes(bytesFreed)
+        )
+    }
 }

@@ -58,6 +58,20 @@ final class SmartScanViewModel {
         var id: CareFinding.Kind { kind }
     }
 
+    /// Live progress of a Run pass so the running screen shows what's underway
+    /// instead of a blind spinner: which action is running now, how far through
+    /// the queue it is, and how much space has been freed so far.
+    struct RunProgress: Equatable {
+        /// Findings finished before the current one — a 0-based step index.
+        var completed: Int
+        /// Total findings the pass will act on.
+        var total: Int
+        /// Plain-language label for the action underway (e.g. "Clearing out junk…").
+        var currentLabel: String
+        /// Bytes freed by the findings completed so far.
+        var bytesFreed: Int64
+    }
+
     // MARK: - Collaborator shapes
 
     typealias ScanEngine = @Sendable (
@@ -118,6 +132,10 @@ final class SmartScanViewModel {
     /// confirms that one irreversible step before anything happens. The Run
     /// disc hides while it is showing so it can't be tapped behind the sheet.
     private(set) var isConfirmingRun = false
+
+    /// Live progress while `.running`, or `nil` outside a Run pass. Drives the
+    /// running screen's action label, step count, and freed-so-far total.
+    private(set) var runProgress: RunProgress?
 
     // Per-finding selections. Pre-approved kinds seed full; opt-in kinds
     // (real user data) seed empty — removal is always an explicit choice.
@@ -359,6 +377,7 @@ final class SmartScanViewModel {
         includedFindings = []
         isReviewing = false
         isConfirmingRun = false
+        runProgress = nil
         junkFileSelection = []
         selectedJunkBytes = 0
         selectedJunkBytesByCategory = [:]
@@ -970,16 +989,34 @@ final class SmartScanViewModel {
     /// results feed is showing.
     func run() async {
         guard case .results(let plan) = phase else { return }
+        // Resolve the queue up front so the running screen can show honest
+        // "step N of M" progress and the current action's label.
+        let queue = CarePlanRanker.ranked(plan.findings).filter { willExecuteDuringRun($0) }
+        runProgress = RunProgress(
+            completed: 0,
+            total: queue.count,
+            currentLabel: queue.first.map { CareFindingCopy.runProgressLabel(for: $0.kind) } ?? "",
+            bytesFreed: 0
+        )
         phase = .running
 
         var lines: [CareReceiptLine] = []
-        for finding in CarePlanRanker.ranked(plan.findings) where willExecuteDuringRun(finding) {
+        var bytesFreed: Int64 = 0
+        for (index, finding) in queue.enumerated() {
+            runProgress = RunProgress(
+                completed: index,
+                total: queue.count,
+                currentLabel: CareFindingCopy.runProgressLabel(for: finding.kind),
+                bytesFreed: bytesFreed
+            )
             if let line = await execute(finding, plan: plan) {
                 lines.append(line)
+                bytesFreed += line.bytesFreed
             }
         }
         let receipt = CareReceipt(date: Date(), lines: lines)
         recordReceipt(receipt)
+        runProgress = nil
         phase = .done(receipt: receipt)
     }
 

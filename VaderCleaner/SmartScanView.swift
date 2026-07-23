@@ -111,12 +111,22 @@ struct SmartScanView: View {
         case .results:
             resultsContent
         case .running:
+            // Show the action underway, the step count, and the freed-so-far
+            // total instead of a blind spinner. Falls back to a generic label
+            // for the instant before the first progress snapshot lands.
             SmartScanProgressState(
-                label: String(
+                label: viewModel.runProgress?.currentLabel ?? String(
                     localized: "Fixing things up…",
                     comment: "Progress label while the Smart Scan runs every included finding's action."
                 ),
-                identifier: "smartScan.running"
+                identifier: "smartScan.running",
+                detail: viewModel.runProgress.map {
+                    CareFindingCopy.runProgressDetail(
+                        completed: $0.completed,
+                        total: $0.total,
+                        bytesFreed: $0.bytesFreed
+                    )
+                }
             )
         case .done(let receipt):
             CareReceiptView(
