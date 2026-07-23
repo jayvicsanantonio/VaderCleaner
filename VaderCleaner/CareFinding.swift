@@ -89,6 +89,22 @@ struct CareFinding: Identifiable, Equatable, Sendable {
             case .backgroundItems: return .backgroundItems
             }
         }
+
+        /// Whether this finding's Run action moves items to the Trash — where
+        /// they can be restored — rather than removing them for good. Junk is
+        /// deleted outright (macOS rebuilds it); updates, maintenance, and
+        /// privacy clears remove nothing to restore. The receipt offers a
+        /// "restore from Trash" path only for the kinds that return `true`.
+        var movesToTrash: Bool {
+            switch self {
+            case .duplicates, .similarImages, .downloads, .largeOldFiles,
+                 .installers, .unusedApps, .unsupportedApps, .appLeftovers:
+                return true
+            case .junkCleanup, .threats, .appUpdates, .maintenanceDue, .browserPrivacy,
+                 .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
+                return false
+            }
+        }
     }
 
     /// The typed results backing a finding, one case per kind. Reuses each
