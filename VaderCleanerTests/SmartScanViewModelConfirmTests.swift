@@ -105,6 +105,13 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         XCTAssertEqual(vm.preApprovedFreeableBytes, 1_040)
     }
 
+    func test_preApprovedCount_countsFixHandledFindingsNotOptIn() async {
+        // The plan has junk + duplicates (pre-approved) and one opt-in large
+        // file — the hero's count must not include the opt-in item.
+        let vm = await scannedViewModel()
+        XCTAssertEqual(vm.preApprovedCount, 2, "junk and duplicates; the large-old file is opt-in")
+    }
+
     // MARK: - Permanent-delete detection
 
     func test_runIncludesPermanentDelete_trueWhenJunkIncluded() async {

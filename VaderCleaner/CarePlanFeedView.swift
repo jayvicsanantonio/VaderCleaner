@@ -52,11 +52,13 @@ struct CarePlanFeedView: View {
             if let verdict = viewModel.verdict, let plan = viewModel.currentPlan {
                 CareVerdictHero(
                     verdict: verdict,
-                    // Pass the selected pre-approved bytes so the hero's
-                    // "can be freed safely" line agrees with the tiles and
-                    // the Fix caption instead of the gross total found.
+                    // Pass the pre-approved count and its selected bytes so the
+                    // hero speaks to exactly what Fix handles — agreeing with
+                    // the tiles and the disc caption instead of counting opt-in
+                    // items or promising the gross total found.
                     detail: CareVerdictEngine.detail(
                         for: plan,
+                        readyCount: viewModel.preApprovedCount,
                         safeFreeableBytes: viewModel.preApprovedFreeableBytes
                     ),
                     historyLine: history?.lifetimeFreedLine(),

@@ -907,6 +907,16 @@ final class SmartScanViewModel {
             .reduce(0) { $0 + selectedBytes(for: $1.kind) }
     }
 
+    /// How many pre-approved findings Fix will handle — the count the hero
+    /// states. Scoped to the same "handled by Fix" set as the bytes so the
+    /// hero can't say "11 things" while the caption says "4 items"; the opt-in
+    /// findings have their own "Worth a look" zone.
+    var preApprovedCount: Int {
+        (currentPlan?.findings ?? [])
+            .filter { $0.actionability == .preApproved }
+            .count
+    }
+
     /// Selected bytes for one finding, mirroring the size sources `execute`
     /// uses so the caption's total matches what the receipt will report.
     private func selectedBytes(for kind: CareFinding.Kind) -> Int64 {
