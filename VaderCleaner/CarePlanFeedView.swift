@@ -27,6 +27,12 @@ struct CarePlanFeedView: View {
         count: 2
     )
 
+    /// Bottom breathing room reserved below the last tile so the floating Fix
+    /// disc — and the scope caption now sitting above it — never rest over a
+    /// card. Sized to clear the disc panel's reach above the window edge with a
+    /// comfortable margin.
+    private static let discBottomClearance: CGFloat = 168
+
     var body: some View {
         ScrollView {
             // One glass container for the hero and every tile: independent
@@ -67,7 +73,7 @@ struct CarePlanFeedView: View {
             } else {
                 zones
             }
-            Spacer(minLength: 140)
+            Spacer(minLength: Self.discBottomClearance)
         }
         .padding(.horizontal, 32)
         .padding(.top, 18)
@@ -303,6 +309,9 @@ struct CareResultTile: View {
     let onToggleInclusion: () -> Void
     let onReview: () -> Void
     @Environment(\.sectionAccent) private var accent
+    /// Lifts the inclusion checkbox on hover so it reads as a control, not a
+    /// status glyph.
+    @State private var hoveringCheckbox = false
 
     private var domain: CareDomain? { finding.kind.unit.domain }
 
@@ -409,17 +418,29 @@ struct CareResultTile: View {
     }
 
     /// Plain-button checkbox with an always-hittable shape — a clear fill
-    /// alone is not tappable when unchecked (the Space Lens lesson).
+    /// alone is not tappable when unchecked (the Space Lens lesson). A square
+    /// check (not a circle) and a hover lift read as a toggle you operate
+    /// rather than a status stamp.
     private var inclusionCheckbox: some View {
         Button(action: onToggleInclusion) {
-            Image(systemName: isIncluded ? "checkmark.circle.fill" : "circle")
+            Image(systemName: isIncluded ? "checkmark.square.fill" : "square")
                 .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(isIncluded ? Color.green : Color.white.opacity(0.45))
+                .foregroundStyle(isIncluded ? Color.green : Color.white.opacity(hoveringCheckbox ? 0.85 : 0.55))
                 .frame(width: 26, height: 26)
-                .background(Color.black.opacity(0.001))
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(.white.opacity(hoveringCheckbox ? 0.12 : 0.001))
+                )
                 .contentShape(Rectangle())
+                .scaleEffect(hoveringCheckbox ? 1.08 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hoveringCheckbox)
         }
         .buttonStyle(.plain)
+        .onHover { hoveringCheckbox = $0 }
+        .help(isIncluded
+            ? String(localized: "Leave this out of Fix", comment: "Tooltip on a checked care-tile checkbox.")
+            : String(localized: "Include this in Fix", comment: "Tooltip on an unchecked care-tile checkbox.")
+        )
         .accessibilityLabel(
             isIncluded
                 ? String(localized: "Included in Fix", comment: "Accessibility label for a checked care-tile checkbox.")
