@@ -77,4 +77,30 @@ final class CareFindingCopyTests: XCTestCase {
         let expected = ByteCountFormatter.string(fromByteCount: 2_300_000_000, countStyle: .file)
         XCTAssertEqual(CareFindingCopy.formattedBytes(2_300_000_000), expected)
     }
+
+    // MARK: - Tile selection note
+
+    func test_selectionNote_nothingSelected_readsNone() {
+        XCTAssertEqual(
+            CareFindingCopy.selectionNote(hasSize: true, selectedBytes: 0, selectedCount: 0),
+            "None selected"
+        )
+        XCTAssertEqual(
+            CareFindingCopy.selectionNote(hasSize: false, selectedBytes: 0, selectedCount: 0),
+            "None selected"
+        )
+    }
+
+    func test_selectionNote_sizedFinding_quotesSelectedBytes() {
+        let note = CareFindingCopy.selectionNote(hasSize: true, selectedBytes: 94_770_000_000, selectedCount: 842)
+        XCTAssertTrue(note.contains(CareFindingCopy.formattedBytes(94_770_000_000)), note)
+        XCTAssertTrue(note.contains("selected"))
+        XCTAssertFalse(note.contains("842"), "a sized finding reports bytes, not the raw count")
+    }
+
+    func test_selectionNote_countFinding_quotesSelectedCount() {
+        let note = CareFindingCopy.selectionNote(hasSize: false, selectedBytes: 0, selectedCount: 2)
+        XCTAssertTrue(note.contains("2"), note)
+        XCTAssertTrue(note.contains("selected"))
+    }
 }

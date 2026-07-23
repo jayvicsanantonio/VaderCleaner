@@ -146,7 +146,8 @@ struct CarePlanFeedView: View {
                 ForEach(findings) { finding in
                     CareResultTile(
                         finding: finding,
-                        metric: metricText(for: finding),
+                        metric: CareFindingCopy.metric(for: finding),
+                        selectionNote: selectionNote(for: finding),
                         isIncluded: viewModel.isFindingIncluded(finding.kind),
                         showsReview: reviewableKinds.contains(finding.kind),
                         onToggleInclusion: { toggleInclusion(of: finding) },
@@ -219,17 +220,17 @@ struct CarePlanFeedView: View {
         }
     }
 
-    /// The tile's big metric. Pre-approved space cards show what Fix will
-    /// actually free — its current selection — because junk seeds only the
-    /// categories safe to auto-remove, so the gross "found" total (what
-    /// `CareFindingCopy.metric` reports) would overstate what one tap does.
-    /// Opt-in cards keep the gross potential: they aren't in Fix by default,
-    /// so their number is "what you could free," not "what Fix does."
-    private func metricText(for finding: CareFinding) -> String {
-        if finding.actionability == .preApproved, finding.reclaimableBytes > 0 {
-            return CareFindingCopy.formattedBytes(viewModel.freeableBytes(for: finding.kind))
-        }
-        return CareFindingCopy.metric(for: finding)
+    /// The tile's secondary line — how much of the finding is currently in the
+    /// selection — shown beneath the total so the card reflects both what's
+    /// there and what Fix will take. Matches the disc caption's "selected"
+    /// scope. Informational advisories carry no selection, so they show none.
+    private func selectionNote(for finding: CareFinding) -> String? {
+        guard finding.actionability != .informational else { return nil }
+        return CareFindingCopy.selectionNote(
+            hasSize: finding.reclaimableBytes > 0,
+            selectedBytes: viewModel.freeableBytes(for: finding.kind),
+            selectedCount: viewModel.selectionCount(for: finding.kind)
+        )
     }
 
     /// Turning an opt-in tile on with nothing selected silently selecting
@@ -330,9 +331,11 @@ private struct CareVerdictHero: View {
 struct CareResultTile: View {
 
     let finding: CareFinding
-    /// The big metric, resolved by the feed so pre-approved tiles show what Fix
-    /// will free (the selection) rather than the gross total found.
+    /// The big metric — the finding's total size or item count.
     let metric: String
+    /// The secondary line beneath it — how much is currently selected — so the
+    /// tile shows both what's there and what Fix will take. `nil` hides it.
+    let selectionNote: String?
     let isIncluded: Bool
     let showsReview: Bool
     let onToggleInclusion: () -> Void
@@ -372,12 +375,22 @@ struct CareResultTile: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.trailing, 56)
             Spacer(minLength: 8)
-            HStack(alignment: .lastTextBaseline) {
-                Text(metric)
-                    .font(.system(size: 21, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                    .lineLimit(1)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(metric)
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    if let selectionNote {
+                        Text(selectionNote)
+                            .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).selection")
+                    }
+                }
                 Spacer(minLength: 8)
                 if showsReview {
                     Button(action: onReview) {

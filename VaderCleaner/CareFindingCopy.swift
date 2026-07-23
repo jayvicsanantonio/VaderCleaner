@@ -354,6 +354,27 @@ enum CareFindingCopy {
         }
     }
 
+    /// The tile's secondary line: how much of the finding is currently
+    /// selected, shown under the total so a card reflects both "what's here"
+    /// and "what Fix will take". Sized findings report bytes; count-only ones
+    /// report a number; nothing selected reads "None selected" rather than a
+    /// bare "0".
+    static func selectionNote(hasSize: Bool, selectedBytes: Int64, selectedCount: Int) -> String {
+        guard selectedCount > 0 else {
+            return String(localized: "None selected", comment: "Care tile secondary line when nothing in the finding is selected.")
+        }
+        if hasSize {
+            return String.localizedStringWithFormat(
+                String(localized: "%@ selected", comment: "Care tile secondary line: selected byte size."),
+                formattedBytes(selectedBytes)
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "%d selected", comment: "Care tile secondary line: selected item count."),
+            selectedCount
+        )
+    }
+
     /// One plain-language line for the run-confirmation sheet, describing what
     /// this finding's action will do to the chosen items. Junk names its size
     /// and says "permanently" — it is the only step the Trash can't undo;
