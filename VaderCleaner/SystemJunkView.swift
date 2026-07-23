@@ -205,7 +205,10 @@ struct SystemJunkView: View {
                 // first unselected file, never materializing the subtree's file
                 // array. (The manager's per-category fast path answers the
                 // common all/none states before this runs at all.)
-                store.allFilesSelected(forRowID: id) { viewModel.isSelected($0) }
+                store.allFilesSelected(
+                    forRowID: id,
+                    selectionRevision: viewModel.selectionRevision
+                ) { viewModel.isSelected($0) }
             },
             onToggle: { id in
                 // Whole-folder toggle in one batched pass: gather the row's files
@@ -219,6 +222,20 @@ struct SystemJunkView: View {
                 // whether its rows are loaded yet — one batched selection pass.
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return }
                 viewModel.setSelection(itemsByCategory[scanCategory] ?? [], selected: selected)
+            },
+            categorySelectFilters: { category in
+                // Category-specific bulk picks — currently Web Development
+                // Junk's idle-projects filter, which is the only judgement a
+                // user can make over these rows in bulk. The idle list is
+                // precomputed off-main by the store, so this stays O(1) in the
+                // SwiftUI body rather than rescanning the category.
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return [] }
+                return CleanupManagerModel.selectFilters(
+                    forCategoryID: category.id,
+                    idleProjectFiles: store.webDevIdleProjectFiles() ?? [],
+                    clearAll: { viewModel.setSelection(itemsByCategory[scanCategory] ?? [], selected: false) },
+                    selectIdle: { files in viewModel.setSelection(files, selected: true) }
+                )
             },
             categorySelectedBytes: { category in
                 // O(1) read of the view-model's incrementally-maintained
@@ -264,7 +281,8 @@ struct SystemJunkView: View {
                     count: viewModel.selectedURLs.count,
                     bytes: viewModel.totalSelectedSize
                 )
-            }
+            },
+            selectionToken: viewModel.selectionRevision
         )
         // The Cleanup Manager uses a magenta accent (not the section's green)
         // to match the reference: it tints the sort/select values, chevrons,

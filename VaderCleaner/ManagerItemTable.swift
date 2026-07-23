@@ -21,6 +21,15 @@ struct ManagerItemTable: NSViewRepresentable {
     /// changes, so the bridge reloads rows then — and only refreshes checkbox
     /// state (no reload) on a selection toggle.
     let contentToken: String
+    /// Changes whenever the *selection* changes (the host's selection revision).
+    /// `updateNSView` refreshes visible checkbox state only when this moves, so
+    /// the frequent SwiftUI updates that fire during momentum scrolling — same
+    /// content, same selection — don't re-walk every visible row's selection
+    /// each frame. A folder row over a huge subtree makes that per-frame walk
+    /// the dominant scroll cost; gating on this token removes it. Default `0`
+    /// keeps the always-refresh behavior for the small flat managers that don't
+    /// track a revision.
+    var selectionToken: Int = 0
     let accessibilityPrefix: String
     /// When true the table and its scroll view adopt the aqua (light) appearance
     /// so their row text reads dark-on-white — matching the Cleanup Manager's
@@ -92,12 +101,17 @@ struct ManagerItemTable: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         let reload = coordinator.contentToken != contentToken
+        let selectionChanged = coordinator.selectionToken != selectionToken
         coordinator.apply(self)
         if reload {
             coordinator.setHoveredRow(nil) // a stale hover index can't survive a reload
             coordinator.table?.reloadData()
             coordinator.table?.scroll(.zero)
-        } else {
+        } else if selectionChanged {
+            // Only when the selection actually moved — otherwise the many
+            // no-op SwiftUI updates during a momentum scroll would each re-walk
+            // every visible row's selection, and a folder row over a huge
+            // subtree makes that walk the scroll's dominant cost.
             coordinator.refreshVisibleSelection()
         }
     }
@@ -113,6 +127,7 @@ struct ManagerItemTable: NSViewRepresentable {
         private var isExpanded: (String) -> Bool = { _ in false }
         private var onToggleExpand: (String) -> Void = { _ in }
         fileprivate var contentToken = ""
+        fileprivate var selectionToken = 0
         weak var table: NSTableView?
 
         func apply(_ source: ManagerItemTable) {
@@ -126,6 +141,7 @@ struct ManagerItemTable: NSViewRepresentable {
             isExpanded = source.isExpanded
             onToggleExpand = source.onToggleExpand
             contentToken = source.contentToken
+            selectionToken = source.selectionToken
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }

@@ -60,6 +60,15 @@ struct ManagerItem: Identifiable, Hashable, Sendable {
     var isExpandable: Bool { !children.isEmpty }
 }
 
+/// One extra entry in a category's "Select:" menu, below Select All / Deselect
+/// All. Hosts supply the category-specific picks (the Cleanup Manager's idle
+/// projects filter); the manager only renders them and calls `apply`.
+struct ManagerSelectFilter: Identifiable {
+    let id: String
+    let title: String
+    let apply: () -> Void
+}
+
 /// A group of items shown in the manager's middle pane. Its items are stored
 /// pre-sorted by size (descending) by the builder, so the default view needs no
 /// main-thread sort.
@@ -158,6 +167,9 @@ struct SmartScanReviewManager: View {
     /// Bulk select/clear every item in a category (the "Select" menu). Unused
     /// when `showsSelection` is false.
     var onSetCategory: (ManagerCategory, Bool) -> Void = { _, _ in }
+    /// Category-specific bulk-select picks, listed below Select All / Deselect
+    /// All. Empty for categories with nothing extra to offer.
+    var categorySelectFilters: (ManagerCategory) -> [ManagerSelectFilter] = { _ in [] }
     /// Total bytes currently selected within a category, for the middle-pane
     /// badge. Returns `nil` (no badge) when the caller doesn't track it or
     /// nothing in the category is selected.
@@ -213,6 +225,12 @@ struct SmartScanReviewManager: View {
     /// item on each render. `nil` falls back to a full scan (fine for the small
     /// flat tiles).
     var selectionSummary: (() -> ManagerSelectionSummary)? = nil
+    /// Monotonic counter the host bumps on every selection change, forwarded to
+    /// the row table so it refreshes visible checkbox state only when the
+    /// selection actually moved — not on the incidental SwiftUI updates that
+    /// fire throughout a momentum scroll. Left `0` by the small flat managers,
+    /// which always refresh.
+    var selectionToken: Int = 0
 
     /// The active section accent (purple in Smart Scan), used to tint the
     /// section/category selection so it matches the app rather than the grey
@@ -510,6 +528,13 @@ struct SmartScanReviewManager: View {
                                 onSetCategory(category, false)
                             }
                             .disabled(state == .none)
+                            let filters = categorySelectFilters(category)
+                            if !filters.isEmpty {
+                                Divider()
+                                ForEach(filters) { filter in
+                                    Button(filter.title) { filter.apply() }
+                                }
+                            }
                         } label: {
                             Text(state.label)
                                 .foregroundStyle(.tint)
@@ -555,6 +580,7 @@ struct SmartScanReviewManager: View {
                         // `refreshDisplayedItems` so its O(n) id hash never runs
                         // per render.
                         contentToken: displayedToken,
+                        selectionToken: selectionToken,
                         accessibilityPrefix: accessibilityPrefix,
                         forcesLightAppearance: lightSurface,
                         showsSparkle: showsSparkle,

@@ -215,13 +215,123 @@ enum CleanupManagerModel {
         }
     }
 
-    /// The one-level folder tree for a single category — the right pane's rows.
-    /// Built on demand so opening the manager never walks every category.
+    /// The rows for a single category — the right pane's contents. Built on
+    /// demand so opening the manager never walks every category.
     nonisolated static func items(
         forCategory category: ScanCategory,
         in itemsByCategory: [ScanCategory: [ScannedFile]]
     ) -> [ManagerItem] {
-        buildHierarchy(itemsByCategory[category] ?? [])
+        buildItems(for: category, files: itemsByCategory[category] ?? [])
+    }
+
+    /// A category's rows: Web Development Junk names its project artifacts
+    /// individually, every other category folds into the folder hierarchy.
+    nonisolated static func buildItems(
+        for category: ScanCategory,
+        files: [ScannedFile],
+        cacheRoots: [String] = WebDevArtifact.packageCacheRoots
+    ) -> [ManagerItem] {
+        guard category == .webDevJunk else { return buildHierarchy(files) }
+        return webDevItems(files, cacheRoots: cacheRoots)
+    }
+
+    /// The rows for Web Development Junk together with the project artifacts
+    /// that count as idle — both products of the single expensive pass that
+    /// separates package-cache files from per-project artifacts. Computed once,
+    /// off the main thread (see `CleanupManagerStore`), because that separation
+    /// walks every file in the category and `~/.npm` alone reaches a third of a
+    /// million of them.
+    struct WebDevContent: Sendable {
+        let items: [ManagerItem]
+        let idleProjectFiles: [ScannedFile]
+    }
+
+    /// Splits `files` into package caches and per-project artifacts once, then
+    /// builds both the rows and the idle-project list from that split. The
+    /// package caches keep the folder tree — `~/.npm` is one row, not its
+    /// hundreds of thousands of files — while each per-project artifact folder
+    /// gets its own row titled with the project it belongs to, so a glance
+    /// answers "am I about to lose my repository?" without disclosing two levels.
+    ///
+    /// The isProjectArtifact test runs per file over the whole category, so this
+    /// must never run on the main thread (it did, via the Select menu, and cost
+    /// ~0.5 s per pass on a large `.npm`).
+    nonisolated static func webDevContent(
+        _ files: [ScannedFile],
+        now: Date = Date(),
+        cacheRoots: [String] = WebDevArtifact.packageCacheRoots
+    ) -> WebDevContent {
+        var caches: [ScannedFile] = []
+        var projects: [ScannedFile] = []
+        for file in files {
+            if WebDevArtifact.isProjectArtifact(file.url, cacheRoots: cacheRoots) {
+                projects.append(file)
+            } else {
+                caches.append(file)
+            }
+        }
+        let projectRows = projects.map { file in
+            ManagerItem(
+                id: file.url.path,
+                title: WebDevArtifact.rowTitle(for: file.url),
+                subtitle: WebDevArtifact.rowSubtitle(for: file, now: now),
+                size: file.size,
+                sizeText: ManagerByteText.string(file.size),
+                systemImage: "folder.fill",
+                tint: .blue,
+                usesFileIcon: true,
+                selectionPaths: [file.url.path]
+            )
+        }
+        return WebDevContent(
+            items: (buildHierarchy(caches) + projectRows).sorted { ($0.size ?? 0) > ($1.size ?? 0) },
+            idleProjectFiles: projects.filter { WebDevArtifact.isIdle($0, now: now) }
+        )
+    }
+
+    /// Web Development Junk rows only — the common case, when the idle list
+    /// isn't needed. Delegates to the single-pass `webDevContent`.
+    nonisolated static func webDevItems(
+        _ files: [ScannedFile],
+        now: Date = Date(),
+        cacheRoots: [String] = WebDevArtifact.packageCacheRoots
+    ) -> [ManagerItem] {
+        webDevContent(files, now: now, cacheRoots: cacheRoots).items
+    }
+
+    /// Extra bulk-select picks for a category's "Select:" menu, beyond Select
+    /// All / Deselect All.
+    ///
+    /// Web Development Junk gets one: check exactly the project artifacts that
+    /// have sat untouched past `WebDevArtifact.idleThreshold`. Age is the one
+    /// signal that separates the dependencies of a project shipping tomorrow
+    /// from those of one abandoned last year, and it's the only bulk judgement
+    /// a user can make without weighing each project. The pick clears the
+    /// category first (`clearAll`), so it's an exact selection rather than an
+    /// addition to whatever was already checked. Absent when nothing qualifies —
+    /// an option that would select nothing is worse than no option.
+    ///
+    /// `idleProjectFiles` is precomputed off-main (`webDevContent`) and passed
+    /// in, so this — which runs in the SwiftUI body every time the menu is
+    /// built — stays O(1) and never rescans the category.
+    nonisolated static func selectFilters(
+        forCategoryID id: String,
+        idleProjectFiles: [ScannedFile],
+        clearAll: @escaping () -> Void,
+        selectIdle: @escaping ([ScannedFile]) -> Void
+    ) -> [ManagerSelectFilter] {
+        guard id == ScanCategory.webDevJunk.rawValue, !idleProjectFiles.isEmpty else { return [] }
+        return [ManagerSelectFilter(
+            id: "webDevJunk.idleProjects",
+            title: String(
+                localized: "Select Idle Projects",
+                comment: "Bulk-select entry checking only long-untouched project build artifacts."
+            ),
+            apply: {
+                clearAll()
+                selectIdle(idleProjectFiles)
+            }
+        )]
     }
 
     /// The historical flat list: one leaf row per scanned file, size-sorted.

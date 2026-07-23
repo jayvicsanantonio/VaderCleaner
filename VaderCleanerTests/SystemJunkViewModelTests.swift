@@ -527,6 +527,30 @@ final class SystemJunkViewModelTests: XCTestCase {
 
     /// A partially-selected group toggles to fully selected (not cleared), so a
     /// folder with one checked child fills in rather than emptying.
+    /// Every kind of selection write moves the revision counter — the Cleanup
+    /// Manager caches per-row checkbox answers against it, so a change that
+    /// didn't bump it would leave stale checkboxes on screen.
+    func test_selectionRevision_movesOnEverySelectionWrite() async {
+        let a = makeFile(name: "a", size: 100, category: .userCache)
+        let b = makeFile(name: "b", size: 30, category: .userCache)
+        let vm = makeViewModel(scanner: { self.makeResult((.userCache, [a, b])) }, deleter: noopDeleter)
+
+        await vm.scan() // the safe-default seed is itself a selection write
+        let afterSeed = vm.selectionRevision
+        XCTAssertGreaterThan(afterSeed, 0)
+
+        vm.toggleSelection(a)
+        let afterToggle = vm.selectionRevision
+        XCTAssertGreaterThan(afterToggle, afterSeed)
+
+        vm.setSelection([a, b], selected: false)
+        let afterSet = vm.selectionRevision
+        XCTAssertGreaterThan(afterSet, afterToggle)
+
+        vm.toggleSelection([a, b])
+        XCTAssertGreaterThan(vm.selectionRevision, afterSet)
+    }
+
     func test_toggleSelectionGroup_partialSelectsRest() async {
         let a = makeFile(name: "a", size: 100, category: .userCache)
         let b = makeFile(name: "b", size: 30, category: .userCache)

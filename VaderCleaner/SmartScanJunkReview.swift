@@ -33,7 +33,10 @@ struct SmartScanJunkReview: View {
                 // first unselected file, never materializing the subtree's file
                 // array. (The manager's per-category fast path answers the
                 // common all/none states before this runs at all.)
-                store.allFilesSelected(forRowID: id) { viewModel.junkFileSelection.contains($0.url) }
+                store.allFilesSelected(
+                    forRowID: id,
+                    selectionRevision: viewModel.junkSelectionRevision
+                ) { viewModel.junkFileSelection.contains($0.url) }
             },
             onToggle: { id in
                 // Whole-folder toggle in one batched pass: gather the row's files
@@ -46,6 +49,19 @@ struct SmartScanJunkReview: View {
                 // whether its rows are loaded yet — one batched selection pass.
                 guard let scanCategory = ScanCategory(rawValue: category.id) else { return }
                 viewModel.setJunkFiles(itemsByCategory[scanCategory] ?? [], selected: selected)
+            },
+            categorySelectFilters: { category in
+                // Same category-specific bulk picks the standalone Cleanup
+                // Manager offers, so the two screens stay identical. The idle
+                // list is precomputed off-main by the store, so this stays O(1)
+                // in the SwiftUI body rather than rescanning the category.
+                guard let scanCategory = ScanCategory(rawValue: category.id) else { return [] }
+                return CleanupManagerModel.selectFilters(
+                    forCategoryID: category.id,
+                    idleProjectFiles: store.webDevIdleProjectFiles() ?? [],
+                    clearAll: { viewModel.setJunkFiles(itemsByCategory[scanCategory] ?? [], selected: false) },
+                    selectIdle: { files in viewModel.setJunkFiles(files, selected: true) }
+                )
             },
             categorySelectedBytes: { category in
                 // O(1) read of the view model's incrementally-maintained
@@ -77,7 +93,8 @@ struct SmartScanJunkReview: View {
                     count: viewModel.junkFileSelection.count,
                     bytes: viewModel.selectedJunkBytes
                 )
-            }
+            },
+            selectionToken: viewModel.junkSelectionRevision
         )
     }
 }
