@@ -290,6 +290,66 @@ final class SmartScanViewModelRunTests: XCTestCase {
         )
     }
 
+    // MARK: - Run progress
+
+    private final class ProgressBox {
+        var value: SmartScanViewModel.RunProgress?
+    }
+
+    func test_run_publishesPerFindingProgress() async {
+        let junkSnapshot = ProgressBox()
+        let maintSnapshot = ProgressBox()
+        weak var vmRef: SmartScanViewModel?
+
+        // Junk (1,000 bytes) runs before maintenance, so the maintenance step
+        // sees the junk bytes already credited — a clean accumulation check.
+        let plan = CarePlan(
+            findings: [
+                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
+                    file("/cache/safe", size: 1_000, category: .userCache)
+                ]))),
+                CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
+            ],
+            health: nil,
+            unitOutcomes: [.systemJunk: .completed, .maintenanceDue: .completed],
+            startedAt: Date(),
+            finishedAt: Date()
+        )
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in plan },
+            junkCleaner: { files in
+                junkSnapshot.value = vmRef?.runProgress
+                return files.reduce(0) { $0 + $1.size }
+            },
+            recycleFiles: { Set($0) },
+            maintenanceTaskRunner: { _ in
+                if maintSnapshot.value == nil { maintSnapshot.value = vmRef?.runProgress }
+            }
+        )
+        vmRef = vm
+        await vm.scan()
+        await vm.run()
+
+        XCTAssertEqual(junkSnapshot.value?.total, 2, "both runnable findings counted")
+        XCTAssertEqual(junkSnapshot.value?.completed, 0, "junk is the first step")
+        XCTAssertEqual(junkSnapshot.value?.bytesFreed, 0, "nothing freed before the first step")
+        XCTAssertEqual(junkSnapshot.value?.currentLabel, CareFindingCopy.runProgressLabel(for: .junkCleanup))
+
+        XCTAssertEqual(maintSnapshot.value?.completed, 1, "one finding done before maintenance")
+        XCTAssertEqual(maintSnapshot.value?.bytesFreed, 1_000, "the junk bytes are credited by the maintenance step")
+        XCTAssertEqual(maintSnapshot.value?.currentLabel, CareFindingCopy.runProgressLabel(for: .maintenanceDue))
+
+        XCTAssertNil(vm.runProgress, "progress clears once the pass ends")
+        guard case .done = vm.phase else { return XCTFail("expected .done, got \(vm.phase)") }
+    }
+
+    func test_runProgressDetail_omitsBytesUntilThereAreSome() {
+        XCTAssertEqual(CareFindingCopy.runProgressDetail(completed: 0, total: 4, bytesFreed: 0), "Step 1 of 4")
+        let withBytes = CareFindingCopy.runProgressDetail(completed: 1, total: 4, bytesFreed: 1_500_000_000)
+        XCTAssertTrue(withBytes.hasPrefix("Step 2 of 4 · "), "step then freed bytes: \(withBytes)")
+        XCTAssertTrue(withBytes.contains("freed"))
+    }
+
     // MARK: - Browser privacy refusal
 
     func test_run_browserRunning_surfacesPlainReceiptLine() async {

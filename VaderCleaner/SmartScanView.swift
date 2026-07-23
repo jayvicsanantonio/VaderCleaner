@@ -2,6 +2,7 @@
 // Smart Scan feature view — the default landing section. Walks the care-plan state machine: checklist scan → results feed → run → receipt, pushing per-finding Review screens over the feed.
 
 import SwiftUI
+import AppKit
 
 /// Detail view shown when the user selects "Smart Scan" in the sidebar (the
 /// default landing section). Drives `SmartScanViewModel`'s state machine, and
@@ -60,6 +61,22 @@ struct SmartScanView: View {
             .id(phaseTransitionID)
             .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
             .animation(VaderMotion.surface, value: phaseTransitionID)
+            // The run-confirmation sheet floats over the whole feed (not inside
+            // the transition host) so it can't be swept by the phase crossfade,
+            // and only appears for a run that permanently deletes junk.
+            .overlay {
+                if viewModel.isConfirmingRun {
+                    RunConfirmationSheet(
+                        itemCount: viewModel.runnableFindingCount,
+                        lines: viewModel.runActionSummary,
+                        accent: SectionPresentation.for(.smartScan)?.accent ?? .vaderCrimson,
+                        onConfirm: { Task { await viewModel.confirmRun() } },
+                        onCancel: { viewModel.cancelRun() }
+                    )
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97)))
+                }
+            }
+            .animation(VaderMotion.surface, value: viewModel.isConfirmingRun)
             .navigationTitle(NavigationSection.smartScan.title)
             // Every transition out of `.results` clears any in-flight Review
             // so a stale value can't re-emerge on the next results landing.
@@ -95,17 +112,28 @@ struct SmartScanView: View {
         case .results:
             resultsContent
         case .running:
+            // Show the action underway, the step count, and the freed-so-far
+            // total instead of a blind spinner. Falls back to a generic label
+            // for the instant before the first progress snapshot lands.
             SmartScanProgressState(
-                label: String(
+                label: viewModel.runProgress?.currentLabel ?? String(
                     localized: "Fixing things up…",
                     comment: "Progress label while the Smart Scan runs every included finding's action."
                 ),
-                identifier: "smartScan.running"
+                identifier: "smartScan.running",
+                detail: viewModel.runProgress.map {
+                    CareFindingCopy.runProgressDetail(
+                        completed: $0.completed,
+                        total: $0.total,
+                        bytesFreed: $0.bytesFreed
+                    )
+                }
             )
         case .done(let receipt):
             CareReceiptView(
                 receipt: receipt,
-                onDone: { viewModel.reset() }
+                onDone: { viewModel.reset() },
+                onShowTrash: Self.showTrash
             )
         case .failed(let message):
             SmartScanFailedState(message: message) {
@@ -139,6 +167,16 @@ struct SmartScanView: View {
         }
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
+    }
+
+    /// Opens the user's Trash in Finder so recycled items can be restored from
+    /// the receipt. The run moves files with `NSWorkspace.recycle`, so they
+    /// land in the standard Trash this reveals.
+    private static func showTrash() {
+        guard let trash = try? FileManager.default.url(
+            for: .trashDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ) else { return }
+        NSWorkspace.shared.open(trash)
     }
 
     /// Anchors the zoom to the control being handled, then raises the

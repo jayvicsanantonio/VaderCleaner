@@ -38,4 +38,11 @@ struct CareReceipt: Equatable, Sendable, Codable {
             return false
         }
     }
+
+    /// Whether this run moved anything to the Trash, so the receipt can offer a
+    /// restore path. Junk (a permanent delete) and count-only actions never
+    /// qualify — the note must not imply those are recoverable.
+    var hasTrashRecoverableItems: Bool {
+        lines.contains { $0.kind.movesToTrash && $0.itemsProcessed > 0 }
+    }
 }

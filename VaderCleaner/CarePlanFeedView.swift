@@ -27,6 +27,12 @@ struct CarePlanFeedView: View {
         count: 2
     )
 
+    /// Bottom breathing room reserved below the last tile so the floating Fix
+    /// disc — and the scope caption now sitting above it — never rest over a
+    /// card. Sized to clear the disc panel's reach above the window edge with a
+    /// comfortable margin.
+    private static let discBottomClearance: CGFloat = 168
+
     var body: some View {
         ScrollView {
             // One glass container for the hero and every tile: independent
@@ -43,9 +49,18 @@ struct CarePlanFeedView: View {
     private var feedContent: some View {
         VStack(spacing: 22) {
             topBar
-            if let verdict = viewModel.verdict {
+            if let verdict = viewModel.verdict, let plan = viewModel.currentPlan {
                 CareVerdictHero(
                     verdict: verdict,
+                    // Pass the pre-approved count and its selected bytes so the
+                    // hero speaks to exactly what Fix handles — agreeing with
+                    // the tiles and the disc caption instead of counting opt-in
+                    // items or promising the gross total found.
+                    detail: CareVerdictEngine.detail(
+                        for: plan,
+                        readyCount: viewModel.preApprovedCount,
+                        safeFreeableBytes: viewModel.preApprovedFreeableBytes
+                    ),
                     historyLine: history?.lifetimeFreedLine(),
                     coverageNote: coverageNote
                 )
@@ -67,7 +82,7 @@ struct CarePlanFeedView: View {
             } else {
                 zones
             }
-            Spacer(minLength: 140)
+            Spacer(minLength: Self.discBottomClearance)
         }
         .padding(.horizontal, 32)
         .padding(.top, 18)
@@ -131,6 +146,8 @@ struct CarePlanFeedView: View {
                 ForEach(findings) { finding in
                     CareResultTile(
                         finding: finding,
+                        metric: CareFindingCopy.metric(for: finding),
+                        selectionNote: selectionNote(for: finding),
                         isIncluded: viewModel.isFindingIncluded(finding.kind),
                         showsReview: reviewableKinds.contains(finding.kind),
                         onToggleInclusion: { toggleInclusion(of: finding) },
@@ -203,6 +220,19 @@ struct CarePlanFeedView: View {
         }
     }
 
+    /// The tile's secondary line — how much of the finding is currently in the
+    /// selection — shown beneath the total so the card reflects both what's
+    /// there and what Fix will take. Matches the disc caption's "selected"
+    /// scope. Informational advisories carry no selection, so they show none.
+    private func selectionNote(for finding: CareFinding) -> String? {
+        guard finding.actionability != .informational else { return nil }
+        return CareFindingCopy.selectionNote(
+            hasSize: finding.reclaimableBytes > 0,
+            selectedBytes: viewModel.freeableBytes(for: finding.kind),
+            selectedCount: viewModel.selectionCount(for: finding.kind)
+        )
+    }
+
     /// Turning an opt-in tile on with nothing selected silently selecting
     /// everything would betray the zone's promise — deep-link into Review so
     /// the user picks what goes.
@@ -223,6 +253,9 @@ struct CarePlanFeedView: View {
 private struct CareVerdictHero: View {
 
     let verdict: CareVerdict
+    /// The supporting line, supplied by the feed so its freeable-bytes figure
+    /// reflects the current selection rather than `verdict.detail`'s gross total.
+    let detail: String
     let historyLine: String?
     let coverageNote: String?
 
@@ -236,7 +269,7 @@ private struct CareVerdictHero: View {
                         .foregroundStyle(.white)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("smartScan.verdictHeading")
-                    Text(verdict.detail)
+                    Text(detail)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.75))
                         .accessibilityIdentifier("smartScan.verdictDetail")
@@ -298,11 +331,19 @@ private struct CareVerdictHero: View {
 struct CareResultTile: View {
 
     let finding: CareFinding
+    /// The big metric — the finding's total size or item count.
+    let metric: String
+    /// The secondary line beneath it — how much is currently selected — so the
+    /// tile shows both what's there and what Fix will take. `nil` hides it.
+    let selectionNote: String?
     let isIncluded: Bool
     let showsReview: Bool
     let onToggleInclusion: () -> Void
     let onReview: () -> Void
     @Environment(\.sectionAccent) private var accent
+    /// Lifts the inclusion checkbox on hover so it reads as a control, not a
+    /// status glyph.
+    @State private var hoveringCheckbox = false
 
     private var domain: CareDomain? { finding.kind.unit.domain }
 
@@ -334,12 +375,22 @@ struct CareResultTile: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.trailing, 56)
             Spacer(minLength: 8)
-            HStack(alignment: .lastTextBaseline) {
-                Text(CareFindingCopy.metric(for: finding))
-                    .font(.system(size: 21, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                    .lineLimit(1)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(metric)
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    if let selectionNote {
+                        Text(selectionNote)
+                            .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).selection")
+                    }
+                }
                 Spacer(minLength: 8)
                 if showsReview {
                     Button(action: onReview) {
@@ -409,17 +460,29 @@ struct CareResultTile: View {
     }
 
     /// Plain-button checkbox with an always-hittable shape — a clear fill
-    /// alone is not tappable when unchecked (the Space Lens lesson).
+    /// alone is not tappable when unchecked (the Space Lens lesson). A square
+    /// check (not a circle) and a hover lift read as a toggle you operate
+    /// rather than a status stamp.
     private var inclusionCheckbox: some View {
         Button(action: onToggleInclusion) {
-            Image(systemName: isIncluded ? "checkmark.circle.fill" : "circle")
+            Image(systemName: isIncluded ? "checkmark.square.fill" : "square")
                 .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(isIncluded ? Color.green : Color.white.opacity(0.45))
+                .foregroundStyle(isIncluded ? Color.green : Color.white.opacity(hoveringCheckbox ? 0.85 : 0.55))
                 .frame(width: 26, height: 26)
-                .background(Color.black.opacity(0.001))
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(.white.opacity(hoveringCheckbox ? 0.12 : 0.001))
+                )
                 .contentShape(Rectangle())
+                .scaleEffect(hoveringCheckbox ? 1.08 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hoveringCheckbox)
         }
         .buttonStyle(.plain)
+        .onHover { hoveringCheckbox = $0 }
+        .help(isIncluded
+            ? String(localized: "Leave this out of Fix", comment: "Tooltip on a checked care-tile checkbox.")
+            : String(localized: "Include this in Fix", comment: "Tooltip on an unchecked care-tile checkbox.")
+        )
         .accessibilityLabel(
             isIncluded
                 ? String(localized: "Included in Fix", comment: "Accessibility label for a checked care-tile checkbox.")

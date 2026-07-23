@@ -44,8 +44,20 @@ struct FloatingRunOverlay: View {
                         localized: "Fix the included findings",
                         comment: "VoiceOver label for the floating Fix disc on the Smart Scan care-plan feed."
                     ),
-                    action: { Task { await viewModel.run() } }
+                    action: { Task { await viewModel.requestRun() } }
                 )
+                // The scope caption floats just above the disc's top edge —
+                // within the panel's upper (over-the-window) half — so the disc
+                // keeps its exact straddling position while the caption states
+                // what one tap will do. It updates live as cards are toggled.
+                .overlay(alignment: .top) {
+                    RunScopeCaption(
+                        freeableBytes: viewModel.freeableBytes,
+                        itemCount: viewModel.runnableFindingCount
+                    )
+                    .alignmentGuide(.top) { dimensions in dimensions.height + 12 }
+                    .allowsHitTesting(false)
+                }
                 .transition(.opacity)
             }
         }
@@ -59,5 +71,52 @@ struct FloatingRunOverlay: View {
         .onChange(of: isShown) { _, newValue in
             onPresenceChanged(newValue)
         }
+    }
+}
+
+/// The one-line scope caption above the Fix disc: how much space one tap frees
+/// and across how many findings. A solid dark capsule rather than a Liquid
+/// Glass material — like the disc, its host panel straddles the window edge, so
+/// a material would have no consistent backdrop to tint against.
+private struct RunScopeCaption: View {
+    let freeableBytes: Int64
+    let itemCount: Int
+
+    private var text: String {
+        let items = itemCount == 1
+            ? String(localized: "1 item", comment: "Fix disc scope caption: a single included finding.")
+            : String.localizedStringWithFormat(
+                String(localized: "%d items", comment: "Fix disc scope caption: number of included findings."),
+                itemCount
+            )
+        guard freeableBytes > 0 else {
+            return String.localizedStringWithFormat(
+                String(localized: "%@ ready", comment: "Fix disc scope caption when the run frees no measurable space, e.g. 'App updates ready'."),
+                items
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "Frees %@ · %@", comment: "Fix disc scope caption: freeable bytes and item count, e.g. 'Frees 110 GB · 4 items'."),
+            CareFindingCopy.formattedBytes(freeableBytes),
+            items
+        )
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.white.opacity(0.92))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.black.opacity(0.42))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                    )
+            )
     }
 }

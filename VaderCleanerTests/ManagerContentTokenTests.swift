@@ -61,4 +61,22 @@ final class ManagerContentTokenTests: XCTestCase {
             ManagerItemTable.contentToken(items: items, sort: "size", search: "q")
         )
     }
+
+    // MARK: - Selection-refresh gate
+
+    func test_selectionRefresh_withNoToken_alwaysRefreshes() {
+        // The flat managers (every Review except Cleanup) supply no revision;
+        // their checkbox image tracks `isSelected`, so each update must refresh
+        // or a toggle wouldn't repaint the box.
+        XCTAssertTrue(ManagerItemTable.shouldRefreshSelection(previous: nil, current: nil))
+        XCTAssertTrue(ManagerItemTable.shouldRefreshSelection(previous: 3, current: nil))
+    }
+
+    func test_selectionRefresh_withToken_onlyWhenItMoves() {
+        // The Cleanup Manager passes a revision so it repaints only on real
+        // selection changes — not on the incidental updates during a scroll.
+        XCTAssertFalse(ManagerItemTable.shouldRefreshSelection(previous: 5, current: 5))
+        XCTAssertTrue(ManagerItemTable.shouldRefreshSelection(previous: 5, current: 6))
+        XCTAssertTrue(ManagerItemTable.shouldRefreshSelection(previous: nil, current: 1))
+    }
 }

@@ -246,4 +246,40 @@ final class CareFindingTests: XCTestCase {
         XCTAssertEqual(CareDomain.performance.rawValue, "performance")
         XCTAssertEqual(CareDomain.browserPrivacy.rawValue, "browserPrivacy")
     }
+
+    // MARK: - Trash recovery classification
+
+    func test_movesToTrash_isTrueOnlyForRecycledKinds() {
+        let recycled: Set<CareFinding.Kind> = [
+            .duplicates, .similarImages, .downloads, .largeOldFiles,
+            .installers, .unusedApps, .unsupportedApps, .appLeftovers,
+        ]
+        for kind in CareFinding.Kind.allCases {
+            XCTAssertEqual(
+                kind.movesToTrash,
+                recycled.contains(kind),
+                "\(kind) Trash classification"
+            )
+        }
+        // The permanent delete must never be advertised as recoverable.
+        XCTAssertFalse(CareFinding.Kind.junkCleanup.movesToTrash)
+    }
+
+    func test_receiptTrashRecovery_reflectsWhatActuallyMoved() {
+        let junkOnly = CareReceipt(date: Date(), lines: [
+            CareReceiptLine(kind: .junkCleanup, itemsProcessed: 3, bytesFreed: 999, outcome: .success)
+        ])
+        XCTAssertFalse(junkOnly.hasTrashRecoverableItems, "a permanent junk delete offers no restore path")
+
+        let withDuplicates = CareReceipt(date: Date(), lines: [
+            CareReceiptLine(kind: .junkCleanup, itemsProcessed: 3, bytesFreed: 999, outcome: .success),
+            CareReceiptLine(kind: .duplicates, itemsProcessed: 2, bytesFreed: 40, outcome: .success),
+        ])
+        XCTAssertTrue(withDuplicates.hasTrashRecoverableItems, "recycled duplicates can be restored")
+
+        let recycledButNothingMoved = CareReceipt(date: Date(), lines: [
+            CareReceiptLine(kind: .duplicates, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: "no"))
+        ])
+        XCTAssertFalse(recycledButNothingMoved.hasTrashRecoverableItems, "nothing moved, so no restore path")
+    }
 }

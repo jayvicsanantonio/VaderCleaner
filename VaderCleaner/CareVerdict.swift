@@ -73,36 +73,63 @@ enum CareVerdictEngine {
     /// space is safely freeable. Informational findings are notes, not tasks,
     /// so they never inflate the count.
     static func detail(for plan: CarePlan) -> String {
-        let actionable = plan.findings.filter { $0.actionability != .informational }
+        detail(for: plan, safeFreeableBytes: safelyFreeableBytes(in: plan))
+    }
+
+    /// Same supporting line, but with the count and freeable bytes supplied by
+    /// the caller. The results feed passes the *pre-approved* count and its
+    /// *selected* bytes so the hero speaks to exactly what Fix will handle —
+    /// agreeing with the tiles and the disc caption instead of counting opt-in
+    /// items it won't touch or promising the gross total found.
+    static func detail(for plan: CarePlan, readyCount: Int, safeFreeableBytes: Int64) -> String {
         if plan.findings.isEmpty {
             return String(
                 localized: "Nothing needs your attention right now.",
                 comment: "Care verdict detail when the scan found nothing."
             )
         }
-        if actionable.isEmpty {
+        let hasActionable = plan.findings.contains { $0.actionability != .informational }
+        if !hasActionable {
             return String(
                 localized: "Nothing needs fixing — the notes below are just worth knowing.",
                 comment: "Care verdict detail when only informational findings exist."
             )
         }
-        let safeBytes = safelyFreeableBytes(in: plan)
-        if safeBytes > 0 {
+        if readyCount == 0 {
+            // Actionable work exists, but it's all opt-in — nothing Fix handles
+            // on its own. Point at the zones below rather than quoting a count.
+            return String(
+                localized: "Nothing to clean automatically — a few things below are worth a look.",
+                comment: "Care verdict detail when only opt-in findings exist."
+            )
+        }
+        if safeFreeableBytes > 0 {
             return String.localizedStringWithFormat(
                 String(
                     localized: "%d things worth doing — %@ can be freed safely.",
-                    comment: "Care verdict detail: actionable count and safely freeable bytes."
+                    comment: "Care verdict detail: pre-approved count and safely freeable bytes."
                 ),
-                actionable.count,
-                CareFindingCopy.formattedBytes(safeBytes)
+                readyCount,
+                CareFindingCopy.formattedBytes(safeFreeableBytes)
             )
         }
         return String.localizedStringWithFormat(
             String(
                 localized: "%d things worth doing.",
-                comment: "Care verdict detail: actionable count, nothing byte-measurable."
+                comment: "Care verdict detail: pre-approved count, nothing byte-measurable."
             ),
-            actionable.count
+            readyCount
+        )
+    }
+
+    /// The plan-only detail kept for surfaces without a live selection (menu
+    /// bar, notifications): the actionable count and the gross safely-freeable
+    /// total. The results hero uses the `readyCount:safeFreeableBytes:` overload.
+    private static func detail(for plan: CarePlan, safeFreeableBytes: Int64) -> String {
+        detail(
+            for: plan,
+            readyCount: plan.findings.filter { $0.actionability != .informational }.count,
+            safeFreeableBytes: safeFreeableBytes
         )
     }
 

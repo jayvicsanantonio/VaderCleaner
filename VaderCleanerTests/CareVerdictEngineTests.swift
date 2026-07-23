@@ -144,4 +144,40 @@ final class CareVerdictEngineTests: XCTestCase {
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [info], health: healthyTelemetry))
         XCTAssertFalse(verdict.detail.contains("1 thing"), "informational findings are not 'things worth doing'")
     }
+
+    func test_detail_withSuppliedCountAndBytes_quotesTheFixScopeNotTheGross() {
+        // The feed passes the pre-approved count and its selected bytes so the
+        // hero speaks to what Fix handles; the plan's gross figures are larger.
+        let carePlan = plan(findings: [junkFinding(bytes: 110_000_000_000)], health: healthyTelemetry)
+        let detail = CareVerdictEngine.detail(
+            for: carePlan,
+            readyCount: 4,
+            safeFreeableBytes: 94_650_000_000
+        )
+        XCTAssertTrue(detail.contains("4 things"), "hero counts only what Fix handles: \(detail)")
+        XCTAssertTrue(
+            detail.contains(CareFindingCopy.formattedBytes(94_650_000_000)),
+            "detail should quote the supplied selected total: \(detail)"
+        )
+        XCTAssertFalse(
+            detail.contains(CareFindingCopy.formattedBytes(110_000_000_000)),
+            "detail must not quote the gross found total"
+        )
+    }
+
+    func test_detail_readyCountZero_pointsAtOptInWorkInstead() {
+        // Actionable work exists but none of it is pre-approved: the hero must
+        // not say "0 things worth doing" — it points at the zones below.
+        let optIn = CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([
+            ScannedFile(url: URL(fileURLWithPath: "/big"), size: 9_000_000_000,
+                        lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
+        ]))
+        let detail = CareVerdictEngine.detail(
+            for: plan(findings: [optIn], health: healthyTelemetry),
+            readyCount: 0,
+            safeFreeableBytes: 0
+        )
+        XCTAssertFalse(detail.contains("0 things"), "never quote a zero count: \(detail)")
+        XCTAssertFalse(detail.isEmpty)
+    }
 }

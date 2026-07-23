@@ -22,14 +22,16 @@ struct ManagerItemTable: NSViewRepresentable {
     /// state (no reload) on a selection toggle.
     let contentToken: String
     /// Changes whenever the *selection* changes (the host's selection revision).
-    /// `updateNSView` refreshes visible checkbox state only when this moves, so
-    /// the frequent SwiftUI updates that fire during momentum scrolling — same
-    /// content, same selection — don't re-walk every visible row's selection
-    /// each frame. A folder row over a huge subtree makes that per-frame walk
-    /// the dominant scroll cost; gating on this token removes it. Default `0`
-    /// keeps the always-refresh behavior for the small flat managers that don't
-    /// track a revision.
-    var selectionToken: Int = 0
+    /// When set, `updateNSView` refreshes visible checkbox state only when this
+    /// moves, so the frequent SwiftUI updates that fire during momentum
+    /// scrolling — same content, same selection — don't re-walk every visible
+    /// row's selection each frame. A folder row over a huge subtree makes that
+    /// per-frame walk the dominant scroll cost; gating on this token removes it.
+    /// `nil` (the default) keeps the always-refresh behavior for the small flat
+    /// managers that don't track a revision — without it a toggle wouldn't
+    /// repaint the checkbox, since its image is driven by `isSelected`, not by
+    /// the click.
+    var selectionToken: Int? = nil
     let accessibilityPrefix: String
     /// When true the table and its scroll view adopt the aqua (light) appearance
     /// so their row text reads dark-on-white — matching the Cleanup Manager's
@@ -55,6 +57,16 @@ struct ManagerItemTable: NSViewRepresentable {
         var hasher = Hasher()
         for item in items { hasher.combine(item.id) }
         return "\(items.count)|\(hasher.finalize())|\(sort)|\(search)"
+    }
+
+    /// Whether `updateNSView` should repaint visible checkbox state. A `nil`
+    /// current token means the host tracks no selection revision (the flat
+    /// managers), so it must always refresh — their checkbox image is driven by
+    /// `isSelected`, not by the click, and would otherwise freeze after a
+    /// toggle. A non-`nil` token refreshes only when it moves, sparing the
+    /// per-frame walk during momentum scrolls of the huge Cleanup Manager.
+    static func shouldRefreshSelection(previous: Int?, current: Int?) -> Bool {
+        current == nil || previous != current
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -101,7 +113,10 @@ struct ManagerItemTable: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         let reload = coordinator.contentToken != contentToken
-        let selectionChanged = coordinator.selectionToken != selectionToken
+        let selectionChanged = Self.shouldRefreshSelection(
+            previous: coordinator.selectionToken,
+            current: selectionToken
+        )
         coordinator.apply(self)
         if reload {
             coordinator.setHoveredRow(nil) // a stale hover index can't survive a reload
@@ -127,7 +142,7 @@ struct ManagerItemTable: NSViewRepresentable {
         private var isExpanded: (String) -> Bool = { _ in false }
         private var onToggleExpand: (String) -> Void = { _ in }
         fileprivate var contentToken = ""
-        fileprivate var selectionToken = 0
+        fileprivate var selectionToken: Int? = nil
         weak var table: NSTableView?
 
         func apply(_ source: ManagerItemTable) {

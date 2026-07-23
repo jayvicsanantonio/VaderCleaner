@@ -37,6 +37,9 @@ struct CareReceiptView: View {
 
     let receipt: CareReceipt
     let onDone: () -> Void
+    /// Opens the Trash so the user can restore anything the run recycled.
+    /// Defaults to a no-op for previews and tests.
+    var onShowTrash: () -> Void = {}
     /// Optional so previews and tests need not inject a store.
     @Environment(CareHistoryStore.self) private var history: CareHistoryStore?
 
@@ -78,6 +81,10 @@ struct CareReceiptView: View {
                     }
                 }
                 .frame(maxWidth: 520)
+            }
+            if receipt.hasTrashRecoverableItems {
+                CareReceiptRecoveryNote(onShowTrash: onShowTrash)
+                    .frame(maxWidth: 520)
             }
             Button(String(localized: "Done", comment: "Dismiss button on the Smart Scan receipt."), action: onDone)
                 .buttonStyle(.vaderProminent)
@@ -181,6 +188,43 @@ private struct CareReceiptLineRow: View {
     }
 }
 
+/// The receipt's restore path: a quiet reminder that recycled items are still
+/// recoverable, with a button that opens the Trash. Shown only when the run
+/// actually moved something there — never for the permanent junk delete.
+private struct CareReceiptRecoveryNote: View {
+    let onShowTrash: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.uturn.backward.circle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.white.opacity(0.7))
+                .accessibilityHidden(true)
+            Text(String(
+                localized: "Anything moved to the Trash can be restored.",
+                comment: "Receipt note reassuring the user that recycled items are recoverable."
+            ))
+            .font(.system(size: 13, weight: .medium, design: .rounded))
+            .foregroundStyle(.white.opacity(0.75))
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(action: onShowTrash) {
+                Text(String(localized: "Show Trash", comment: "Receipt button that opens the Trash."))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .accessibilityIdentifier("smartScan.showTrashButton")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vaderTileGlass()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("smartScan.receiptRecoveryNote")
+    }
+}
+
 // MARK: - Failed
 
 struct SmartScanFailedState: View {
@@ -214,4 +258,19 @@ struct SmartScanFailedState: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
+}
+
+#Preview("Receipt · with recovery") {
+    CareReceiptView(
+        receipt: CareReceipt(date: Date(), lines: [
+            CareReceiptLine(kind: .junkCleanup, itemsProcessed: 842, bytesFreed: 118_000_000_000, outcome: .success),
+            CareReceiptLine(kind: .duplicates, itemsProcessed: 12, bytesFreed: 5_400_000, outcome: .success),
+            CareReceiptLine(kind: .largeOldFiles, itemsProcessed: 3, bytesFreed: 9_200_000_000, outcome: .success),
+        ]),
+        onDone: {},
+        onShowTrash: {}
+    )
+    .frame(width: 720, height: 620)
+    .background(Color.vaderSpaceBlack)
+    .preferredColorScheme(.dark)
 }
