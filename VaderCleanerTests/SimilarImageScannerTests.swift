@@ -51,6 +51,32 @@ final class SimilarImageScannerTests: XCTestCase {
         XCTAssertTrue(clusters.isEmpty, "An uncomparable pair (nil distance) must not merge")
     }
 
+    // MARK: - Scope
+
+    /// System caches under `~/Library` (e.g. the wallpaper-extension image
+    /// cache) are excluded; the user's real photo locations are kept.
+    func test_isUserPhotoCandidate_excludesLibraryCaches() {
+        let lib = "/Users/x/Library"
+        XCTAssertFalse(SimilarImageScanner.isUserPhotoCandidate(
+            URL(fileURLWithPath: "/Users/x/Library/Containers/com.apple.wallpaper/img.bmp"),
+            libraryPath: lib
+        ))
+        XCTAssertTrue(SimilarImageScanner.isUserPhotoCandidate(
+            URL(fileURLWithPath: "/Users/x/Pictures/vacation.jpg"), libraryPath: lib
+        ))
+        XCTAssertTrue(SimilarImageScanner.isUserPhotoCandidate(
+            URL(fileURLWithPath: "/Users/x/Screenshots/shot.png"), libraryPath: lib
+        ))
+    }
+
+    /// A sibling directory that merely starts with "Library" must not be
+    /// swept in by the prefix check.
+    func test_isUserPhotoCandidate_prefixSiblingNotExcluded() {
+        XCTAssertTrue(SimilarImageScanner.isUserPhotoCandidate(
+            URL(fileURLWithPath: "/Users/x/LibraryNotes/a.jpg"), libraryPath: "/Users/x/Library"
+        ))
+    }
+
     func test_returnsMultipleDisjointClusters() {
         let matrix: [[Float]] = [
             [0.0, 0.1, 0.9, 0.9],

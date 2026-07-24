@@ -81,7 +81,12 @@ struct SmartScanMyClutterReview: View {
         let copies = group.redundantCopies
         guard !copies.isEmpty else { return nil }
         let items = copies.map { file -> ManagerItem in
-            let isDir = file.url.pathExtension.isEmpty
+            let ext = file.url.pathExtension.lowercased()
+            let isImage = SimilarImageScanner.imageExtensions.contains(ext)
+            let isDir = ext.isEmpty
+            // Image copies show a Quick Look thumbnail so the picture is
+            // visible; every other file keeps its tinted doc/folder badge —
+            // a rounded photo tile around a .zip or .dmg icon would read wrong.
             return ManagerItem(
                 id: file.url.path,
                 title: file.url.lastPathComponent,
@@ -89,7 +94,8 @@ struct SmartScanMyClutterReview: View {
                 size: file.size,
                 sizeText: ManagerByteText.string(file.size),
                 systemImage: isDir ? "folder.fill" : "doc.on.doc.fill",
-                tint: isDir ? .blue : .secondary
+                tint: isDir ? .blue : .secondary,
+                usesThumbnail: isImage
             )
         }
         let total = group.reclaimableBytes

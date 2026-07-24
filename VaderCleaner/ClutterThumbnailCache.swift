@@ -2,6 +2,7 @@
 // Process-wide cache of generated Quick Look thumbnails so navigating away from and back to My Clutter reuses already-rendered images instead of regenerating them.
 
 import AppKit
+import QuickLookThumbnailing
 
 /// A small process-wide cache of `NSImage` thumbnails keyed by file path and
 /// requested point size. My Clutter's section view is torn down and rebuilt on
@@ -38,5 +39,33 @@ enum ClutterThumbnailCache {
     /// Store a freshly generated thumbnail for reuse on the next visit.
     static func store(_ image: NSImage, for url: URL, pointSize: CGFloat) {
         cache.setObject(image, forKey: key(url, pointSize))
+    }
+
+    /// Cache-first async load: returns a cached image immediately, otherwise
+    /// generates one via Quick Look (falling back to the Finder icon), stores
+    /// it, and returns it. iCloud placeholders use the icon directly so Quick
+    /// Look never forces a slow on-demand download. Shared by the SwiftUI
+    /// dashboard thumbnails and the AppKit manager rows so both cache into the
+    /// same store.
+    static func load(_ url: URL, pointSize: CGFloat) async -> NSImage? {
+        if let cached = cached(url, pointSize: pointSize) { return cached }
+        let image: NSImage?
+        if CloudFileAvailability.isLocallyAvailable(url) {
+            let request = QLThumbnailGenerator.Request(
+                fileAt: url,
+                size: CGSize(width: pointSize, height: pointSize),
+                scale: 2,
+                representationTypes: .thumbnail
+            )
+            if let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
+                image = rep.nsImage
+            } else {
+                image = NSWorkspace.shared.icon(forFile: url.path)
+            }
+        } else {
+            image = NSWorkspace.shared.icon(forFile: url.path)
+        }
+        if let image { store(image, for: url, pointSize: pointSize) }
+        return image
     }
 }
