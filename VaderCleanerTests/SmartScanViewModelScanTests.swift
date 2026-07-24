@@ -374,6 +374,50 @@ final class SmartScanViewModelScanTests: XCTestCase {
         await vm.scan()
         XCTAssertEqual(vm.scanPresentation, .results)
     }
+
+    // MARK: - Per-plan memoization
+
+    /// The feed's derivations are memoized per plan (the ranked order, and the
+    /// url→size lookups behind each card's selected total). A second scan must
+    /// drop both, so results can never be served from the previous plan.
+    func test_rescan_invalidatesMemoizedPlanDerivations() async {
+        let firstPlan = plan(
+            findings: [CareFinding(kind: .duplicates, payload: .duplicates([
+                DuplicateGroup(files: [file("/d/original", size: 10), file("/d/copy", size: 10)])
+            ]))],
+            outcomes: [.duplicates: .completed]
+        )
+        let secondPlan = plan(
+            findings: [
+                CareFinding(kind: .duplicates, payload: .duplicates([
+                    DuplicateGroup(files: [file("/d/original", size: 500), file("/d/copy", size: 500)])
+                ])),
+                CareFinding(kind: .threats, payload: .threats([
+                    MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")
+                ]))
+            ],
+            outcomes: [.duplicates: .completed, .malware: .completed]
+        )
+        let scans = Counter()
+        let vm = SmartScanViewModel(scanEngine: { _, _ in
+            scans.increment()
+            return scans.count == 1 ? firstPlan : secondPlan
+        })
+
+        await vm.scan()
+        XCTAssertEqual(Set(vm.rankedFindings.map(\.kind)), [.duplicates])
+        XCTAssertEqual(vm.freeableBytes(for: .duplicates), 10, "the seeded extra copy is 10 bytes")
+
+        await vm.scan()
+        XCTAssertEqual(
+            Set(vm.rankedFindings.map(\.kind)), [.threats, .duplicates],
+            "the ranked feed must come from the new plan, not the memoized first one"
+        )
+        XCTAssertEqual(
+            vm.freeableBytes(for: .duplicates), 500,
+            "the url→size lookup must be rebuilt for the new plan"
+        )
+    }
 }
 
 // MARK: - Test helpers

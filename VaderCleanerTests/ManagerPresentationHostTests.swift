@@ -25,4 +25,15 @@ final class ManagerPresentationHostTests: XCTestCase {
         XCTAssertEqual(ManagerPresentationMotion.managerScale(isPresented: true, reduceMotion: true), 1)
         XCTAssertEqual(ManagerPresentationMotion.managerScale(isPresented: false, reduceMotion: true), 1)
     }
+
+    /// The covered dashboard parks at the recede transition's hidden endpoint
+    /// (97%) instead of being removed, so keeping it mounted across the exchange
+    /// looks the same as the removal it replaces; Reduce Motion pins the scale
+    /// and lets opacity carry the exchange.
+    func test_dashboardScale_mirrorsRecedeTransitionEndpoints() {
+        XCTAssertEqual(ManagerPresentationMotion.dashboardScale(isPresented: false, reduceMotion: false), 1)
+        XCTAssertEqual(ManagerPresentationMotion.dashboardScale(isPresented: true, reduceMotion: false), 0.97)
+        XCTAssertEqual(ManagerPresentationMotion.dashboardScale(isPresented: false, reduceMotion: true), 1)
+        XCTAssertEqual(ManagerPresentationMotion.dashboardScale(isPresented: true, reduceMotion: true), 1)
+    }
 }
