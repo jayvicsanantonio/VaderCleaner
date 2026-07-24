@@ -1,5 +1,5 @@
 // ManagerPresentationHost.swift
-// Shared dashboard↔manager exchange for the section screens: the manager zooms up from the button that opened it over the receding dashboard, and after its first open the manager subtree stays mounted (hidden and inert) so Back and reopen restore the already-built panes instantly instead of rebuilding them.
+// Shared dashboard↔manager exchange for the section screens: the manager zooms up from the button that opened it over the receding dashboard. Neither surface is torn down by the exchange — the dashboard stays mounted throughout and the manager stays mounted after its first open, both hidden and inert while covered, so Back and reopen restore already-built views instead of rebuilding them.
 
 import SwiftUI
 
@@ -21,16 +21,28 @@ enum ManagerPresentationMotion {
     static func managerScale(isPresented: Bool, reduceMotion: Bool) -> CGFloat {
         (isPresented || reduceMotion) ? 1 : 0.9
     }
+
+    /// The dashboard's scale: full size while it owns the screen, parked at the
+    /// recede transition's hidden endpoint (97%) while a manager covers it, so
+    /// hiding it in place reads identically to the removal transition it
+    /// replaces. Reduce Motion pins the scale and lets opacity carry the
+    /// exchange, matching `dashboardTransition`.
+    static func dashboardScale(isPresented: Bool, reduceMotion: Bool) -> CGFloat {
+        (isPresented && !reduceMotion) ? 0.97 : 1
+    }
 }
 
 /// Hosts a section's dashboard and its manager surface in one ZStack — the
 /// stable transition host every section screen previously hand-rolled — with
-/// the shared manager motion. The dashboard inserts/removes with its usual
-/// recede; the manager plays its anchored-zoom transition on first open, then
-/// stays mounted and swaps between visible and hidden via animated modifiers
-/// that mirror the same zoom, so no state is lost between opens. While hidden
-/// the manager is fully inert: not clickable, not focusable (no stray
-/// keyboard-shortcut captures), and absent from accessibility.
+/// the shared manager motion. The dashboard stays mounted for the host's whole
+/// life, receding into the recede transition's endpoint via animated modifiers
+/// instead of being removed — rebuilding a section's dashboard on Back is what
+/// made returning from a manager stall. The manager plays its anchored-zoom
+/// transition on first open, then stays mounted and swaps between visible and
+/// hidden via animated modifiers that mirror the same zoom, so no state is lost
+/// between opens. Whichever surface is covered is fully inert: not clickable,
+/// not focusable (no stray keyboard-shortcut captures), and absent from
+/// accessibility.
 ///
 /// The host claims the title-bar safe area itself (never on a transitioning
 /// branch: safe-area changes inside a freshly inserted transition subtree are
@@ -57,11 +69,22 @@ struct ManagerPresentationHost<Dashboard: View, Manager: View>: View {
 
     var body: some View {
         ZStack {
-            if !isPresented {
-                dashboard()
-                    .padding(.top, dashboardTopInset)
-                    .transition(VaderMotion.dashboardTransition(reduceMotion: reduceMotion))
-            }
+            dashboard()
+                .padding(.top, dashboardTopInset)
+                // Stays mounted behind the manager rather than being removed and
+                // rebuilt on Back: reconstructing a section's whole dashboard
+                // view graph is what made returning from a manager stall. It
+                // hides in place at the recede transition's endpoint, so the
+                // exchange still reads exactly like the removal it replaces.
+                .scaleEffect(
+                    ManagerPresentationMotion.dashboardScale(isPresented: isPresented, reduceMotion: reduceMotion)
+                )
+                .opacity(isPresented ? 0 : 1)
+                // Inert while covered: no clicks, no keyboard shortcuts or
+                // focus, no accessibility/UI-test presence.
+                .allowsHitTesting(!isPresented)
+                .disabled(isPresented)
+                .accessibilityHidden(isPresented)
             if ManagerPresentationMotion.mountsManager(isPresented: isPresented, hasOpened: managerHasOpened) {
                 manager()
                     // Hidden in place at the zoom transition's endpoint (scale

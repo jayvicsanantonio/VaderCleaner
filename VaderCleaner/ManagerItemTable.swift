@@ -448,11 +448,25 @@ final class ManagerRowCellView: NSTableCellView {
     private let indentSpacer = NSView()
     private let checkbox = NSButton()
     private let iconView = NSImageView()
+    /// The "Kept" seal shown on a locked row (a similar-photo group's best shot),
+    /// where the checkbox would be. Hidden on every other row.
+    private let keptGlyph = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
     private let sparkleView = ManagerSparkleView()
     private let sizeField = NSTextField(labelWithString: "")
     private let chevron = NSButton()
+    /// Fixed square for the icon column, activated only in thumbnail mode so a
+    /// Quick Look preview fills a consistent tile; symbol/Finder-icon rows keep
+    /// their intrinsic size and stay pixel-identical to before.
+    private var iconWidth: NSLayoutConstraint!
+    private var iconHeight: NSLayoutConstraint!
+    /// The file path whose thumbnail this cell is currently expecting, so an
+    /// async load that resolves after the cell was recycled is discarded.
+    private var thumbnailToken: String?
+    /// Point size the manager rows request thumbnails at (rendered at 2× by
+    /// Quick Look), matching the 38-point icon column.
+    private static let thumbnailPointSize: CGFloat = 38
     /// Flexible gap between the text and the trailing column. It absorbs the
     /// row's free space so the sparkle / size / chevron sit in a fixed right
     /// column regardless of how wide each row's text is — without it the sparkle
@@ -472,7 +486,7 @@ final class ManagerRowCellView: NSTableCellView {
 
     init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
         textStack = NSStackView(views: [titleField, subtitleField])
-        rowStack = NSStackView(views: [indentSpacer, checkbox, iconView, textStack, trailingSpacer, sparkleView, sizeField, chevron])
+        rowStack = NSStackView(views: [indentSpacer, checkbox, iconView, textStack, trailingSpacer, keptGlyph, sparkleView, sizeField, chevron])
         super.init(frame: .zero)
         self.identifier = reuseIdentifier
         setup()
@@ -535,6 +549,19 @@ final class ManagerRowCellView: NSTableCellView {
         checkbox.action = #selector(checkboxTapped)
         checkbox.setContentHuggingPriority(.required, for: .horizontal)
         iconView.setContentHuggingPriority(.required, for: .horizontal)
+        // Fixed square, toggled on only for thumbnail rows in `configure`.
+        iconWidth = iconView.widthAnchor.constraint(equalToConstant: Self.thumbnailPointSize)
+        iconHeight = iconView.heightAnchor.constraint(equalToConstant: Self.thumbnailPointSize)
+
+        // The "Kept" seal: a green sealed checkmark sitting where the checkbox
+        // would be, marking a row that is shown but can't be deleted.
+        keptGlyph.image = ManagerSymbolCache.image("checkmark.seal.fill", pointSize: 16)
+        keptGlyph.contentTintColor = .systemGreen
+        keptGlyph.isHidden = true
+        keptGlyph.setContentHuggingPriority(.required, for: .horizontal)
+        keptGlyph.setContentCompressionResistancePriority(.required, for: .horizontal)
+        keptGlyph.toolTip = String(localized: "Kept — this shot is the best of the group and is never removed.", comment: "Tooltip on the kept best shot in a similar-photo group.")
+
         indentSpacer.setContentHuggingPriority(.required, for: .horizontal)
         indentWidth = indentSpacer.widthAnchor.constraint(equalToConstant: 0)
         indentWidth.isActive = true
@@ -569,20 +596,14 @@ final class ManagerRowCellView: NSTableCellView {
         onToggleSelection: @escaping (String) -> Void
     ) {
         indentWidth.constant = CGFloat(item.indentLevel) * Self.indentStep
-        checkbox.isHidden = !showsCheckbox
+        // A locked row (a similar-photo group's kept best shot) is shown for
+        // context but can't be selected: no checkbox, a "Kept" seal instead.
+        let rowShowsCheckbox = showsCheckbox && !item.isLocked
+        checkbox.isHidden = !rowShowsCheckbox
+        keptGlyph.isHidden = !item.isLocked
         let selectionID = item.id
         onCheckbox = { onToggleSelection(selectionID) }
-        if item.usesFileIcon {
-            // The real Finder icon for the file/app, so rows read like Finder.
-            // `iconPath` lets a row draw an icon from a path other than its
-            // selection `id` (e.g. a login item keyed by bundle id).
-            iconView.image = ManagerFileIconCache.icon(forPath: item.iconPath ?? item.id)
-        } else {
-            // A tinted gradient badge — the same look as the SwiftUI
-            // `TaskIconBadge` — so symbol rows match the card panes.
-            iconView.image = ManagerBadgeImageCache.image(symbol: item.systemImage, tint: item.tint)
-        }
-        iconView.contentTintColor = nil
+        configureIcon(for: item)
         titleField.stringValue = item.title
         if let subtitle = item.subtitle {
             subtitleField.stringValue = subtitle
@@ -590,7 +611,7 @@ final class ManagerRowCellView: NSTableCellView {
         } else {
             subtitleField.isHidden = true
         }
-        sparkleView.isHidden = !showsSparkle
+        sparkleView.isHidden = !showsSparkle || item.isLocked
         // Tint the sparkle and its hover chip with the manager's accent so it
         // matches the chevron, search, and back icons rather than a fixed pink.
         sparkleView.setAccent(accent)
@@ -625,9 +646,66 @@ final class ManagerRowCellView: NSTableCellView {
         setSelected(selected, accent: accent)
     }
 
+    /// Draws the row's leading image in one of three modes: a Quick Look
+    /// thumbnail of the file (image managers), the real Finder icon, or a tinted
+    /// symbol badge. Only thumbnail mode pins the icon to a fixed rounded square
+    /// and loads asynchronously — the other two stay pixel-identical to before.
+    private func configureIcon(for item: ManagerItem) {
+        iconView.contentTintColor = nil
+
+        guard item.usesThumbnail else {
+            thumbnailToken = nil
+            iconWidth.isActive = false
+            iconHeight.isActive = false
+            iconView.imageScaling = .scaleProportionallyDown
+            iconView.layer?.cornerRadius = 0
+            iconView.layer?.borderWidth = 0
+            iconView.layer?.masksToBounds = false
+            if item.usesFileIcon {
+                // The real Finder icon for the file/app, so rows read like
+                // Finder. `iconPath` lets a row draw an icon from a path other
+                // than its selection `id` (e.g. a login item keyed by bundle id).
+                iconView.image = ManagerFileIconCache.icon(forPath: item.iconPath ?? item.id)
+            } else {
+                // A tinted gradient badge — the same look as the SwiftUI
+                // `TaskIconBadge` — so symbol rows match the card panes.
+                iconView.image = ManagerBadgeImageCache.image(symbol: item.systemImage, tint: item.tint)
+            }
+            return
+        }
+
+        // Thumbnail mode: a fixed rounded square filled with the picture.
+        let path = item.iconPath ?? item.id
+        thumbnailToken = path
+        iconWidth.isActive = true
+        iconHeight.isActive = true
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.wantsLayer = true
+        iconView.layer?.cornerRadius = 6
+        iconView.layer?.borderWidth = 0.5
+        iconView.layer?.borderColor = NSColor.separatorColor.cgColor
+        iconView.layer?.masksToBounds = true
+
+        let url = URL(fileURLWithPath: path)
+        if let cached = ClutterThumbnailCache.cached(url, pointSize: Self.thumbnailPointSize) {
+            iconView.image = cached
+            return
+        }
+        // Miss: show a neutral placeholder, then fill in when Quick Look
+        // resolves — unless the cell was recycled onto a different file first.
+        iconView.image = ManagerSymbolCache.image("photo", pointSize: 16)
+        Task { @MainActor in
+            let image = await ClutterThumbnailCache.load(url, pointSize: Self.thumbnailPointSize)
+            guard self.thumbnailToken == path, let image else { return }
+            self.iconView.image = image
+        }
+    }
+
     /// Clears a recycled cell so a row requested past the data shows nothing.
     func blank() {
         checkbox.isHidden = true
+        keptGlyph.isHidden = true
+        thumbnailToken = nil
         iconView.image = nil
         titleField.stringValue = ""
         subtitleField.isHidden = true

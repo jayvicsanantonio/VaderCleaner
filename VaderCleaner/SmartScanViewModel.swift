@@ -298,6 +298,8 @@ final class SmartScanViewModel {
     /// manager store, and seed every selection tier off-main where the data
     /// can be large.
     private func land(_ plan: CarePlan) async {
+        // A new plan is arriving: drop anything memoized from the last one.
+        invalidateResultsCaches()
         let attempted = CareScanUnit.allCases.filter { unit in
             switch plan.unitOutcomes[unit] {
             case .completed, .failed: return true
@@ -393,6 +395,7 @@ final class SmartScanViewModel {
         leftoverSelection = []
         installerSelection = []
         browserPrivacySelection = []
+        invalidateResultsCaches()
     }
 
     // MARK: - Checklist derivation
@@ -469,9 +472,29 @@ final class SmartScanViewModel {
         currentPlan.map(CareVerdictEngine.verdict(for:))
     }
 
+    /// Memoized derivations for the plan on screen. `@ObservationIgnored` so
+    /// filling one during a render can't invalidate the views reading it;
+    /// `invalidateResultsCaches()` drops both whenever a new plan lands.
+    @ObservationIgnored private var rankedFindingsCache: [CareFinding]?
+    @ObservationIgnored private var sizeTables: [CareFinding.Kind: [URL: Int64]] = [:]
+
     /// The feed in display order: threats first, then space, then advisories.
+    /// Memoized per plan: the feed reads this several times in one render (once
+    /// for emptiness, then once per actionability zone), and re-sorting the
+    /// findings on every read is work each return from a Manager paid for.
     var rankedFindings: [CareFinding] {
-        currentPlan.map { CarePlanRanker.ranked($0.findings) } ?? []
+        guard let plan = currentPlan else { return [] }
+        if let cached = rankedFindingsCache { return cached }
+        let ranked = CarePlanRanker.ranked(plan.findings)
+        rankedFindingsCache = ranked
+        return ranked
+    }
+
+    /// Drops the per-plan memoizations so a stale sort or size table can never
+    /// outlive the results it was built from.
+    private func invalidateResultsCaches() {
+        rankedFindingsCache = nil
+        sizeTables = [:]
     }
 
     // MARK: - Card inclusion
@@ -925,13 +948,21 @@ final class SmartScanViewModel {
         case .junk:
             return selectedJunkBytes
         case .duplicates(let groups):
-            return selectedBytes(in: duplicateSelection, sizes: groups.flatMap { $0.files.map { ($0.url, $0.size) } })
+            return selectedBytes(in: duplicateSelection, kind: kind, sizes: {
+                groups.flatMap { $0.files.map { ($0.url, $0.size) } }
+            })
         case .largeOldFiles(let files):
-            return selectedBytes(in: largeOldFileSelection, sizes: files.map { ($0.url, $0.size) })
+            return selectedBytes(in: largeOldFileSelection, kind: kind, sizes: {
+                files.map { ($0.url, $0.size) }
+            })
         case .similarImages(let groups):
-            return selectedBytes(in: similarImageSelection, sizes: groups.flatMap { $0.files.map { ($0.url, $0.size) } })
+            return selectedBytes(in: similarImageSelection, kind: kind, sizes: {
+                groups.flatMap { $0.files.map { ($0.url, $0.size) } }
+            })
         case .downloads(let items):
-            return selectedBytes(in: downloadSelection, sizes: items.map { ($0.file.url, $0.file.size) })
+            return selectedBytes(in: downloadSelection, kind: kind, sizes: {
+                items.map { ($0.file.url, $0.file.size) }
+            })
         case .installers(let files):
             return files.filter { installerSelection.contains($0.id) }.reduce(0) { $0 + $1.sizeBytes }
         case .unusedApps(let apps):
@@ -944,10 +975,28 @@ final class SmartScanViewModel {
         }
     }
 
-    /// Sums the sizes of the selected URLs against a (url, size) list.
-    private func selectedBytes(in selection: Set<URL>, sizes: [(URL, Int64)]) -> Int64 {
-        let table = Dictionary(sizes, uniquingKeysWith: { first, _ in first })
+    /// Sums the sizes of the selected URLs for one finding. An empty selection
+    /// answers without touching the file list at all, and the (url, size)
+    /// lookup is built once per plan rather than rebuilt on every read — the
+    /// two together keep a feed render off the finding's whole file list, which
+    /// the cards, the hero, and the disc caption each used to walk.
+    private func selectedBytes(
+        in selection: Set<URL>,
+        kind: CareFinding.Kind,
+        sizes: () -> [(URL, Int64)]
+    ) -> Int64 {
+        guard !selection.isEmpty else { return 0 }
+        let table = sizeTable(for: kind, sizes: sizes)
         return selection.reduce(0) { $0 + (table[$1] ?? 0) }
+    }
+
+    /// The memoized url→size lookup for one finding, built on first use and
+    /// held until the next plan lands.
+    private func sizeTable(for kind: CareFinding.Kind, sizes: () -> [(URL, Int64)]) -> [URL: Int64] {
+        if let cached = sizeTables[kind] { return cached }
+        let table = Dictionary(sizes(), uniquingKeysWith: { first, _ in first })
+        sizeTables[kind] = table
+        return table
     }
 
     /// Whether the floating Run disc should be on screen: only on the
@@ -995,7 +1044,7 @@ final class SmartScanViewModel {
     /// body of the confirmation sheet. Each says what will happen to the chosen
     /// items; the permanent one is flagged so the sheet can mark it.
     var runActionSummary: [RunActionLine] {
-        CarePlanRanker.ranked(currentPlan?.findings ?? [])
+        rankedFindings
             .filter { willExecute($0.kind) }
             .map { finding in
                 RunActionLine(

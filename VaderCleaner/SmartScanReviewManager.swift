@@ -41,6 +41,16 @@ struct ManagerItem: Identifiable, Hashable, Sendable {
     /// document rows look like Finder. Other managers leave this off and keep
     /// their tinted SF Symbol.
     var usesFileIcon: Bool = false
+    /// When true the row draws a Quick Look thumbnail of the file at `id` (or
+    /// `iconPath`) instead of a Finder icon or tinted symbol — so the image
+    /// managers (Similar Photos, and the photo side of Duplicates) show the
+    /// actual picture the user is deciding on. Loaded async and cached.
+    var usesThumbnail: Bool = false
+    /// When true the row is shown for context but can't be selected: it has no
+    /// checkbox and carries a "Kept" marker. Used for the best shot a
+    /// similar-photo group keeps, so the user can see what survives without
+    /// being able to delete it.
+    var isLocked: Bool = false
     /// Filesystem path the Finder icon is drawn from when `usesFileIcon` is set
     /// and the row's selection `id` is *not* itself a path (e.g. a login item
     /// keyed by bundle id, or a launch agent whose app bundle differs from its
@@ -196,10 +206,13 @@ struct SmartScanReviewManager: View {
     var showsSelection: Bool = true
     /// When true the manager renders on a white, light-mode surface (matching
     /// the reference Cleanup Manager) instead of inheriting the section's dark
-    /// gradient. Smart Scan's managers leave this off.
+    /// gradient. Every Smart Scan review opts in; the `false` default keeps the
+    /// section's dark gradient for any caller that wants it.
     var lightSurface: Bool = false
     /// When true each item row shows a decorative pink "smart suggestion"
-    /// sparkle (non-interactive). Off for Smart Scan's managers.
+    /// sparkle (non-interactive). Smart Scan's actionable reviews opt in; its
+    /// read-only ones (Performance, Extensions, Background Items, Browser
+    /// Privacy) leave it off, since their rows carry no clean action.
     var showsSparkle: Bool = false
     /// Section/category to pre-select when the manager opens, for deep linking
     /// from a dashboard card's "Review". `nil` falls back to the first section
@@ -270,6 +283,23 @@ struct SmartScanReviewManager: View {
 
     private var loadedSections: [ManagerSection] { sections ?? [] }
 
+    /// Whether the left (section) pane is shown. Hidden when there's a single
+    /// section: an always-selected lone row navigates nothing, so the manager
+    /// starts at its categories instead of a dead column.
+    private var showsSectionPane: Bool {
+        Self.showsSectionPane(sectionCount: loadedSections.count)
+    }
+
+    /// Whether the middle (category) pane is shown. Hidden when the selected
+    /// section holds a single category, collapsing the manager straight to its
+    /// item list.
+    private var showsCategoryPane: Bool {
+        Self.showsCategoryPane(
+            categoryCount: selectedSection?.categories.count ?? 0,
+            sectionCount: loadedSections.count
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -280,10 +310,18 @@ struct SmartScanReviewManager: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: 0) {
-                    sectionPane
-                    Divider().opacity(0.4)
-                    categoryPane
-                    Divider().opacity(0.4)
+                    // Each navigation pane appears only when it has more than one
+                    // row to choose between; a single-row pane navigates nothing,
+                    // so the manager collapses to two panes (or one) rather than
+                    // showing a dead column.
+                    if showsSectionPane {
+                        sectionPane
+                        Divider().opacity(0.4)
+                    }
+                    if showsCategoryPane {
+                        categoryPane
+                        Divider().opacity(0.4)
+                    }
                     itemPane
                 }
             }
@@ -508,9 +546,18 @@ struct SmartScanReviewManager: View {
     private var itemPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             if selectedCategory != nil {
-                // Header describing the selected category.
-                if let category = selectedCategory, let description = category.description {
-                    paneHeader(title: category.title, description: description)
+                // Header describing the selected category. When the category pane
+                // is collapsed it also absorbs the section's description, which
+                // normally lives in that (now-hidden) pane.
+                if let category = selectedCategory {
+                    let description = Self.itemHeaderDescription(
+                        categoryDescription: category.description,
+                        sectionDescription: selectedSection?.description,
+                        categoryPaneShown: showsCategoryPane
+                    )
+                    if let description {
+                        paneHeader(title: category.title, description: description)
+                    }
                 }
                 if showsSelection, let category = selectedCategory {
                     // Counts come from the visible (loaded) rows, not the shell
@@ -639,14 +686,24 @@ struct SmartScanReviewManager: View {
                 total
             )
         }
-        let summary = selectionSummary?() ?? scannedSelectionSummary()
+        return Self.selectionFooterText(selectionSummary?() ?? scannedSelectionSummary())
+    }
+
+    /// Footer text for a selectable manager: the selected-item count, plus a
+    /// "· size" clause only when something is selected and it carries bytes.
+    /// Kept pure and static so the count/size composition is unit-tested without
+    /// a view.
+    static func selectionFooterText(_ summary: ManagerSelectionSummary) -> String {
         let countText = summary.count == 0
             ? String(localized: "No Items Selected", comment: "Smart Scan Manager footer when nothing is selected.")
             : String.localizedStringWithFormat(
                 String(localized: "%lld Items Selected", comment: "Live count of selected items in a Smart Scan Manager footer."),
                 summary.count
             )
-        guard let bytes = summary.bytes else { return countText }
+        // Append the size only when something is selected: a zero count paired
+        // with "· 0 bytes" reads as noise, so the empty state shows the count
+        // alone.
+        guard summary.count > 0, let bytes = summary.bytes else { return countText }
         return "\(countText)  ·  \(ManagerByteText.string(bytes))"
     }
 
@@ -695,6 +752,41 @@ struct SmartScanReviewManager: View {
         if tally.selected == 0 { return false }
         if tally.selected >= tally.total { return true }
         return nil
+    }
+
+    /// Whether the section (left) pane earns its place: only when more than one
+    /// section gives the user a real choice. A single section is always
+    /// selected, so its pane would navigate nothing — the manager drops it and
+    /// starts at its categories (or, if those also collapse, its items).
+    static func showsSectionPane(sectionCount: Int) -> Bool { sectionCount > 1 }
+
+    /// Whether the category (middle) pane earns its place. Kept present whenever
+    /// the section pane is (a hierarchical manager stays a stable three panes
+    /// rather than reflowing its column count as the user switches between
+    /// sections of differing depth); otherwise it shows only when the lone
+    /// section holds more than one category.
+    static func showsCategoryPane(categoryCount: Int, sectionCount: Int) -> Bool {
+        sectionCount > 1 || categoryCount > 1
+    }
+
+    /// The rows a user can actually toggle — everything but the locked context
+    /// rows (a similar-photo group's kept best shot). Bulk-select state and a
+    /// review's "Select All" both operate over these, never the locked ones, so
+    /// the kept original can't be swept into a deletion.
+    static func selectableItems(_ items: [ManagerItem]) -> [ManagerItem] {
+        items.filter { !$0.isLocked }
+    }
+
+    /// The description shown above the item list. Prefers the category's own
+    /// line; falls back to the section's only when the category pane is hidden,
+    /// so collapsing a single-category manager doesn't drop the section's
+    /// reassurance text (which normally lives in the now-hidden category pane).
+    static func itemHeaderDescription(
+        categoryDescription: String?,
+        sectionDescription: String?,
+        categoryPaneShown: Bool
+    ) -> String? {
+        categoryDescription ?? (categoryPaneShown ? nil : sectionDescription)
     }
 
     /// The selected category's rows — lazily loaded when `loadItems` is set,
@@ -819,9 +911,13 @@ struct SmartScanReviewManager: View {
             if tally.total > 0 && tally.selected >= tally.total { return .all }
             return .some
         }
-        let selectedCount = rows.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
-        if selectedCount == 0 || rows.isEmpty { return .none }
-        if selectedCount == rows.count { return .all }
+        // Count only rows the user can toggle, so a group whose every deletable
+        // copy is checked reads as "All" even though its locked best shot never
+        // can be.
+        let selectable = Self.selectableItems(rows)
+        let selectedCount = selectable.reduce(0) { $0 + (isSelected($1.id) ? 1 : 0) }
+        if selectedCount == 0 || selectable.isEmpty { return .none }
+        if selectedCount == selectable.count { return .all }
         return .some
     }
 }

@@ -73,8 +73,10 @@ struct SimilarImageScanner {
             options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
             batchSize: FileScanner.defaultBatchSize,
             onProgress: onProgress
-        ) { batch in
-            for file in batch where Self.imageExtensions.contains(file.url.pathExtension.lowercased()) && file.size > 0 {
+        ) { [libraryPath = Self.userLibraryPath()] batch in
+            for file in batch where Self.imageExtensions.contains(file.url.pathExtension.lowercased())
+                && file.size > 0
+                && Self.isUserPhotoCandidate(file.url, libraryPath: libraryPath) {
                 images.append(file)
             }
             try Task.checkCancellation()
@@ -115,6 +117,24 @@ struct SimilarImageScanner {
             return SimilarImageGroup(files: files)
         }
         return groups.sorted { $0.reclaimableBytes > $1.reclaimableBytes }
+    }
+
+    // MARK: - Scope
+
+    /// The user's `~/Library` path, computed once per scan so the per-file
+    /// eligibility check doesn't re-resolve the home directory for every image.
+    nonisolated static func userLibraryPath() -> String {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library").path
+    }
+
+    /// Whether `url` is somewhere worth scanning for the user's *own* similar
+    /// photos. Rejects anything under `~/Library` — app caches and containers
+    /// such as the wallpaper-extension image cache, which are near-identical by
+    /// design, aren't photos a person means to de-duplicate, and are regenerated
+    /// by the OS. The trailing separator keeps a sibling like `~/LibraryNotes`
+    /// from matching the `~/Library` prefix.
+    nonisolated static func isUserPhotoCandidate(_ url: URL, libraryPath: String) -> Bool {
+        !url.path.hasPrefix(libraryPath + "/")
     }
 
     // MARK: - Pure clustering

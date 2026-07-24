@@ -1,5 +1,5 @@
 // SmartScanSimilarImagesReview.swift
-// Similar-photos Review for Smart Scan — the shared three-pane manager over near-duplicate image groups. One category per group lists the extra shots; the best shot (the kept original) is named but never listed, so it can't be deleted.
+// Similar-photos Review for Smart Scan — the shared two-pane manager over near-duplicate image groups, each row a Quick Look thumbnail. One category per group leads with the kept best shot as a locked row (shown, but no checkbox, so it can't be deleted) above the deletable near-duplicate copies.
 
 import SwiftUI
 
@@ -12,10 +12,11 @@ private final class SimilarReviewLookups: @unchecked Sendable {
 }
 
 /// Similar Images Review, rendered through the shared `SmartScanReviewManager`.
-/// Each group is one category whose items are the extra near-duplicate shots;
-/// the best shot is named in the category title but never listed, so it can
-/// never be selected for deletion. These are the user's own photos, so nothing
-/// is pre-checked — the card's selection fills only from explicit choices here.
+/// Each group is one category: the kept best shot leads as a locked, thumbnailed
+/// row (never entered into the selection lookups, so it can't be toggled),
+/// followed by the deletable near-duplicate copies. These are the user's own
+/// photos, so nothing is pre-checked — the selection fills only from explicit
+/// choices here.
 struct SmartScanSimilarImagesReview: View {
     var viewModel: SmartScanViewModel
     let groups: [SimilarImageGroup]
@@ -48,7 +49,10 @@ struct SmartScanSimilarImagesReview: View {
                 viewModel.toggleSimilarImage(file)
             },
             onSetCategory: { category, selected in
-                let urls = category.items.map { URL(fileURLWithPath: $0.id) }
+                // The kept best shot is a locked row — never sweep it into a
+                // Select All / Deselect All.
+                let urls = SmartScanReviewManager.selectableItems(category.items)
+                    .map { URL(fileURLWithPath: $0.id) }
                 viewModel.setSimilarImages(urls, selected: selected)
             },
             onBack: onBack,
@@ -77,12 +81,26 @@ struct SmartScanSimilarImagesReview: View {
         )]
     }
 
-    /// One category per group: its items are the extra shots, and its title
-    /// names the best shot that will be kept.
+    /// One category per group. The kept best shot leads as a locked, thumbnailed
+    /// row — shown so the user can see what survives, but with no checkbox so it
+    /// can never be deleted — followed by the deletable near-duplicate copies,
+    /// each with its own thumbnail.
     nonisolated private static func category(for group: SimilarImageGroup) -> ManagerCategory? {
         let copies = group.redundantCopies
         guard !copies.isEmpty else { return nil }
-        let items = copies.map { file -> ManagerItem in
+        let original = group.original
+        let keptItem = ManagerItem(
+            id: original.url.path,
+            title: original.url.lastPathComponent,
+            subtitle: original.url.deletingLastPathComponent().path,
+            size: original.size,
+            sizeText: ManagerByteText.string(original.size),
+            systemImage: "photo.fill",
+            tint: .blue,
+            usesThumbnail: true,
+            isLocked: true
+        )
+        let copyItems = copies.map { file -> ManagerItem in
             ManagerItem(
                 id: file.url.path,
                 title: file.url.lastPathComponent,
@@ -91,9 +109,10 @@ struct SmartScanSimilarImagesReview: View {
                 sizeText: ManagerByteText.string(file.size),
                 systemImage: "photo.fill",
                 tint: .blue,
-                usesFileIcon: true
+                usesThumbnail: true
             )
         }
+        let items = [keptItem] + copyItems
         let total = group.reclaimableBytes
         let keptName = group.original.url.lastPathComponent
         return ManagerCategory(
