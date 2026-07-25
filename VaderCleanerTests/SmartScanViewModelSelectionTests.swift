@@ -52,6 +52,7 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
                 CareFinding(kind: .threats, payload: .threats(threats)),
                 CareFinding(kind: .appUpdates, payload: .appUpdates(updates)),
                 CareFinding(kind: .duplicates, payload: .duplicates([group])),
+                CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
                 CareFinding(kind: .loginItems, payload: .loginItems([
                     LoginItem(id: "x", name: "Agent", isEnabled: true)
                 ]))
@@ -59,7 +60,8 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
             health: nil,
             unitOutcomes: [
                 .systemJunk: .completed, .malware: .completed,
-                .appUpdates: .completed, .duplicates: .completed, .loginItems: .completed
+                .appUpdates: .completed, .duplicates: .completed,
+                .maintenanceDue: .completed, .loginItems: .completed
             ],
             startedAt: Date(),
             finishedAt: Date()
@@ -134,6 +136,29 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
         XCTAssertTrue(vm.isUpdateSelected(update))
     }
 
+    // MARK: - Maintenance tasks
+
+    func test_maintenanceSelection_seedsAllThenToggleAndBulk() async {
+        let vm = await makeVM()
+        // Seeded: every due task starts selected (pre-approved tile).
+        XCTAssertTrue(vm.isMaintenanceTaskSelected("flushDNS"))
+        XCTAssertTrue(vm.isMaintenanceTaskSelected("speedUpMail"))
+        XCTAssertEqual(vm.selectionCount(for: .maintenanceDue), 2)
+
+        vm.toggleMaintenanceTask("flushDNS")
+        XCTAssertFalse(vm.isMaintenanceTaskSelected("flushDNS"))
+        XCTAssertEqual(vm.selectionCount(for: .maintenanceDue), 1)
+        XCTAssertTrue(vm.willExecute(.maintenanceDue), "one task still selected keeps the tile runnable")
+
+        vm.setAllMaintenanceTasks(selected: false)
+        XCTAssertEqual(vm.selectionCount(for: .maintenanceDue), 0)
+        XCTAssertFalse(vm.willExecute(.maintenanceDue), "deselecting every task drops the tile from Run")
+
+        vm.setAllMaintenanceTasks(selected: true)
+        XCTAssertEqual(vm.selectionCount(for: .maintenanceDue), 2)
+        XCTAssertTrue(vm.willExecute(.maintenanceDue))
+    }
+
     // MARK: - Duplicates
 
     func test_duplicateSelection_neverIncludesTheKeptOriginal() async {
@@ -163,6 +188,7 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
         XCTAssertEqual(vm.selectionCount(for: .junkCleanup), 3)
         XCTAssertEqual(vm.selectionCount(for: .threats), 2)
         XCTAssertEqual(vm.selectionCount(for: .duplicates), 2)
+        XCTAssertEqual(vm.selectionCount(for: .maintenanceDue), 2)
         XCTAssertEqual(vm.selectionCount(for: .largeOldFiles), 0)
     }
 
