@@ -267,6 +267,32 @@ final class SmartScanViewModelRunTests: XCTestCase {
         )
     }
 
+    func test_run_maintenance_runsOnlySelectedTasks() async {
+        let recorder = Recorder()
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in self.richPlan },
+            threatRemover: { _ in [] },
+            recycleFiles: { Set($0) },
+            maintenanceTaskRunner: { recorder.record("task:\($0)") }
+        )
+        await vm.scan()
+        // Deselect one of the two due tasks before running.
+        vm.toggleMaintenanceTask("speedUpMail")
+        await vm.run()
+
+        let entries = Set(recorder.entries)
+        XCTAssertTrue(entries.contains("task:flushDNS"), "the selected task runs")
+        XCTAssertFalse(entries.contains("task:speedUpMail"), "a deselected task must not run")
+
+        guard case .done(let receipt) = vm.phase else {
+            return XCTFail("expected .done, got \(vm.phase)")
+        }
+        XCTAssertEqual(
+            receipt.lines.first { $0.kind == .maintenanceDue }?.itemsProcessed, 1,
+            "the receipt counts only the task that ran"
+        )
+    }
+
     // MARK: - History hooks
 
     func test_scanAndRun_stampTheHistoryHooks() async {

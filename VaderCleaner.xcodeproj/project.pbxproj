@@ -212,6 +212,7 @@
 		6CAE5BEE91E8F09DDB87590F /* UserFilesPathProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DDDE766D46D79E2C23FB557 /* UserFilesPathProviding.swift */; };
 		6D1B9E2FCA2F9BB29572CA3D /* ManagerPresentationHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96BA1EBEBF262C65F048F261 /* ManagerPresentationHost.swift */; };
 		6D2476F58F6EDCF6C12C844D /* UnusedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF85D42AE611D1F64E6B4C6 /* UnusedApp.swift */; };
+		6DAE56CA8044DF598F65C06E /* SmartScanMaintenanceReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BEA8AC18E21DC97133583B1 /* SmartScanMaintenanceReview.swift */; };
 		6DB4DEBBE3DABA52AEBD5E47 /* CarePlanFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 772F77EE11F5BAD8406E38AC /* CarePlanFeedView.swift */; };
 		6DD186684E701C06ABA8B3AB /* SystemJunkDeleterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3079940CD9C1E2D47837ED8 /* SystemJunkDeleterTests.swift */; };
 		6E0D8F255BA67DF884857717 /* PerformanceRecommendationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31CF01651B0768E98E36F3E /* PerformanceRecommendationEngine.swift */; };
@@ -717,6 +718,7 @@
 		6B72F3BD5C48C77AE99F8D4E /* SystemStatsServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatsServiceTests.swift; sourceTree = "<group>"; };
 		6BD871C2C2002760DD923686 /* VaderCleanerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaderCleanerUITests.swift; sourceTree = "<group>"; };
 		6BDD7952FD571534DD4C2C91 /* AppLeftoverScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLeftoverScannerTests.swift; sourceTree = "<group>"; };
+		6BEA8AC18E21DC97133583B1 /* SmartScanMaintenanceReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanMaintenanceReview.swift; sourceTree = "<group>"; };
 		6C27EE261148D623AC319C6D /* SpaceLensVolumeUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensVolumeUsage.swift; sourceTree = "<group>"; };
 		6C425A233C540203282273D7 /* MalwareOnboardingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingViewModelTests.swift; sourceTree = "<group>"; };
 		6CBCA8999E04715E502AB892 /* VaderCleanerHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = VaderCleanerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1224,6 +1226,7 @@
 				E67824DA18085247812F6E08 /* SmartScanJunkReview.swift */,
 				779157980EEE85DD7D18B6C4 /* SmartScanLargeOldReview.swift */,
 				8EDBE956EC8D84E5724D183A /* SmartScanLeftoversReview.swift */,
+				6BEA8AC18E21DC97133583B1 /* SmartScanMaintenanceReview.swift */,
 				ABD71B02544D13F9E3A36014 /* SmartScanMalwareReview.swift */,
 				5F498579A77E1DAED6AC00AF /* SmartScanMyClutterReview.swift */,
 				952CFA79F6F0E89198DED8E3 /* SmartScanPerformanceReview.swift */,
@@ -2133,6 +2136,7 @@
 				472FECDAABC513309987AA5E /* SmartScanJunkReview.swift in Sources */,
 				198FBECB2DD8BD195FB9B12A /* SmartScanLargeOldReview.swift in Sources */,
 				0928209CC214A2C6FB1C6623 /* SmartScanLeftoversReview.swift in Sources */,
+				6DAE56CA8044DF598F65C06E /* SmartScanMaintenanceReview.swift in Sources */,
 				3551B102B5ADE80553AA1A4F /* SmartScanMalwareReview.swift in Sources */,
 				BEFCD2F309C985449A2901F5 /* SmartScanMyClutterReview.swift in Sources */,
 				CFF959AB010953129DB8B8D0 /* SmartScanPerformanceReview.swift in Sources */,

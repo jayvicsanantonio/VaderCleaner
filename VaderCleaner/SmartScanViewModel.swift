@@ -154,6 +154,7 @@ final class SmartScanViewModel {
     private(set) var selectedJunkCountByCategory: [ScanCategory: Int] = [:]
     private(set) var threatSelection: Set<URL> = []
     private(set) var updateSelection: Set<String> = []
+    private(set) var maintenanceSelection: Set<String> = []
     private(set) var duplicateSelection: Set<URL> = []
     private(set) var largeOldFileSelection: Set<URL> = []
     private(set) var unusedAppSelection: Set<String> = []
@@ -350,6 +351,12 @@ final class SmartScanViewModel {
         if case .appUpdates(let updates)? = plan.finding(.appUpdates)?.payload {
             updateSelection = Set(updates.map(\.bundleID))
         }
+        // Every due maintenance task starts selected — the tune-up tile is
+        // pre-approved, so Run does the whole cocktail unless the user opts a
+        // task out in Review.
+        if case .maintenanceDue(let taskIDs)? = plan.finding(.maintenanceDue)?.payload {
+            maintenanceSelection = Set(taskIDs)
+        }
         // Every redundant copy (never the kept original) — a copy always
         // survives, so default-on is safe.
         if case .duplicates(let groups)? = plan.finding(.duplicates)?.payload {
@@ -386,6 +393,7 @@ final class SmartScanViewModel {
         selectedJunkCountByCategory = [:]
         threatSelection = []
         updateSelection = []
+        maintenanceSelection = []
         duplicateSelection = []
         similarImageSelection = []
         downloadSelection = []
@@ -520,7 +528,7 @@ final class SmartScanViewModel {
         case .similarImages: return similarImageSelection.count
         case .downloads: return downloadSelection.count
         case .unsupportedApps: return unsupportedAppSelection.count
-        case .maintenanceDue: return currentPlan?.finding(.maintenanceDue)?.itemCount ?? 0
+        case .maintenanceDue: return maintenanceSelection.count
         case .loginItems, .lowDiskSpace, .extensions, .backgroundItems: return 0
         }
     }
@@ -683,6 +691,26 @@ final class SmartScanViewModel {
     func setAllUpdates(selected: Bool) {
         guard case .appUpdates(let updates)? = currentPlan?.finding(.appUpdates)?.payload else { return }
         updateSelection = selected ? Set(updates.map(\.bundleID)) : []
+    }
+
+    // MARK: - Maintenance selection
+
+    func isMaintenanceTaskSelected(_ taskID: String) -> Bool {
+        maintenanceSelection.contains(taskID)
+    }
+
+    func toggleMaintenanceTask(_ taskID: String) {
+        if maintenanceSelection.contains(taskID) {
+            maintenanceSelection.remove(taskID)
+        } else {
+            maintenanceSelection.insert(taskID)
+        }
+    }
+
+    /// Check or uncheck every due maintenance task in one write.
+    func setAllMaintenanceTasks(selected: Bool) {
+        guard case .maintenanceDue(let taskIDs)? = currentPlan?.finding(.maintenanceDue)?.payload else { return }
+        maintenanceSelection = selected ? Set(taskIDs) : []
     }
 
     // MARK: - Duplicate selection
@@ -874,8 +902,6 @@ final class SmartScanViewModel {
     func willExecute(_ kind: CareFinding.Kind) -> Bool {
         guard currentPlan?.finding(kind) != nil, includedFindings.contains(kind) else { return false }
         switch kind {
-        case .maintenanceDue:
-            return (currentPlan?.finding(.maintenanceDue)?.itemCount ?? 0) > 0
         case .loginItems, .lowDiskSpace:
             return false
         default:
@@ -1101,7 +1127,6 @@ final class SmartScanViewModel {
     private func willExecuteDuringRun(_ finding: CareFinding) -> Bool {
         guard includedFindings.contains(finding.kind) else { return false }
         switch finding.kind {
-        case .maintenanceDue: return finding.itemCount > 0
         case .loginItems, .lowDiskSpace: return false
         default: return selectionCount(for: finding.kind) > 0
         }
@@ -1222,10 +1247,11 @@ final class SmartScanViewModel {
             return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
 
         case .maintenanceDue(let taskIDs):
-            guard !taskIDs.isEmpty else { return nil }
+            let selected = taskIDs.filter { maintenanceSelection.contains($0) }
+            guard !selected.isEmpty else { return nil }
             var completed = 0
             var lastError: String?
-            for taskID in taskIDs {
+            for taskID in selected {
                 do {
                     try await maintenanceTaskRunner(taskID)
                     recordMaintenanceRun(taskID)
@@ -1236,10 +1262,10 @@ final class SmartScanViewModel {
                 }
             }
             let outcome: CareReceiptLine.Outcome
-            if completed == taskIDs.count {
+            if completed == selected.count {
                 outcome = .success
             } else if completed > 0 {
-                outcome = .partial(failedCount: taskIDs.count - completed)
+                outcome = .partial(failedCount: selected.count - completed)
             } else {
                 outcome = .failed(message: lastError ?? "")
             }

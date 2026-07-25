@@ -43,6 +43,7 @@ struct SmartScanView: View {
         .junkCleanup, .threats, .appUpdates, .duplicates, .loginItems,
         .largeOldFiles, .unusedApps, .appLeftovers, .installers, .browserPrivacy,
         .similarImages, .downloads, .unsupportedApps, .extensions, .backgroundItems,
+        .maintenanceDue,
     ]
 
     init(
@@ -283,10 +284,15 @@ struct SmartScanView: View {
                 summaries: browserPrivacySummaries,
                 onBack: { review = nil }
             )
-        case .lowDiskSpace, .maintenanceDue:
-            // No Review — the disk advisory is informational and the tune-up
-            // card is whole-tile work; both hide the affordance
-            // (`reviewableKinds`), so this arm is unreachable.
+        case .maintenanceDue:
+            SmartScanMaintenanceReview(
+                viewModel: viewModel,
+                taskIDs: maintenanceTaskIDs,
+                onBack: { review = nil }
+            )
+        case .lowDiskSpace:
+            // No Review — the disk advisory is informational, so it hides the
+            // affordance (`reviewableKinds`) and this arm is unreachable.
             EmptyView()
         }
     }
@@ -305,6 +311,11 @@ struct SmartScanView: View {
 
     private var duplicateGroups: [DuplicateGroup] {
         if case .duplicates(let groups)? = viewModel.currentPlan?.finding(.duplicates)?.payload { return groups }
+        return []
+    }
+
+    private var maintenanceTaskIDs: [String] {
+        if case .maintenanceDue(let taskIDs)? = viewModel.currentPlan?.finding(.maintenanceDue)?.payload { return taskIDs }
         return []
     }
 
