@@ -629,7 +629,6 @@ extension ApplicationsViewModel {
             }
         }
     }
-
 }
 
 // MARK: - ScanCoordinating

@@ -402,5 +402,4 @@ final class HealthMonitorViewModel {
         case .on: return .green
         }
     }
-
 }

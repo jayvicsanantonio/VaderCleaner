@@ -129,7 +129,6 @@ extension FileScanning {
         }
         return results
     }
-
 }
 
 enum PathExclusionMatcher {

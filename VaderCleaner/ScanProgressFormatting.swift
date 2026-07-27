@@ -60,5 +60,4 @@ enum ScanProgressFormatting {
         )
         return String.localizedStringWithFormat(template, checkedFormatted, totalFormatted)
     }
-
 }

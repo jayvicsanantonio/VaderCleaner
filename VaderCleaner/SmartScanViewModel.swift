@@ -105,7 +105,6 @@ final class SmartScanViewModel {
     /// a large scan) never happens on the main thread mid-transition.
     @ObservationIgnored let junkManagerStore = CleanupManagerStore()
 
-
     /// Per-unit live status for the scanning checklist.
     private(set) var unitStatuses: [CareScanUnit: UnitStatus] = [:]
 

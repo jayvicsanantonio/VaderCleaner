@@ -164,7 +164,6 @@ struct SettingsBadgeIcon: View {
     }
 }
 
-
 /// The rounded Smart Care checkbox, matching the manager row cards
 /// (`ManagerRowCheckbox`): an accent-filled rounded square with a white check
 /// when on, a white dash when mixed, and a soft accent outline when off. Purely

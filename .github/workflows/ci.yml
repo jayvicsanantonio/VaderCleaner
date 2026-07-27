@@ -48,10 +48,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install SwiftLint
-        run: brew install swiftlint
+      - name: Install SwiftLint and SwiftFormat
+        run: brew install swiftlint swiftformat
 
-      # Not --strict: warnings are advisory during adoption, `error`-level
-      # violations (force casts, force tries, print calls) fail the build.
+      # Not --strict: the config is calibrated so `error` means something is
+      # actually wrong (force casts, force tries, print calls), while the
+      # remaining warnings are advisory. Verified clean at error level.
       - name: SwiftLint
         run: swiftlint lint --reporter github-actions-logging
+
+      # --lint, never a write: the rule set only strips whitespace nobody
+      # chose, so any hit here is a stray trailing space or duplicate blank
+      # line rather than a formatting opinion.
+      - name: SwiftFormat
+        run: swiftformat . --lint

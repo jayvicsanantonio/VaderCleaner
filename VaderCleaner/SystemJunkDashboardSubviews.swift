@@ -399,4 +399,3 @@ struct CleanupCard: View {
             .accessibilityHidden(true)
     }
 }
-

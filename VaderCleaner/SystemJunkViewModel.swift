@@ -366,7 +366,6 @@ final class SystemJunkViewModel {
         scannedItemCount = 0
         phase = .idle
     }
-
 }
 
 // MARK: - Production wiring

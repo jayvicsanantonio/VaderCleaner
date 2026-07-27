@@ -13,7 +13,17 @@
 --swiftversion 6.0
 
 # Allowlist: only these rules run. Everything else is disabled by omission.
---rules trailingSpace,linebreakAtEndOfFile,consecutiveBlankLines,consecutiveSpaces,duplicateImports,blankLinesAtStartOfScope,blankLinesAtEndOfScope,todos
+#
+# Two rules were removed after a real run showed them fighting deliberate
+# conventions rather than tidying accidents:
+#
+#   blankLinesAtStartOfScope (429 hits) — the house style puts a blank line
+#     after a type declaration before its first member.
+#   consecutiveSpaces (453 hits) — trailing comments and assignments are
+#     column-aligned on purpose in several files.
+#
+# What remains only removes whitespace nobody chose.
+--rules trailingSpace,linebreakAtEndOfFile,consecutiveBlankLines,duplicateImports,blankLinesAtEndOfScope,todos
 
 --maxwidth none
 --trimwhitespace always

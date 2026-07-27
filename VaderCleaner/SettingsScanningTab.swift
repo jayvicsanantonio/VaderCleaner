@@ -381,7 +381,6 @@ struct ScanningTab: View {
         case .browserPrivacy: return "hand.raised.slash.fill"
         }
     }
-
 }
 
 /// Tri-state of a checkbox in the Smart Care tree. Aliased to the store's

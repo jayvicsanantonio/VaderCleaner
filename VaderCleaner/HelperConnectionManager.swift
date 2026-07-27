@@ -91,5 +91,4 @@ final class HelperConnectionManager: @unchecked Sendable {
             connection = nil
         }
     }
-
 }

@@ -78,19 +78,19 @@ struct DatabaseUpdater: Sendable {
     /// first, then falling back to Homebrew prefixes.
     static func defaultFreshclamPaths() -> [URL] {
         var paths: [URL] = []
-        
+
         // 1. Bundled ClamAV (staged by Scripts/stage-clamav.sh)
         if let bundled = Bundle.main.resourceURL?
             .appendingPathComponent("clamav/bin/freshclam", isDirectory: false) {
             paths.append(bundled)
         }
-        
+
         // 2. Homebrew on Apple silicon
         paths.append(URL(fileURLWithPath: "/opt/homebrew/bin/freshclam"))
-        
+
         // 3. Homebrew on Intel
         paths.append(URL(fileURLWithPath: "/usr/local/bin/freshclam"))
-        
+
         return paths
     }
 

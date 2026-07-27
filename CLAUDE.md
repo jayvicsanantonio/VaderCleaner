@@ -43,6 +43,28 @@ session crashed and was retried. Run UI tests from Xcode.
 Child-process tests (`BrewRunner`, `ProcessLineStreamer`) intermittently hang
 `xcodebuild` indefinitely. `pkill -f xcodebuild` and re-run.
 
+## Linting
+
+```bash
+swiftlint lint          # 0 errors expected; warnings are advisory
+swiftformat . --lint    # should report no files needing formatting
+```
+
+Both configs are calibrated against a real run over this repo, not against
+defaults, and each departure is justified inline. Two worth knowing:
+
+- **`empty_count` is off** because it is unsound here. Several summaries are
+  value types carrying a plain `count: Int` (`ManagerSelectionSummary`, the
+  `(count:bytes:)` tuples in My Clutter and Space Lens); `isEmpty` does not
+  exist on them, so its suggestions would not compile.
+- **SwiftFormat only strips whitespace nobody chose.** `blankLinesAtStartOfScope`
+  and `consecutiveSpaces` are deliberately excluded — the house style puts a
+  blank line after a type declaration and column-aligns some trailing comments,
+  and those two rules alone wanted to rewrite 379 of 448 files.
+
+Test targets carry their own nested `.swiftlint.yml` relaxing force unwraps and
+`URL!` fixtures, which are the standard XCTest idiom rather than a defect.
+
 ## Architecture
 
 - **Sections** — each feature area (Smart Scan, Cleanup, My Clutter, Space Lens,

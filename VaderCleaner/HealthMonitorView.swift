@@ -433,7 +433,6 @@ struct HealthMonitorView: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("health.filevault")
     }
-
 }
 
 // MARK: - Mac Health hero

@@ -63,4 +63,3 @@ enum VaderMotion {
         reduceMotion ? .opacity : .scale(scale: 0.97).combined(with: .opacity)
     }
 }
-

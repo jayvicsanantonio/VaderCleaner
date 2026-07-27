@@ -364,4 +364,3 @@ struct InternetPluginDiscovery: ExtensionDiscovering {
         }.value
     }
 }
-
