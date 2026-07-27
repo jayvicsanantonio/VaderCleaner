@@ -240,6 +240,21 @@ final class SystemStatsService {
     @ObservationIgnored private var isStopped = false
     @ObservationIgnored private let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
 
+    /// The host page size, the unit the `HOST_VM_INFO64` counters are
+    /// denominated in. Queried through `host_page_size` — the Mach companion to
+    /// `host_statistics64` — rather than the `vm_kernel_page_size` global, which
+    /// Swift imports as a mutable `var` and therefore cannot treat as
+    /// concurrency-safe. Both report the same value (verified 16384 here).
+    private static let kernelPageSize: vm_size_t = {
+        var size: vm_size_t = 0
+        guard host_page_size(mach_host_self(), &size) == KERN_SUCCESS, size > 0 else {
+            // 16 KB on Apple silicon, 4 KB on Intel — only reached if the Mach
+            // call fails, which would already have broken the stats above.
+            return vm_size_t(sysconf(_SC_PAGESIZE))
+        }
+        return size
+    }()
+
     /// Background queue for `Process` invocations. Serial so two ticks can't
     /// race a `diskutil` and an `fdesetup` against each other and confuse
     /// stdout interleaving in any future shared parser.
@@ -322,7 +337,10 @@ final class SystemStatsService {
         }
     }
 
-    deinit {
+    /// `isolated` so teardown runs on the same main actor that created and
+    /// scheduled the timers — a nonisolated `deinit` cannot touch them, and
+    /// `Timer` is not `Sendable` to hand off elsewhere.
+    isolated deinit {
         // Timers retain their target via the closure capture, but invalidating
         // here is still polite — the run loop will drop them on the next
         // iteration. Without the explicit invalidate, a service that outlives
@@ -501,7 +519,7 @@ final class SystemStatsService {
             return ramUsage // keep last good value
         }
 
-        let pageSize = UInt64(vm_kernel_page_size)
+        let pageSize = UInt64(Self.kernelPageSize)
         let active = UInt64(vmStats.active_count)
         let wired = UInt64(vmStats.wire_count)
         let compressed = UInt64(vmStats.compressor_page_count)

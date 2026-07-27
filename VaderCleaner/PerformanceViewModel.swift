@@ -26,21 +26,21 @@ final class PerformanceViewModel {
         case failed(message: String)
     }
 
-    typealias LoadLoginItems = () async -> [LoginItem]
-    typealias LoadAgents = () async -> [LaunchAgent]
+    typealias LoadLoginItems = @Sendable () async -> [LoginItem]
+    typealias LoadAgents = @Sendable () async -> [LaunchAgent]
     typealias ReadMemory = @MainActor () -> MemoryStats
-    typealias SetLoginItemEnabled = (Bool, LoginItem) async throws -> Void
+    typealias SetLoginItemEnabled = @Sendable (Bool, LoginItem) async throws -> Void
     /// Opens System Settings to the Login Items pane, so a row pending the
     /// user's approval can deep-link there instead of asking them to navigate.
     typealias OpenLoginItemsSettings = @MainActor () -> Void
-    typealias DisableAgent = (LaunchAgent) async throws -> Void
-    typealias EnableAgent = (LaunchAgent) async throws -> Void
-    typealias RemoveAgent = (LaunchAgent) async throws -> Void
-    typealias FlushRAM = () async throws -> Void
-    typealias RunMaintenance = () async throws -> String
+    typealias DisableAgent = @Sendable (LaunchAgent) async throws -> Void
+    typealias EnableAgent = @Sendable (LaunchAgent) async throws -> Void
+    typealias RemoveAgent = @Sendable (LaunchAgent) async throws -> Void
+    typealias FlushRAM = @Sendable () async throws -> Void
+    typealias RunMaintenance = @Sendable () async throws -> String
     /// A maintenance task that performs its work and returns a result line.
-    typealias RunTask = () async throws -> String
-    typealias ReadSnapshotCount = () async -> Int
+    typealias RunTask = @Sendable () async throws -> String
+    typealias ReadSnapshotCount = @Sendable () async -> Int
 
     private(set) var phase: Phase = .idle
     private(set) var loginItems: [LoginItem] = []
@@ -590,7 +590,11 @@ extension PerformanceViewModel {
             // registration so `setLoginItem` can surface it inline instead of
             // the global "Launch at Login" alert.
             setLoginItemEnabled: { enabled, _ in
-                try preferences.setLaunchAtLogin(enabled)
+                // Hops to the store's isolation; the registration itself is
+                // main-actor work, so this only makes the existing hop explicit.
+                try await MainActor.run {
+                    try preferences.setLaunchAtLogin(enabled)
+                }
             },
             // A login item macOS holds in `.requiresApproval` can only be
             // approved by the user in System Settings; deep-link straight to
@@ -645,19 +649,39 @@ extension PerformanceViewModel {
     static func launchAtLoginChangePublisher(
         for preferences: PreferencesStore
     ) -> AnyPublisher<Void, Never> {
-        let subject = PassthroughSubject<Void, Never>()
-        func arm() {
-            withObservationTracking {
-                _ = preferences.launchAtLogin
-            } onChange: {
-                Task { @MainActor in
-                    subject.send(())
-                    arm()
-                }
+        let bridge = LaunchAtLoginBridge(preferences: preferences)
+        bridge.arm()
+        return bridge.subject.eraseToAnyPublisher()
+    }
+}
+
+/// Backing state for `PerformanceViewModel.launchAtLoginChangePublisher`.
+///
+/// Exists so `withObservationTracking`'s `@Sendable` `onChange` closure captures
+/// one box rather than the subject and the re-arm function separately, neither
+/// of which is `Sendable`. `@unchecked Sendable` is sound here because every
+/// member is created and touched only on the main actor: `arm()` is
+/// `@MainActor`, and the change callback hops back to it before sending or
+/// re-arming.
+private final class LaunchAtLoginBridge: @unchecked Sendable {
+
+    let subject = PassthroughSubject<Void, Never>()
+    private let preferences: PreferencesStore
+
+    init(preferences: PreferencesStore) {
+        self.preferences = preferences
+    }
+
+    @MainActor
+    func arm() {
+        withObservationTracking {
+            _ = preferences.launchAtLogin
+        } onChange: { [self] in
+            Task { @MainActor in
+                subject.send(())
+                arm()
             }
         }
-        arm()
-        return subject.eraseToAnyPublisher()
     }
 }
 

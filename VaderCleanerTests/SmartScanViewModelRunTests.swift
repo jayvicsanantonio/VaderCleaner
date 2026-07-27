@@ -9,7 +9,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private nonisolated func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
+    private nonisolated static func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
         ScannedFile(
             url: URL(fileURLWithPath: path),
             size: size,
@@ -19,20 +19,20 @@ final class SmartScanViewModelRunTests: XCTestCase {
         )
     }
 
-    private nonisolated var richPlan: CarePlan {
+    private nonisolated static var richPlan: CarePlan {
         let junk = ScanResult(items: [
-            file("/cache/safe", size: 1_000, category: .userCache),
-            file("/mail/attachment", size: 500, category: .mailAttachments)
+            Self.file("/cache/safe", size: 1_000, category: .userCache),
+            Self.file("/mail/attachment", size: 500, category: .mailAttachments)
         ])
         let threats = [
             MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar"),
             MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil2"), threatName: "Eicar")
         ]
         let dupGroup = DuplicateGroup(files: [
-            file("/Downloads/original", size: 10),
-            file("/Downloads/copy", size: 10)
+            Self.file("/Downloads/original", size: 10),
+            Self.file("/Downloads/copy", size: 10)
         ])
-        let bigFile = file("/Movies/huge.mov", size: 9_000, category: .largeFile)
+        let bigFile = Self.file("/Movies/huge.mov", size: 9_000, category: .largeFile)
         return CarePlan(
             findings: [
                 CareFinding(kind: .junkCleanup, payload: .junk(junk)),
@@ -63,7 +63,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_withZeroInteraction_touchesOnlyPreApprovedWork() async {
         let recorder = Recorder()
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             junkCleaner: { files in
                 for f in files { recorder.record("junk:\(f.url.path)") }
                 return files.reduce(0) { $0 + $1.size }
@@ -94,11 +94,11 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_similarImagesAndDownloads_recycleOnlyChosen() async {
         let recorder = Recorder()
         let simGroup = SimilarImageGroup(files: [
-            file("/Pictures/best.jpg", size: 100, category: .largeFile),
-            file("/Pictures/near.jpg", size: 90, category: .largeFile),
+            Self.file("/Pictures/best.jpg", size: 100, category: .largeFile),
+            Self.file("/Pictures/near.jpg", size: 90, category: .largeFile),
         ])
         let download = DownloadItem(
-            file: file("/Downloads/old.dmg", size: 500, category: .largeFile),
+            file: Self.file("/Downloads/old.dmg", size: 500, category: .largeFile),
             sourceApp: "Safari"
         )
         let plan = CarePlan(
@@ -139,7 +139,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
 
     func test_run_buildsReceipt_withBytesAndOrder() async {
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
@@ -168,7 +168,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_oneFailingFinding_leavesTheRestIntact() async {
         struct Boom: Error, LocalizedError { var errorDescription: String? { "no permission" } }
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             junkCleaner: { _ in throw Boom() },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
@@ -190,7 +190,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
 
     func test_run_threatRemoverFailures_reportPartial() async {
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             threatRemover: { threats in [threats[0]] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in }
@@ -208,7 +208,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
 
     func test_run_recyclePartial_reportsShortfall() async {
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             threatRemover: { _ in [] },
             recycleFiles: { _ in [] },
             maintenanceTaskRunner: { _ in }
@@ -229,7 +229,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_skipsCardsTheUserExcluded() async {
         let junkCalls = Recorder()
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             junkCleaner: { files in junkCalls.record("called"); return files.reduce(0) { $0 + $1.size } },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
@@ -246,7 +246,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_maintenance_recordsEachCompletedTask() async {
         let recorded = Recorder()
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { id in
@@ -270,7 +270,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_maintenance_runsOnlySelectedTasks() async {
         let recorder = Recorder()
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { recorder.record("task:\($0)") }
@@ -298,7 +298,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_scanAndRun_stampTheHistoryHooks() async {
         let recorded = Recorder()
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.richPlan },
+            scanEngine: { _, _ in Self.richPlan },
             junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
@@ -332,7 +332,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let plan = CarePlan(
             findings: [
                 CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
-                    file("/cache/safe", size: 1_000, category: .userCache)
+                    Self.file("/cache/safe", size: 1_000, category: .userCache)
                 ]))),
                 CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
             ],

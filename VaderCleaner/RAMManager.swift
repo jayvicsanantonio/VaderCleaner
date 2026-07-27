@@ -7,7 +7,7 @@ import os.log
 /// Frees inactive memory by asking the privileged helper to run `purge`.
 struct RAMManager {
 
-    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
+    typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
 
     private let helperProvider: HelperProvider
     private let log = Logger(subsystem: "com.personal.VaderCleaner",

@@ -56,7 +56,9 @@ final class RAMManagerTests: XCTestCase {
     }
 }
 
-private final class SpyFlushHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy whose state is written once by the helper
+/// call and read by the assertion after it, never concurrently.
+private final class SpyFlushHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     private let replyError: Error?
     private(set) var flushCalled = false
 
@@ -76,7 +78,9 @@ private final class SpyFlushHelper: NSObject, VaderCleanerHelperProtocol {
     func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }
 
-private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
     func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
     func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}

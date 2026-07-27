@@ -55,18 +55,18 @@ final class LoginItemsManagerTests: XCTestCase {
     }
 
     func test_setEnabled_forwardsRequestedStateToHandler() throws {
-        var received: Bool?
+        let received = TestBox<Bool?>(nil)
         let manager = LoginItemsManager(
             displayName: "VaderCleaner",
             identifier: "com.personal.VaderCleaner",
             statusProvider: { .enabled },
-            setEnabledHandler: { received = $0 }
+            setEnabledHandler: { received.value = $0 }
         )
 
         let item = try XCTUnwrap(manager.items().first)
         try manager.setEnabled(false, for: item)
 
-        XCTAssertEqual(received, false)
+        XCTAssertEqual(received.value, false)
     }
 
     func test_setEnabled_propagatesHandlerError() {

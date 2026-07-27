@@ -34,7 +34,10 @@ struct DefaultAppLeftoverScanner: Sendable {
     }
 
     private let roots: [(url: URL, kind: RootKind)]
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `FileManager` is not `Sendable`,
+    /// but `.default` is documented thread-safe and test fixtures are
+    /// single-threaded, so the isolation is opted out of per property.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "AppLeftoverScanner")
 

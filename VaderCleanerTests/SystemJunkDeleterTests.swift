@@ -326,7 +326,9 @@ final class SystemJunkDeleterTests: XCTestCase {
 /// Minimal `VaderCleanerHelperProtocol` stand-in — captures the paths it was
 /// asked to delete and replies with the supplied error (or nil for success).
 /// Inherits from `NSObject` because the underlying protocol is `@objc`.
-private final class FakeHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class FakeHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     private let replyError: Error?
     /// Every `deleteFiles` call's paths, in order — one entry per XPC message,
     /// so chunking tests can assert how the paths were split.
@@ -358,7 +360,9 @@ private final class FakeHelper: NSObject, VaderCleanerHelperProtocol {
 /// models the real `NSXPCConnection` failure mode where the connection-level
 /// error handler fires instead of the per-call reply. The test confirms the
 /// awaiting `delete()` resolves anyway, via the per-call error sink.
-private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
         // Intentionally no `reply(...)`.
     }
@@ -375,7 +379,9 @@ private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol {
 /// Helper stand-in that replies with an error only for the batch at
 /// `failingBatchIndex` (0-based call order), so a partial-failure test can
 /// verify the remaining chunks still run and succeeded chunks are credited.
-private final class BatchFailingHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class BatchFailingHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     private let failingBatchIndex: Int
     private let error: Error
     private(set) var receivedBatches: [[String]] = []

@@ -10,6 +10,19 @@ import XCTest
 /// not something a UI test should ever do as a side effect.
 final class SystemJunkUITests: XCTestCase {
 
+    /// Matches any state that means the section has left `.intro`: the
+    /// in-progress scanning indicator, the dashboard (container or its Re-scan
+    /// button), or the empty-state Scan Again.
+    ///
+    /// A function rather than a stored predicate because `NSPredicate` is not
+    /// `Sendable`, so binding one to a local and passing it to `matching(_:)`
+    /// is diagnosed under the Swift 6 language mode.
+    private static func nonIntroPredicate() -> NSPredicate {
+        NSPredicate(format:
+            "identifier IN {'system-junk.scanning', 'system-junk.dashboard', "
+            + "'system-junk.rescan', 'system-junk.emptyScanAgain'}")
+    }
+
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
@@ -120,11 +133,8 @@ final class SystemJunkUITests: XCTestCase {
         // The section has left `.intro` once it shows any non-intro state:
         // the in-progress scanning indicator, the dashboard (container or its
         // Re-scan button), or the empty-state Scan Again.
-        let nonIntroPredicate = NSPredicate(format:
-            "identifier IN {'system-junk.scanning', 'system-junk.dashboard', "
-            + "'system-junk.rescan', 'system-junk.emptyScanAgain'}")
         let nonIntroState = app.descendants(matching: .any)
-            .matching(nonIntroPredicate).firstMatch
+            .matching(Self.nonIntroPredicate()).firstMatch
         XCTAssertTrue(
             nonIntroState.waitForExistence(timeout: 30),
             "Expected System Junk to leave its intro (scanning or preview) after a Scan"
@@ -142,7 +152,7 @@ final class SystemJunkUITests: XCTestCase {
         // The session persisted: still a non-intro state, and crucially the
         // section did NOT rebuild back to its intro / floating Scan.
         let stillNonIntro = app.descendants(matching: .any)
-            .matching(nonIntroPredicate).firstMatch
+            .matching(Self.nonIntroPredicate()).firstMatch
         XCTAssertTrue(
             stillNonIntro.waitForExistence(timeout: 10),
             "Expected System Junk's session (scanning or preview) to persist after sidebar navigation"

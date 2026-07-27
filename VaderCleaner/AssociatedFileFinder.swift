@@ -14,7 +14,10 @@ import Foundation
 /// files.
 struct DefaultAssociatedFileFinder: Sendable {
 
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `FileManager` is not `Sendable`,
+    /// but `.default` is documented thread-safe and test fixtures are
+    /// single-threaded, so the isolation is opted out of per property.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let homeDirectory: URL
     private let systemLibraryDirectory: URL
     /// Canonicalised user exclusions. Any candidate whose canonical path

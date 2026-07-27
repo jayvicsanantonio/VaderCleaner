@@ -8,7 +8,7 @@ import Foundation
 /// Tests inject a stub returning paths under a temp directory, which is why
 /// the production `DefaultSystemPathProvider` lives behind the same protocol
 /// instead of being a free function on the scanner.
-protocol SystemPathProviding {
+protocol SystemPathProviding: Sendable {
     func roots() -> [ScanRoot]
 }
 
@@ -18,7 +18,10 @@ protocol SystemPathProviding {
 /// mounted volume or freshly installed app shows up on the next run.
 struct DefaultSystemPathProvider: SystemPathProviding {
 
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `FileManager` is not `Sendable`,
+    /// but `.default` is documented thread-safe and test fixtures are
+    /// single-threaded, so the isolation is opted out of per property.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let homeDirectory: URL
     private let languageFileLocator: LanguageFileLocator
 

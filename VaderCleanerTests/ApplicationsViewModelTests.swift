@@ -37,7 +37,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
-    nonisolated private func makeInstaller(name: String, size: Int64, kind: InstallationFileKind = .diskImage) -> InstallationFile {
+    nonisolated private static func makeInstaller(name: String, size: Int64, kind: InstallationFileKind = .diskImage) -> InstallationFile {
         InstallationFile(
             url: URL(fileURLWithPath: "/Users/test/Downloads/\(name)"),
             name: name,
@@ -46,7 +46,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         )
     }
 
-    nonisolated private func makeUnsupported(name: String, bundleID: String) -> UnsupportedApp {
+    nonisolated private static func makeUnsupported(name: String, bundleID: String) -> UnsupportedApp {
         UnsupportedApp(
             app: AppInfo(
                 name: name,
@@ -137,18 +137,18 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     func test_scan_passesDiscoveredAppsToTheUpdateChecker() async {
         let apps = [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
-        var received: [AppInfo] = []
+        let received = TestBox<[AppInfo]>([])
         let vm = makeViewModel(
             discover: { apps },
             check: { discovered in
-                received = discovered
+                received.value = discovered
                 return []
             }
         )
 
         await vm.scan()
 
-        XCTAssertEqual(received, apps, "The update checker must receive the discovered apps")
+        XCTAssertEqual(received.value, apps, "The update checker must receive the discovered apps")
     }
 
     func test_scan_withNoUpdates_stillLandsResults() async {
@@ -205,9 +205,9 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     func test_secondScanWhileScanning_isIgnored() async {
         let gate = AsyncGate()
-        var discoverCalls = 0
+        let discoverCalls = TestBox(0)
         let vm = makeViewModel(discover: {
-            discoverCalls += 1
+            discoverCalls.value += 1
             await gate.wait()
             return []
         })
@@ -225,7 +225,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         // Asserted after completion (not mid-flight) so it doesn't depend on
         // exactly when the first scan reaches discovery: across both calls,
         // discovery must have run exactly once.
-        XCTAssertEqual(discoverCalls, 1, "A re-entrant scan must not start a second discovery")
+        XCTAssertEqual(discoverCalls.value, 1, "A re-entrant scan must not start a second discovery")
     }
 
     // MARK: - Reset
@@ -245,8 +245,8 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     func test_scan_carriesInstallationFilesIntoResults() async {
         let installers = [
-            makeInstaller(name: "Big.dmg", size: 5_000),
-            makeInstaller(name: "Small.pkg", size: 100, kind: .package),
+            Self.makeInstaller(name: "Big.dmg", size: 5_000),
+            Self.makeInstaller(name: "Small.pkg", size: 100, kind: .package),
         ]
         let vm = makeViewModel(discover: { [] }, installers: { installers })
 
@@ -263,7 +263,7 @@ final class ApplicationsViewModelTests: XCTestCase {
     func test_installationFileSelection_isEmptyAfterScan() async {
         let vm = makeViewModel(
             discover: { [] },
-            installers: { [self.makeInstaller(name: "Big.dmg", size: 5_000)] }
+            installers: { [Self.makeInstaller(name: "Big.dmg", size: 5_000)] }
         )
         await vm.scan()
         XCTAssertTrue(vm.installationFileSelection.isEmpty,
@@ -272,8 +272,8 @@ final class ApplicationsViewModelTests: XCTestCase {
     }
 
     func test_toggleAndSelectAll_driveSelection() async {
-        let a = makeInstaller(name: "A.dmg", size: 5_000)
-        let b = makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        let a = Self.makeInstaller(name: "A.dmg", size: 5_000)
+        let b = Self.makeInstaller(name: "B.pkg", size: 100, kind: .package)
         let vm = makeViewModel(discover: { [] }, installers: { [a, b] })
         await vm.scan()
 
@@ -291,14 +291,14 @@ final class ApplicationsViewModelTests: XCTestCase {
     }
 
     func test_deleteSelectedInstallationFiles_removesRecycledAndRebuildsPayload() async {
-        let a = makeInstaller(name: "A.dmg", size: 5_000)
-        let b = makeInstaller(name: "B.pkg", size: 100, kind: .package)
-        var recycled: [URL] = []
+        let a = Self.makeInstaller(name: "A.dmg", size: 5_000)
+        let b = Self.makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        let recycled = TestBox<[URL]>([])
         let vm = makeViewModel(
             discover: { [] },
             installers: { [a, b] },
             recycle: { urls in
-                recycled = urls
+                recycled.value = urls
                 return Set(urls)
             }
         )
@@ -307,19 +307,19 @@ final class ApplicationsViewModelTests: XCTestCase {
 
         await vm.deleteSelectedInstallationFiles()
 
-        XCTAssertEqual(recycled, [a.url], "Only the selected installer is recycled")
+        XCTAssertEqual(recycled.value, [a.url], "Only the selected installer is recycled.value")
         guard case .results(let result) = vm.phase else {
             return XCTFail("Expected .results, got \(vm.phase)")
         }
         XCTAssertEqual(result.installationFiles, [b],
-                       "The recycled installer must be dropped from the payload")
+                       "The recycled.value installer must be dropped from the payload")
         XCTAssertFalse(vm.installationFileSelection.contains(a.url))
         XCTAssertFalse(vm.isRemovingInstallationFiles)
     }
 
     func test_deleteSelectedInstallationFiles_keepsFilesThatFailedToRecycle() async {
-        let a = makeInstaller(name: "A.dmg", size: 5_000)
-        let b = makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        let a = Self.makeInstaller(name: "A.dmg", size: 5_000)
+        let b = Self.makeInstaller(name: "B.pkg", size: 100, kind: .package)
         let vm = makeViewModel(
             discover: { [] },
             installers: { [a, b] },
@@ -341,24 +341,24 @@ final class ApplicationsViewModelTests: XCTestCase {
     }
 
     func test_deleteSelectedInstallationFiles_withNoSelection_isNoOp() async {
-        var recycleCalls = 0
+        let recycleCalls = TestBox(0)
         let vm = makeViewModel(
             discover: { [] },
-            installers: { [self.makeInstaller(name: "A.dmg", size: 5_000)] },
-            recycle: { urls in recycleCalls += 1; return Set(urls) }
+            installers: { [Self.makeInstaller(name: "A.dmg", size: 5_000)] },
+            recycle: { urls in recycleCalls.value += 1; return Set(urls) }
         )
         await vm.scan()
 
         await vm.deleteSelectedInstallationFiles()
 
-        XCTAssertEqual(recycleCalls, 0, "Nothing selected → the recycler is never called")
+        XCTAssertEqual(recycleCalls.value, 0, "Nothing selected → the recycler is never called")
     }
 
     // MARK: - Unsupported apps
 
     func test_scan_carriesUnsupportedAppsIntoResults() async {
         let unsupported = [
-            makeUnsupported(name: "Old32Bit", bundleID: "com.legacy.app"),
+            Self.makeUnsupported(name: "Old32Bit", bundleID: "com.legacy.app"),
         ]
         let vm = makeViewModel(discover: { [] }, unsupported: { _ in unsupported })
 
@@ -373,24 +373,24 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     func test_scan_passesDiscoveredAppsToTheUnsupportedScan() async {
         let apps = [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
-        var received: [AppInfo] = []
+        let received = TestBox<[AppInfo]>([])
         let vm = makeViewModel(
             discover: { apps },
             unsupported: { discovered in
-                received = discovered
+                received.value = discovered
                 return []
             }
         )
 
         await vm.scan()
 
-        XCTAssertEqual(received, apps, "The unsupported scan must receive the discovered apps")
+        XCTAssertEqual(received.value, apps, "The unsupported scan must receive the discovered apps")
     }
 
     func test_unsupportedAppSelection_isEmptyAfterScan() async {
         let vm = makeViewModel(
             discover: { [] },
-            unsupported: { _ in [self.makeUnsupported(name: "Old", bundleID: "com.old.app")] }
+            unsupported: { _ in [Self.makeUnsupported(name: "Old", bundleID: "com.old.app")] }
         )
         await vm.scan()
         XCTAssertTrue(vm.unsupportedAppSelection.isEmpty)
@@ -398,31 +398,31 @@ final class ApplicationsViewModelTests: XCTestCase {
     }
 
     func test_deleteSelectedUnsupportedApps_recyclesBundlesAndRebuildsPayload() async {
-        let a = makeUnsupported(name: "Old", bundleID: "com.old.app")
-        let b = makeUnsupported(name: "Ancient", bundleID: "com.ancient.app")
-        var recycled: [URL] = []
+        let a = Self.makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let b = Self.makeUnsupported(name: "Ancient", bundleID: "com.ancient.app")
+        let recycled = TestBox<[URL]>([])
         let vm = makeViewModel(
             discover: { [] },
             unsupported: { _ in [a, b] },
-            recycle: { urls in recycled = urls; return Set(urls) }
+            recycle: { urls in recycled.value = urls; return Set(urls) }
         )
         await vm.scan()
         vm.toggleUnsupportedApp(a)
 
         await vm.deleteSelectedUnsupportedApps()
 
-        XCTAssertEqual(recycled, [a.app.bundleURL], "Only the selected app bundle is recycled")
+        XCTAssertEqual(recycled.value, [a.app.bundleURL], "Only the selected app bundle is recycled.value")
         guard case .results(let result) = vm.phase else {
             return XCTFail("Expected .results, got \(vm.phase)")
         }
         XCTAssertEqual(result.unsupportedApps, [b],
-                       "The recycled app must be dropped from the payload")
+                       "The recycled.value app must be dropped from the payload")
         XCTAssertFalse(vm.isRemovingUnsupportedApps)
     }
 
     func test_deleteSelectedUnsupportedApps_keepsBundlesThatFailedToRecycle() async {
-        let a = makeUnsupported(name: "Old", bundleID: "com.old.app")
-        let b = makeUnsupported(name: "Ancient", bundleID: "com.ancient.app")
+        let a = Self.makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let b = Self.makeUnsupported(name: "Ancient", bundleID: "com.ancient.app")
         let vm = makeViewModel(
             discover: { [] },
             unsupported: { _ in [a, b] },
@@ -444,8 +444,8 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     func test_installationFileDelete_preservesUnsupportedApps() async {
         // Removing an installer must not drop the unsupported-apps payload.
-        let installer = makeInstaller(name: "A.dmg", size: 5_000)
-        let unsupported = makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let installer = Self.makeInstaller(name: "A.dmg", size: 5_000)
+        let unsupported = Self.makeUnsupported(name: "Old", bundleID: "com.old.app")
         let vm = makeViewModel(
             discover: { [] },
             installers: { [installer] },
@@ -496,48 +496,48 @@ final class ApplicationsViewModelTests: XCTestCase {
 
     func test_scan_passesDiscoveredAppsToTheUnusedScan() async {
         let apps = [makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
-        var received: [AppInfo] = []
+        let received = TestBox<[AppInfo]>([])
         let vm = makeViewModel(
             discover: { apps },
             unused: { discovered in
-                received = discovered
+                received.value = discovered
                 return []
             }
         )
 
         await vm.scan()
 
-        XCTAssertEqual(received, apps, "The unused scan must receive the discovered apps")
+        XCTAssertEqual(received.value, apps, "The unused scan must receive the discovered apps")
     }
 
     func test_deleteSelectedUnusedApps_recyclesBundlesAndRebuildsPayload() async {
         let a = makeUnused(name: "Dusty", bundleID: "com.dusty.app")
         let b = makeUnused(name: "Stale", bundleID: "com.stale.app")
-        var recycled: [URL] = []
+        let recycled = TestBox<[URL]>([])
         let vm = makeViewModel(
             discover: { [] },
             unused: { _ in [a, b] },
-            recycle: { urls in recycled = urls; return Set(urls) }
+            recycle: { urls in recycled.value = urls; return Set(urls) }
         )
         await vm.scan()
         vm.toggleUnusedApp(a)
 
         await vm.deleteSelectedUnusedApps()
 
-        XCTAssertEqual(recycled, [a.app.bundleURL], "Only the selected app bundle is recycled")
+        XCTAssertEqual(recycled.value, [a.app.bundleURL], "Only the selected app bundle is recycled.value")
         guard case .results(let result) = vm.phase else {
             return XCTFail("Expected .results, got \(vm.phase)")
         }
         XCTAssertEqual(result.unusedApps, [b],
-                       "The recycled app must be dropped from the payload")
+                       "The recycled.value app must be dropped from the payload")
         XCTAssertFalse(vm.isRemovingUnusedApps)
     }
 
     func test_unusedAppDelete_preservesOtherPayload() async {
         // Removing an unused app must not touch installers / unsupported.
         let unused = makeUnused(name: "Dusty", bundleID: "com.dusty.app")
-        let installer = makeInstaller(name: "A.dmg", size: 5_000)
-        let unsupported = makeUnsupported(name: "Old", bundleID: "com.old.app")
+        let installer = Self.makeInstaller(name: "A.dmg", size: 5_000)
+        let unsupported = Self.makeUnsupported(name: "Old", bundleID: "com.old.app")
         let vm = makeViewModel(
             discover: { [] },
             installers: { [installer] },
@@ -564,18 +564,18 @@ final class ApplicationsViewModelTests: XCTestCase {
             makeApp(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app"),
             makeApp(name: "Beta", bundleID: "com.beta.app", path: "/Applications/Beta.app"),
         ]
-        var received: Set<String> = []
+        let received = TestBox<Set<String>>([])
         let vm = makeViewModel(
             discover: { apps },
             leftovers: { installed in
-                received = installed
+                received.value = installed
                 return []
             }
         )
 
         await vm.scan()
 
-        XCTAssertEqual(received, ["com.acme.app", "com.beta.app"],
+        XCTAssertEqual(received.value, ["com.acme.app", "com.beta.app"],
                        "The leftover scan must receive the installed bundle IDs")
     }
 
@@ -597,22 +597,22 @@ final class ApplicationsViewModelTests: XCTestCase {
     func test_deleteSelectedLeftovers_recyclesAllGroupURLsAndDropsGroup() async {
         let a = makeLeftover(bundleID: "com.a.app", paths: ["/L/com.a.app", "/P/com.a.app.plist"], bytes: 100)
         let b = makeLeftover(bundleID: "com.b.app", paths: ["/L/com.b.app"], bytes: 50)
-        var recycled: [URL] = []
+        let recycled = TestBox<[URL]>([])
         let vm = makeViewModel(
             discover: { [] },
             leftovers: { _ in [a, b] },
-            recycle: { urls in recycled = urls; return Set(urls) }
+            recycle: { urls in recycled.value = urls; return Set(urls) }
         )
         await vm.scan()
         vm.toggleLeftover(a)
 
         await vm.deleteSelectedLeftovers()
 
-        XCTAssertEqual(Set(recycled), Set(a.urls), "Every file in the selected group is recycled")
+        XCTAssertEqual(Set(recycled.value), Set(a.urls), "Every file in the selected group is recycled.value")
         guard case .results(let result) = vm.phase else {
             return XCTFail("Expected .results, got \(vm.phase)")
         }
-        XCTAssertEqual(result.leftovers, [b], "A fully-recycled group is dropped")
+        XCTAssertEqual(result.leftovers, [b], "A fully-recycled.value group is dropped")
         XCTAssertFalse(vm.leftoverSelection.contains("com.a.app"))
     }
 
@@ -691,8 +691,8 @@ final class ApplicationsViewModelTests: XCTestCase {
     /// unsupported, unused, updates, leftovers, installation files.
     func test_recommendations_areOrderedDeterministically() {
         let result = makeResult(
-            installers: [makeInstaller(name: "Setup.dmg", size: 1_000)],
-            unsupported: [makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
+            installers: [Self.makeInstaller(name: "Setup.dmg", size: 1_000)],
+            unsupported: [Self.makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
             unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
             leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)],
             updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
@@ -707,7 +707,7 @@ final class ApplicationsViewModelTests: XCTestCase {
     /// space-reclaim cruft — when only a subset of categories has findings.
     func test_recommendations_rankUpdatesThird() {
         let result = makeResult(
-            installers: [makeInstaller(name: "Setup.dmg", size: 1_000)],
+            installers: [Self.makeInstaller(name: "Setup.dmg", size: 1_000)],
             unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
             updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
         )
@@ -739,7 +739,7 @@ final class ApplicationsViewModelTests: XCTestCase {
     /// space-reclaim tier the larger reclaimable size ranks first.
     func test_recommendedTiles_ranksAttentionThenSpaceBySize() {
         let result = makeResult(
-            installers: [makeInstaller(name: "Big.dmg", size: 5_000)],
+            installers: [Self.makeInstaller(name: "Big.dmg", size: 5_000)],
             leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)],
             updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]
         )
@@ -755,8 +755,8 @@ final class ApplicationsViewModelTests: XCTestCase {
     /// lowest-ranked space item is dropped (still reachable via Manage).
     func test_recommendedTiles_capsAtFour_dropsSmallestSpaceItem() {
         let result = makeResult(
-            installers: [makeInstaller(name: "Big.dmg", size: 5_000)],
-            unsupported: [makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
+            installers: [Self.makeInstaller(name: "Big.dmg", size: 5_000)],
+            unsupported: [Self.makeUnsupported(name: "Legacy", bundleID: "com.legacy.app")],
             unused: [makeUnused(name: "Old", bundleID: "com.old.app")],
             leftovers: [makeLeftover(bundleID: "com.gone.app", paths: ["/tmp/a"], bytes: 10)],
             updates: [makeUpdate(name: "Acme", bundleID: "com.acme.app", path: "/Applications/Acme.app")]

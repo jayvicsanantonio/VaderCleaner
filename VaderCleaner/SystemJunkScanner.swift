@@ -19,7 +19,7 @@ import Foundation
 /// With Full Disk Access (granted via Prompt 4) the in-process walk reads
 /// these paths today; `FileScanner`'s permission-error tolerance handles
 /// any locked descendants.
-struct SystemJunkScanner {
+struct SystemJunkScanner: Sendable {
 
     /// Source of extra `ScannedFile`s that can't be read by the in-process
     /// `FileScanner` and must come from the privileged helper — currently the

@@ -141,7 +141,7 @@ final class SystemStatsServiceTests: XCTestCase {
     /// scheduling abstraction.
     ///
     /// The service is built with `autostart: false` and started manually
-    /// after the observation arms. Otherwise the auto-fired
+    /// after the observation arms. Otherwise the auto-fired.value
     /// `refreshDeviceHealth()` from the init can satisfy this expectation
     /// via its background subprocess path even when the cheap-stats timer is
     /// broken — making the test pass spuriously.
@@ -149,7 +149,7 @@ final class SystemStatsServiceTests: XCTestCase {
         let service = SystemStatsService(interval: 0.05, autostart: false)
         let didPublish = expectation(description: "service publishes on timer tick")
 
-        var fired = false
+        let fired = TestBox(false)
         // Observation onChange runs in the same actor context the mutation
         // happens on; both this test and the timer callback are on the main
         // actor, so the closure body executes without an explicit hop.
@@ -158,8 +158,8 @@ final class SystemStatsServiceTests: XCTestCase {
         } onChange: {
             // First publish wins; subsequent ticks would over-fulfil the
             // expectation otherwise (which XCTest treats as a failure).
-            guard !fired else { return }
-            fired = true
+            guard !fired.value else { return }
+            fired.value = true
             didPublish.fulfill()
         }
 
@@ -175,12 +175,12 @@ final class SystemStatsServiceTests: XCTestCase {
         // not the slow-path device-health refresh that the autostart init
         // would otherwise kick off.
         let firstTick = expectation(description: "first tick")
-        var firstFired = false
+        let firstFired = TestBox(false)
         withObservationTracking {
             _ = service.ramUsage
         } onChange: {
-            guard !firstFired else { return }
-            firstFired = true
+            guard !firstFired.value else { return }
+            firstFired.value = true
             firstTick.fulfill()
         }
         service.start()
@@ -194,13 +194,18 @@ final class SystemStatsServiceTests: XCTestCase {
         // pattern catches the second/third/etc. tick if a regression
         // re-enabled the timer mid-test.
         let counter = TickCounter()
-        func arm() {
-            withObservationTracking {
-                _ = service.ramUsage
-            } onChange: {
-                MainActor.assumeIsolated {
-                    counter.bump()
-                    arm()
+        // `@Sendable` so the observation callback can re-arm itself; the body
+        // asserts the main-actor context it already runs on in order to read
+        // the service's isolated state.
+        @Sendable func arm() {
+            MainActor.assumeIsolated {
+                withObservationTracking {
+                    _ = service.ramUsage
+                } onChange: {
+                    MainActor.assumeIsolated {
+                        counter.bump()
+                        arm()
+                    }
                 }
             }
         }
@@ -364,7 +369,9 @@ final class SystemStatsServiceTests: XCTestCase {
 /// Reference-typed counter so the arming closure can mutate a shared count
 /// without falling foul of Swift's capture-by-value rules for `Int`.
 @MainActor
-private final class TickCounter {
+/// `@unchecked Sendable`: bumped and read only inside `MainActor.assumeIsolated`
+/// blocks, so every access is already serialized on the main actor.
+private final class TickCounter: @unchecked Sendable {
     private(set) var count = 0
     func bump() { count += 1 }
 }

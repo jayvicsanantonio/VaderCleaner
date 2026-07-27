@@ -33,10 +33,10 @@ struct LoginItem: Identifiable, Equatable, Sendable {
 /// `LaunchAgentManager` instead. This manager therefore covers exactly what
 /// `SMAppService` can truthfully report: the host app itself. Collaborators
 /// are injected as closures so tests never mutate real login-item state.
-struct LoginItemsManager {
+struct LoginItemsManager: Sendable {
 
-    typealias StatusProvider = () -> SMAppService.Status
-    typealias SetEnabledHandler = (Bool) throws -> Void
+    typealias StatusProvider = @Sendable () -> SMAppService.Status
+    typealias SetEnabledHandler = @Sendable (Bool) throws -> Void
 
     private let displayName: String
     private let identifier: String

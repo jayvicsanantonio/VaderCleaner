@@ -11,10 +11,10 @@ import Foundation
 /// Apple silicon, `/usr/local` on Intel). The candidate paths, the
 /// executable-file check, and the `--version` runner are all injected so
 /// detection is unit-testable without a real install.
-struct ClamAVDetector {
+struct ClamAVDetector: Sendable {
 
-    typealias ExecutableCheck = (String) -> Bool
-    typealias VersionRunner = (URL) async -> String?
+    typealias ExecutableCheck = @Sendable (String) -> Bool
+    typealias VersionRunner = @Sendable (URL) async -> String?
 
     private let candidatePaths: [URL]
     private let isExecutable: ExecutableCheck

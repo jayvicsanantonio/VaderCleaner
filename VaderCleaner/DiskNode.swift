@@ -19,7 +19,7 @@ import Foundation
 /// `size` is always pre-rolled-up by the scanner: a directory's value is
 /// the sum of its descendants. The treemap relies on this so it can size
 /// each tile from a single property read.
-final class DiskNode: Identifiable {
+final class DiskNode: Identifiable, Sendable {
 
     /// Stable identity for SwiftUI diffing. Generated per node so two
     /// scans of the same path produce different IDs — the UI treats them
@@ -129,16 +129,9 @@ final class DiskNode: Identifiable {
 
     /// Shared, pre-configured formatter so each `formattedSize` access
     /// doesn't pay a fresh `ByteCountFormatter` allocation. The treemap
-    /// in Prompt 17 will call this on every visible tile and tooltip,
-    /// often hundreds of times per render — `ByteCountFormatter` is
-    /// thread-safe for `string(fromByteCount:)` reads, so a single
-    /// instance is the right shape.
-    private static let sizeFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = .useAll
-        formatter.countStyle = .binary
-        return formatter
-    }()
+    /// calls this on every visible tile and tooltip, often hundreds of
+    /// times per render.
+    private static let sizeFormatter = LockedByteFormatter(allowedUnits: .useAll, countStyle: .binary)
 
     /// Pretty-printed byte count for status labels and tile tooltips.
     /// `.useAll` lets the formatter pick the most readable unit for any

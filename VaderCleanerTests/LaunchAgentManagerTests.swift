@@ -138,28 +138,28 @@ final class LaunchAgentManagerTests: XCTestCase {
 
     func test_disable_invokesLaunchctlUnloadWithAgentPath() throws {
         try writePlist(named: "a.plist", label: "a", program: "/bin/a")
-        var captured: [String]?
-        let manager = makeManager(loaded: ["a"], launchctl: { captured = $0 })
+        let captured = TestBox<[String]?>(nil)
+        let manager = makeManager(loaded: ["a"], launchctl: { captured.value = $0 })
         let agent = try XCTUnwrap(manager.userAgents().first)
 
         try manager.disable(agent)
 
         // `-w` records the agent as disabled in launchd's per-user override
         // database so it stays off across logins, not just for the session.
-        XCTAssertEqual(captured, ["unload", "-w", agent.path.path])
+        XCTAssertEqual(captured.value, ["unload", "-w", agent.path.path])
     }
 
     func test_enable_invokesLaunchctlLoadWithAgentPath() throws {
         try writePlist(named: "a.plist", label: "a", program: "/bin/a")
-        var captured: [String]?
-        let manager = makeManager(loaded: [], launchctl: { captured = $0 })
+        let captured = TestBox<[String]?>(nil)
+        let manager = makeManager(loaded: [], launchctl: { captured.value = $0 })
         let agent = try XCTUnwrap(manager.userAgents().first)
 
         try manager.enable(agent)
 
         // `-w` clears the agent's launchd override entry so `load` reliably
         // re-registers it even when it was previously disabled.
-        XCTAssertEqual(captured, ["load", "-w", agent.path.path])
+        XCTAssertEqual(captured.value, ["load", "-w", agent.path.path])
     }
 
     // MARK: - remove
@@ -211,7 +211,7 @@ final class LaunchAgentManagerTests: XCTestCase {
 
     private func makeManager(
         loaded: Set<String>,
-        launchctl: @escaping (_ args: [String]) throws -> Void = { _ in }
+        launchctl: @escaping @Sendable (_ args: [String]) throws -> Void = { _ in }
     ) -> LaunchAgentManager {
         LaunchAgentManager(
             userAgentsDirectory: tempDir,
@@ -239,7 +239,9 @@ final class LaunchAgentManagerTests: XCTestCase {
 }
 
 /// Captures the path passed to `removeLaunchAgent` and replies success.
-private final class FakeRemovalHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class FakeRemovalHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     private(set) var removedLaunchAgentPath: String?
 
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) { reply(nil) }

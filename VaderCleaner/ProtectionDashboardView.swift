@@ -477,7 +477,7 @@ struct ProtectionDashboardView: View {
                     localized: "\(browser.displayName) Browsing Data Found",
                     comment: "Protection privacy tile title for a browser's data."
                 ),
-                metric: smartScanByteFormatter.string(fromByteCount: size),
+                metric: smartScanFormattedBytes(size),
                 caption: String(localized: "Remove your browser data to free up space and improve your privacy.",
                                 comment: "Protection browser-data tile caption."),
                 systemImage: "globe",

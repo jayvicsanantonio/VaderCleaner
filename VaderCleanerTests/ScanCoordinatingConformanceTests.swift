@@ -71,13 +71,15 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
 
     private struct Boom: Error {}
 
-    /// Counts how many times an injected entrypoint closure ran. A
-    /// `@MainActor` reference type (not a captured `var`) so the increment
-    /// stays warning-free under the VMs' main-actor isolation.
-    @MainActor
-    private final class CallCounter {
-        private(set) var count = 0
-        func bump() { count += 1 }
+    /// Counts how many times an injected entrypoint closure ran. A reference
+    /// type rather than a captured `var` so the increment is legal inside the
+    /// `@Sendable` collaborator closures the view models drive off-actor;
+    /// `@unchecked Sendable` is carried by the lock below.
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = 0
+        var count: Int { lock.withLock { storage } }
+        func bump() { lock.withLock { storage += 1 } }
     }
 
     // MARK: - SmartScanViewModel
@@ -260,7 +262,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     // MARK: - DiskScannerViewModel (Space Lens)
     // Mapping: .idle→.intro; .scanning→.working; .ready/.error→.results.
 
-    private func diskNode() -> DiskNode {
+    nonisolated private static func diskNode() -> DiskNode {
         DiskNode(
             url: URL(fileURLWithPath: "/tmp/root"),
             name: "root",
@@ -271,7 +273,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_diskScanner_idleMapsToIntro() {
-        let vm = DiskScannerViewModel(scanner: { _, _ in self.diskNode() })
+        let vm = DiskScannerViewModel(scanner: { _, _ in Self.diskNode() })
         XCTAssertEqual(vm.scanPresentation, .intro)
     }
 
@@ -279,7 +281,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         let gate = ScanGate()
         let vm = DiskScannerViewModel(scanner: { _, _ in
             await gate.wait()
-            return self.diskNode()
+            return Self.diskNode()
         })
 
         let task = Task {
@@ -293,7 +295,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_diskScanner_readyMapsToResults() async {
-        let node = diskNode()
+        let node = Self.diskNode()
         let vm = DiskScannerViewModel(scanner: { _, _ in node })
         await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
         XCTAssertEqual(vm.phase, .ready(node))
@@ -311,7 +313,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     func test_diskScanner_beginScanLeavesIntro() async {
         // `beginScan()` defaults the root to the user's home directory; the
         // injected scanner short-circuits the walk so no real disk is read.
-        let vm = DiskScannerViewModel(scanner: { _, _ in self.diskNode() })
+        let vm = DiskScannerViewModel(scanner: { _, _ in Self.diskNode() })
         vm.beginScan()
         await yieldUntil({ vm.scanPresentation != .intro }, "beginScan() leaves .intro")
         XCTAssertNotEqual(vm.scanPresentation, .intro)
@@ -321,7 +323,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     // Mapping: .idle→.intro; .checkingClamAV/.updatingDatabase/.scanning/.removing→.working;
     //          .needsInstall/.results/.clean/.done/.failed→.results.
 
-    private let threat = MalwareThreat(
+    nonisolated private static let threat = MalwareThreat(
         filePath: URL(fileURLWithPath: "/Users/me/Downloads/evil.bin"),
         threatName: "Eicar-Test-Signature"
     )
@@ -379,7 +381,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     func test_malware_removingMapsToWorking() async {
         let gate = ScanGate()
         let vm = makeMalware(
-            scan: { _, _ in [self.threat] },
+            scan: { _, _ in [Self.threat] },
             removeThreats: { _ in
                 await gate.wait()
                 return [] // no failures ⇒ .done
@@ -405,7 +407,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_malware_resultsMapsToResults() async {
-        let vm = makeMalware(scan: { _, _ in [self.threat] })
+        let vm = makeMalware(scan: { _, _ in [Self.threat] })
         await vm.scan()
         if case .results = vm.phase {} else { XCTFail("expected .results, got \(vm.phase)") }
         XCTAssertEqual(vm.scanPresentation, .results)
@@ -419,7 +421,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
     }
 
     func test_malware_doneMapsToResults() async {
-        let vm = makeMalware(scan: { _, _ in [self.threat] }, removeThreats: { _ in [] })
+        let vm = makeMalware(scan: { _, _ in [Self.threat] }, removeThreats: { _ in [] })
         await vm.scan()
         await vm.removeThreats()
         if case .done = vm.phase {} else { XCTFail("expected .done, got \(vm.phase)") }

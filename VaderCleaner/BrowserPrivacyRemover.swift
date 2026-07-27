@@ -37,12 +37,10 @@ struct BrowserPrivacyRemover: Sendable {
 
     init(
         pathProvider: BrowserDataPathProviding,
-        fileManager: FileManager = .default,
         isBrowserRunning: @escaping IsRunning = BrowserPrivacyRemover.defaultIsRunning
     ) {
         self.worker = RemoverWorker(
-            locator: BrowserPrivacyStoreLocator(pathProvider: pathProvider),
-            fileManager: fileManager
+            locator: BrowserPrivacyStoreLocator(pathProvider: pathProvider)
         )
         self.isBrowserRunning = isBrowserRunning
     }
@@ -65,11 +63,12 @@ struct BrowserPrivacyRemover: Sendable {
 private actor RemoverWorker {
 
     private let locator: BrowserPrivacyStoreLocator
-    private let fileManager: FileManager
+    /// See `InspectorWorker.fileManager` — the shared instance, held directly
+    /// because no caller or test ever supplied a different one.
+    private let fileManager = FileManager.default
 
-    init(locator: BrowserPrivacyStoreLocator, fileManager: FileManager) {
+    init(locator: BrowserPrivacyStoreLocator) {
         self.locator = locator
-        self.fileManager = fileManager
     }
 
     func remove(_ requests: [PrivacyRemovalRequest]) {

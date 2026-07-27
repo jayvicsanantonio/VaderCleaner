@@ -15,7 +15,10 @@ import os.log
 /// SMAppService.daemon().register() throws errSecCSUnsigned without ad-hoc signatures.
 /// Failures are logged via os_log and do not crash the app — the architecture lives
 /// regardless, but XPC calls will return connection errors until signing is in place.
-final class HelperConnectionManager {
+/// `@unchecked Sendable`: the one piece of mutable state (`connection`) is only
+/// ever read or written inside `queue`, the serial queue below, so the shared
+/// instance is safe to reach from any thread.
+final class HelperConnectionManager: @unchecked Sendable {
 
     static let shared = HelperConnectionManager()
 
@@ -38,25 +41,32 @@ final class HelperConnectionManager {
             new.remoteObjectInterface = NSXPCInterface(with: VaderCleanerHelperProtocol.self)
             // Reject any helper whose code-signing identity does not match — protects
             // the app from a substituted/swapped binary at the same mach service name.
-            try? new.setCodeSigningRequirement(kHelperServerCodeSigningRequirement)
+            new.setCodeSigningRequirement(kHelperServerCodeSigningRequirement)
             // Capture the connection's identity in the handler. If invalidate() runs
             // and a new connect() races ahead before the stale handler fires, the
             // identity check below prevents the stale handler from clearing the new
             // connection. queue.async (not sync) avoids re-entrancy if the XPC runtime
             // dispatches the handler synchronously while invalidate() is mid-flight.
-            new.invalidationHandler = { [weak self, weak new] in
-                guard let self, let conn = new else { return }
+            // The identity is an `ObjectIdentifier` rather than a weak reference so
+            // it is `Sendable` and these stay plain `@Sendable` closures.
+            let identity = ObjectIdentifier(new)
+            new.invalidationHandler = { [weak self] in
+                guard let self else { return }
                 os_log("Helper XPC connection invalidated", log: self.log, type: .info)
                 self.queue.async {
-                    if self.connection === conn { self.connection = nil }
+                    if let current = self.connection, ObjectIdentifier(current) == identity {
+                        self.connection = nil
+                    }
                 }
             }
-            new.interruptionHandler = { [weak self, weak new] in
-                guard let self, let conn = new else { return }
+            new.interruptionHandler = { [weak self] in
+                guard let self else { return }
                 os_log("Helper XPC connection interrupted; will reconnect on next use",
                        log: self.log, type: .info)
                 self.queue.async {
-                    if self.connection === conn { self.connection = nil }
+                    if let current = self.connection, ObjectIdentifier(current) == identity {
+                        self.connection = nil
+                    }
                 }
             }
             new.resume()

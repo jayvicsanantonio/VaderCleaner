@@ -28,7 +28,7 @@ final class AppIconCache {
 
     @ObservationIgnored private var icons: [String: NSImage] = [:]
     @ObservationIgnored private let placeholderIcon: NSImage
-    @ObservationIgnored private let loader: (URL) -> NSImage
+    @ObservationIgnored nonisolated private let loader: @Sendable (URL) -> NSImage
     @ObservationIgnored private let workQueue = DispatchQueue(label: "com.personal.VaderCleaner.app-icon-cache",
                                                               qos: .userInitiated)
 
@@ -38,7 +38,7 @@ final class AppIconCache {
     /// remains main-actor isolated.
     nonisolated init(
         placeholderIcon: NSImage = NSWorkspace.shared.icon(for: .application),
-        loader: @escaping (URL) -> NSImage = { url in
+        loader: @escaping @Sendable (URL) -> NSImage = { url in
             NSWorkspace.shared.icon(forFile: url.path)
         }
     ) {

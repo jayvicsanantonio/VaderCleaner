@@ -5,12 +5,11 @@ import SwiftUI
 import AppKit
 
 enum LargeOldFilesFormatting {
-    static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = .useAll
-        f.countStyle = .file
-        return f
-    }()
+    /// Finder-matching file-style byte string, formatted through the shared
+    /// helper so every surface reports sizes identically.
+    static func formattedBytes(_ bytes: Int64) -> String {
+        smartScanFormattedBytes(bytes)
+    }
 }
 
 /// Pure strings for the results header above the file list: a headline file
@@ -38,7 +37,7 @@ enum LargeOldFilesSummary {
     /// six months". Takes precomputed aggregates so the header never re-scans a
     /// huge result set on render.
     static func detail(oldCount: Int, totalBytes: Int64) -> String {
-        let totalClause = LargeOldFilesFormatting.byteFormatter.string(fromByteCount: totalBytes) + " total"
+        let totalClause = LargeOldFilesFormatting.formattedBytes(totalBytes) + " total"
         guard oldCount > 0 else { return totalClause }
         return "\(oldCount) older than 6 months · \(totalClause)"
     }

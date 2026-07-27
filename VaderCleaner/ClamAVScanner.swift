@@ -24,17 +24,17 @@ struct ClamAVScanner {
 
     /// Runs `executable arguments`, invoking `onLine` per stdout line, and
     /// returns the process exit code.
-    typealias ScanRunner = (
+    typealias ScanRunner = @Sendable (
         _ executable: URL,
         _ arguments: [String],
-        _ onLine: @escaping (String) -> Void
+        _ onLine: @escaping @Sendable (String) -> Void
     ) async throws -> Int32
 
     /// Resolves the signature-database directory clamscan should read
     /// from. Returns `nil` to fall back to clamscan's compiled-in
     /// default — useful for tests and for a developer using a Homebrew
     /// `clamscan` with its own DB layout.
-    typealias DatabaseDirectoryProvider = () -> URL?
+    typealias DatabaseDirectoryProvider = @Sendable () -> URL?
 
     /// Directory-path regexes (clamscan's `--exclude-dir` flavour) that
     /// the scanner should skip. Walking these on a developer machine
@@ -142,7 +142,7 @@ struct ClamAVScanner {
     func scan(
         paths: [URL],
         options: ScanOptions = ScanOptions(),
-        progress: @escaping (_ line: String, _ filesScanned: Int) -> Void
+        progress: @escaping @Sendable (_ line: String, _ filesScanned: Int) -> Void
     ) async throws -> [MalwareThreat] {
         guard let binary = detector.path() else {
             throw NSError(

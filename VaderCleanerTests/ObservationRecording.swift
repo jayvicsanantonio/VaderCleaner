@@ -37,14 +37,46 @@ func recordTransitions<Subject: AnyObject, Value>(
     on subject: Subject,
     perform work: () async -> Void
 ) async -> [Value] {
-    var captured: [Value] = [subject[keyPath: keyPath]]
-    var keepRecording = true
+    let recorder = TransitionRecorder(of: keyPath, on: subject)
+    recorder.arm()
 
+    await work()
+    // Two hops: the first lets a final-change Task enqueue, the second lets it
+    // run, before re-arming stops.
+    await Task.yield()
+    await Task.yield()
+    recorder.stop()
+    return recorder.captured
+}
+
+/// Backing state for `recordTransitions`.
+///
+/// Exists so `withObservationTracking`'s `@Sendable` `onChange` closure captures
+/// one box rather than the accumulating array, the subject, the key path, and
+/// the re-arm function separately — none of which is `Sendable`.
+/// `@unchecked Sendable` is sound because every member is created and touched
+/// only on the main actor: `arm()` is `@MainActor` and the change callback hops
+/// back to it before recording or re-arming.
+private final class TransitionRecorder<Subject: AnyObject, Value>: @unchecked Sendable {
+
+    private let keyPath: KeyPath<Subject, Value>
+    private let subject: Subject
+    private(set) var captured: [Value]
+    private var keepRecording = true
+
+    @MainActor
+    init(of keyPath: KeyPath<Subject, Value>, on subject: Subject) {
+        self.keyPath = keyPath
+        self.subject = subject
+        self.captured = [subject[keyPath: keyPath]]
+    }
+
+    @MainActor
     func arm() {
         guard keepRecording else { return }
         withObservationTracking {
             _ = subject[keyPath: keyPath]
-        } onChange: {
+        } onChange: { [self] in
             // Defer to a fresh main-actor Task: `onChange` runs in `willSet`,
             // so the read below must wait until the new value is committed.
             Task { @MainActor in
@@ -54,15 +86,10 @@ func recordTransitions<Subject: AnyObject, Value>(
             }
         }
     }
-    arm()
 
-    await work()
-    // Two hops: the first lets a final-change Task enqueue, the second lets it
-    // run, before re-arming stops.
-    await Task.yield()
-    await Task.yield()
-    keepRecording = false
-    return captured
+    func stop() {
+        keepRecording = false
+    }
 }
 
 /// Polls `condition` every 20 ms until it returns `true` or `timeout` elapses.

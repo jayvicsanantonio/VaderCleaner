@@ -15,7 +15,9 @@ import QuickLookThumbnailing
 /// Backed by `NSCache`, which is thread-safe and evicts under memory pressure,
 /// so the cache never grows unbounded.
 enum ClutterThumbnailCache {
-    private static let cache: NSCache<NSString, NSImage> = {
+    /// `NSCache` is documented thread-safe, so the shared instance opts out of
+    /// isolation rather than forcing every caller onto one actor.
+    nonisolated(unsafe) private static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         // Generous but bounded: a dashboard shows a handful of thumbnails and a
         // manager preview a few more, so a few hundred entries covers heavy use

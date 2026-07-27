@@ -6,9 +6,9 @@ import Foundation
 /// Counts the boot volume's local Time Machine snapshots. The raw command
 /// output is injected so unit tests parse canned output without running
 /// `tmutil` or depending on the host's snapshot state.
-struct LocalSnapshotCounter {
+struct LocalSnapshotCounter: Sendable {
 
-    typealias ListSnapshots = () -> String
+    typealias ListSnapshots = @Sendable () -> String
 
     private let listSnapshots: ListSnapshots
 

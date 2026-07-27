@@ -44,12 +44,7 @@ struct SpaceLensVolumeUsage: Equatable {
     /// Decimal-unit byte formatter (1000-based), matching how disk capacity is
     /// labeled on the box ("2 TB"), unlike the binary formatter `DiskNode` uses
     /// for file sizes.
-    private static let formatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useGB, .useTB]
-        formatter.countStyle = .file
-        return formatter
-    }()
+    private static let formatter = LockedByteFormatter(allowedUnits: [.useGB, .useTB], countStyle: .file)
 
     /// Reads the live capacity of the volume mounted at `volumeURL` (the boot
     /// volume `/` by default). Mirrors `SystemStatsService.readDiskStats`. Falls

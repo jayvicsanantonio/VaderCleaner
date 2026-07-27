@@ -1349,10 +1349,14 @@ private struct ExclusionsTab: View {
         panel.prompt = "Ignore"
         panel.message = "Choose files or folders for scans to leave alone"
 
+        // AppKit invokes the completion handler on the main thread, so
+        // `assumeIsolated` states that rather than deferring the list refresh.
         let handle: @Sendable (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK else { return }
-            for url in panel.urls { exclusions.add(path: url.path) }
-            refresh()
+            MainActor.assumeIsolated {
+                guard response == .OK else { return }
+                for url in panel.urls { exclusions.add(path: url.path) }
+                refresh()
+            }
         }
 
         if let window = NSApp.keyWindow {

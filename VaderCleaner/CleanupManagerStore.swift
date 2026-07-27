@@ -116,9 +116,11 @@ final class CleanupManagerStore: @unchecked Sendable {
             guard let self else { return }
             // The path index first, so selection works as soon as rows appear.
             let map = Dictionary(allItems.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
-            self.lock.lock()
-            if self.token == myToken { self.filesByPath = map }
-            self.lock.unlock()
+            // Scoped `withLock` rather than lock()/unlock(): the bare calls are
+            // unavailable from an async context.
+            self.lock.withLock {
+                if self.token == myToken { self.filesByPath = map }
+            }
 
             // Warm the cheap shell so the panes paint instantly on open. Each
             // category's folder tree is built lazily on first open (see

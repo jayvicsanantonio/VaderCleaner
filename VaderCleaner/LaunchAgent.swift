@@ -45,15 +45,17 @@ struct LaunchAgent: Identifiable, Equatable {
 /// Collaborators (filesystem roots, `launchctl`, the loaded-label query, and
 /// the privileged helper) are injected so the manager is unit-testable
 /// without touching real launchd state.
-struct LaunchAgentManager {
+struct LaunchAgentManager: Sendable {
 
-    typealias LoadedLabelsProvider = () -> Set<String>
-    typealias LaunchctlRunner = (_ arguments: [String]) throws -> Void
-    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
+    typealias LoadedLabelsProvider = @Sendable () -> Set<String>
+    typealias LaunchctlRunner = @Sendable (_ arguments: [String]) throws -> Void
+    typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
 
     private let userAgentsDirectory: URL
     private let systemAgentDirectories: [URL]
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `.default` is documented
+    /// thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let loadedLabels: LoadedLabelsProvider
     private let launchctl: LaunchctlRunner
     private let helperProvider: HelperProvider

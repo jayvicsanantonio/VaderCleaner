@@ -24,7 +24,7 @@ final class DiskScannerViewModel {
     /// tests can supply an in-memory tree (or throw to exercise the
     /// failure path). The progress callback is invoked with a running
     /// file count.
-    typealias Scanner = (URL, @escaping (Int) -> Void) async throws -> DiskNode
+    typealias Scanner = @Sendable (URL, @escaping @Sendable (Int) -> Void) async throws -> DiskNode
 
     /// Removal sink: moves the given URLs to the Trash and returns the subset
     /// actually moved. Injected so tests can assert what was asked to be removed
@@ -267,7 +267,11 @@ final class DiskScannerViewModel {
     /// avoid. Single-threaded access: `DiskScanner.buildNode` invokes
     /// the closure from one recursive task chain, so no synchronization
     /// is required.
-    private final class ProgressGate {
+    /// `@unchecked Sendable` for the single-threaded reason documented above:
+    /// the scanner drives the progress closure from one recursive task chain,
+    /// so the gate is never touched concurrently even though it crosses into a
+    /// `@Sendable` closure.
+    private final class ProgressGate: @unchecked Sendable {
         var lastScheduledBucket: Int = -1
     }
 
@@ -406,7 +410,7 @@ final class DiskScannerViewModel {
         //   2. the phase must still be `.scanning` (guards against late
         //      progress writes that would otherwise regress a final
         //      `.ready` state back to a scanning value).
-        let progressHandler: (Int) -> Void = { [weak self] count in
+        let progressHandler: @Sendable (Int) -> Void = { [weak self] count in
             let bucket = count / bucketSize
             guard bucket > gate.lastScheduledBucket else { return }
             gate.lastScheduledBucket = bucket
@@ -505,7 +509,12 @@ extension DiskScannerViewModel {
     @MainActor
     static func live(exclusions: ExclusionsStore) -> DiskScannerViewModel {
         DiskScannerViewModel(scanner: { [weak exclusions] url, progress in
-            let excluded = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+            // Read on the main actor (the store's isolation), still once per
+            // scan — same hop `CareScanEngineLive` makes for its settings
+            // snapshot, so a freshly-added exclusion still lands on the next run.
+            let excluded = await MainActor.run {
+                (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+            }
             return try await DiskScanner().scan(
                 root: url,
                 excluding: excluded,

@@ -109,11 +109,7 @@ enum SystemStatsFormatters {
     ///
     /// `.useGB` forces the unit even for sub-1 GB inputs ("0.7 GB" rather
     /// than "700 MB"), which keeps layout stable as values change.
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = [.useGB]
-        f.countStyle = .file
-        f.includesUnit = true
-        return f
-    }()
+    private static let byteFormatter = LockedByteFormatter(
+        allowedUnits: [.useGB], countStyle: .file, includesUnit: true
+    )
 }

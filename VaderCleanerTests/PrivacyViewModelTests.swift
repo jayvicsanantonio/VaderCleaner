@@ -119,16 +119,16 @@ final class PrivacyViewModelTests: XCTestCase {
     func test_preview_yieldsMainActorWhileSizingIsSuspended() async {
         let sizerStarted = expectation(description: "sizer started")
         let mainActorWasFree = expectation(description: "main actor accepted another task")
-        var didSuspendSizer = false
-        var releaseSizer: CheckedContinuation<Void, Never>?
+        let didSuspendSizer = TestBox(false)
+        let releaseSizer = TestBox<CheckedContinuation<Void, Never>?>(nil)
         let vm = makeViewModel(
             detected: [.safari],
             sizer: { _, _ in
-                if !didSuspendSizer {
-                    didSuspendSizer = true
+                if !didSuspendSizer.value {
+                    didSuspendSizer.value = true
                     sizerStarted.fulfill()
                     await withCheckedContinuation { continuation in
-                        releaseSizer = continuation
+                        releaseSizer.value = continuation
                     }
                 }
                 return 1
@@ -140,7 +140,7 @@ final class PrivacyViewModelTests: XCTestCase {
         Task { @MainActor in mainActorWasFree.fulfill() }
         await fulfillment(of: [mainActorWasFree], timeout: 1)
 
-        releaseSizer?.resume()
+        releaseSizer.value?.resume()
         await previewTask.value
         XCTAssertEqual(vm.phase, .preview)
     }
@@ -149,16 +149,16 @@ final class PrivacyViewModelTests: XCTestCase {
     /// result it might try to publish after cancellation unwinds.
     func test_preview_restartCancelsInFlightScanAndKeepsLatestResult() async {
         let firstSizerStarted = expectation(description: "first sizer started")
-        var detectorCalls = 0
-        var sizerCalls = 0
+        let detectorCalls = TestBox(0)
+        let sizerCalls = TestBox(0)
         let vm = makeViewModel(
             detector: {
-                detectorCalls += 1
-                return detectorCalls == 1 ? [.safari] : [.chrome]
+                detectorCalls.value += 1
+                return detectorCalls.value == 1 ? [.safari] : [.chrome]
             },
             sizer: { _, _ in
-                sizerCalls += 1
-                if sizerCalls == 1 {
+                sizerCalls.value += 1
+                if sizerCalls.value == 1 {
                     firstSizerStarted.fulfill()
                     try await Task.sleep(nanoseconds: 5_000_000_000)
                 }
@@ -230,25 +230,25 @@ final class PrivacyViewModelTests: XCTestCase {
     /// VM must cache paths during preview and avoid calling the resolver from
     /// hot UI getters after the preview state has landed.
     func test_preview_cachesPathsForActionabilityAndTotals() async {
-        var resolverCalls = 0
+        let resolverCalls = TestBox(0)
         let vm = makeViewModel(
             detected: [.safari],
             sizer: { _, _ in 10 },
             pathsFor: { browser, category in
-                resolverCalls += 1
+                resolverCalls.value += 1
                 return [URL(fileURLWithPath: "/tmp/vctests/\(browser.rawValue)/\(category.rawValue)")]
             }
         )
 
         await vm.preview()
-        let callsAfterPreview = resolverCalls
+        let callsAfterPreview = resolverCalls.value
 
         XCTAssertTrue(vm.isCategoryActionable(browser: .safari, category: .history))
         XCTAssertEqual(vm.totalSelectedSize, 50)
         vm.toggle(browser: .safari, category: .history)
         XCTAssertEqual(vm.totalSelectedSize, 40)
         XCTAssertEqual(vm.sizeOnDisk(for: .safari), 50)
-        XCTAssertEqual(resolverCalls, callsAfterPreview)
+        XCTAssertEqual(resolverCalls.value, callsAfterPreview)
     }
 
     // MARK: - Selection
@@ -290,7 +290,7 @@ final class PrivacyViewModelTests: XCTestCase {
     /// clearer can deliver.
     func test_totalSelectedSize_dedupesPathsSharedAcrossCategories() async {
         let sharedPath = URL(fileURLWithPath: "/tmp/vctests/Chrome/Default/History")
-        let pathsForCategory: (Browser, PrivacyCategory) -> [URL] = { _, category in
+        let pathsForCategory: @Sendable (Browser, PrivacyCategory) -> [URL] = { _, category in
             switch category {
             case .history, .downloads: return [sharedPath]
             case .cookies: return [URL(fileURLWithPath: "/tmp/vctests/Chrome/Default/Cookies")]
@@ -605,13 +605,13 @@ final class PrivacyViewModelTests: XCTestCase {
     /// prevented from publishing `.complete`.
     func test_scanAgain_cancelsInFlightClearAndLeavesIdle() async {
         let firstClearStarted = expectation(description: "first clear started")
-        var clearCalls = 0
+        let clearCalls = TestBox(0)
         let vm = makeViewModel(
             detected: [.safari],
             sizer: { _, _ in 50 },
             clearer: { _, _ in
-                clearCalls += 1
-                if clearCalls == 1 {
+                clearCalls.value += 1
+                if clearCalls.value == 1 {
                     firstClearStarted.fulfill()
                     try await Task.sleep(nanoseconds: 5_000_000_000)
                 }

@@ -70,7 +70,9 @@ enum ExtensionArtifactSizer {
 struct SafariExtensionDiscovery: ExtensionDiscovering {
 
     private let homeDirectory: URL
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — not `Sendable`, but `.default` is
+    /// documented thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -129,7 +131,9 @@ struct BrowserExtensionDiscovery: ExtensionDiscovering {
     ]
 
     private let homeDirectory: URL
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — not `Sendable`, but `.default` is
+    /// documented thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -264,7 +268,9 @@ struct MailPluginDiscovery: ExtensionDiscovering {
 
     private let userBundlesDirectory: URL
     private let systemBundlesDirectory: URL?
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — not `Sendable`, but `.default` is
+    /// documented thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -330,7 +336,9 @@ struct InternetPluginDiscovery: ExtensionDiscovering {
 
     private let userPluginsDirectory: URL
     private let systemPluginsDirectory: URL?
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — not `Sendable`, but `.default` is
+    /// documented thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,

@@ -99,10 +99,8 @@ struct SmartScanUnusedAppsReview: View {
 
     /// Shared formatter — construction is expensive and the builder runs it
     /// once per row.
-    nonisolated private static let relativeFormatter = RelativeDateTimeFormatter()
-
     nonisolated private static func subtitle(for unused: UnusedApp) -> String {
-        let ago = relativeFormatter.localizedString(for: unused.lastUsedDate, relativeTo: Date())
+        let ago = RelativeDateText.string(for: unused.lastUsedDate)
         return String.localizedStringWithFormat(
             String(localized: "Last opened %@", comment: "Unused app row subtitle: relative last-opened date."),
             ago

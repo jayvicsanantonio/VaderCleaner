@@ -30,7 +30,7 @@ final class ScanFileFilterTests: XCTestCase {
     /// on the main actor is exactly the freeze this helper exists to avoid, so
     /// the filter must never run on the main thread.
     func test_selected_runsThePredicateOffTheMainThread() async {
-        let sawMainThread = SendableBox<Bool?>(nil)
+        let sawMainThread = TestBox<Bool?>(nil)
         let files = [file("/a"), file("/b")]
 
         _ = await ScanFileFilter.selected(from: files) { file in
@@ -61,7 +61,3 @@ final class ScanFileFilterTests: XCTestCase {
 /// Mutable reference cell capturable by the `@Sendable` predicate. The
 /// unchecked conformance is safe here: the test awaits the filter before
 /// reading, so the write strictly precedes the read.
-private final class SendableBox<T>: @unchecked Sendable {
-    var value: T
-    init(_ value: T) { self.value = value }
-}

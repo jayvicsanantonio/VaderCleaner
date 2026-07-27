@@ -160,7 +160,7 @@ final class PreferencesStore {
     /// percent threshold so the Notifications pane can offer an absolute GB picker.
     static let defaultDiskFreeThresholdGB = 10
     static let defaultLaunchAtLogin = true
-    static let defaultShowMenuBar = true
+    nonisolated static let defaultShowMenuBar = true
     // Notifications pane parity defaults — every row ships enabled, as in the
     // reference design.
     static let defaultRemindSmartCare = true
@@ -188,7 +188,7 @@ final class PreferencesStore {
     static let defaultMenuBarReading: MenuBarReading = .none
     /// Off by default, preserving the existing behaviour where the Dock icon
     /// follows the window and the menu bar rather than being pinned.
-    static let defaultKeepDockIcon = false
+    nonisolated static let defaultKeepDockIcon = false
     /// Two seconds: live enough for the panel's memory and CPU rows.
     static let defaultStatsUpdateInterval: Double = 2
 

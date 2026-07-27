@@ -40,16 +40,16 @@ final class PerformanceViewModelTests: XCTestCase {
     // MARK: - RAM flush
 
     func test_flushRAM_callsPrivilegedHelperAndShowsResult() async {
-        var flushed = false
+        let flushed = TestBox(false)
         let vm = makeViewModel(
             readMemory: { MemoryStats(usedBytes: 4, totalBytes: 16) },
-            flushRAM: { flushed = true }
+            flushRAM: { flushed.value = true }
         )
         await vm.refresh()
 
         await vm.flushRAM()
 
-        XCTAssertTrue(flushed, "flushRAM() must invoke the privileged helper collaborator")
+        XCTAssertTrue(flushed.value, "flushRAM() must invoke the privileged helper collaborator")
         XCTAssertEqual(vm.phase, .ready)
         XCTAssertNotNil(vm.ramResult)
     }
@@ -69,16 +69,16 @@ final class PerformanceViewModelTests: XCTestCase {
     // MARK: - Maintenance scripts
 
     func test_runMaintenanceScripts_callsPrivilegedHelperAndCapturesOutput() async {
-        var ran = false
+        let ran = TestBox(false)
         let vm = makeViewModel(runMaintenance: {
-            ran = true
+            ran.value = true
             return "Maintenance complete."
         })
         await vm.refresh()
 
         await vm.runMaintenanceScripts()
 
-        XCTAssertTrue(ran, "runMaintenanceScripts() must invoke the privileged helper collaborator")
+        XCTAssertTrue(ran.value, "runMaintenanceScripts() must invoke the privileged helper collaborator")
         XCTAssertEqual(vm.maintenanceOutput, "Maintenance complete.")
         XCTAssertEqual(vm.phase, .ready)
     }
@@ -98,13 +98,13 @@ final class PerformanceViewModelTests: XCTestCase {
     // MARK: - Maintenance task catalog
 
     func test_runTask_flushDNS_invokesRunnerStampsResultAndReady() async {
-        var ran = false
-        let vm = makeViewModel(flushDNS: { ran = true; return "Flushed DNS." })
+        let ran = TestBox(false)
+        let vm = makeViewModel(flushDNS: { ran.value = true; return "Flushed DNS." })
         await vm.refresh()
 
         await vm.run(Self.task(.flushDNS))
 
-        XCTAssertTrue(ran, "run(.flushDNS) must invoke its runner")
+        XCTAssertTrue(ran.value, "run(.flushDNS) must invoke its runner")
         XCTAssertEqual(vm.phase, .ready)
         XCTAssertEqual(vm.taskResults["flushDNS"], "Flushed DNS.")
     }
@@ -159,13 +159,13 @@ final class PerformanceViewModelTests: XCTestCase {
     }
 
     func test_runRecommendation_marksTileCompletedOnSuccess() async {
-        var freed = false
-        let vm = makeViewModel(flushRAM: { freed = true })
+        let freed = TestBox(false)
+        let vm = makeViewModel(flushRAM: { freed.value = true })
         await vm.refresh()
 
         await vm.runRecommendation(Self.recommendation(.freeUpRAM))
 
-        XCTAssertTrue(freed, "Running the Free Up RAM tile must invoke the RAM flush")
+        XCTAssertTrue(freed.value, "Running the Free Up RAM tile must invoke the RAM flush")
         XCTAssertTrue(vm.completedRecommendations.contains(.freeUpRAM))
     }
 
@@ -181,13 +181,13 @@ final class PerformanceViewModelTests: XCTestCase {
     }
 
     func test_runRecommendation_backgroundItems_isNavigationOnly() async {
-        var flushed = false
-        let vm = makeViewModel(flushRAM: { flushed = true })
+        let flushed = TestBox(false)
+        let vm = makeViewModel(flushRAM: { flushed.value = true })
         await vm.refresh()
 
         await vm.runRecommendation(Self.recommendation(.backgroundItems))
 
-        XCTAssertFalse(flushed, "The background-items tile only navigates; it runs nothing")
+        XCTAssertFalse(flushed.value, "The background-items tile only navigates; it runs nothing")
         XCTAssertFalse(vm.completedRecommendations.contains(.backgroundItems))
     }
 
@@ -215,52 +215,56 @@ final class PerformanceViewModelTests: XCTestCase {
     }
 
     func test_runDueMaintenance_skipsMaintenanceScriptsWhenUnavailable() async {
-        var ranScripts = false
-        var ranDNS = false
+        let ranScripts = TestBox(false)
+        let ranDNS = TestBox(false)
         let vm = makeViewModel(
-            runMaintenance: { ranScripts = true; return "scripts" },
-            flushDNS: { ranDNS = true; return "dns" },
+            runMaintenance: { ranScripts.value = true; return "scripts" },
+            flushDNS: { ranDNS.value = true; return "dns" },
             maintenanceScriptsAvailable: false
         )
         await vm.refresh()
 
         await vm.runDueMaintenance()
 
-        XCTAssertFalse(ranScripts, "The removed periodic task must never be invoked")
-        XCTAssertTrue(ranDNS, "The available cocktail tasks still run")
+        XCTAssertFalse(ranScripts.value, "The removed periodic task must never be invoked")
+        XCTAssertTrue(ranDNS.value, "The available cocktail tasks still run")
         XCTAssertEqual(vm.phase, .ready)
     }
 
     func test_runDueMaintenance_runsEveryDueCocktailTask() async {
         // Fresh run log → every cocktail task is due. Each runner records that
         // it ran; RAM and Thin TM are excluded from the cocktail.
-        var ranScripts = false, ranDNS = false, ranSpotlight = false, ranMail = false
+        let ranScripts = TestBox(false)
+        let ranDNS = TestBox(false)
+        let ranSpotlight = TestBox(false)
+        let ranMail = TestBox(false)
         let vm = makeViewModel(
-            runMaintenance: { ranScripts = true; return "scripts" },
-            flushDNS: { ranDNS = true; return "dns" },
-            reindexSpotlight: { ranSpotlight = true; return "spotlight" },
-            speedUpMail: { ranMail = true; return "mail" }
+            runMaintenance: { ranScripts.value = true; return "scripts" },
+            flushDNS: { ranDNS.value = true; return "dns" },
+            reindexSpotlight: { ranSpotlight.value = true; return "spotlight" },
+            speedUpMail: { ranMail.value = true; return "mail" }
         )
         await vm.refresh()
 
         await vm.runDueMaintenance()
 
-        XCTAssertTrue(ranScripts && ranDNS && ranSpotlight && ranMail,
+        XCTAssertTrue(ranScripts.value && ranDNS.value && ranSpotlight.value && ranMail.value,
                       "runDueMaintenance() must run every due cocktail task")
         XCTAssertEqual(vm.phase, .ready)
     }
 
     func test_runTasks_runsEverySelectedTaskInOrder() async {
-        var ranDNS = false, ranSpotlight = false
+        let ranDNS = TestBox(false)
+        let ranSpotlight = TestBox(false)
         let vm = makeViewModel(
-            flushDNS: { ranDNS = true; return "dns" },
-            reindexSpotlight: { ranSpotlight = true; return "spotlight" }
+            flushDNS: { ranDNS.value = true; return "dns" },
+            reindexSpotlight: { ranSpotlight.value = true; return "spotlight" }
         )
         await vm.refresh()
 
         await vm.run([Self.task(.flushDNS), Self.task(.reindexSpotlight)])
 
-        XCTAssertTrue(ranDNS && ranSpotlight, "Both selected tasks must run")
+        XCTAssertTrue(ranDNS.value && ranSpotlight.value, "Both selected tasks must run")
         XCTAssertEqual(vm.phase, .ready)
         XCTAssertEqual(vm.taskResults["flushDNS"], "dns")
         XCTAssertEqual(vm.taskResults["reindexSpotlight"], "spotlight")
@@ -268,10 +272,10 @@ final class PerformanceViewModelTests: XCTestCase {
 
     func test_runTasks_stopsAtFirstFailure() async {
         struct Boom: Error {}
-        var ranSpotlight = false
+        let ranSpotlight = TestBox(false)
         let vm = makeViewModel(
             flushDNS: { throw Boom() },
-            reindexSpotlight: { ranSpotlight = true; return "spotlight" }
+            reindexSpotlight: { ranSpotlight.value = true; return "spotlight" }
         )
         await vm.refresh()
 
@@ -280,7 +284,7 @@ final class PerformanceViewModelTests: XCTestCase {
         guard case .failed = vm.phase else {
             return XCTFail("Expected .failed, got \(vm.phase)")
         }
-        XCTAssertFalse(ranSpotlight, "A failure must halt the remaining tasks")
+        XCTAssertFalse(ranSpotlight.value, "A failure must halt the remaining tasks")
     }
 
     func test_refresh_buildsRecommendationsFromSystemState() async {
@@ -300,20 +304,20 @@ final class PerformanceViewModelTests: XCTestCase {
     // MARK: - Login items
 
     func test_setLoginItem_forwardsRequestedStateToCollaborator() async {
-        var received: (Bool, String)?
+        let received = TestBox<(Bool, String)?>(nil)
         let item = Self.loginItem(name: "VaderCleaner")
         let vm = makeViewModel(
             loadLoginItems: { [item] },
             setLoginItemEnabled: { enabled, target in
-                received = (enabled, target.name)
+                received.value = (enabled, target.name)
             }
         )
         await vm.refresh()
 
         await vm.setLoginItem(item, enabled: false)
 
-        XCTAssertEqual(received?.0, false)
-        XCTAssertEqual(received?.1, "VaderCleaner")
+        XCTAssertEqual(received.value?.0, false)
+        XCTAssertEqual(received.value?.1, "VaderCleaner")
         XCTAssertEqual(vm.phase, .ready)
     }
 
@@ -349,13 +353,13 @@ final class PerformanceViewModelTests: XCTestCase {
     /// so the two surfaces never disagree within a session.
     func test_externalLaunchAtLoginChange_reloadsLoginItems() async {
         let subject = PassthroughSubject<Void, Never>()
-        var loadCount = 0
+        let loadCount = TestBox(0)
         let vm = makeViewModel(
             loadLoginItems: {
-                loadCount += 1
-                // First load (refresh) reports disabled; after the
+                loadCount.value += 1
+                // First load (refresh) reports disabled.value; after the
                 // external change the backing state reads enabled.
-                return [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loadCount > 1)]
+                return [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loadCount.value > 1)]
             },
             launchAtLoginChanges: subject.eraseToAnyPublisher()
         )
@@ -372,15 +376,15 @@ final class PerformanceViewModelTests: XCTestCase {
     /// nothing subscribes and the row only changes on explicit
     /// refresh/toggle — the prior behavior is preserved.
     func test_noLaunchAtLoginPublisher_rowOnlyChangesOnExplicitReload() async {
-        var loadCount = 0
+        let loadCount = TestBox(0)
         let vm = makeViewModel(
             loadLoginItems: {
-                loadCount += 1
+                loadCount.value += 1
                 return [LoginItem(id: "host", name: "VaderCleaner", isEnabled: true)]
             }
         )
         await vm.refresh()
-        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(loadCount.value, 1)
         // No publisher → no spontaneous reload path exists.
         XCTAssertEqual(vm.loginItems.map(\.name), ["VaderCleaner"])
     }
@@ -400,13 +404,13 @@ final class PerformanceViewModelTests: XCTestCase {
         // Stand-in for SMAppService: the handler is the only thing that
         // mutates `loginEnabled`, exactly like the production single
         // write path through PreferencesStore.didSet.
-        var loginEnabled = false
+        let loginEnabled = TestBox(false)
         var handlerCalls = 0
         let prefs = PreferencesStore(
             defaults: defaults,
             launchAtLoginHandler: { enabled in
                 handlerCalls += 1
-                loginEnabled = enabled
+                loginEnabled.value = enabled
             }
         )
         // init's reconcile pushes the persisted value once; reset so the
@@ -415,9 +419,11 @@ final class PerformanceViewModelTests: XCTestCase {
 
         let vm = makeViewModel(
             loadLoginItems: {
-                [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled)]
+                [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled.value)]
             },
-            setLoginItemEnabled: { enabled, _ in try prefs.setLaunchAtLogin(enabled) },
+            setLoginItemEnabled: { enabled, _ in
+                try await MainActor.run { try prefs.setLaunchAtLogin(enabled) }
+            },
             launchAtLoginChanges: PerformanceViewModel.launchAtLoginChangePublisher(for: prefs)
         )
         await vm.refresh()
@@ -442,44 +448,44 @@ final class PerformanceViewModelTests: XCTestCase {
     // MARK: - Agent disable / remove
 
     func test_disableAgent_flipsRowOptimisticallyWithoutReloadingOrWorkingPhase() async {
-        var disabled: String?
-        var userLoads = 0
-        // Self.agent starts enabled; disabling should flip just this row.
+        let disabled = TestBox<String?>(nil)
+        let userLoads = TestBox(0)
+        // agent starts enabled; disabling should flip just this row.
         let agent = Self.agent(label: "com.user.a", domain: .user)
         let vm = makeViewModel(
-            loadUserAgents: { userLoads += 1; return [agent] },
-            disableAgent: { disabled = $0.label }
+            loadUserAgents: { userLoads.value += 1; return [agent] },
+            disableAgent: { disabled.value = $0.label }
         )
         await vm.refresh()
-        let loadsAfterRefresh = userLoads
+        let loadsAfterRefresh = userLoads.value
 
         await vm.disable(agent)
 
-        XCTAssertEqual(disabled, "com.user.a")
+        XCTAssertEqual(disabled.value, "com.user.a")
         XCTAssertEqual(vm.userAgents.first?.isEnabled, false, "row flips in place")
-        XCTAssertEqual(userLoads, loadsAfterRefresh, "no list reload")
+        XCTAssertEqual(userLoads.value, loadsAfterRefresh, "no list reload")
         XCTAssertEqual(vm.phase, .ready, "no progress screen")
     }
 
     func test_enableAgent_flipsRowOptimisticallyWithoutReloadingOrWorkingPhase() async {
-        var enabled: String?
-        var userLoads = 0
+        let enabled = TestBox<String?>(nil)
+        let userLoads = TestBox(0)
         let agent = LaunchAgent(
             label: "com.user.a", path: URL(fileURLWithPath: "/tmp/com.user.a.plist"),
             programPath: "/bin/true", isEnabled: false, domain: .user
         )
         let vm = makeViewModel(
-            loadUserAgents: { userLoads += 1; return [agent] },
-            enableAgent: { enabled = $0.label }
+            loadUserAgents: { userLoads.value += 1; return [agent] },
+            enableAgent: { enabled.value = $0.label }
         )
         await vm.refresh()
-        let loadsAfterRefresh = userLoads
+        let loadsAfterRefresh = userLoads.value
 
         await vm.enable(agent)
 
-        XCTAssertEqual(enabled, "com.user.a")
+        XCTAssertEqual(enabled.value, "com.user.a")
         XCTAssertEqual(vm.userAgents.first?.isEnabled, true, "row flips in place")
-        XCTAssertEqual(userLoads, loadsAfterRefresh, "no list reload")
+        XCTAssertEqual(userLoads.value, loadsAfterRefresh, "no list reload")
         XCTAssertEqual(vm.phase, .ready, "no progress screen")
     }
 
@@ -533,17 +539,17 @@ final class PerformanceViewModelTests: XCTestCase {
     }
 
     func test_removeAgent_systemDaemonIsProtectedAndNotRemoved() async {
-        var removeCalled = false
+        let removeCalled = TestBox(false)
         let systemDaemon = Self.agent(label: "com.apple.somethingImportant", domain: .system)
         let vm = makeViewModel(
             loadSystemAgents: { [systemDaemon] },
-            removeAgent: { _ in removeCalled = true }
+            removeAgent: { _ in removeCalled.value = true }
         )
         await vm.refresh()
 
         await vm.remove(systemDaemon)
 
-        XCTAssertFalse(removeCalled, "System daemons must never be removed")
+        XCTAssertFalse(removeCalled.value, "System daemons must never be removed")
         XCTAssertEqual(vm.systemAgents.map(\.label), ["com.apple.somethingImportant"],
                        "The protected system daemon must remain in the list")
         XCTAssertEqual(vm.phase, .ready)
@@ -566,30 +572,30 @@ final class PerformanceViewModelTests: XCTestCase {
     /// unregisters each selected login item and deletes each selected user
     /// agent, then reloads so the panes reflect the new state.
     func test_removeSelected_unregistersLoginItemsAndDeletesUserAgents() async {
-        var unregistered: [String] = []
-        var removedAgents: [String] = []
+        let unregistered = TestBox<[String]>([])
+        let removedAgents = TestBox<[String]>([])
         let host = LoginItem(id: "com.personal.VaderCleaner", name: "VaderCleaner", isEnabled: true)
         let doomed = Self.agent(label: "com.user.doomed", domain: .user)
         let keep = Self.agent(label: "com.user.keep", domain: .user)
-        var loginReloads = 0
+        let loginReloads = TestBox(0)
         let vm = makeViewModel(
             loadLoginItems: {
-                loginReloads += 1
-                // After removal the host reads disabled (unregistered).
-                return [LoginItem(id: host.id, name: host.name, isEnabled: loginReloads == 1)]
+                loginReloads.value += 1
+                // After removal the host reads disabled.value (unregistered.value).
+                return [LoginItem(id: host.id, name: host.name, isEnabled: loginReloads.value == 1)]
             },
-            loadUserAgents: { removedAgents.isEmpty ? [doomed, keep] : [keep] },
+            loadUserAgents: { removedAgents.value.isEmpty ? [doomed, keep] : [keep] },
             setLoginItemEnabled: { enabled, item in
-                if !enabled { unregistered.append(item.id) }
+                if !enabled { unregistered.value.append(item.id) }
             },
-            removeAgent: { removedAgents.append($0.label) }
+            removeAgent: { removedAgents.value.append($0.label) }
         )
         await vm.refresh()
 
         await vm.removeSelected(loginItemIDs: [host.id], agentIDs: [doomed.id])
 
-        XCTAssertEqual(unregistered, [host.id], "Selected login item should be unregistered")
-        XCTAssertEqual(removedAgents, ["com.user.doomed"], "Only the selected user agent is removed")
+        XCTAssertEqual(unregistered.value, [host.id], "Selected login item should be unregistered.value")
+        XCTAssertEqual(removedAgents.value, ["com.user.doomed"], "Only the selected user agent is removed")
         XCTAssertEqual(vm.userAgents.map(\.label), ["com.user.keep"], "Lists reload after removal")
         XCTAssertEqual(vm.phase, .ready)
     }
@@ -597,17 +603,17 @@ final class PerformanceViewModelTests: XCTestCase {
     /// System daemons are protected even if their id reaches the batch remove:
     /// the view-model only deletes user agents, never the privileged domain.
     func test_removeSelected_skipsSystemAgentsEvenWhenSelected() async {
-        var removeCalled = false
+        let removeCalled = TestBox(false)
         let systemDaemon = Self.agent(label: "com.apple.important", domain: .system)
         let vm = makeViewModel(
             loadSystemAgents: { [systemDaemon] },
-            removeAgent: { _ in removeCalled = true }
+            removeAgent: { _ in removeCalled.value = true }
         )
         await vm.refresh()
 
         await vm.removeSelected(loginItemIDs: [], agentIDs: [systemDaemon.id])
 
-        XCTAssertFalse(removeCalled, "System daemons must never be removed")
+        XCTAssertFalse(removeCalled.value, "System daemons must never be removed")
         XCTAssertEqual(vm.systemAgents.map(\.label), ["com.apple.important"])
         XCTAssertEqual(vm.phase, .ready)
     }
@@ -679,21 +685,21 @@ final class PerformanceViewModelTests: XCTestCase {
         )
     }
 
-    private static func task(_ kind: MaintenanceTask.Kind) -> MaintenanceTask {
+    nonisolated private static func task(_ kind: MaintenanceTask.Kind) -> MaintenanceTask {
         MaintenanceTask.catalog.first { $0.kind == kind }!
     }
 
-    private static func recommendation(_ kind: PerformanceRecommendation.Kind) -> PerformanceRecommendation {
+    nonisolated private static func recommendation(_ kind: PerformanceRecommendation.Kind) -> PerformanceRecommendation {
         PerformanceRecommendation(
             kind: kind, title: "", detail: "", icon: "", actionLabel: "", isHero: kind == .freeUpRAM
         )
     }
 
-    private static func loginItem(name: String) -> LoginItem {
+    nonisolated private static func loginItem(name: String) -> LoginItem {
         LoginItem(id: name, name: name, isEnabled: true)
     }
 
-    private static func agent(
+    nonisolated private static func agent(
         label: String,
         domain: LaunchAgent.Domain
     ) -> LaunchAgent {

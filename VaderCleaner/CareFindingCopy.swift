@@ -10,19 +10,18 @@ import Foundation
 /// explanations only ever augment it in a popover.
 enum CareFindingCopy {
 
-    /// Finder-matching file-style formatter, shared for the process lifetime
-    /// (construction is comparatively expensive, the formatter is stateless).
-    private static let byteFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = .useAll
-        formatter.countStyle = .file
-        return formatter
-    }()
-
     /// Human-readable byte string ("2.3 GB"), matching how Finder reports
     /// sizes — which is what users compare our numbers to.
+    ///
+    /// Formats through `ByteCountFormatter`'s type method rather than a shared
+    /// instance: `ByteCountFormatter` is a class with no documented
+    /// thread-safety guarantee, and this catalog is read from both the scan
+    /// actors and the main actor. The type method carries no shared mutable
+    /// state, and `.file` with default units is the same configuration the
+    /// shared instance used — `test_formattedBytes_matchesFinderFileStyle`
+    /// pins the two to identical output.
     static func formattedBytes(_ bytes: Int64) -> String {
-        byteFormatter.string(fromByteCount: bytes)
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     /// Card headline, one per kind.

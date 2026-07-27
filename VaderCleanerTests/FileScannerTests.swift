@@ -138,17 +138,19 @@ final class FileScannerTests: XCTestCase {
         try TestHelpers.createDummyFile(named: "pending.bin", size: 8, in: tempRoot)
 
         let scanner = FileScanner()
-        var didDeliverBatch = false
+        let didDeliverBatch = TestBox(false)
+        // Read before the Task so the closure captures the root, not `self`.
+        let root = ScanRoot(url: tempRoot, category: .userCache)
         let task = Task {
             while !Task.isCancelled {
                 await Task.yield()
             }
             try await scanner.scan(
-                roots: [ScanRoot(url: tempRoot, category: .userCache)],
+                roots: [root],
                 excluding: [],
                 batchSize: 10
             ) { _ in
-                didDeliverBatch = true
+                didDeliverBatch.value = true
             }
         }
 
@@ -158,7 +160,7 @@ final class FileScannerTests: XCTestCase {
             try await task.value
             XCTFail("Expected cancellation to stop the scan")
         } catch is CancellationError {
-            XCTAssertFalse(didDeliverBatch)
+            XCTAssertFalse(didDeliverBatch.value)
         } catch {
             XCTFail("Expected CancellationError, got \(error)")
         }

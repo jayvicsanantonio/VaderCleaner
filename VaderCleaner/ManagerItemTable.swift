@@ -131,6 +131,11 @@ struct ManagerItemTable: NSViewRepresentable {
         }
     }
 
+    /// `@MainActor` because every member drives the `NSTableView` — row views,
+    /// visible-rect queries, cell updates — which AppKit only touches on the
+    /// main thread. Declaring it lets the compiler check those accesses rather
+    /// than warn about each one.
+    @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         private var items: [ManagerItem] = []
         private var showsSelection = true
@@ -733,6 +738,7 @@ final class ManagerRowCellView: NSTableCellView {
 
 /// Caches the few SF Symbol images the rows reuse, so scrolling doesn't
 /// re-create them. Main-thread only (cells are configured on the main actor).
+@MainActor
 private enum ManagerSymbolCache {
     private static var cache: [String: NSImage] = [:]
 
@@ -750,6 +756,7 @@ private enum ManagerSymbolCache {
 /// accent-outlined rounded square when unchecked, filled with a white check when
 /// selected. Keyed by checked-state + accent so it redraws only when those
 /// change. Main-thread only (cells are configured on the main actor).
+@MainActor
 private enum ManagerCheckboxImage {
     private static var cache: [String: NSImage] = [:]
 
@@ -793,6 +800,7 @@ private enum ManagerCheckboxImage {
 /// look as the SwiftUI `TaskIconBadge` so table rows match the card panes.
 /// Keyed by symbol + tint. Main-thread only (cells are configured on the main
 /// actor).
+@MainActor
 private enum ManagerBadgeImageCache {
     private static var cache: [String: NSImage] = [:]
 
@@ -838,6 +846,7 @@ private enum ManagerBadgeImageCache {
 /// grow the cache without limit — evicted icons just re-fetch from
 /// `NSWorkspace` on the next pass. Main-thread only (cells are configured on
 /// the main actor).
+@MainActor
 private enum ManagerFileIconCache {
     private static var cache = LRUCache<String, NSImage>(capacity: 1024)
 

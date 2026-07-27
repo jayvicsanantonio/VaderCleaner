@@ -18,7 +18,7 @@ struct DocumentVersionsScanner {
 
     /// Mirrors `SystemJunkDeleter.HelperProvider`: yields a helper proxy bound to
     /// the per-call XPC error handler, or `nil` when the helper is unreachable.
-    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
+    typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
 
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "DocumentVersionsScanner")
@@ -80,7 +80,7 @@ struct DocumentVersionsScanner {
 /// "unavailable" return). A second `resume` traps, which would otherwise crash
 /// the app the first time the helper connection dropped mid-call. A class so the
 /// several closures share one mutable slot; the lock covers the cross-thread race.
-private final class OnceResumer<Value>: @unchecked Sendable {
+private final class OnceResumer<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Never>?
 

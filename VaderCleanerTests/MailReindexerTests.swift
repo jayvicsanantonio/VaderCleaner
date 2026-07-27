@@ -11,15 +11,15 @@ final class MailReindexerTests: XCTestCase {
             URL(fileURLWithPath: "/tmp/mail/V1/Envelope Index"),
             URL(fileURLWithPath: "/tmp/mail/V2/Envelope Index")
         ]
-        var vacuumed: [URL] = []
+        let vacuumed = TestBox<[URL]>([])
         let runner = MailReindexer(
             locateIndexes: { indexes },
-            vacuumIndex: { vacuumed.append($0) }
+            vacuumIndex: { vacuumed.value.append($0) }
         )
 
         let output = try await runner.run()
 
-        XCTAssertEqual(vacuumed, indexes)
+        XCTAssertEqual(vacuumed.value, indexes)
         XCTAssertFalse(output.isEmpty)
     }
 
