@@ -1111,7 +1111,7 @@ final class SmartScanViewModel {
                 currentLabel: CareFindingCopy.runProgressLabel(for: finding.kind),
                 bytesFreed: bytesFreed
             )
-            if let line = await execute(finding, plan: plan) {
+            if let line = await execute(finding) {
                 lines.append(line)
                 bytesFreed += line.bytesFreed
             }
@@ -1132,34 +1132,13 @@ final class SmartScanViewModel {
         }
     }
 
-    private func execute(_ finding: CareFinding, plan: CarePlan) async -> CareReceiptLine? {
+    private func execute(_ finding: CareFinding) async -> CareReceiptLine? {
         switch finding.payload {
         case .junk(let result):
-            // The full junk result is a million files on a busy Mac; filter
-            // against the selection off the main actor — hashing that many
-            // URLs on the main thread froze the Run tap.
-            let selected = junkFileSelection
-            let selectedJunk = await ScanFileFilter.selected(from: result.items) { selected.contains($0.url) }
-            guard !selectedJunk.isEmpty else { return nil }
-            do {
-                let bytes = try await junkCleaner(selectedJunk)
-                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
-            } catch {
-                log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
-                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
-            }
+            return await executeJunkCleanup(result)
 
         case .threats(let threats):
-            let selected = threats.filter { threatSelection.contains($0.filePath) }
-            guard !selected.isEmpty else { return nil }
-            let failures = await threatRemover(selected)
-            let removed = selected.count - failures.count
-            return CareReceiptLine(
-                kind: .threats,
-                itemsProcessed: removed,
-                bytesFreed: 0,
-                outcome: failures.isEmpty ? .success : .partial(failedCount: failures.count)
-            )
+            return await executeThreatRemoval(threats)
 
         case .duplicates(let groups):
             return await recycleLine(
@@ -1222,80 +1201,130 @@ final class SmartScanViewModel {
             )
 
         case .appLeftovers(let groups):
-            let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
-            guard !selected.isEmpty else { return nil }
-            let recycled = await recycleFiles(selected.flatMap(\.urls))
-            // Byte credit per fully-recycled group — LeftoverGroup only
-            // carries a group total, so a partial group credits nothing.
-            let fullyRemoved = selected.filter { group in group.urls.allSatisfy(recycled.contains) }
-            let outcome: CareReceiptLine.Outcome = fullyRemoved.count == selected.count
-                ? .success
-                : .partial(failedCount: selected.count - fullyRemoved.count)
-            return CareReceiptLine(
-                kind: .appLeftovers,
-                itemsProcessed: fullyRemoved.count,
-                bytesFreed: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
-                outcome: outcome
-            )
+            return await executeLeftoverRemoval(groups)
 
         case .appUpdates(let updates):
-            let selected = updates.filter { updateSelection.contains($0.bundleID) }
-            guard !selected.isEmpty else { return nil }
-            for update in selected {
-                await updateOpener(update.updateURL)
-            }
-            return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
+            return await executeAppUpdates(updates)
 
         case .maintenanceDue(let taskIDs):
-            let selected = taskIDs.filter { maintenanceSelection.contains($0) }
-            guard !selected.isEmpty else { return nil }
-            var completed = 0
-            var lastError: String?
-            for taskID in selected {
-                do {
-                    try await maintenanceTaskRunner(taskID)
-                    recordMaintenanceRun(taskID)
-                    completed += 1
-                } catch {
-                    log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                    lastError = error.localizedDescription
-                }
-            }
-            let outcome: CareReceiptLine.Outcome
-            if completed == selected.count {
-                outcome = .success
-            } else if completed > 0 {
-                outcome = .partial(failedCount: selected.count - completed)
-            } else {
-                outcome = .failed(message: lastError ?? "")
-            }
-            return CareReceiptLine(kind: .maintenanceDue, itemsProcessed: completed, bytesFreed: 0, outcome: outcome)
+            return await executeMaintenance(taskIDs)
 
         case .browserPrivacy:
-            let selected = browserPrivacySelection
-            guard !selected.isEmpty else { return nil }
-            let requests = selected.map {
-                PrivacyRemovalRequest(browser: $0.browser, category: $0.category, scope: .wholeCategory)
-            }
-            do {
-                try await privacyRemover(requests)
-                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: requests.count, bytesFreed: 0, outcome: .success)
-            } catch let PrivacyRemovalError.browserRunning(browser) {
-                let message = String.localizedStringWithFormat(
-                    String(
-                        localized: "Close %@ first, then try again.",
-                        comment: "Receipt failure line when a browser must quit before its data can be cleared."
-                    ),
-                    browser.displayName
-                )
-                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: message))
-            } catch {
-                log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .public)")
-                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
-            }
+            return await executeBrowserPrivacy()
 
         case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
             return nil
+        }
+    }
+
+    // MARK: - Per-kind execution
+    //
+    // One method per finding kind that does more than hand a URL list to
+    // `recycleLine`, so `execute(_:)` above stays a readable dispatch table.
+
+    private func executeJunkCleanup(_ result: ScanResult) async -> CareReceiptLine? {
+        // The full junk result is a million files on a busy Mac; filter
+        // against the selection off the main actor — hashing that many
+        // URLs on the main thread froze the Run tap.
+        let selected = junkFileSelection
+        let selectedJunk = await ScanFileFilter.selected(from: result.items) { selected.contains($0.url) }
+        guard !selectedJunk.isEmpty else { return nil }
+        do {
+            let bytes = try await junkCleaner(selectedJunk)
+            return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
+        } catch {
+            log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
+            return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
+        }
+    }
+
+    private func executeThreatRemoval(_ threats: [MalwareThreat]) async -> CareReceiptLine? {
+        let selected = threats.filter { threatSelection.contains($0.filePath) }
+        guard !selected.isEmpty else { return nil }
+        let failures = await threatRemover(selected)
+        let removed = selected.count - failures.count
+        return CareReceiptLine(
+            kind: .threats,
+            itemsProcessed: removed,
+            bytesFreed: 0,
+            outcome: failures.isEmpty ? .success : .partial(failedCount: failures.count)
+        )
+    }
+
+    private func executeLeftoverRemoval(_ groups: [LeftoverGroup]) async -> CareReceiptLine? {
+        let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
+        guard !selected.isEmpty else { return nil }
+        let recycled = await recycleFiles(selected.flatMap(\.urls))
+        // Byte credit per fully-recycled group — LeftoverGroup only
+        // carries a group total, so a partial group credits nothing.
+        let fullyRemoved = selected.filter { group in group.urls.allSatisfy(recycled.contains) }
+        let outcome: CareReceiptLine.Outcome = fullyRemoved.count == selected.count
+            ? .success
+            : .partial(failedCount: selected.count - fullyRemoved.count)
+        return CareReceiptLine(
+            kind: .appLeftovers,
+            itemsProcessed: fullyRemoved.count,
+            bytesFreed: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
+            outcome: outcome
+        )
+    }
+
+    private func executeAppUpdates(_ updates: [UpdateInfo]) async -> CareReceiptLine? {
+        let selected = updates.filter { updateSelection.contains($0.bundleID) }
+        guard !selected.isEmpty else { return nil }
+        for update in selected {
+            await updateOpener(update.updateURL)
+        }
+        return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
+    }
+
+    private func executeMaintenance(_ taskIDs: [String]) async -> CareReceiptLine? {
+        let selected = taskIDs.filter { maintenanceSelection.contains($0) }
+        guard !selected.isEmpty else { return nil }
+        var completed = 0
+        var lastError: String?
+        for taskID in selected {
+            do {
+                try await maintenanceTaskRunner(taskID)
+                recordMaintenanceRun(taskID)
+                completed += 1
+            } catch {
+                log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                lastError = error.localizedDescription
+            }
+        }
+        let outcome: CareReceiptLine.Outcome
+        if completed == selected.count {
+            outcome = .success
+        } else if completed > 0 {
+            outcome = .partial(failedCount: selected.count - completed)
+        } else {
+            outcome = .failed(message: lastError ?? "")
+        }
+        return CareReceiptLine(kind: .maintenanceDue, itemsProcessed: completed, bytesFreed: 0, outcome: outcome)
+    }
+
+    private func executeBrowserPrivacy() async -> CareReceiptLine? {
+        let selected = browserPrivacySelection
+        guard !selected.isEmpty else { return nil }
+        let requests = selected.map {
+            PrivacyRemovalRequest(browser: $0.browser, category: $0.category, scope: .wholeCategory)
+        }
+        do {
+            try await privacyRemover(requests)
+            return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: requests.count, bytesFreed: 0, outcome: .success)
+        } catch let PrivacyRemovalError.browserRunning(browser) {
+            let message = String.localizedStringWithFormat(
+                String(
+                    localized: "Close %@ first, then try again.",
+                    comment: "Receipt failure line when a browser must quit before its data can be cleared."
+                ),
+                browser.displayName
+            )
+            return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: message))
+        } catch {
+            log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .public)")
+            return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
         }
     }
 
