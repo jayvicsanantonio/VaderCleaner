@@ -556,6 +556,33 @@ final class SmartScanViewModel {
         }
     }
 
+    /// The one write path behind every per-finding `set…(_:selected:)` below:
+    /// apply a batch change to that finding's id set, then keep its card's
+    /// inclusion in step with whether anything is still checked.
+    ///
+    /// Each finding keeps its own named accessors — that vocabulary is what the
+    /// Review screens and the tests speak — but they all funnel through here, so
+    /// the "checking something opts the card in, clearing it opts back out" rule
+    /// lives in exactly one place rather than being restated per domain.
+    ///
+    /// `kind` is `nil` for pre-approved findings (duplicates), whose card is
+    /// included from the moment results land and does not track its selection.
+    private func applySelection<ID: Hashable>(
+        _ ids: some Sequence<ID>,
+        selected: Bool,
+        to storage: ReferenceWritableKeyPath<SmartScanViewModel, Set<ID>>,
+        optInKind kind: CareFinding.Kind?
+    ) {
+        if selected {
+            self[keyPath: storage].formUnion(ids)
+        } else {
+            self[keyPath: storage].subtract(ids)
+        }
+        if let kind {
+            syncOptInInclusion(kind, hasSelection: !self[keyPath: storage].isEmpty)
+        }
+    }
+
     // MARK: - Junk selection (shared contract with the Cleanup Manager)
 
     /// The junk scan on screen, or an empty result outside `.results`.
@@ -729,11 +756,7 @@ final class SmartScanViewModel {
 
     /// Check or uncheck a specific set of duplicate copies in one write.
     func setDuplicates(_ urls: [URL], selected: Bool) {
-        if selected {
-            duplicateSelection.formUnion(urls)
-        } else {
-            duplicateSelection.subtract(urls)
-        }
+        applySelection(urls, selected: selected, to: \.duplicateSelection, optInKind: nil)
     }
 
     /// Select every redundant copy in one write (kept originals are never
@@ -761,12 +784,7 @@ final class SmartScanViewModel {
     /// shot (the group's kept original) is never offered, so a photo always
     /// survives.
     func setSimilarImages(_ urls: [URL], selected: Bool) {
-        if selected {
-            similarImageSelection.formUnion(urls)
-        } else {
-            similarImageSelection.subtract(urls)
-        }
-        syncOptInInclusion(.similarImages, hasSelection: !similarImageSelection.isEmpty)
+        applySelection(urls, selected: selected, to: \.similarImageSelection, optInKind: .similarImages)
     }
 
     // MARK: - Downloads selection (opt-in)
@@ -781,12 +799,7 @@ final class SmartScanViewModel {
 
     /// Check or uncheck a set of downloads in one write.
     func setDownloads(_ urls: [URL], selected: Bool) {
-        if selected {
-            downloadSelection.formUnion(urls)
-        } else {
-            downloadSelection.subtract(urls)
-        }
-        syncOptInInclusion(.downloads, hasSelection: !downloadSelection.isEmpty)
+        applySelection(urls, selected: selected, to: \.downloadSelection, optInKind: .downloads)
     }
 
     // MARK: - Opt-in selections (large/old files, apps, installers, privacy)
@@ -801,12 +814,7 @@ final class SmartScanViewModel {
 
     /// Check or uncheck a set of large/old files in one write.
     func setLargeOldFiles(_ urls: [URL], selected: Bool) {
-        if selected {
-            largeOldFileSelection.formUnion(urls)
-        } else {
-            largeOldFileSelection.subtract(urls)
-        }
-        syncOptInInclusion(.largeOldFiles, hasSelection: !largeOldFileSelection.isEmpty)
+        applySelection(urls, selected: selected, to: \.largeOldFileSelection, optInKind: .largeOldFiles)
     }
 
     func isUnusedAppSelected(_ app: UnusedApp) -> Bool {
@@ -818,12 +826,7 @@ final class SmartScanViewModel {
     }
 
     func setUnusedApps(_ ids: [String], selected: Bool) {
-        if selected {
-            unusedAppSelection.formUnion(ids)
-        } else {
-            unusedAppSelection.subtract(ids)
-        }
-        syncOptInInclusion(.unusedApps, hasSelection: !unusedAppSelection.isEmpty)
+        applySelection(ids, selected: selected, to: \.unusedAppSelection, optInKind: .unusedApps)
     }
 
     func isUnsupportedAppSelected(_ app: UnsupportedApp) -> Bool {
@@ -835,12 +838,7 @@ final class SmartScanViewModel {
     }
 
     func setUnsupportedApps(_ ids: [String], selected: Bool) {
-        if selected {
-            unsupportedAppSelection.formUnion(ids)
-        } else {
-            unsupportedAppSelection.subtract(ids)
-        }
-        syncOptInInclusion(.unsupportedApps, hasSelection: !unsupportedAppSelection.isEmpty)
+        applySelection(ids, selected: selected, to: \.unsupportedAppSelection, optInKind: .unsupportedApps)
     }
 
     func isLeftoverSelected(_ group: LeftoverGroup) -> Bool {
@@ -852,12 +850,7 @@ final class SmartScanViewModel {
     }
 
     func setLeftovers(_ bundleIDs: [String], selected: Bool) {
-        if selected {
-            leftoverSelection.formUnion(bundleIDs)
-        } else {
-            leftoverSelection.subtract(bundleIDs)
-        }
-        syncOptInInclusion(.appLeftovers, hasSelection: !leftoverSelection.isEmpty)
+        applySelection(bundleIDs, selected: selected, to: \.leftoverSelection, optInKind: .appLeftovers)
     }
 
     func isInstallerSelected(_ file: InstallationFile) -> Bool {
@@ -869,12 +862,7 @@ final class SmartScanViewModel {
     }
 
     func setInstallers(_ ids: [String], selected: Bool) {
-        if selected {
-            installerSelection.formUnion(ids)
-        } else {
-            installerSelection.subtract(ids)
-        }
-        syncOptInInclusion(.installers, hasSelection: !installerSelection.isEmpty)
+        applySelection(ids, selected: selected, to: \.installerSelection, optInKind: .installers)
     }
 
     func isBrowserPrivacySelected(_ key: BrowserPrivacyKey) -> Bool {
