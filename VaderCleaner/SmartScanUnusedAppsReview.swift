@@ -3,6 +3,15 @@
 
 import SwiftUI
 
+/// Holds the id→app lookup the selection callbacks need. Built on the same
+/// background pass as the section model so the main thread never rebuilds it;
+/// read on the main actor once that build has finished. (A computed dictionary
+/// in `body` instead rebuilds the whole index on every render of the hosting
+/// dashboard.)
+private final class UnusedAppsReviewLookups: @unchecked Sendable {
+    var appsByID: [String: UnusedApp] = [:]
+}
+
 /// Unused Apps Review, rendered through the shared `SmartScanReviewManager`.
 /// Removal moves the app bundle to the Trash (restorable), and nothing is
 /// pre-checked — apps are the user's own choices.
@@ -11,25 +20,28 @@ struct SmartScanUnusedAppsReview: View {
     let apps: [UnusedApp]
     let onBack: () -> Void
 
-    private var appsByID: [String: UnusedApp] {
-        Dictionary(apps.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
+    @State private var lookups = UnusedAppsReviewLookups()
 
     var body: some View {
-        let appsByID = self.appsByID
+        let lookups = self.lookups
         let apps = self.apps
         SmartScanReviewManager(
             title: String(
                 localized: "Apps You Never Open",
                 comment: "Title on the Smart Scan unused apps Review screen."
             ),
-            buildSections: { Self.buildSections(apps: apps) },
+            buildSections: {
+                lookups.appsByID = Dictionary(
+                    apps.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+                )
+                return Self.buildSections(apps: apps)
+            },
             isSelected: { id in
-                guard let app = appsByID[id] else { return false }
+                guard let app = lookups.appsByID[id] else { return false }
                 return viewModel.isUnusedAppSelected(app)
             },
             onToggle: { id in
-                guard let app = appsByID[id] else { return }
+                guard let app = lookups.appsByID[id] else { return }
                 viewModel.toggleUnusedApp(app)
             },
             onSetCategory: { category, selected in
@@ -40,10 +52,10 @@ struct SmartScanUnusedAppsReview: View {
             lightSurface: true,
             showsSparkle: true,
             selectionSummary: {
+                // O(selection), not O(all apps): sum sizes of just the checked
+                // ids through the prebuilt lookup.
                 let selection = viewModel.unusedAppSelection
-                let bytes = apps.reduce(Int64(0)) { total, app in
-                    selection.contains(app.id) ? total + app.sizeBytes : total
-                }
+                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.appsByID[$1]?.sizeBytes ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }
         )
@@ -85,8 +97,12 @@ struct SmartScanUnusedAppsReview: View {
         )]
     }
 
+    /// Shared formatter — construction is expensive and the builder runs it
+    /// once per row.
+    nonisolated private static let relativeFormatter = RelativeDateTimeFormatter()
+
     nonisolated private static func subtitle(for unused: UnusedApp) -> String {
-        let ago = RelativeDateTimeFormatter().localizedString(for: unused.lastUsedDate, relativeTo: Date())
+        let ago = relativeFormatter.localizedString(for: unused.lastUsedDate, relativeTo: Date())
         return String.localizedStringWithFormat(
             String(localized: "Last opened %@", comment: "Unused app row subtitle: relative last-opened date."),
             ago

@@ -3,6 +3,15 @@
 
 import SwiftUI
 
+/// Holds the id→installer lookup the selection callbacks need. Built on the
+/// same background pass as the section model so the main thread never rebuilds
+/// it; read on the main actor once that build has finished. (A computed
+/// dictionary in `body` instead rebuilds the whole index on every render of the
+/// hosting dashboard.)
+private final class InstallersReviewLookups: @unchecked Sendable {
+    var installersByID: [String: InstallationFile] = [:]
+}
+
 /// Installers Review, rendered through the shared `SmartScanReviewManager`.
 /// Installer files are the user's own downloads, so nothing is pre-checked;
 /// removal moves them to the Trash.
@@ -11,25 +20,28 @@ struct SmartScanInstallersReview: View {
     let installers: [InstallationFile]
     let onBack: () -> Void
 
-    private var installersByID: [String: InstallationFile] {
-        Dictionary(installers.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
+    @State private var lookups = InstallersReviewLookups()
 
     var body: some View {
-        let installersByID = self.installersByID
+        let lookups = self.lookups
         let installers = self.installers
         SmartScanReviewManager(
             title: String(
                 localized: "Finished Installers",
                 comment: "Title on the Smart Scan installers Review screen."
             ),
-            buildSections: { Self.buildSections(installers: installers) },
+            buildSections: {
+                lookups.installersByID = Dictionary(
+                    installers.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+                )
+                return Self.buildSections(installers: installers)
+            },
             isSelected: { id in
-                guard let file = installersByID[id] else { return false }
+                guard let file = lookups.installersByID[id] else { return false }
                 return viewModel.isInstallerSelected(file)
             },
             onToggle: { id in
-                guard let file = installersByID[id] else { return }
+                guard let file = lookups.installersByID[id] else { return }
                 viewModel.toggleInstaller(file)
             },
             onSetCategory: { category, selected in
@@ -40,10 +52,10 @@ struct SmartScanInstallersReview: View {
             lightSurface: true,
             showsSparkle: true,
             selectionSummary: {
+                // O(selection), not O(all installers): sum sizes of just the
+                // checked ids through the prebuilt lookup.
                 let selection = viewModel.installerSelection
-                let bytes = installers.reduce(Int64(0)) { total, file in
-                    selection.contains(file.id) ? total + file.sizeBytes : total
-                }
+                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.installersByID[$1]?.sizeBytes ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }
         )

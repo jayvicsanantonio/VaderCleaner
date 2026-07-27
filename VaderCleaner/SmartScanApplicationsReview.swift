@@ -3,6 +3,15 @@
 
 import SwiftUI
 
+/// Holds the id→update lookup the selection callbacks need. Built on the same
+/// background pass as the section model so the main thread never rebuilds it;
+/// read on the main actor once that build has finished. (A computed dictionary
+/// in `body` instead rebuilds the whole index on every render of the hosting
+/// dashboard.)
+private final class ApplicationsReviewLookups: @unchecked Sendable {
+    var updatesByID: [String: UpdateInfo] = [:]
+}
+
 /// Applications Review, rendered through the shared `SmartScanReviewManager`.
 /// Updates are grouped into App Store vs. other (Sparkle) channels; selection
 /// bridges to the view model's per-update API.
@@ -11,25 +20,28 @@ struct SmartScanApplicationsReview: View {
     let allUpdates: [UpdateInfo]
     let onBack: () -> Void
 
-    private var updatesByID: [String: UpdateInfo] {
-        Dictionary(allUpdates.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
+    @State private var lookups = ApplicationsReviewLookups()
 
     var body: some View {
-        let updates = updatesByID
+        let lookups = self.lookups
         let allUpdates = self.allUpdates
         SmartScanReviewManager(
             title: String(
                 localized: "Applications Manager",
                 comment: "Title on the Smart Scan Applications Review screen."
             ),
-            buildSections: { Self.buildSections(updates: allUpdates) },
+            buildSections: {
+                lookups.updatesByID = Dictionary(
+                    allUpdates.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+                )
+                return Self.buildSections(updates: allUpdates)
+            },
             isSelected: { id in
-                guard let update = updates[id] else { return false }
+                guard let update = lookups.updatesByID[id] else { return false }
                 return viewModel.isUpdateSelected(update)
             },
             onToggle: { id in
-                guard let update = updates[id] else { return }
+                guard let update = lookups.updatesByID[id] else { return }
                 viewModel.toggleUpdate(update)
             },
             onSetCategory: { _, selected in
