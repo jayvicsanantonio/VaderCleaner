@@ -3,6 +3,15 @@
 
 import SwiftUI
 
+/// Holds the id→app lookup the selection callbacks need. Built on the same
+/// background pass as the section model so the main thread never rebuilds it;
+/// read on the main actor once that build has finished. (A computed dictionary
+/// in `body` instead rebuilds the whole index on every render of the hosting
+/// dashboard.)
+private final class UnsupportedAppsReviewLookups: @unchecked Sendable {
+    var appsByID: [String: UnsupportedApp] = [:]
+}
+
 /// Unsupported Apps Review, rendered through the shared `SmartScanReviewManager`.
 /// These apps can't launch on this version of macOS, so removing one just
 /// reclaims its space. Removal moves the bundle to the Trash (restorable), and
@@ -12,25 +21,28 @@ struct SmartScanUnsupportedAppsReview: View {
     let apps: [UnsupportedApp]
     let onBack: () -> Void
 
-    private var appsByID: [String: UnsupportedApp] {
-        Dictionary(apps.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
+    @State private var lookups = UnsupportedAppsReviewLookups()
 
     var body: some View {
-        let appsByID = self.appsByID
+        let lookups = self.lookups
         let apps = self.apps
         SmartScanReviewManager(
             title: String(
                 localized: "Apps That Won't Run",
                 comment: "Title on the Smart Scan unsupported apps Review screen."
             ),
-            buildSections: { Self.buildSections(apps: apps) },
+            buildSections: {
+                lookups.appsByID = Dictionary(
+                    apps.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+                )
+                return Self.buildSections(apps: apps)
+            },
             isSelected: { id in
-                guard let app = appsByID[id] else { return false }
+                guard let app = lookups.appsByID[id] else { return false }
                 return viewModel.isUnsupportedAppSelected(app)
             },
             onToggle: { id in
-                guard let app = appsByID[id] else { return }
+                guard let app = lookups.appsByID[id] else { return }
                 viewModel.toggleUnsupportedApp(app)
             },
             onSetCategory: { category, selected in

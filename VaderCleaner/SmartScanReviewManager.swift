@@ -268,6 +268,14 @@ struct SmartScanReviewManager: View {
     /// `ManagerItemTable.contentToken`) so the O(n) id hash runs once per
     /// content change instead of once per render.
     @State private var displayedToken = ""
+    /// The selected section's categories in the current sort order. Held in
+    /// state and refreshed only when the model, the section, or the sort
+    /// changes. As a computed property it re-sorted on each of the several
+    /// reads a single body pass makes — the category pane's `ForEach` plus
+    /// every `selectedCategory` lookup — which for the managers that carry one
+    /// category per group (Duplicates, Similar Photos) is a full localized
+    /// sort of hundreds of rows, several times per render.
+    @State private var sortedCategories: [ManagerCategory] = []
     /// Lazily-loaded rows per category id (when `loadItems` is set), cached for
     /// this manager session.
     @State private var lazyItemsByCategory: [String: [ManagerItem]] = [:]
@@ -351,7 +359,10 @@ struct SmartScanReviewManager: View {
             await loadSelectedCategoryIfNeeded()
             refreshDisplayedItems()
         }
-        .onChange(of: sort) { _, _ in refreshDisplayedItems() }
+        .onChange(of: sort) { _, _ in
+            refreshSortedCategories()
+            refreshDisplayedItems()
+        }
         .onChange(of: search) { _, _ in refreshDisplayedItems() }
         // A manager kept alive by its host between opens re-aims its panes on
         // each open: a fresh instance honors the deep-link ids in
@@ -372,6 +383,7 @@ struct SmartScanReviewManager: View {
         guard initialSectionID != nil || initialCategoryID != nil else { return }
         if let target = initialSectionID, loadedSections.contains(where: { $0.id == target }) {
             selectedSectionID = target
+            refreshSortedCategories()
         }
         if let target = initialCategoryID, sortedCategories.contains(where: { $0.id == target }) {
             selectedCategoryID = target
@@ -451,6 +463,7 @@ struct SmartScanReviewManager: View {
                 ForEach(loadedSections) { section in
                     NavRow(selected: section.id == selectedSection?.id) {
                         selectedSectionID = section.id
+                        refreshSortedCategories()
                         selectFirstCategory()
                     } content: {
                         Text(section.title)
@@ -471,7 +484,10 @@ struct SmartScanReviewManager: View {
                 paneHeader(title: section.title, description: description)
             }
             ScrollView {
-                VStack(spacing: 4) {
+                // Lazy: a manager with one category per group (Duplicates,
+                // Similar Photos) can carry hundreds of rows here, and an eager
+                // stack builds and lays out every one of them on open.
+                LazyVStack(spacing: 4) {
                     ForEach(sortedCategories) { category in
                         NavRow(selected: category.id == selectedCategory?.id) {
                             selectedCategoryID = category.id
@@ -802,14 +818,24 @@ struct SmartScanReviewManager: View {
         loadedSections.first { $0.id == selectedSectionID } ?? loadedSections.first
     }
 
-    private var sortedCategories: [ManagerCategory] {
-        let categories = selectedSection?.categories ?? []
+    /// Order a section's categories for the middle pane. Pure and static so the
+    /// ordering is unit-tested without a view; a sizeless category counts as
+    /// zero bytes, so it sorts below anything that carries a measured size.
+    static func sortCategories(_ categories: [ManagerCategory], by sort: ManagerSort) -> [ManagerCategory] {
         switch sort {
         case .size:
             return categories.sorted { ($0.totalSize ?? 0) > ($1.totalSize ?? 0) }
         case .name:
             return categories.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         }
+    }
+
+    /// Rebuild `sortedCategories` for the current section and sort order. Called
+    /// from every place that moves the model, the section, or the sort — and
+    /// always before anything reads the result, since the reads pick the
+    /// selected category out of it.
+    private func refreshSortedCategories() {
+        sortedCategories = Self.sortCategories(selectedSection?.categories ?? [], by: sort)
     }
 
     private var selectedCategory: ManagerCategory? {
@@ -864,6 +890,9 @@ struct SmartScanReviewManager: View {
             let target = initialSectionID.flatMap { id in loadedSections.first { $0.id == id }?.id }
             selectedSectionID = target ?? loadedSections.first?.id
         }
+        // The section is settled, so the middle pane's order can be built before
+        // the category pick below reads it.
+        refreshSortedCategories()
         // Honor a deep-link category when it lives in the selected section,
         // otherwise fall back to that section's first category.
         if let initialCategoryID, sortedCategories.contains(where: { $0.id == initialCategoryID }) {

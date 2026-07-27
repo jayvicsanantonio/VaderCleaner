@@ -3,6 +3,15 @@
 
 import SwiftUI
 
+/// Holds the id→group lookup the selection callbacks need. Built on the same
+/// background pass as the section model so the main thread never rebuilds it;
+/// read on the main actor once that build has finished. (A computed dictionary
+/// in `body` instead rebuilds the whole index on every render of the hosting
+/// dashboard.)
+private final class LeftoversReviewLookups: @unchecked Sendable {
+    var groupsByID: [String: LeftoverGroup] = [:]
+}
+
 /// Leftovers Review, rendered through the shared `SmartScanReviewManager`.
 /// One row per uninstalled app's leftover group. Selection is group-level —
 /// the files belong together, and removing half an app's leftovers helps
@@ -14,25 +23,28 @@ struct SmartScanLeftoversReview: View {
     let groups: [LeftoverGroup]
     let onBack: () -> Void
 
-    private var groupsByID: [String: LeftoverGroup] {
-        Dictionary(groups.map { ($0.bundleID, $0) }, uniquingKeysWith: { a, _ in a })
-    }
+    @State private var lookups = LeftoversReviewLookups()
 
     var body: some View {
-        let groupsByID = self.groupsByID
+        let lookups = self.lookups
         let groups = self.groups
         SmartScanReviewManager(
             title: String(
                 localized: "Files Left Behind",
                 comment: "Title on the Smart Scan app leftovers Review screen."
             ),
-            buildSections: { Self.buildSections(groups: groups) },
+            buildSections: {
+                lookups.groupsByID = Dictionary(
+                    groups.map { ($0.bundleID, $0) }, uniquingKeysWith: { a, _ in a }
+                )
+                return Self.buildSections(groups: groups)
+            },
             isSelected: { id in
-                guard let group = groupsByID[id] else { return false }
+                guard let group = lookups.groupsByID[id] else { return false }
                 return viewModel.isLeftoverSelected(group)
             },
             onToggle: { id in
-                guard let group = groupsByID[id] else { return }
+                guard let group = lookups.groupsByID[id] else { return }
                 viewModel.toggleLeftover(group)
             },
             onSetCategory: { category, selected in
@@ -43,10 +55,10 @@ struct SmartScanLeftoversReview: View {
             lightSurface: true,
             showsSparkle: true,
             selectionSummary: {
+                // O(selection), not O(all groups): sum sizes of just the
+                // checked ids through the prebuilt lookup.
                 let selection = viewModel.leftoverSelection
-                let bytes = groups.reduce(Int64(0)) { total, group in
-                    selection.contains(group.bundleID) ? total + group.totalBytes : total
-                }
+                let bytes = selection.reduce(Int64(0)) { $0 + (lookups.groupsByID[$1]?.totalBytes ?? 0) }
                 return ManagerSelectionSummary(count: selection.count, bytes: bytes)
             }
         )

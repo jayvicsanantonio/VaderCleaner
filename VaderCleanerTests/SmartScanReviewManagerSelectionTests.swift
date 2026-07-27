@@ -125,6 +125,68 @@ final class SmartScanReviewManagerSelectionTests: XCTestCase {
             "Detected threats.")
     }
 
+    // MARK: - Category ordering
+
+    /// Builds a bare category for the ordering tests; only the title and total
+    /// size take part in the sort.
+    private func category(_ id: String, title: String, totalSize: Int64?) -> ManagerCategory {
+        ManagerCategory(
+            id: id,
+            title: title,
+            systemImage: "folder.fill",
+            tint: .blue,
+            items: [],
+            totalSize: totalSize,
+            totalSizeText: totalSize.map(ManagerByteText.string)
+        )
+    }
+
+    /// Size sort puts the biggest category first.
+    func test_sortCategories_bySize_largestFirst() {
+        let sorted = SmartScanReviewManager.sortCategories(
+            [
+                category("small", title: "Small", totalSize: 10),
+                category("big", title: "Big", totalSize: 900),
+                category("mid", title: "Mid", totalSize: 100),
+            ],
+            by: .size
+        )
+        XCTAssertEqual(sorted.map(\.id), ["big", "mid", "small"])
+    }
+
+    /// A sizeless category (app updates, threats) counts as zero, so it sorts
+    /// below anything that carries bytes rather than dropping out.
+    func test_sortCategories_bySize_sizelessCountsAsZero() {
+        let sorted = SmartScanReviewManager.sortCategories(
+            [
+                category("sizeless", title: "Sizeless", totalSize: nil),
+                category("sized", title: "Sized", totalSize: 1),
+            ],
+            by: .size
+        )
+        XCTAssertEqual(sorted.map(\.id), ["sized", "sizeless"])
+    }
+
+    /// Name sort is case-insensitive, so "apple" doesn't trail every
+    /// capitalized title.
+    func test_sortCategories_byName_isCaseInsensitive() {
+        let sorted = SmartScanReviewManager.sortCategories(
+            [
+                category("z", title: "Zebra", totalSize: 900),
+                category("a", title: "apple", totalSize: 10),
+                category("m", title: "Mango", totalSize: 100),
+            ],
+            by: .name
+        )
+        XCTAssertEqual(sorted.map(\.id), ["a", "m", "z"])
+    }
+
+    /// A section with no categories sorts to an empty list rather than trapping.
+    func test_sortCategories_emptyInput() {
+        XCTAssertTrue(SmartScanReviewManager.sortCategories([], by: .size).isEmpty)
+        XCTAssertTrue(SmartScanReviewManager.sortCategories([], by: .name).isEmpty)
+    }
+
     // MARK: - Locked (kept best shot) rows
 
     /// A locked row — a similar-photo group's kept best shot — is never among
