@@ -20,8 +20,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Selects the newest Xcode the image actually carries rather than a
+      # hardcoded path, and prints it: the app needs the macOS 26 SDK and a
+      # Swift 6.2+ toolchain (for `isolated deinit`), so if a runner image
+      # ever ships something older this log says so directly.
       - name: Select Xcode
-        run: sudo xcode-select -switch /Applications/Xcode_26.app
+        run: |
+          echo "Installed Xcodes:"
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "  (none beyond the default)"
+          latest="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$latest" ]; then
+            sudo xcode-select -switch "$latest"
+          fi
+          xcodebuild -version
+          swift --version
 
       - name: Install XcodeGen
         run: brew install xcodegen
