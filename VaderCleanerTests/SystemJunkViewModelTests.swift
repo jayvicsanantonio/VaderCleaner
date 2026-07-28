@@ -33,7 +33,7 @@ final class SystemJunkViewModelTests: XCTestCase {
     func test_scan_transitionsIdleToScanningToPreview() async {
         let result = makeResult(
             (.userCache, [makeFile(name: "a", size: 100, category: .userCache)]),
-            (.userLogs,  [makeFile(name: "b", size: 200, category: .userLogs)])
+            (.userLogs, [makeFile(name: "b", size: 200, category: .userLogs)])
         )
         let gate = ScanPhaseGate()
         let vm = makeViewModel(
@@ -147,7 +147,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let b = makeFile(name: "b", size: 250, category: .userLogs)
         let result = makeResult(
             (.userCache, [a]),
-            (.userLogs,  [b])
+            (.userLogs, [b])
         )
         let vm = makeViewModel(scanner: { result }, deleter: noopDeleter)
         await vm.scan()
@@ -173,7 +173,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         let logFile  = makeFile(name: "b", size: 250, category: .userLogs)
         let result = makeResult(
             (.userCache, [userFile]),
-            (.userLogs,  [logFile])
+            (.userLogs, [logFile])
         )
         let recorded = ActorBox<[ScannedFile]>([])
         let vm = makeViewModel(

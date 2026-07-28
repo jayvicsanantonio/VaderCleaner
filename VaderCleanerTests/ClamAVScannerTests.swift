@@ -19,8 +19,7 @@ final class ClamAVScannerTests: XCTestCase {
         let capturedArguments = TestBox<[String]?>(nil)
         let scanner = makeScanner(installed: true,
                                   databaseDirectory: nil,
-                                  excludedDirectories: []) {
-            executable, arguments, _ in
+                                  excludedDirectories: []) { executable, arguments, _ in
             capturedExecutable.value = executable
             capturedArguments.value = arguments
             return 0

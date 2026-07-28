@@ -522,8 +522,7 @@ private struct MalwareResultsPane: View {
     private func threatRow(_ threat: MalwareThreat) -> some View {
         HStack(spacing: 12) {
             ManagerCheckbox(state: selectedThreats.contains(threat.id) ? .on : .off, accent: accent) {
-                if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) }
-                else { selectedThreats.insert(threat.id) }
+                if selectedThreats.contains(threat.id) { selectedThreats.remove(threat.id) } else { selectedThreats.insert(threat.id) }
             }
             .frame(width: 26)
             Image(systemName: "ant").font(.title3).foregroundStyle(.tint).frame(width: 26)

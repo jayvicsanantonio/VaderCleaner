@@ -44,12 +44,6 @@ struct RankedTile<Payload> {
     /// Reclaimable size in bytes, or `0` when the tile isn't space-based (a
     /// count-only finding such as available updates).
     let reclaimableBytes: Int64
-
-    init(payload: Payload, urgency: RecommendationUrgency, reclaimableBytes: Int64) {
-        self.payload = payload
-        self.urgency = urgency
-        self.reclaimableBytes = reclaimableBytes
-    }
 }
 
 /// Selects the 2–4 tiles a section dashboard shows from its candidates. Pure and

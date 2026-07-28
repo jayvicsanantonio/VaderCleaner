@@ -190,9 +190,11 @@ struct BrowserExtensionDiscovery: ExtensionDiscovering {
                     at: extDir, includingPropertiesForKeys: nil,
                     options: [.skipsHiddenFiles]
                 )) ?? []
-                guard let latest = versionDirs.sorted(by: {
+                // `max(by:)` rather than sorting to take the last: it is the
+                // same newest-version directory in one pass instead of n log n.
+                guard let latest = versionDirs.max(by: {
                     $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
-                }).last else { continue }
+                }) else { continue }
                 let manifestName = Self.chromeManifestName(
                     at: latest.appendingPathComponent("manifest.json")
                 )

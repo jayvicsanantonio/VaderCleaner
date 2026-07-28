@@ -33,7 +33,7 @@ final class ScanFileFilterTests: XCTestCase {
         let sawMainThread = TestBox<Bool?>(nil)
         let files = [file("/a"), file("/b")]
 
-        _ = await ScanFileFilter.selected(from: files) { file in
+        _ = await ScanFileFilter.selected(from: files) { _ in
             sawMainThread.value = Thread.isMainThread
             return true
         }

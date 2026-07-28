@@ -22,7 +22,7 @@ final class DuplicateScannerTests: XCTestCase {
     @discardableResult
     private func write(_ name: String, _ contents: String) throws -> URL {
         let url = root.appendingPathComponent(name)
-        try contents.data(using: .utf8)!.write(to: url)
+        try Data(contents.utf8).write(to: url)
         return url
     }
 

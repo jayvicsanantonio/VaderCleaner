@@ -111,7 +111,7 @@ struct DatabaseUpdater: Sendable {
                     let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
                     let modified = attributes[.modificationDate] as? Date
                 else { continue }
-                if newest == nil || modified > newest! {
+                if modified > (newest ?? .distantPast) {
                     newest = modified
                 }
             }

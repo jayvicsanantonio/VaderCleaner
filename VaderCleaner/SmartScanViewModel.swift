@@ -437,8 +437,7 @@ final class SmartScanViewModel {
             )
         }
         let running = domain.units.reduce(into: 0) { total, unit in
-            if case .running(let items) = unitStatuses[unit] { total += items }
-            else if let count = unitProgressCounts[unit] { total += count }
+            if case .running(let items) = unitStatuses[unit] { total += items } else if let count = unitProgressCounts[unit] { total += count }
         }
         let anyRunning = statuses.contains { status in
             if case .running = status { return true }

@@ -74,8 +74,8 @@ final class RecentFilesManagerTests: XCTestCase {
         try manager.clear()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: recents.path), "Recents sfl should be removed")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: apps.path),    "Recent apps sfl should be removed")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: hosts.path),   "Recent hosts sfl should be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: apps.path), "Recent apps sfl should be removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hosts.path), "Recent hosts sfl should be removed")
         XCTAssertTrue(FileManager.default.fileExists(atPath: favorites.path),
                       "Non-Recent SFL entries (FavoriteItems) must be left alone")
         XCTAssertTrue(FileManager.default.fileExists(atPath: prefixOnly.path),

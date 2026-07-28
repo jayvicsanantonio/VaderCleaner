@@ -51,7 +51,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// order and our checker must not regress users by reporting a stale
     /// version as "the update".
     func test_parseAppcast_returnsNewestItemEvenWhenOutOfOrder() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -69,7 +69,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml)
         XCTAssertEqual(item?.shortVersion, "2.0.0")
@@ -79,7 +79,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// Items without an enclosure are skipped; release notes-only items are
     /// not actionable as an update target.
     func test_parseAppcast_skipsItemsWithoutEnclosure() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -89,7 +89,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         XCTAssertNil(DefaultSparkleUpdateChecker.parseAppcast(xml: xml))
     }
@@ -98,7 +98,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// the newer `sparkle:version` (build) must win so a same-marketing-
     /// version hotfix isn't passed over for an older artifact.
     func test_parseAppcast_tieBreaksOnBuildVersion() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -114,7 +114,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml)
         XCTAssertEqual(item?.version, "105")
@@ -126,7 +126,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// on the `<item>` element itself rather than the enclosure. The
     /// parser must still surface those rather than dropping the item.
     func test_parseAppcast_readsVersionAttributesOnItemElement() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -135,7 +135,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml)
         XCTAssertEqual(item?.shortVersion, "4.2.0")
@@ -147,7 +147,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// parser must fall back to the newest *compatible* item rather than
     /// offering a build Sparkle itself would refuse to install.
     func test_parseAppcast_skipsItemsRequiringNewerMacOS() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -163,7 +163,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(
             xml: xml,
@@ -177,7 +177,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// An item is eligible exactly when the running OS meets its
     /// `minimumSystemVersion`; equal versions are eligible.
     func test_parseAppcast_includesItemWhenOSMeetsMinimum() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -188,7 +188,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(
             xml: xml,
@@ -202,7 +202,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// enclosure carrying only the download URL. Those must still surface
     /// rather than being dropped for an empty version.
     func test_parseAppcast_readsElementFormVersionMetadata() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -213,7 +213,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(
             xml: xml,
@@ -229,7 +229,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// patch enclosures after the full enclosure. The parser must keep
     /// the full archive URL and never let a `.delta` patch overwrite it.
     func test_parseAppcast_ignoresDeltaEnclosures() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -244,7 +244,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(
             xml: xml,
@@ -259,7 +259,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// updater falls back to the newest macOS build instead of offering
     /// a Windows installer.
     func test_parseAppcast_skipsNonMacOSEnclosures() throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0" encoding="utf-8"?>
         <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel>
@@ -275,7 +275,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
             </item>
           </channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let item = DefaultSparkleUpdateChecker.parseAppcast(
             xml: xml,
@@ -291,7 +291,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
     /// `fetchAppcast` runs feed bytes through the injected HTTP fetcher
     /// and returns the newest item — no live network access.
     func test_fetchAppcast_routesThroughInjectedFetcher() async throws {
-        let xml = """
+        let xml = Data("""
         <?xml version="1.0"?>
         <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel><item>
@@ -300,7 +300,7 @@ final class SparkleUpdateCheckerTests: XCTestCase {
                        sparkle:version="3000" />
           </item></channel>
         </rss>
-        """.data(using: .utf8)!
+        """.utf8)
 
         let stub = StubHTTPFetcher()
         await stub.set(response: xml, for: URL(string: "https://example.com/appcast.xml")!)

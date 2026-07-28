@@ -113,10 +113,10 @@ final class BrowserDataPathProviderTests: XCTestCase {
     func test_chrome_downloads_returnsEmptyToAvoidWipingHistory() {
         let provider = DefaultBrowserDataPathProvider(homeDirectory: tempHome)
         XCTAssertEqual(provider.dataPaths(for: .chrome, category: .downloads), [])
-        XCTAssertEqual(provider.dataPaths(for: .brave,  category: .downloads), [])
-        XCTAssertEqual(provider.dataPaths(for: .arc,    category: .downloads), [])
-        XCTAssertEqual(provider.dataPaths(for: .opera,  category: .downloads), [])
-        XCTAssertEqual(provider.dataPaths(for: .edge,   category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .brave, category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .arc, category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .opera, category: .downloads), [])
+        XCTAssertEqual(provider.dataPaths(for: .edge, category: .downloads), [])
     }
 
     func test_firefox_downloads_returnsEmptyToAvoidWipingPlacesSqlite() throws {

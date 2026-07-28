@@ -108,8 +108,7 @@ struct HomebrewUninstallContent: View {
     private func row(_ package: BrewPackage) -> some View {
         HStack(spacing: 12) {
             ApplicationsManagerCheckbox(selected: selection.contains(package.id)) {
-                if selection.contains(package.id) { selection.remove(package.id) }
-                else { selection.insert(package.id) }
+                if selection.contains(package.id) { selection.remove(package.id) } else { selection.insert(package.id) }
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(package.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
@@ -202,8 +201,7 @@ struct HomebrewOutdatedContent: View {
     private func row(_ item: BrewOutdatedItem) -> some View {
         HStack(spacing: 12) {
             ApplicationsManagerCheckbox(selected: selection.contains(item.id)) {
-                if selection.contains(item.id) { selection.remove(item.id) }
-                else { selection.insert(item.id) }
+                if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
             }
             .disabled(item.isPinned)
             .opacity(item.isPinned ? 0.35 : 1)

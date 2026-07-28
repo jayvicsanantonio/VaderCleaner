@@ -151,7 +151,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         let absentURL = dir.appendingPathComponent("missing.bin")
         let files = [
             ScannedFile(url: presentURL, size: 50, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
-            ScannedFile(url: absentURL,  size: 9_999, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
+            ScannedFile(url: absentURL, size: 9_999, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
         ]
 
         let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: sandboxedTrash)
@@ -175,7 +175,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         // the fake helper will accept any path it is handed.
         let systemURL = URL(fileURLWithPath: "/Library/Caches/com.bogus.test/file.bin")
         let files = [
-            ScannedFile(url: userURL,   size: 100, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
+            ScannedFile(url: userURL, size: 100, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
             ScannedFile(url: systemURL, size: 250, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 
@@ -197,7 +197,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         let userURL = try TestHelpers.createDummyFile(named: "u.bin", size: 50, in: userDir)
         let systemURL = URL(fileURLWithPath: "/Library/Caches/com.bogus.test/missing.bin")
         let files = [
-            ScannedFile(url: userURL,   size: 50,  lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
+            ScannedFile(url: userURL, size: 50, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
             ScannedFile(url: systemURL, size: 999, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 
@@ -249,7 +249,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         let userURL = try TestHelpers.createDummyFile(named: "u.bin", size: 75, in: userDir)
         let systemURL = URL(fileURLWithPath: "/Library/Caches/com.bogus.test/x.bin")
         let files = [
-            ScannedFile(url: userURL,   size: 75,  lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
+            ScannedFile(url: userURL, size: 75, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache),
             ScannedFile(url: systemURL, size: 999, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 

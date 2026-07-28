@@ -65,6 +65,29 @@ defaults, and each departure is justified inline. Two worth knowing:
 Test targets carry their own nested `.swiftlint.yml` relaxing force unwraps and
 `URL!` fixtures, which are the standard XCTest idiom rather than a defect.
 
+### The warnings that remain
+
+`swiftlint lint` reports ~94 warnings and **0 errors**. They have been triaged;
+what is left is deliberate, and the largest group is a real backlog rather than
+noise:
+
+- **~66 are size and complexity** — `type_body_length`, `function_body_length`,
+  `cyclomatic_complexity`, `line_length`, `file_length`. These are the honest
+  structural signal: `CareFindingCopy` (a large copy catalog),
+  `SmartScanViewModel`, `ApplicationsManagerView` at 1687 lines. Worth chipping
+  at; not mechanically fixable.
+- **~21 are force unwraps**, and they cluster: nine are `#Preview` scaffolding
+  (`UserDefaults(suiteName: "preview")!`, which never ships), ten are inside
+  `SpaceLensBubbleLayout`'s smallest-enclosing-circle solver where the invariant
+  is local to the loop, and the rest are dictionary lookups keyed from that
+  dictionary's own `keys`.
+- **~7 are C-interop and AppKit idioms** — `processor_info_array_t!`, the
+  `NSLayoutConstraint!` properties wired after `init`, `SMCBytes32`'s 32-member
+  IOKit tuple, and `required init?(coder:)` stubs.
+
+Before "fixing" any of these, check the category — several previous
+lint suggestions in this repo were unsound and would not have compiled.
+
 ## Architecture
 
 - **Sections** — each feature area (Smart Scan, Cleanup, My Clutter, Space Lens,

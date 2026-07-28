@@ -192,30 +192,30 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, @unchecked Send
         case .chrome:
             return ChromiumLayout(
                 profilePath: appSupport.appendingPathComponent("Google/Chrome/Default", isDirectory: true),
-                cachePath:   caches.appendingPathComponent("Google/Chrome", isDirectory: true)
+                cachePath: caches.appendingPathComponent("Google/Chrome", isDirectory: true)
             )
         case .brave:
             return ChromiumLayout(
                 profilePath: appSupport.appendingPathComponent("BraveSoftware/Brave-Browser/Default", isDirectory: true),
-                cachePath:   caches.appendingPathComponent("BraveSoftware/Brave-Browser", isDirectory: true)
+                cachePath: caches.appendingPathComponent("BraveSoftware/Brave-Browser", isDirectory: true)
             )
         case .edge:
             return ChromiumLayout(
                 profilePath: appSupport.appendingPathComponent("Microsoft Edge/Default", isDirectory: true),
-                cachePath:   caches.appendingPathComponent("Microsoft Edge", isDirectory: true)
+                cachePath: caches.appendingPathComponent("Microsoft Edge", isDirectory: true)
             )
         case .arc:
             // Arc stores profile data under `Arc/User Data/Default`, mirroring
             // Chromium's nested-User-Data layout; cache lives one level up.
             return ChromiumLayout(
                 profilePath: appSupport.appendingPathComponent("Arc/User Data/Default", isDirectory: true),
-                cachePath:   caches.appendingPathComponent("Arc", isDirectory: true)
+                cachePath: caches.appendingPathComponent("Arc", isDirectory: true)
             )
         case .opera:
             // Opera flattens the profile — no `Default` subdirectory.
             return ChromiumLayout(
                 profilePath: appSupport.appendingPathComponent("com.operasoftware.Opera", isDirectory: true),
-                cachePath:   caches.appendingPathComponent("com.operasoftware.Opera", isDirectory: true)
+                cachePath: caches.appendingPathComponent("com.operasoftware.Opera", isDirectory: true)
             )
         case .safari, .firefox:
             return nil

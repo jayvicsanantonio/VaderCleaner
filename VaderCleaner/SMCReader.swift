@@ -166,7 +166,7 @@ final class SMCReader {
     private static func bytesArray(_ tuple: SMCBytes32, count: Int) -> [UInt8] {
         var values = tuple
         return withUnsafeBytes(of: &values) { raw in
-            Array(raw.prefix(count)).map { $0 }
+            Array(raw.prefix(count))
         }
     }
 }

@@ -120,7 +120,8 @@ final class AppUninstallerViewModelTests: XCTestCase {
             discover: { _ in [app] },
             findFiles: { _ in [
                 AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 1, category: .preferences)
-            ] }
+            ]
+            }
         )
         await vm.loadApps()
         vm.select(app.id)

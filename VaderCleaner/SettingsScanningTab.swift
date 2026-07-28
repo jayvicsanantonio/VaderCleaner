@@ -539,8 +539,7 @@ private struct ScanNodeRow: View {
         } else {
             Button {
                 withAnimation(.snappy(duration: 0.18)) {
-                    if expanded.contains(node.id) { expanded.remove(node.id) }
-                    else { expanded.insert(node.id) }
+                    if expanded.contains(node.id) { expanded.remove(node.id) } else { expanded.insert(node.id) }
                 }
             } label: {
                 Image(systemName: "chevron.right")

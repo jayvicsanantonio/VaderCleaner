@@ -268,8 +268,7 @@ struct ProtectionDashboardView: View {
     /// four), backfilled with a reassurance card when privacy is clean.
     private var selectedTiles: [ProtectionDashboardTile] {
         let malwareHasThreats: Bool
-        if case .results(let threats) = malware.phase { malwareHasThreats = !threats.isEmpty }
-        else { malwareHasThreats = false }
+        if case .results(let threats) = malware.phase { malwareHasThreats = !threats.isEmpty } else { malwareHasThreats = false }
 
         var real: [RankedTile<ProtectionDashboardTile>] = [
             RankedTile(payload: .malware,

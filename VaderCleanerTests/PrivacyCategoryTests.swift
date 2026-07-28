@@ -17,10 +17,10 @@ final class PrivacyCategoryTests: XCTestCase {
     /// Raw values are persisted in view-model state and tests pin them so a
     /// rename doesn't silently invalidate stored selections.
     func test_rawValues_areStable() {
-        XCTAssertEqual(PrivacyCategory.history.rawValue,    "history")
-        XCTAssertEqual(PrivacyCategory.downloads.rawValue,  "downloads")
-        XCTAssertEqual(PrivacyCategory.cookies.rawValue,    "cookies")
-        XCTAssertEqual(PrivacyCategory.cache.rawValue,      "cache")
+        XCTAssertEqual(PrivacyCategory.history.rawValue, "history")
+        XCTAssertEqual(PrivacyCategory.downloads.rawValue, "downloads")
+        XCTAssertEqual(PrivacyCategory.cookies.rawValue, "cookies")
+        XCTAssertEqual(PrivacyCategory.cache.rawValue, "cache")
         XCTAssertEqual(PrivacyCategory.savedForms.rawValue, "savedForms")
     }
 

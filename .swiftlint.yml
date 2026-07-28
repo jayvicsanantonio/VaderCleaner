@@ -35,10 +35,8 @@ opt_in_rules:
   - implicitly_unwrapped_optional
   - last_where
   - literal_expression_end_indentation
-  - modifier_order
   - overridden_super_call
   - prefer_self_type_over_type_of_self
-  - redundant_nil_coalescing
   - sorted_first_last
   - toggle_bool
   - unavailable_function
@@ -65,6 +63,26 @@ disabled_rules:
   # `var detail: String? = nil` is the house style — the explicit `nil` is kept
   # for symmetry with the initialisers around it. 35 hits, all deliberate.
   - implicit_optional_initialization
+
+  # `redundant_nil_coalescing` is unsound on the double-optional flattening this
+  # codebase uses deliberately. `row.map { … ? $0 : nil }` is `Int??`, and the
+  # `?? nil` collapses it to the `Int?` the property needs; the same applies to
+  # `scanScope?.scanRoots ?? nil`. Its autocorrect removes the operator and
+  # leaves a nested optional, changing the type.
+  - redundant_nil_coalescing
+
+  # SwiftLint wants `nonisolated private static`; the codebase consistently
+  # writes `private nonisolated static`, leading with the access level. Both are
+  # valid and the house order is already uniform, so enforcing the rule would be
+  # churn across 20 declarations for no gain.
+  - modifier_order
+
+  # This rule prefers the failable `String(data:encoding:)` so invalid bytes
+  # surface as nil. Every Data→String site here wants the opposite: brew's
+  # stdout, a sysctl brand string, and an SMC key are decoded totally, because
+  # one malformed byte should degrade a character rather than discard the whole
+  # reading. `String(decoding:as:)` is the deliberate choice at all four sites.
+  - optional_data_string_conversion
 
 force_cast:
   severity: error
@@ -117,8 +135,10 @@ identifier_name:
     warning: 2
     error: 1
   allowed_symbols: ["_"]
-  # Single-letter names are the domain vocabulary in the geometry and colour
-  # code (radius, time, luminance, chroma, the bubble-packing scratch vars).
+  # Single letters are the domain vocabulary in the geometry and colour code —
+  # radius, time, luminance, chroma, and the point/basis/coefficient names in
+  # `SpaceLensBubbleLayout`'s smallest-enclosing-circle solver, where `A`, `B`,
+  # and `C` are the quadratic's coefficients as they appear in the maths.
   excluded:
     - a
     - b
@@ -134,15 +154,24 @@ identifier_name:
     - l
     - m
     - n
+    - o
+    - p
+    - q
     - r
     - s
     - t
     - u
     - v
+    - w
     - x
     - y
     - z
+    - A
     - B
+    - C
+    - D
+    - P
+    - R
     - id
     - up
     - to
