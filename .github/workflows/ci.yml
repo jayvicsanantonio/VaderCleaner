@@ -38,6 +38,25 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # Vendor/clamav is gitignored — 20 MB of rewritten Homebrew bottles that
+      # each developer stages once. The `Stage bundled ClamAV` build phase
+      # hard-errors without it, so CI stages it the same way, cached on the
+      # vendoring script's hash so the download only repeats when the recipe
+      # changes. The script pins the arm64_tahoe bottle, hence the arch echo:
+      # on an Intel runner it would fail with "no arm64_tahoe bottle".
+      - name: Cache bundled ClamAV
+        id: clamav
+        uses: actions/cache@v4
+        with:
+          path: Vendor/clamav
+          key: clamav-${{ runner.arch }}-${{ hashFiles('Scripts/bundle-clamav.sh') }}
+
+      - name: Stage bundled ClamAV
+        if: steps.clamav.outputs.cache-hit != 'true'
+        run: |
+          echo "runner arch: $(uname -m)"
+          Scripts/bundle-clamav.sh
+
       - name: Generate project
         run: xcodegen generate
 
