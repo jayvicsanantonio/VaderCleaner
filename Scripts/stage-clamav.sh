@@ -26,15 +26,6 @@ else
     exit 0
 fi
 
-# Explicit opt-out for builds that only need to compile and run tests — CI
-# sets it. The resulting .app has no malware engine, so it must never be set
-# for a build anyone intends to run or ship; the missing-vendor error below
-# stays the default precisely so that can't happen by accident.
-if [[ -n "${VADERCLEANER_SKIP_CLAMAV_STAGING:-}" ]]; then
-    echo "warning: VADERCLEANER_SKIP_CLAMAV_STAGING is set — the built app will have no bundled ClamAV." >&2
-    exit 0
-fi
-
 if [[ ! -d "${VENDOR_DIR}" ]]; then
     echo "error: ${VENDOR_DIR} is missing. Run Scripts/bundle-clamav.sh once to populate it." >&2
     exit 1

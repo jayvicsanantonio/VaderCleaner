@@ -33,30 +33,24 @@ readonly KEEP_PATHS=(
     # the tarball because Homebrew rewrites etc/ paths at install time;
     # we ship a copy in the .app and pass --cvdcertsdir to freshclam.
     "clamav:.bottle/etc/clamav/certs/clamav.crt"
-    "clamav:lib/libclamav.12.1.0.dylib"
-    "clamav:lib/libclamav.12.dylib"
-    "clamav:lib/libclamav.dylib"
-    "clamav:lib/libclammspack.0.8.0.dylib"
-    "clamav:lib/libclammspack.0.dylib"
-    "clamav:lib/libclammspack.dylib"
-    "clamav:lib/libclamunrar.12.1.0.dylib"
-    "clamav:lib/libclamunrar.12.dylib"
-    "clamav:lib/libclamunrar.dylib"
-    "clamav:lib/libclamunrar_iface.12.1.0.dylib"
-    "clamav:lib/libclamunrar_iface.12.dylib"
-    "clamav:lib/libclamunrar_iface.dylib"
-    "clamav:lib/libfreshclam.4.0.0.dylib"
-    "clamav:lib/libfreshclam.4.dylib"
-    "clamav:lib/libfreshclam.dylib"
-    "openssl@3:lib/libssl.3.dylib"
-    "openssl@3:lib/libcrypto.3.dylib"
-    "pcre2:lib/libpcre2-8.0.dylib"
-    # json-c is the only dep whose major-version dylib is a symlink to a
-    # SemVer file rather than the real file itself, so we ship both the
-    # symlink (which is what clamscan/libclamav resolve through `@rpath`)
-    # and its target (the actual Mach-O that dyld ends up mapping).
-    "json-c:lib/libjson-c.5.dylib"
-    "json-c:lib/libjson-c.5.4.0.dylib"
+    # Each dylib entry is a glob covering that library's whole symlink chain
+    # — libfoo.dylib → libfoo.X.dylib → libfoo.X.Y.Z.dylib — so dyld follows
+    # the same hops it would on a real install.
+    #
+    # These were once pinned to exact SemVer filenames, which silently rots:
+    # the moment Homebrew bumped json-c the script died with "missing in
+    # bottle: json-c/lib/libjson-c.5.4.0.dylib" and could not restage at all.
+    # Matching by library name instead survives a version bump; a library
+    # genuinely disappearing still fails loudly, which is the case worth
+    # failing on.
+    "clamav:lib/libclamav*.dylib"
+    "clamav:lib/libclammspack*.dylib"
+    "clamav:lib/libclamunrar*.dylib"
+    "clamav:lib/libfreshclam*.dylib"
+    "openssl@3:lib/libssl*.dylib"
+    "openssl@3:lib/libcrypto*.dylib"
+    "pcre2:lib/libpcre2-8*.dylib"
+    "json-c:lib/libjson-c*.dylib"
 )
 
 # Resolve repo root from this script's location so the script works
@@ -164,17 +158,17 @@ extract_bottle() {
     tar -xzf "${tarball}" -C "${target}"
 }
 
-# Resolve where an extracted file lives (any version subdir).
+# Resolve where extracted files live (any version subdir). `rel` is a glob,
+# so one entry can match a whole symlink chain — libfoo.dylib, libfoo.X.dylib,
+# and libfoo.X.Y.Z.dylib — without naming the SemVer that only holds until
+# Homebrew next bumps the formula. Every match is returned, one per line.
 locate_extracted() {
     local formula="$1" rel="$2"
-    # bottle layout: <formula>/<version>/<rel>. We don't know the version
-    # statically (the API gave it to us but we don't thread it through),
-    # and we use -print without -quit so symlinks come along with the
-    # underlying file when find walks the tree.
+    # bottle layout: <formula>/<version>/<rel>.
     local found
-    found="$(find "${WORK_DIR}/extracted/${formula}" -path "*/${rel}" -print 2>/dev/null | head -n1)"
+    found="$(find "${WORK_DIR}/extracted/${formula}" -path "*/${rel}" -print 2>/dev/null | sort)"
     [[ -n "${found}" ]] || die "missing in bottle: ${formula}/${rel}"
-    printf '%s' "${found}"
+    printf '%s\n' "${found}"
 }
 
 # Route a kept artifact to bin/ or Frameworks/. clamav/bin/* → bin/,
@@ -183,27 +177,24 @@ locate_extracted() {
 # chain it would on a real install.
 place_artifact() {
     local formula="$1" rel="$2"
-    local src dst
-    src="$(locate_extracted "${formula}" "${rel}")"
+    local subdir src dst
 
+    # Route on the pattern, not on each match: every file a single entry
+    # matches belongs in the same place.
     case "${rel}" in
-        bin/*)
-            dst="${VENDOR_DIR}/bin/$(basename "${rel}")"
-            ;;
-        lib/*.dylib)
-            dst="${VENDOR_DIR}/Frameworks/$(basename "${rel}")"
-            ;;
-        .bottle/etc/clamav/certs/*)
-            dst="${VENDOR_DIR}/certs/$(basename "${rel}")"
-            ;;
-        *)
-            die "unrouted artifact: ${formula}/${rel}"
-            ;;
+        bin/*)                        subdir="bin" ;;
+        lib/*.dylib)                  subdir="Frameworks" ;;
+        .bottle/etc/clamav/certs/*)   subdir="certs" ;;
+        *)                            die "unrouted artifact: ${formula}/${rel}" ;;
     esac
 
-    mkdir -p "$(dirname "${dst}")"
-    # -P preserves symlinks; -f overwrites without prompting on re-runs.
-    cp -Pf "${src}" "${dst}"
+    mkdir -p "${VENDOR_DIR}/${subdir}"
+    while IFS= read -r src; do
+        [[ -n "${src}" ]] || continue
+        dst="${VENDOR_DIR}/${subdir}/$(basename "${src}")"
+        # -P preserves symlinks; -f overwrites without prompting on re-runs.
+        cp -Pf "${src}" "${dst}"
+    done <<< "$(locate_extracted "${formula}" "${rel}")"
 }
 
 # -----------------------------------------------------------------------------
