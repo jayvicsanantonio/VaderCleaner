@@ -17,6 +17,12 @@ jobs:
   build-and-test:
     # The app targets macOS 26, so it needs an Xcode 26 runner image.
     runs-on: macos-26
+    # The suite runs in ~25s and the whole job in ~2min. The cap exists because
+    # the child-process tests can hang xcodebuild outright rather than fail —
+    # without it GitHub's 6-hour default applies and a hang silently burns
+    # runner time. See the test-timeout flags on the build step, which should
+    # catch the hang first and name the test that caused it.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -56,11 +62,20 @@ jobs:
           VADERCLEANER_SKIP_CLAMAV_STAGING: "1"
         run: |
           set -o pipefail
+          # The whole suite runs in ~25s, so a 120s per-test allowance is far
+          # above anything legitimate. It exists because the child-process
+          # tests (DefaultBrewRunner, ProcessLineStreamer) can wedge xcodebuild
+          # indefinitely instead of failing; with timeouts enabled that becomes
+          # a normal failure naming the test, rather than a job that sits until
+          # the runner is killed.
           xcodebuild test \
             -project VaderCleaner.xcodeproj \
             -scheme VaderCleaner \
             -destination 'platform=macOS' \
             -only-testing:VaderCleanerTests \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="skip-dev-seal" \
             | xcpretty && exit ${PIPESTATUS[0]}
