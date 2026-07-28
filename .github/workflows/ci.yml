@@ -38,31 +38,22 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      # Vendor/clamav is gitignored — 20 MB of rewritten Homebrew bottles that
-      # each developer stages once. The `Stage bundled ClamAV` build phase
-      # hard-errors without it, so CI stages it the same way, cached on the
-      # vendoring script's hash so the download only repeats when the recipe
-      # changes. The script pins the arm64_tahoe bottle, hence the arch echo:
-      # on an Intel runner it would fail with "no arm64_tahoe bottle".
-      - name: Cache bundled ClamAV
-        id: clamav
-        uses: actions/cache@v4
-        with:
-          path: Vendor/clamav
-          key: clamav-${{ runner.arch }}-${{ hashFiles('Scripts/bundle-clamav.sh') }}
-
-      - name: Stage bundled ClamAV
-        if: steps.clamav.outputs.cache-hit != 'true'
-        run: |
-          echo "runner arch: $(uname -m)"
-          Scripts/bundle-clamav.sh
-
       - name: Generate project
         run: xcodegen generate
 
       # Signing is unavailable on CI, and sign-dev.sh's app-seal step breaks the
       # test bundle format, so it is skipped via the sentinel identity.
+      #
+      # ClamAV staging is skipped too. Vendor/clamav is gitignored, and
+      # Scripts/bundle-clamav.sh cannot currently restage it — it pins exact
+      # dylib patch versions and Homebrew has moved past them (see the PR
+      # discussion). This job compiles the app and runs the unit suite, which
+      # injects fakes for the malware engine and never touches the real binary,
+      # so the artifact it produces is a test artifact and not a shippable app.
+      # Restoring real staging here depends on fixing that script first.
       - name: Build and test
+        env:
+          VADERCLEANER_SKIP_CLAMAV_STAGING: "1"
         run: |
           set -o pipefail
           xcodebuild test \
