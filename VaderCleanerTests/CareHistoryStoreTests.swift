@@ -139,7 +139,7 @@ final class CareHistoryStoreTests: XCTestCase {
     }
 
     func test_corruptStoredReceipts_degradeToEmpty() {
-        defaults.set("not json".data(using: .utf8), forKey: "smartScan.history.receipts")
+        defaults.set(Data("not json".utf8), forKey: "smartScan.history.receipts")
         defaults.set(Data([0x01]), forKey: "smartScan.history.receipts")
         let sut = CareHistoryStore(defaults: defaults)
         XCTAssertTrue(sut.receipts.isEmpty)

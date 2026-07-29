@@ -13,20 +13,18 @@ import os.log
 /// path is treated as already-cleared and silently skipped.
 struct BrowserDataClearer: Sendable {
 
-    typealias Remover = (URL) throws -> Void
+    typealias Remover = @Sendable (URL) throws -> Void
 
     private let pathProvider: BrowserDataPathProviding
     private let worker: BrowserDataWorker
 
     init(
         pathProvider: BrowserDataPathProviding,
-        fileManager: FileManager = .default,
         remover: Remover? = nil
     ) {
         self.pathProvider = pathProvider
         self.worker = BrowserDataWorker(
             pathProvider: pathProvider,
-            fileManager: fileManager,
             remover: remover
         )
     }
@@ -60,20 +58,22 @@ struct BrowserDataClearer: Sendable {
 private actor BrowserDataWorker {
 
     private let pathProvider: BrowserDataPathProviding
-    private let fileManager: FileManager
+    /// The shared instance, documented as safe across threads. Held directly
+    /// rather than injected: no caller or test ever supplied a different one.
+    private let fileManager = FileManager.default
     private let remover: BrowserDataClearer.Remover
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "BrowserDataClearer")
 
     init(
         pathProvider: BrowserDataPathProviding,
-        fileManager: FileManager,
         remover: BrowserDataClearer.Remover?
     ) {
         self.pathProvider = pathProvider
-        self.fileManager = fileManager
+        // References the shared instance rather than capturing the actor's
+        // stored one, so the default remover stays a plain `@Sendable` closure.
         self.remover = remover ?? { url in
-            try fileManager.removeItem(at: url)
+            try FileManager.default.removeItem(at: url)
         }
     }
 

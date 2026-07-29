@@ -253,7 +253,7 @@ final class PreferencesStoreTests: XCTestCase {
         // throws. Reset, then exercise the didSet path explicitly so the
         // assertion covers the user-driven toggle, not the reconcile path.
         reported.removeAll()
-        sut.launchAtLogin = !sut.launchAtLogin
+        sut.launchAtLogin.toggle()
 
         XCTAssertEqual(reported, [StubError()])
     }

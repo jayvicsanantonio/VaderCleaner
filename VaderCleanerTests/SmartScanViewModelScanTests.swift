@@ -9,7 +9,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private nonisolated func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
+    private nonisolated static func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
         ScannedFile(
             url: URL(fileURLWithPath: path),
             size: size,
@@ -19,7 +19,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
         )
     }
 
-    private nonisolated func plan(
+    private nonisolated static func plan(
         findings: [CareFinding] = [],
         outcomes: [CareScanUnit: CareUnitOutcome] = [.systemJunk: .completed],
         health: CareHealthSnapshot? = nil
@@ -33,24 +33,24 @@ final class SmartScanViewModelScanTests: XCTestCase {
         )
     }
 
-    private nonisolated var richPlan: CarePlan {
+    private nonisolated static var richPlan: CarePlan {
         let junk = ScanResult(items: [
-            file("/cache/safe", size: 1_000, category: .userCache),
-            file("/mail/attachment", size: 500, category: .mailAttachments)
+            Self.file("/cache/safe", size: 1_000, category: .userCache),
+            Self.file("/mail/attachment", size: 500, category: .mailAttachments)
         ])
         let threats = [MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")]
         let dupGroup = DuplicateGroup(files: [
-            file("/Downloads/original", size: 10),
-            file("/Downloads/copy", size: 10)
+            Self.file("/Downloads/original", size: 10),
+            Self.file("/Downloads/copy", size: 10)
         ])
-        let bigFile = file("/Movies/huge.mov", size: 9_000, category: .largeFile)
+        let bigFile = Self.file("/Movies/huge.mov", size: 9_000, category: .largeFile)
         let update = UpdateInfo(
             appName: "App", bundleID: "com.example.app",
             bundleURL: URL(fileURLWithPath: "/Applications/App.app"),
             installedVersion: "1.0", latestVersion: "2.0",
             source: .sparkle, updateURL: URL(string: "https://example.com")!
         )
-        return plan(
+        return Self.plan(
             findings: [
                 CareFinding(kind: .junkCleanup, payload: .junk(junk)),
                 CareFinding(kind: .threats, payload: .threats(threats)),
@@ -71,7 +71,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     // MARK: - Phase machine
 
     func test_scan_movesThroughScanningToResults() async {
-        let expected = richPlan
+        let expected = Self.richPlan
         let vm = SmartScanViewModel(scanEngine: { _, _ in expected })
         await vm.scan()
         XCTAssertEqual(vm.phase, .results(expected))
@@ -80,7 +80,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     func test_scan_isIgnoredWhileScanning() async {
         let gate = AsyncGate()
         let starts = Counter()
-        let expected = plan()
+        let expected = Self.plan()
         let vm = SmartScanViewModel(scanEngine: { _, _ in
             starts.increment()
             await gate.wait()
@@ -102,7 +102,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
 
     func test_scan_failsOnlyWhenEveryAttemptedUnitFailed() async {
         let vm = SmartScanViewModel(scanEngine: { _, _ in
-            self.plan(outcomes: [
+            Self.plan(outcomes: [
                 .systemJunk: .failed(message: "no access"),
                 .malware: .failed(message: "broken"),
                 .loginItems: .skipped(.disabledInSettings)
@@ -116,8 +116,8 @@ final class SmartScanViewModelScanTests: XCTestCase {
     }
 
     func test_scan_partialFailure_stillLandsResults() async {
-        let junk = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file("/c", size: 1)])))
-        let expected = plan(
+        let junk = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [Self.file("/c", size: 1)])))
+        let expected = Self.plan(
             findings: [junk],
             outcomes: [.systemJunk: .completed, .malware: .failed(message: "broken")]
         )
@@ -127,7 +127,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     }
 
     func test_reset_returnsToIdle_andClearsState() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.richPlan })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.richPlan })
         await vm.scan()
         vm.reset()
         XCTAssertEqual(vm.phase, .idle)
@@ -143,7 +143,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
         let vm = SmartScanViewModel(
             scanEngine: { configuration, _ in
                 captured.value = configuration
-                return self.plan()
+                return Self.plan()
             },
             malwareEngineAvailable: { false },
             enabledDomains: { [.systemJunk, .performance] },
@@ -176,7 +176,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
             let vm = SmartScanViewModel(
                 scanEngine: { configuration, _ in
                     captured.value = configuration
-                    return self.plan()
+                    return Self.plan()
                 },
                 enabledDomains: { settings.enabledDomains },
                 enabledUnits: { settings.enabledUnits },
@@ -240,7 +240,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
             onEvent(.unitFinished(.systemJunk, .completed, nil))
             // Give the main-actor hops time to land before returning.
             try? await Task.sleep(nanoseconds: 100_000_000)
-            return self.plan()
+            return Self.plan()
         })
         await vm.scan()
         // The scan completed, but the statuses observed during it were
@@ -257,7 +257,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
             onEvent(.unitStarted(.largeOldFiles))
             try? await Task.sleep(nanoseconds: 100_000_000)
             await gate.wait()
-            return self.plan()
+            return Self.plan()
         })
         let scanTask = Task { await vm.scan() }
         // Wait until the events above have landed on the main actor.
@@ -278,7 +278,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
         let vm = SmartScanViewModel(scanEngine: { _, onEvent in
             onEvent(.unitFinished(.browserPrivacy, .skipped(.disabledInSettings), nil))
             try? await Task.sleep(nanoseconds: 100_000_000)
-            return self.plan()
+            return Self.plan()
         })
         let gate = AsyncGate()
         _ = gate
@@ -294,7 +294,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     // MARK: - Selection seeding (the safety model)
 
     func test_seeding_preApprovedFull_optInEmpty() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.richPlan })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.richPlan })
         await vm.scan()
 
         // Junk: only the safe category's file is pre-checked.
@@ -314,7 +314,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     }
 
     func test_seeding_includesOnlyPreApprovedCards() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.richPlan })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.richPlan })
         await vm.scan()
         XCTAssertEqual(
             vm.includedFindings,
@@ -326,7 +326,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     // MARK: - Executable work & disc gating
 
     func test_runDiscVisible_onlyOnResultsWithWork_andNotWhileReviewing() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.richPlan })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.richPlan })
         XCTAssertFalse(vm.isRunDiscVisible)
         await vm.scan()
         XCTAssertTrue(vm.hasExecutableWork)
@@ -338,14 +338,14 @@ final class SmartScanViewModelScanTests: XCTestCase {
     }
 
     func test_informationalFindings_neverExecute() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.richPlan })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.richPlan })
         await vm.scan()
         XCTAssertFalse(vm.willExecute(.loginItems))
         XCTAssertFalse(vm.willExecute(.lowDiskSpace))
     }
 
     func test_optInSelection_autoIncludesAndAutoExcludesItsCard() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.richPlan })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.richPlan })
         await vm.scan()
         XCTAssertFalse(vm.isFindingIncluded(.largeOldFiles))
         vm.setLargeOldFiles([URL(fileURLWithPath: "/Movies/huge.mov")], selected: true)
@@ -358,7 +358,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     // MARK: - Completion hand-off
 
     func test_onScanCompleted_receivesThePlan() async {
-        let expected = richPlan
+        let expected = Self.richPlan
         let vm = SmartScanViewModel(scanEngine: { _, _ in expected })
         var received: CarePlan?
         vm.onScanCompleted = { received = $0 }
@@ -369,7 +369,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     // MARK: - Coordinating
 
     func test_scanPresentation_mapsPhases() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in self.plan() })
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.plan() })
         XCTAssertEqual(vm.scanPresentation, .intro)
         await vm.scan()
         XCTAssertEqual(vm.scanPresentation, .results)
@@ -381,16 +381,16 @@ final class SmartScanViewModelScanTests: XCTestCase {
     /// url→size lookups behind each card's selected total). A second scan must
     /// drop both, so results can never be served from the previous plan.
     func test_rescan_invalidatesMemoizedPlanDerivations() async {
-        let firstPlan = plan(
+        let firstPlan = Self.plan(
             findings: [CareFinding(kind: .duplicates, payload: .duplicates([
-                DuplicateGroup(files: [file("/d/original", size: 10), file("/d/copy", size: 10)])
+                DuplicateGroup(files: [Self.file("/d/original", size: 10), Self.file("/d/copy", size: 10)])
             ]))],
             outcomes: [.duplicates: .completed]
         )
-        let secondPlan = plan(
+        let secondPlan = Self.plan(
             findings: [
                 CareFinding(kind: .duplicates, payload: .duplicates([
-                    DuplicateGroup(files: [file("/d/original", size: 500), file("/d/copy", size: 500)])
+                    DuplicateGroup(files: [Self.file("/d/original", size: 500), Self.file("/d/copy", size: 500)])
                 ])),
                 CareFinding(kind: .threats, payload: .threats([
                     MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")

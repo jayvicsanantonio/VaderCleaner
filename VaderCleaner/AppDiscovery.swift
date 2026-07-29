@@ -27,7 +27,12 @@ protocol AppDiscovering: Sendable {
 /// reads `Info.plist` for each `.app` bundle it finds.
 struct DefaultAppDiscovery: AppDiscovering, Sendable {
 
-    private let fileManager: FileManager
+    /// `FileManager` is not `Sendable`, but the shared `.default` instance this
+    /// defaults to is documented as safe to use from multiple threads, and the
+    /// fixture instances tests inject are only touched by their own test.
+    /// Discovery reads from it off the main actor, so the isolation is opted
+    /// out of here rather than the whole type giving up `Sendable`.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let roots: [URL]
     /// Resolves each bundle's last-opened date during discovery. Injected so
     /// tests can supply a deterministic date instead of the real Spotlight
@@ -107,7 +112,9 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
                     }
                 ) else { continue }
 
-                for case let entry as URL in enumerator {
+                // Stepped with `nextObject()` rather than `for…in`: the
+                // enumerator's iterator is unavailable from an async context.
+                while let entry = enumerator.nextObject() as? URL {
                     guard entry.pathExtension.caseInsensitiveCompare("app") == .orderedSame else {
                         continue
                     }

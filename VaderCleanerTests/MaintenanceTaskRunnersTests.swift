@@ -105,7 +105,9 @@ private func XCTAssertThrowsErrorAsync(
 
 /// Records which protocol selectors were invoked and replies with a configured
 /// error. Replies success for the calls the runners under test don't make.
-private final class RecordingHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class RecordingHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     private let replyError: Error?
     private(set) var calledSelectors: [String] = []
 
@@ -133,7 +135,9 @@ private final class RecordingHelper: NSObject, VaderCleanerHelperProtocol {
 
 /// Drops every reply block — models a dead NSXPCConnection where the
 /// connection-level error handler fires instead of the per-call reply.
-private final class DroppingHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class DroppingHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
     func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
     func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}

@@ -48,17 +48,17 @@ final class ScanCoordinatingTests: XCTestCase {
     /// that no longer applies under `@Observable`.
     func test_presentationChange_firesObservationOnChange() {
         let fake = FakeCoordinator()
-        var fired = false
+        let fired = TestBox(false)
         withObservationTracking {
             _ = fake.scanPresentation
         } onChange: {
-            fired = true
+            fired.value = true
         }
 
         fake.scanPresentation = .working
 
         XCTAssertTrue(
-            fired,
+            fired.value,
             "Mutating scanPresentation must invoke withObservationTracking's onChange"
         )
         XCTAssertEqual(fake.scanPresentation, .working)

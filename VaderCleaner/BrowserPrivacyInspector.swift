@@ -23,10 +23,9 @@ struct BrowserPrivacyInspector: Sendable {
 
     private let worker: InspectorWorker
 
-    init(pathProvider: BrowserDataPathProviding, fileManager: FileManager = .default) {
+    init(pathProvider: BrowserDataPathProviding) {
         self.worker = InspectorWorker(
-            locator: BrowserPrivacyStoreLocator(pathProvider: pathProvider),
-            fileManager: fileManager
+            locator: BrowserPrivacyStoreLocator(pathProvider: pathProvider)
         )
     }
 
@@ -46,11 +45,13 @@ struct BrowserPrivacyInspector: Sendable {
 private actor InspectorWorker {
 
     private let locator: BrowserPrivacyStoreLocator
-    private let fileManager: FileManager
+    /// The shared instance, which is documented as safe to use from multiple
+    /// threads. Held directly rather than injected: no caller or test ever
+    /// supplied a different one.
+    private let fileManager = FileManager.default
 
-    init(locator: BrowserPrivacyStoreLocator, fileManager: FileManager) {
+    init(locator: BrowserPrivacyStoreLocator) {
         self.locator = locator
-        self.fileManager = fileManager
     }
 
     func count(for category: ProtectionPrivacyCategory, browser: Browser) -> Int {

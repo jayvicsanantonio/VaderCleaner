@@ -58,7 +58,9 @@ final class MaintenanceScriptRunnerTests: XCTestCase {
     }
 }
 
-private final class DroppingMaintenanceHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class DroppingMaintenanceHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
     func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
     func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
@@ -70,7 +72,9 @@ private final class DroppingMaintenanceHelper: NSObject, VaderCleanerHelperProto
     func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }
 
-private final class SpyMaintenanceHelper: NSObject, VaderCleanerHelperProtocol {
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class SpyMaintenanceHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
     private let replyError: Error?
     private(set) var runCalled = false
 

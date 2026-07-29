@@ -42,16 +42,16 @@ final class WebDevScanScopeStoreTests: XCTestCase {
     func test_selectingAFolder_notifiesObservers() throws {
         let picked = try makeHomeDir("Elsewhere")
         let store = WebDevScanScopeStore(defaults: makeDefaults(), homeDirectory: tempHome)
-        var notified = false
+        let notified = TestBox(false)
         withObservationTracking {
             _ = store.selectedFolderURL
         } onChange: {
-            notified = true
+            notified.value = true
         }
 
         store.selectFolder(picked)
 
-        XCTAssertTrue(notified)
+        XCTAssertTrue(notified.value)
     }
 
     /// Picking a folder flips the row from hidden to visible, so `isDormant`
@@ -60,16 +60,16 @@ final class WebDevScanScopeStoreTests: XCTestCase {
     func test_selectingAFolder_notifiesObserversOfDormancy() throws {
         let picked = try makeHomeDir("Elsewhere")
         let store = WebDevScanScopeStore(defaults: makeDefaults(), homeDirectory: tempHome)
-        var notified = false
+        let notified = TestBox(false)
         withObservationTracking {
             _ = store.isDormant
         } onChange: {
-            notified = true
+            notified.value = true
         }
 
         store.selectFolder(picked)
 
-        XCTAssertTrue(notified)
+        XCTAssertTrue(notified.value)
     }
 
     // MARK: - Dormancy

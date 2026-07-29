@@ -10,10 +10,10 @@ import os.log
 /// maintenance tasks share one connection/continuation path instead of three
 /// copies. Collaborators are injected as a `helperProvider` closure so unit
 /// tests exercise success / failure / dropped-reply without a live helper.
-struct PrivilegedTaskRunner {
+struct PrivilegedTaskRunner: Sendable {
 
-    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
-    typealias Invoke = (VaderCleanerHelperProtocol, @escaping (Error?) -> Void) -> Void
+    typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
+    typealias Invoke = @Sendable (VaderCleanerHelperProtocol, @escaping @Sendable (Error?) -> Void) -> Void
 
     private let helperProvider: HelperProvider
     private let invoke: Invoke
@@ -80,7 +80,7 @@ private final class TaskResumer: @unchecked Sendable {
 // MARK: - DNS cache
 
 /// Flushes the DNS resolver cache through the privileged helper.
-struct DNSCacheFlusher {
+struct DNSCacheFlusher: Sendable {
     private let runner: PrivilegedTaskRunner
 
     init(helperProvider: @escaping PrivilegedTaskRunner.HelperProvider = SystemJunkDeleter.defaultHelperProvider) {
@@ -100,7 +100,7 @@ struct DNSCacheFlusher {
 // MARK: - Spotlight
 
 /// Erases and rebuilds the Spotlight index for the boot volume.
-struct SpotlightReindexer {
+struct SpotlightReindexer: Sendable {
     private let runner: PrivilegedTaskRunner
 
     init(helperProvider: @escaping PrivilegedTaskRunner.HelperProvider = SystemJunkDeleter.defaultHelperProvider) {
@@ -120,7 +120,7 @@ struct SpotlightReindexer {
 // MARK: - Time Machine
 
 /// Thins local Time Machine snapshots on the boot volume.
-struct TimeMachineSnapshotThinner {
+struct TimeMachineSnapshotThinner: Sendable {
     private let runner: PrivilegedTaskRunner
 
     init(helperProvider: @escaping PrivilegedTaskRunner.HelperProvider = SystemJunkDeleter.defaultHelperProvider) {

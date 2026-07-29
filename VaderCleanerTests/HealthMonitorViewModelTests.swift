@@ -361,11 +361,11 @@ final class HealthMonitorViewModelTests: XCTestCase {
         let service = SystemStatsService(interval: 2.0, autostart: false)
         let sut = HealthMonitorViewModel(service: service)
 
-        var fired = false
+        let fired = TestBox(false)
         withObservationTracking {
             _ = sut.ramUsage
         } onChange: {
-            fired = true
+            fired.value = true
         }
 
         // Drive a refresh — the service's tracked-property setters fire
@@ -375,7 +375,7 @@ final class HealthMonitorViewModelTests: XCTestCase {
         service.refresh()
 
         XCTAssertTrue(
-            fired,
+            fired.value,
             "Mutating service.ramUsage must invalidate views observing vm.ramUsage"
         )
     }

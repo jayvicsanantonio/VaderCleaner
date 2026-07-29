@@ -31,16 +31,6 @@ struct ScanResult: Equatable {
     /// `itemsByCategory` so the two can never disagree.
     let sizeByCategory: [ScanCategory: Int64]
 
-    /// Shared `ByteCountFormatter`. Construction is comparatively expensive
-    /// and the formatter is stateless for our use case, so we pay that cost
-    /// once for the lifetime of the process.
-    private static let byteFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = .useAll
-        formatter.countStyle = .file
-        return formatter
-    }()
-
     init(items: [ScannedFile]) {
         var total: Int64 = 0
         var grouped: [ScanCategory: [ScannedFile]] = [:]
@@ -60,6 +50,6 @@ struct ScanResult: Equatable {
     /// `ByteCountFormatter`'s file-size style so labels match how Finder
     /// reports sizes — which is what users compare scan output to.
     var formattedTotalSize: String {
-        Self.byteFormatter.string(fromByteCount: totalSize)
+        smartScanFormattedBytes(totalSize)
     }
 }

@@ -29,10 +29,10 @@ final class MyClutterViewModel {
     /// The four scan sources, each async + throwing so production wraps the real
     /// scanners and tests supply in-memory results. The progress parameter
     /// receives that scanner's running walked-item count.
-    typealias DuplicateScan = (@escaping @Sendable (Int) -> Void) async throws -> [DuplicateGroup]
-    typealias SimilarScan = (@escaping @Sendable (Int) -> Void) async throws -> [SimilarImageGroup]
-    typealias LargeOldScan = (@escaping @Sendable (Int) -> Void) async throws -> [ScannedFile]
-    typealias DownloadsScan = (@escaping @Sendable (Int) -> Void) async throws -> [DownloadItem]
+    typealias DuplicateScan = @Sendable (@escaping @Sendable (Int) -> Void) async throws -> [DuplicateGroup]
+    typealias SimilarScan = @Sendable (@escaping @Sendable (Int) -> Void) async throws -> [SimilarImageGroup]
+    typealias LargeOldScan = @Sendable (@escaping @Sendable (Int) -> Void) async throws -> [ScannedFile]
+    typealias DownloadsScan = @Sendable (@escaping @Sendable (Int) -> Void) async throws -> [DownloadItem]
     /// Deletion sink. Returns the URLs actually moved to the Trash; survivors
     /// stay in the dashboard.
     typealias Deleter = ([URL]) async -> Set<URL>
@@ -460,23 +460,35 @@ extension MyClutterViewModel {
         scanScope: MyClutterScanScopeStore
     ) -> MyClutterViewModel {
         MyClutterViewModel(
+            // Each closure snapshots the stores on the main actor (their
+            // isolation) before starting its walk, still once per scan — so the
+            // "picked up on the next run" behaviour above is unchanged.
             duplicateScan: { [weak exclusions, weak scanScope] onProgress in
-                let ex = Self.clutterExclusions(exclusions)
-                let roots = Self.clutterContentRoots(scope: scanScope)
+                let (ex, roots) = await MainActor.run {
+                    (Self.clutterExclusions(exclusions), Self.clutterContentRoots(scope: scanScope))
+                }
                 return try await DuplicateScanner(roots: roots).scan(excluding: ex, onProgress: onProgress)
             },
             similarScan: { [weak exclusions, weak scanScope] onProgress in
-                let ex = Self.clutterExclusions(exclusions)
-                let roots = Self.clutterContentRoots(scope: scanScope)
+                let (ex, roots) = await MainActor.run {
+                    (Self.clutterExclusions(exclusions), Self.clutterContentRoots(scope: scanScope))
+                }
                 return try await SimilarImageScanner(roots: roots).scan(excluding: ex, onProgress: onProgress)
             },
             largeOldScan: { [weak exclusions, weak scanScope] onProgress in
-                let ex = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
-                let provider = DefaultUserFilesPathProvider(roots: scanScope?.scanRoots ?? nil)
+                let (ex, roots) = await MainActor.run {
+                    (
+                        (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) },
+                        scanScope?.scanRoots ?? nil
+                    )
+                }
+                let provider = DefaultUserFilesPathProvider(roots: roots)
                 return try await LargeOldFilesScanner(pathProvider: provider).scan(excluding: ex, onProgress: onProgress)
             },
             downloadsScan: { [weak exclusions] onProgress in
-                let ex = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+                let ex = await MainActor.run {
+                    (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+                }
                 return try await DownloadsScanner().scan(excluding: ex, onProgress: onProgress)
             },
             deleter: { urls in await Self.trash(urls) }

@@ -65,10 +65,6 @@ struct SmartScanLargeOldReview: View {
         )
     }
 
-    /// Shared formatter — construction is expensive and the builder runs it
-    /// once per row.
-    nonisolated private static let relativeFormatter = RelativeDateTimeFormatter()
-
     nonisolated private static func buildSections(files: [ScannedFile]) -> [ManagerSection] {
         let categories = [
             category(
@@ -144,7 +140,7 @@ struct SmartScanLargeOldReview: View {
     nonisolated private static func subtitle(for file: ScannedFile) -> String {
         let folder = file.url.deletingLastPathComponent().path
         guard let accessed = file.lastAccessDate else { return folder }
-        let ago = relativeFormatter.localizedString(for: accessed, relativeTo: Date())
+        let ago = RelativeDateText.string(for: accessed)
         return String.localizedStringWithFormat(
             String(
                 localized: "Last opened %@ · %@",

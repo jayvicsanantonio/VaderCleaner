@@ -79,7 +79,7 @@ enum WebDevArtifact {
                 localized: "Last changed %@ · %@",
                 comment: "Web Development Junk row subtitle: relative last-changed date, containing project folder."
             ),
-            relativeFormatter.localizedString(for: changed, relativeTo: now), folder
+            RelativeDateText.string(for: changed, relativeTo: now), folder
         )
     }
 
@@ -97,8 +97,4 @@ enum WebDevArtifact {
     private static func lastChanged(_ file: ScannedFile) -> Date? {
         file.lastModifiedDate ?? file.lastAccessDate
     }
-
-    /// Shared formatter — construction is expensive and the row builder runs it
-    /// once per artifact.
-    private static let relativeFormatter = RelativeDateTimeFormatter()
 }

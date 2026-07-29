@@ -13,12 +13,12 @@ import Foundation
 /// directories, the `freshclam` location, the executable check, and the
 /// runner are injected so both queries and updates are unit-testable
 /// without a real ClamAV install.
-struct DatabaseUpdater {
+struct DatabaseUpdater: Sendable {
 
-    typealias ExecutableCheck = (String) -> Bool
-    typealias FreshclamRunner = (
+    typealias ExecutableCheck = @Sendable (String) -> Bool
+    typealias FreshclamRunner = @Sendable (
         _ executable: URL,
-        _ onLine: @escaping (String) -> Void
+        _ onLine: @escaping @Sendable (String) -> Void
     ) async throws -> Int32
 
     /// The two on-disk forms of a ClamAV signature database. `freshclam`
@@ -30,7 +30,9 @@ struct DatabaseUpdater {
 
     private let databaseDirectories: [URL]
     private let freshclamPaths: [URL]
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `.default` is documented
+    /// thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let isExecutable: ExecutableCheck
     private let runner: FreshclamRunner
 
@@ -76,19 +78,19 @@ struct DatabaseUpdater {
     /// first, then falling back to Homebrew prefixes.
     static func defaultFreshclamPaths() -> [URL] {
         var paths: [URL] = []
-        
+
         // 1. Bundled ClamAV (staged by Scripts/stage-clamav.sh)
         if let bundled = Bundle.main.resourceURL?
             .appendingPathComponent("clamav/bin/freshclam", isDirectory: false) {
             paths.append(bundled)
         }
-        
+
         // 2. Homebrew on Apple silicon
         paths.append(URL(fileURLWithPath: "/opt/homebrew/bin/freshclam"))
-        
+
         // 3. Homebrew on Intel
         paths.append(URL(fileURLWithPath: "/usr/local/bin/freshclam"))
-        
+
         return paths
     }
 
@@ -109,7 +111,7 @@ struct DatabaseUpdater {
                     let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
                     let modified = attributes[.modificationDate] as? Date
                 else { continue }
-                if newest == nil || modified > newest! {
+                if modified > (newest ?? .distantPast) {
                     newest = modified
                 }
             }
@@ -126,7 +128,7 @@ struct DatabaseUpdater {
     /// Runs `freshclam`, forwarding each output line to `progress`. Throws
     /// when `freshclam` is absent or exits non-zero (it returns 0 on both a
     /// successful update and an already-current database).
-    func update(progress: @escaping (String) -> Void = { _ in }) async throws {
+    func update(progress: @escaping @Sendable (String) -> Void = { _ in }) async throws {
         guard let executable = freshclamPath() else {
             throw NSError(
                 domain: "com.personal.VaderCleaner.DatabaseUpdater",

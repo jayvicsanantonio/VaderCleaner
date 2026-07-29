@@ -268,8 +268,7 @@ struct ProtectionDashboardView: View {
     /// four), backfilled with a reassurance card when privacy is clean.
     private var selectedTiles: [ProtectionDashboardTile] {
         let malwareHasThreats: Bool
-        if case .results(let threats) = malware.phase { malwareHasThreats = !threats.isEmpty }
-        else { malwareHasThreats = false }
+        if case .results(let threats) = malware.phase { malwareHasThreats = !threats.isEmpty } else { malwareHasThreats = false }
 
         var real: [RankedTile<ProtectionDashboardTile>] = [
             RankedTile(payload: .malware,
@@ -477,7 +476,7 @@ struct ProtectionDashboardView: View {
                     localized: "\(browser.displayName) Browsing Data Found",
                     comment: "Protection privacy tile title for a browser's data."
                 ),
-                metric: smartScanByteFormatter.string(fromByteCount: size),
+                metric: smartScanFormattedBytes(size),
                 caption: String(localized: "Remove your browser data to free up space and improve your privacy.",
                                 comment: "Protection browser-data tile caption."),
                 systemImage: "globe",

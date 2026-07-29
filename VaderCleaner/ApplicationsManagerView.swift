@@ -863,7 +863,7 @@ private struct UninstallerPaneView: View {
 
     private func sizeText(_ bytes: Int64?) -> String {
         guard let bytes else { return "—" }
-        return smartScanByteFormatter.string(fromByteCount: bytes)
+        return smartScanFormattedBytes(bytes)
     }
 
     private func dateText(_ date: Date?) -> String {
@@ -1586,7 +1586,7 @@ enum ApplicationsManagerChrome {
     static let accent = ManagerChrome.accent
 
     static func byteText(_ bytes: Int64) -> String {
-        smartScanByteFormatter.string(fromByteCount: bytes)
+        smartScanFormattedBytes(bytes)
     }
 }
 

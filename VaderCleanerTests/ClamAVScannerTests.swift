@@ -15,14 +15,13 @@ final class ClamAVScannerTests: XCTestCase {
         // clamscan stays silent during clean stretches and the UI has no
         // progress signal to display. We parse `FOUND` separately so
         // dropping the flag doesn't change threat detection.
-        var capturedExecutable: URL?
-        var capturedArguments: [String]?
+        let capturedExecutable = TestBox<URL?>(nil)
+        let capturedArguments = TestBox<[String]?>(nil)
         let scanner = makeScanner(installed: true,
                                   databaseDirectory: nil,
-                                  excludedDirectories: []) {
-            executable, arguments, _ in
-            capturedExecutable = executable
-            capturedArguments = arguments
+                                  excludedDirectories: []) { executable, arguments, _ in
+            capturedExecutable.value = executable
+            capturedArguments.value = arguments
             return 0
         }
 
@@ -31,9 +30,9 @@ final class ClamAVScannerTests: XCTestCase {
             progress: { _, _ in }
         )
 
-        XCTAssertEqual(capturedExecutable, binary)
+        XCTAssertEqual(capturedExecutable.value, binary)
         XCTAssertEqual(
-            capturedArguments,
+            capturedArguments.value,
             ["--recursive", "--no-summary", "/Users/x", "/tmp/y"]
         )
     }
@@ -42,13 +41,13 @@ final class ClamAVScannerTests: XCTestCase {
         // Exclusions are full Perl-compatible regexes against clamscan's
         // candidate directory paths; we feed them as `--exclude-dir=<re>`
         // ahead of the scan targets so the override is unambiguous.
-        var capturedArguments: [String]?
+        let capturedArguments = TestBox<[String]?>(nil)
         let scanner = makeScanner(
             installed: true,
             databaseDirectory: nil,
             excludedDirectories: ["/node_modules/", "/\\.git/"]
         ) { _, arguments, _ in
-            capturedArguments = arguments
+            capturedArguments.value = arguments
             return 0
         }
 
@@ -58,7 +57,7 @@ final class ClamAVScannerTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            capturedArguments,
+            capturedArguments.value,
             [
                 "--exclude-dir=/node_modules/",
                 "--exclude-dir=/\\.git/",
@@ -72,11 +71,11 @@ final class ClamAVScannerTests: XCTestCase {
         // The default ScanOptions mirrors clamscan's own defaults (mail and
         // archives inspected), so a default-constructed value must add no
         // `--scan-*` flags — keeping the base argument list minimal.
-        var capturedArguments: [String]?
+        let capturedArguments = TestBox<[String]?>(nil)
         let scanner = makeScanner(installed: true,
                                   databaseDirectory: nil,
                                   excludedDirectories: []) { _, arguments, _ in
-            capturedArguments = arguments
+            capturedArguments.value = arguments
             return 0
         }
 
@@ -85,17 +84,17 @@ final class ClamAVScannerTests: XCTestCase {
             progress: { _, _ in }
         )
 
-        XCTAssertEqual(capturedArguments, ["--recursive", "--no-summary", "/Users/x"])
+        XCTAssertEqual(capturedArguments.value, ["--recursive", "--no-summary", "/Users/x"])
     }
 
     func test_scan_appendsDisableFlagsWhenScanContentOptionsAreOff() async throws {
         // Turning the Protection content options off must emit explicit
         // `--scan-mail=no` / `--scan-archive=no` ahead of the scan paths.
-        var capturedArguments: [String]?
+        let capturedArguments = TestBox<[String]?>(nil)
         let scanner = makeScanner(installed: true,
                                   databaseDirectory: nil,
                                   excludedDirectories: []) { _, arguments, _ in
-            capturedArguments = arguments
+            capturedArguments.value = arguments
             return 0
         }
 
@@ -106,7 +105,7 @@ final class ClamAVScannerTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            capturedArguments,
+            capturedArguments.value,
             ["--recursive", "--no-summary", "--scan-mail=no", "--scan-archive=no", "/Users/x"]
         )
     }
@@ -119,7 +118,7 @@ final class ClamAVScannerTests: XCTestCase {
         // `interval` of the previous emit — here the leading first line emits
         // and the trailing flush reports the final total, so a three-line burst
         // yields two callbacks (the middle line is dropped), not three.
-        var progressCallCount = 0
+        let progressCallCount = TestBox(0)
         let scanner = makeScanner(
             installed: true,
             databaseDirectory: nil,
@@ -134,20 +133,20 @@ final class ClamAVScannerTests: XCTestCase {
 
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { _, _ in progressCallCount += 1 }
+            progress: { _, _ in progressCallCount.value += 1 }
         )
 
-        XCTAssertEqual(progressCallCount, 2,
+        XCTAssertEqual(progressCallCount.value, 2,
                        "the middle line is dropped by the throttle; the leading line and the terminal flush both emit")
     }
 
     /// The throttle limits how often progress is reported, but the reported
     /// files-checked count is tallied on every line at the source — so the one
     /// emitted callback in a throttled burst still carries the true total, not
-    /// the number of emissions. Without this, a fast clean stretch undercounts.
+    /// the number of emissions.value. Without this, a fast clean stretch undercounts.
     func test_scan_reportsTrueFileCountEvenWhenProgressIsThrottled() async throws {
-        var lastReportedCount = 0
-        var emissions = 0
+        let lastReportedCount = TestBox(0)
+        let emissions = TestBox(0)
         let scanner = makeScanner(
             installed: true,
             databaseDirectory: nil,
@@ -163,13 +162,13 @@ final class ClamAVScannerTests: XCTestCase {
         _ = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
             progress: { _, filesScanned in
-                emissions += 1
-                lastReportedCount = filesScanned
+                emissions.value += 1
+                lastReportedCount.value = filesScanned
             }
         )
 
-        XCTAssertLessThan(emissions, 3, "the throttle must still drop mid-burst lines rather than emit per line")
-        XCTAssertEqual(lastReportedCount, 3, "the terminal flush must report every line scanned, not the number of emissions")
+        XCTAssertLessThan(emissions.value, 3, "the throttle must still drop mid-burst lines rather than emit per line")
+        XCTAssertEqual(lastReportedCount.value, 3, "the terminal flush must report every line scanned, not the number of emissions.value")
     }
 
     func test_scan_parsesEveryThreatRegardlessOfProgressThrottle() async throws {
@@ -256,13 +255,13 @@ final class ClamAVScannerTests: XCTestCase {
         // Support, ahead of the rest of the arguments so the override is
         // unambiguous.
         let dbDirectory = URL(fileURLWithPath: "/Users/x/Library/Application Support/VaderCleaner/clamav/db")
-        var capturedArguments: [String]?
+        let capturedArguments = TestBox<[String]?>(nil)
         let scanner = makeScanner(
             installed: true,
             databaseDirectory: dbDirectory,
             excludedDirectories: []
         ) { _, arguments, _ in
-            capturedArguments = arguments
+            capturedArguments.value = arguments
             return 0
         }
 
@@ -272,7 +271,7 @@ final class ClamAVScannerTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            capturedArguments,
+            capturedArguments.value,
             ["--database=\(dbDirectory.path)",
              "--recursive", "--no-summary",
              "/Users/x"]
@@ -280,7 +279,7 @@ final class ClamAVScannerTests: XCTestCase {
     }
 
     func test_scan_returnsEmptyAndForwardsProgressOnCleanExitZero() async throws {
-        var progressLines: [String] = []
+        let progressLines = TestBox<[String]>([])
         let scanner = makeScanner(installed: true) { _, _, onLine in
             onLine("Scanning /Users/x/a.txt")
             onLine("/Users/x/a.txt: OK")
@@ -289,11 +288,11 @@ final class ClamAVScannerTests: XCTestCase {
 
         let threats = try await scanner.scan(
             paths: [URL(fileURLWithPath: "/Users/x")],
-            progress: { line, _ in progressLines.append(line) }
+            progress: { line, _ in progressLines.value.append(line) }
         )
 
         XCTAssertTrue(threats.isEmpty)
-        XCTAssertEqual(progressLines, ["Scanning /Users/x/a.txt", "/Users/x/a.txt: OK"])
+        XCTAssertEqual(progressLines.value, ["Scanning /Users/x/a.txt", "/Users/x/a.txt: OK"])
     }
 
     func test_scan_parsesThreatsOnExitOne() async throws {

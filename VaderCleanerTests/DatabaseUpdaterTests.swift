@@ -57,24 +57,24 @@ final class DatabaseUpdaterTests: XCTestCase {
     // MARK: - update
 
     func test_update_invokesFreshclamRunnerAndForwardsProgress() async throws {
-        var capturedExecutable: URL?
-        var lines: [String] = []
+        let capturedExecutable = TestBox<URL?>(nil)
+        let lines = TestBox<[String]>([])
         let updater = DatabaseUpdater(
             databaseDirectories: [dbDir],
             freshclamPaths: [URL(fileURLWithPath: "/opt/homebrew/bin/freshclam")],
             isExecutable: { _ in true },
             runner: { executable, onLine in
-                capturedExecutable = executable
+                capturedExecutable.value = executable
                 onLine("Downloading daily.cvd")
                 onLine("daily.cvd updated")
                 return 0
             }
         )
 
-        try await updater.update { lines.append($0) }
+        try await updater.update { lines.value.append($0) }
 
-        XCTAssertEqual(capturedExecutable?.path, "/opt/homebrew/bin/freshclam")
-        XCTAssertEqual(lines, ["Downloading daily.cvd", "daily.cvd updated"])
+        XCTAssertEqual(capturedExecutable.value?.path, "/opt/homebrew/bin/freshclam")
+        XCTAssertEqual(lines.value, ["Downloading daily.cvd", "daily.cvd updated"])
     }
 
     func test_update_throwsOnNonZeroExit() async {

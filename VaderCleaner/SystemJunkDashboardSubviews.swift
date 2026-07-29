@@ -7,15 +7,11 @@ import AppKit
 // MARK: - Formatting
 
 enum SystemJunkFormatting {
-    /// Shared file-size formatter for the dashboard tiles and card titles.
-    /// Constructed once because `ByteCountFormatter` allocates measurable
-    /// internal state per instance.
-    static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = .useAll
-        f.countStyle = .file
-        return f
-    }()
+    /// Finder-matching file-style byte string, formatted through the shared
+    /// helper so every surface reports sizes identically.
+    static func formattedBytes(_ bytes: Int64) -> String {
+        smartScanFormattedBytes(bytes)
+    }
 }
 
 // MARK: - Dashboard tile
@@ -176,7 +172,7 @@ struct SystemJunkDashboardView: View {
     }
 
     private var headline: String {
-        let size = SystemJunkFormatting.byteFormatter.string(fromByteCount: totalBytes)
+        let size = SystemJunkFormatting.formattedBytes(totalBytes)
         let format = String(
             localized: "There are %@ of junk files on your Mac.",
             comment: "Cleanup dashboard headline; %@ is the total reclaimable size."
@@ -284,7 +280,7 @@ struct SystemJunkDashboardView: View {
 
     /// "30.9 GB of System Junk Found" — the size-led title from the reference.
     private func cardTitle(for tile: CleanupGroupTile) -> String {
-        let size = SystemJunkFormatting.byteFormatter.string(fromByteCount: tile.totalBytes)
+        let size = SystemJunkFormatting.formattedBytes(tile.totalBytes)
         let format = String(
             localized: "%1$@ of %2$@ Found",
             comment: "Cleanup card title; %1$@ is the reclaimable size, %2$@ the group name, e.g. \"30.9 GB of System Junk Found\"."
@@ -403,4 +399,3 @@ struct CleanupCard: View {
             .accessibilityHidden(true)
     }
 }
-

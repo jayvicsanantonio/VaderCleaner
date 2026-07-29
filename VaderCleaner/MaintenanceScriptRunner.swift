@@ -14,7 +14,7 @@ import os.log
 /// scripts' stdout.
 struct MaintenanceScriptRunner {
 
-    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
+    typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
 
     private let helperProvider: HelperProvider
     private let log = Logger(subsystem: "com.personal.VaderCleaner",

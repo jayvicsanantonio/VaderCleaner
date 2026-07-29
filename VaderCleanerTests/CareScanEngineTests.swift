@@ -61,7 +61,7 @@ final class CareScanEngineTests: XCTestCase {
         var errorDescription: String? { "test failure" }
     }
 
-    private func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
+    private static func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
         ScannedFile(
             url: URL(fileURLWithPath: path),
             size: size,
@@ -71,7 +71,7 @@ final class CareScanEngineTests: XCTestCase {
         )
     }
 
-    private func appInfo(_ name: String) -> AppInfo {
+    private static func appInfo(_ name: String) -> AppInfo {
         AppInfo(
             name: name,
             bundleID: "com.example.\(name)",
@@ -139,7 +139,7 @@ final class CareScanEngineTests: XCTestCase {
 
     func test_scan_aggregatesFindings_inKindDeclarationOrder() async {
         var runners = emptyRunners()
-        runners.junk = { _ in ScanResult(items: [self.file("/cache", size: 10)]) }
+        runners.junk = { _ in ScanResult(items: [Self.file("/cache", size: 10)]) }
         runners.malware = { _ in [MalwareThreat(filePath: URL(fileURLWithPath: "/evil"), threatName: "T")] }
         runners.loginItems = { [LoginItem(id: "a", name: "Agent", isEnabled: true)] }
 
@@ -163,8 +163,8 @@ final class CareScanEngineTests: XCTestCase {
         var runners = emptyRunners()
         runners.junk = { _ in
             ScanResult(items: [
-                self.file("/cache", size: 10, category: .userCache),
-                self.file("/mail", size: 20, category: .mailAttachments)
+                Self.file("/cache", size: 10, category: .userCache),
+                Self.file("/mail", size: 20, category: .mailAttachments)
             ])
         }
         let engine = CareScanEngine(runners: runners)
@@ -182,12 +182,12 @@ final class CareScanEngineTests: XCTestCase {
         var runners = emptyRunners()
         runners.similarImages = { _ in
             [SimilarImageGroup(files: [
-                self.file("/Pictures/shot.jpg", size: 100, category: .largeFile),
-                self.file("/Pictures/shot-copy.jpg", size: 90, category: .largeFile),
+                Self.file("/Pictures/shot.jpg", size: 100, category: .largeFile),
+                Self.file("/Pictures/shot-copy.jpg", size: 90, category: .largeFile),
             ])]
         }
         runners.downloads = { _ in
-            [DownloadItem(file: self.file("/Downloads/old.dmg", size: 500, category: .largeFile), sourceApp: "Safari")]
+            [DownloadItem(file: Self.file("/Downloads/old.dmg", size: 500, category: .largeFile), sourceApp: "Safari")]
         }
         let engine = CareScanEngine(runners: runners)
         let plan = await engine.scan(configuration: configuration()) { _ in }
@@ -306,7 +306,7 @@ final class CareScanEngineTests: XCTestCase {
     func test_appDiscovery_runsOnce_andFansOut() async {
         let discoveries = CallCounter()
         var runners = emptyRunners()
-        runners.installedApps = { discoveries.increment(); return [self.appInfo("Solo")] }
+        runners.installedApps = { discoveries.increment(); return [Self.appInfo("Solo")] }
         runners.appLeftovers = { bundleIDs in
             XCTAssertEqual(bundleIDs, ["com.example.Solo"])
             return []
@@ -463,8 +463,10 @@ final class CareScanEngineTests: XCTestCase {
 
         let engine = CareScanEngine(runners: runners)
         let start = Date()
+        // Built before the Task so the closure captures the value, not `self`.
+        let scanConfiguration = configuration(units: [.systemJunk])
         let task = Task {
-            await engine.scan(configuration: configuration(units: [.systemJunk])) { _ in }
+            await engine.scan(configuration: scanConfiguration) { _ in }
         }
         await junkStarted.wait()
         task.cancel()

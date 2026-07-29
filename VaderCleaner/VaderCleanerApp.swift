@@ -433,6 +433,11 @@ struct VaderCleanerApp: App {
 ///   - `UserDefaults.didChangeNotification` re-evaluates when any preference
 ///     toggles, so flipping `showMenuBar` from on to off while no window is
 ///     open promptly reveals the Dock icon.
+/// `@MainActor` because every member drives AppKit — `NSApp`, window style
+/// masks, activation policy — which AppKit only ever calls on the main thread.
+/// Stating that isolation lets the compiler check the accesses instead of
+/// warning about each one.
+@MainActor
 final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
 
     private var windowCloseObserver: NSObjectProtocol?
@@ -463,12 +468,21 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
     private func installObservers() {
         let center = NotificationCenter.default
 
+        // Each block is delivered on `.main`, so `assumeIsolated` states the
+        // isolation the queue already guarantees rather than hopping through a
+        // Task — which would let a window close land a frame late.
         windowCloseObserver = center.addObserver(
             forName: NSWindow.willCloseNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleWindowWillClose(notification)
+            // `Notification` is not `Sendable`, but `queue: .main` means this
+            // block and the handler both run on the main thread — the value
+            // never crosses one — so the transfer is opted out of explicitly.
+            nonisolated(unsafe) let notification = notification
+            MainActor.assumeIsolated {
+                self?.handleWindowWillClose(notification)
+            }
         }
 
         windowKeyObserver = center.addObserver(
@@ -476,7 +490,12 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleWindowDidBecomeKey(notification)
+            // See above — delivered on `.main`, so nothing actually crosses a
+            // concurrency boundary.
+            nonisolated(unsafe) let notification = notification
+            MainActor.assumeIsolated {
+                self?.handleWindowDidBecomeKey(notification)
+            }
         }
 
         // `UserDefaults.didChangeNotification` fires for every key in the
@@ -489,7 +508,9 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
             object: UserDefaults.standard,
             queue: .main
         ) { [weak self] _ in
-            self?.reconcileActivationPolicy()
+            MainActor.assumeIsolated {
+                self?.reconcileActivationPolicy()
+            }
         }
     }
 
@@ -544,7 +565,10 @@ final class VaderCleanerAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    deinit {
+    /// `isolated` so teardown runs on the main actor that installed the
+    /// observers — the tokens are not `Sendable`, so a nonisolated `deinit`
+    /// cannot reach them.
+    isolated deinit {
         let center = NotificationCenter.default
         if let token = windowCloseObserver {
             center.removeObserver(token)

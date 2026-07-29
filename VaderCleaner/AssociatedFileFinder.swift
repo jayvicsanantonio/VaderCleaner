@@ -14,7 +14,10 @@ import Foundation
 /// files.
 struct DefaultAssociatedFileFinder: Sendable {
 
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `FileManager` is not `Sendable`,
+    /// but `.default` is documented thread-safe and test fixtures are
+    /// single-threaded, so the isolation is opted out of per property.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let homeDirectory: URL
     private let systemLibraryDirectory: URL
     /// Canonicalised user exclusions. Any candidate whose canonical path
@@ -43,176 +46,44 @@ struct DefaultAssociatedFileFinder: Sendable {
         let canonicalExclusions = canonicalExclusions
 
         return await Task.detached(priority: .userInitiated) {
-            var results: [AssociatedFile] = []
-
-            // ── Preferences ─────────────────────────────────────────
-            // Three valid spellings on disk:
-            //   ~/Library/Preferences/<bundleID>.plist
-            //   ~/Library/Preferences/<bundleID>.*.plist (per-host LSSharedFileList variants)
-            //   ~/Library/Preferences/ByHost/<bundleID>.*.plist
-            let preferencesDir = userLibrary.appendingPathComponent("Preferences", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: preferencesDir,
-                nameStartsWith: bundleID,
-                requiredSuffix: ".plist",
-                category: .preferences,
+            var results = preferenceFiles(
+                bundleID: bundleID,
+                userLibrary: userLibrary,
+                systemLibrary: systemLibrary,
                 fileManager: fileManager
-            ))
-            let byHostDir = preferencesDir.appendingPathComponent("ByHost", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: byHostDir,
-                nameStartsWith: bundleID,
-                requiredSuffix: ".plist",
-                category: .preferences,
+            )
+            results += singleNameFiles(
+                bundleID: bundleID,
+                userLibrary: userLibrary,
+                systemLibrary: systemLibrary,
                 fileManager: fileManager
-            ))
-
-            // ── Single-name lookups under ~/Library ─────────────────
-            let singleNameLocations: [(String, AssociatedFileCategory)] = [
-                ("Application Support", .applicationSupport),
-                ("Caches", .cache),
-                ("Logs", .logs),
-                ("Containers", .containers),
-                ("HTTPStorages", .containers)
-            ]
-            for (subpath, category) in singleNameLocations {
-                let candidate = userLibrary
-                    .appendingPathComponent(subpath, isDirectory: true)
-                    .appendingPathComponent(bundleID, isDirectory: false)
-                if let file = makeAssociatedFile(at: candidate, category: category, fileManager: fileManager) {
-                    results.append(file)
-                }
-            }
-
-            // ── System-wide /Library counterparts ───────────────────
-            // Installers that drop machine-wide data (typically through
-            // pkg installers) leave their residue under `/Library/...`,
-            // not the user's home. Without these lookups uninstalling
-            // the app would leave system-wide caches / app support /
-            // preferences orphaned on disk. These paths are usually
-            // root-owned; the recycler prompts for authorization the
-            // same way Finder does when Trashing system files.
-            let systemPreferencesDir = systemLibrary
-                .appendingPathComponent("Preferences", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: systemPreferencesDir,
-                nameStartsWith: bundleID,
-                requiredSuffix: ".plist",
-                category: .preferences,
+            )
+            results += containerAndStateFiles(
+                bundleID: bundleID,
+                userLibrary: userLibrary,
                 fileManager: fileManager
-            ))
-            for (subpath, category) in singleNameLocations {
-                let candidate = systemLibrary
-                    .appendingPathComponent(subpath, isDirectory: true)
-                    .appendingPathComponent(bundleID, isDirectory: false)
-                if let file = makeAssociatedFile(at: candidate, category: category, fileManager: fileManager) {
-                    results.append(file)
-                }
-            }
-
-            // ── Group Containers ────────────────────────────────────
-            // Vendors prefix the directory with a Team ID:
-            //   ~/Library/Group Containers/<TEAMID>.<bundleID>
-            // so a "contains bundleID" match is required.
-            let groupContainersDir = userLibrary
-                .appendingPathComponent("Group Containers", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: groupContainersDir,
-                nameContains: bundleID,
-                category: .groupContainers,
+            )
+            results += launchdFiles(
+                bundleID: bundleID,
+                userLibrary: userLibrary,
+                systemLibrary: systemLibrary,
                 fileManager: fileManager
-            ))
-
-            // ── Saved Application State ─────────────────────────────
-            //   ~/Library/Saved Application State/<bundleID>.savedState
-            let savedStateDir = userLibrary
-                .appendingPathComponent("Saved Application State", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: savedStateDir,
-                nameStartsWith: bundleID,
-                requiredSuffix: ".savedState",
-                category: .savedState,
-                fileManager: fileManager
-            ))
-
-            // ── Launch Agents ───────────────────────────────────────
-            // User-domain (no privilege required) and system-domain
-            // (recycle will prompt for authorization). Match a contains
-            // pattern because vendors sometimes append " .plist" or
-            // ".plist.helper" suffixes to the bundle ID.
-            let userLaunchAgentsDir = userLibrary
-                .appendingPathComponent("LaunchAgents", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: userLaunchAgentsDir,
-                nameContains: bundleID,
-                requiredSuffix: ".plist",
-                category: .launchAgents,
-                fileManager: fileManager
-            ))
-            let systemLaunchAgentsDir = systemLibrary
-                .appendingPathComponent("LaunchAgents", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: systemLaunchAgentsDir,
-                nameContains: bundleID,
-                requiredSuffix: ".plist",
-                category: .launchAgents,
-                fileManager: fileManager
-            ))
-
-            // ── Launch Daemons (root background services) ───────────
-            // Apps that install a privileged helper register it under
-            // `/Library/LaunchDaemons/<bundleID>*.plist`. Without this
-            // lookup the daemon stays registered after uninstall and
-            // can keep running on the next boot. The recycler prompts
-            // for authorization since the directory is root-owned.
-            let systemLaunchDaemonsDir = systemLibrary
-                .appendingPathComponent("LaunchDaemons", isDirectory: true)
-            results.append(contentsOf: matches(
-                inDirectory: systemLaunchDaemonsDir,
-                nameContains: bundleID,
-                requiredSuffix: ".plist",
-                category: .launchDaemons,
-                fileManager: fileManager
-            ))
-
-            // Drop anything the user excluded. The candidate count here is
-            // small (a handful of fixed locations per bundle ID), so the
-            // per-path symlink resolution `canonicalize` does is cheap —
-            // unlike the bulk scanners, which project through a root mapper
-            // to avoid a syscall per enumerated file.
-            //
-            // A candidate is dropped when it is itself excluded *or* when
-            // an excluded path lives inside it. The uninstaller recycles
-            // each candidate as one unit, so emitting a parent directory
-            // that contains an excluded descendant would Trash the
-            // excluded subtree along with it. Erring toward "leave the
-            // parent alone" is the safe choice — it never deletes data
-            // the user told us to keep.
-            if !canonicalExclusions.isEmpty {
-                results.removeAll { file in
-                    let canonicalPath = PathExclusionMatcher.canonicalize(file.url)
-                    return PathExclusionMatcher.isExcluded(
-                        path: canonicalPath,
-                        by: canonicalExclusions
-                    ) || PathExclusionMatcher.containsExcludedDescendant(
-                        of: canonicalPath,
-                        in: canonicalExclusions
-                    )
-                }
-            }
-
-            // Stable order: category (in declaration order), then URL path —
-            // makes the rendered list deterministic across runs and makes
-            // test fixtures easier to reason about.
-            results.sort { lhs, rhs in
-                if lhs.category != rhs.category {
-                    return Self.categoryOrder(lhs.category) < Self.categoryOrder(rhs.category)
-                }
-                return lhs.url.path < rhs.url.path
-            }
-            return results
+            )
+            return Self.sortedForDisplay(
+                applyingExclusions(to: results, canonicalExclusions: canonicalExclusions)
+            )
         }.value
     }
+
+    /// The `~/Library` and `/Library` subdirectories that hold a single entry
+    /// named exactly for the bundle ID, rather than a pattern match.
+    private static let singleNameLocations: [(String, AssociatedFileCategory)] = [
+        ("Application Support", .applicationSupport),
+        ("Caches", .cache),
+        ("Logs", .logs),
+        ("Containers", .containers),
+        ("HTTPStorages", .containers)
+    ]
 
     /// Returns every entry in `directory` whose name matches the bundle ID
     /// on a dot-boundary — exactly `<bundleID>` (with optional `requiredSuffix`)
@@ -340,5 +211,167 @@ struct DefaultAssociatedFileFinder: Sendable {
     /// Stable category sort key — declaration order in `allCases`.
     private static func categoryOrder(_ category: AssociatedFileCategory) -> Int {
         AssociatedFileCategory.allCases.firstIndex(of: category) ?? Int.max
+    }
+
+    /// Stable order: category (in declaration order), then URL path —
+    /// makes the rendered list deterministic across runs and makes
+    /// test fixtures easier to reason about.
+    private static func sortedForDisplay(_ files: [AssociatedFile]) -> [AssociatedFile] {
+        files.sorted { lhs, rhs in
+            if lhs.category != rhs.category {
+                return categoryOrder(lhs.category) < categoryOrder(rhs.category)
+            }
+            return lhs.url.path < rhs.url.path
+        }
+    }
+
+    // MARK: - Per-location lookups
+    //
+    // One method per family of on-disk locations, each returning its own
+    // candidates so `find(forBundleID:)` reads as the list of places checked.
+
+        /// Preference plists, user and system domain.
+    ///
+    /// Three valid spellings on disk:
+    ///   ~/Library/Preferences/<bundleID>.plist
+    ///   ~/Library/Preferences/<bundleID>.*.plist (per-host LSSharedFileList variants)
+    ///   ~/Library/Preferences/ByHost/<bundleID>.*.plist
+    private func preferenceFiles(
+        bundleID: String,
+        userLibrary: URL,
+        systemLibrary: URL,
+        fileManager: FileManager
+    ) -> [AssociatedFile] {
+        let preferencesDir = userLibrary.appendingPathComponent("Preferences", isDirectory: true)
+        let byHostDir = preferencesDir.appendingPathComponent("ByHost", isDirectory: true)
+        // Installers that drop machine-wide data (typically through pkg
+        // installers) leave their residue under `/Library/...`, not the user's
+        // home. These paths are usually root-owned; the recycler prompts for
+        // authorization the same way Finder does when Trashing system files.
+        let systemPreferencesDir = systemLibrary.appendingPathComponent("Preferences", isDirectory: true)
+
+        return [preferencesDir, byHostDir, systemPreferencesDir].flatMap { directory in
+            matches(
+                inDirectory: directory,
+                nameStartsWith: bundleID,
+                requiredSuffix: ".plist",
+                category: .preferences,
+                fileManager: fileManager
+            )
+        }
+    }
+
+    /// The fixed subdirectories that hold a single entry named for the bundle ID,
+    /// checked under both `~/Library` and `/Library`. Without the system-domain
+    /// half, uninstalling would leave machine-wide caches / app support orphaned.
+    private func singleNameFiles(
+        bundleID: String,
+        userLibrary: URL,
+        systemLibrary: URL,
+        fileManager: FileManager
+    ) -> [AssociatedFile] {
+        [userLibrary, systemLibrary].flatMap { root in
+            Self.singleNameLocations.compactMap { subpath, category in
+                let candidate = root
+                    .appendingPathComponent(subpath, isDirectory: true)
+                    .appendingPathComponent(bundleID, isDirectory: false)
+                return makeAssociatedFile(at: candidate, category: category, fileManager: fileManager)
+            }
+        }
+    }
+
+    /// Group containers and saved application state, both user-domain.
+    private func containerAndStateFiles(
+        bundleID: String,
+        userLibrary: URL,
+        fileManager: FileManager
+    ) -> [AssociatedFile] {
+        // Vendors prefix the group-container directory with a Team ID:
+        //   ~/Library/Group Containers/<TEAMID>.<bundleID>
+        // so a "contains bundleID" match is required.
+        let groupContainers = matches(
+            inDirectory: userLibrary.appendingPathComponent("Group Containers", isDirectory: true),
+            nameContains: bundleID,
+            category: .groupContainers,
+            fileManager: fileManager
+        )
+
+        //   ~/Library/Saved Application State/<bundleID>.savedState
+        let savedState = matches(
+            inDirectory: userLibrary.appendingPathComponent("Saved Application State", isDirectory: true),
+            nameStartsWith: bundleID,
+            requiredSuffix: ".savedState",
+            category: .savedState,
+            fileManager: fileManager
+        )
+
+        return groupContainers + savedState
+    }
+
+    /// Launch agents (user and system domain) and launch daemons.
+    private func launchdFiles(
+        bundleID: String,
+        userLibrary: URL,
+        systemLibrary: URL,
+        fileManager: FileManager
+    ) -> [AssociatedFile] {
+        // User-domain (no privilege required) and system-domain (recycle will
+        // prompt for authorization). Match a contains pattern because vendors
+        // sometimes append " .plist" or ".plist.helper" suffixes to the bundle ID.
+        let agents = [
+            userLibrary.appendingPathComponent("LaunchAgents", isDirectory: true),
+            systemLibrary.appendingPathComponent("LaunchAgents", isDirectory: true)
+        ].flatMap { directory in
+            matches(
+                inDirectory: directory,
+                nameContains: bundleID,
+                requiredSuffix: ".plist",
+                category: .launchAgents,
+                fileManager: fileManager
+            )
+        }
+
+        // Apps that install a privileged helper register it under
+        // `/Library/LaunchDaemons/<bundleID>*.plist`. Without this lookup the
+        // daemon stays registered after uninstall and can keep running on the
+        // next boot. The recycler prompts for authorization since the directory
+        // is root-owned.
+        let daemons = matches(
+            inDirectory: systemLibrary.appendingPathComponent("LaunchDaemons", isDirectory: true),
+            nameContains: bundleID,
+            requiredSuffix: ".plist",
+            category: .launchDaemons,
+            fileManager: fileManager
+        )
+
+        return agents + daemons
+    }
+
+    /// Drops anything the user excluded. The candidate count here is small (a
+    /// handful of fixed locations per bundle ID), so the per-path symlink
+    /// resolution `canonicalize` does is cheap — unlike the bulk scanners, which
+    /// project through a root mapper to avoid a syscall per enumerated file.
+    ///
+    /// A candidate is dropped when it is itself excluded *or* when an excluded
+    /// path lives inside it. The uninstaller recycles each candidate as one unit,
+    /// so emitting a parent directory that contains an excluded descendant would
+    /// Trash the excluded subtree along with it. Erring toward "leave the parent
+    /// alone" is the safe choice — it never deletes data the user told us to keep.
+    private func applyingExclusions(
+        to files: [AssociatedFile],
+        canonicalExclusions: [String]
+    ) -> [AssociatedFile] {
+        guard !canonicalExclusions.isEmpty else { return files }
+        return files.filter { file in
+            let canonicalPath = PathExclusionMatcher.canonicalize(file.url)
+            let excluded = PathExclusionMatcher.isExcluded(
+                path: canonicalPath,
+                by: canonicalExclusions
+            ) || PathExclusionMatcher.containsExcludedDescendant(
+                of: canonicalPath,
+                in: canonicalExclusions
+            )
+            return !excluded
+        }
     }
 }

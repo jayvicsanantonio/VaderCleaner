@@ -16,7 +16,7 @@ final class ProtectionPrivacyModelTests: XCTestCase {
         ProtectionPrivacyModel(detect: { browsers }, count: count, items: items, remove: remove)
     }
 
-    private let cookieItems = [
+    nonisolated private static let cookieItems = [
         PrivacyItem(id: ".a.com", label: ".a.com", count: 2, hostKey: ".a.com"),
         PrivacyItem(id: ".b.com", label: ".b.com", count: 1, hostKey: ".b.com")
     ]
@@ -24,19 +24,19 @@ final class ProtectionPrivacyModelTests: XCTestCase {
     func test_scan_cachesCountsAndItems() async {
         let model = makeModel(
             count: { _, c in c == .cookies ? 3 : 0 },
-            items: { _, c in c == .cookies ? self.cookieItems : [] }
+            items: { _, c in c == .cookies ? Self.cookieItems : [] }
         )
 
         await model.scan()
 
         XCTAssertEqual(model.browsers, [.chrome])
         XCTAssertEqual(model.count(.chrome, .cookies), 3)
-        XCTAssertEqual(model.items(.chrome, .cookies), cookieItems)
+        XCTAssertEqual(model.items(.chrome, .cookies), Self.cookieItems)
         XCTAssertEqual(model.phase, .ready)
     }
 
     func test_toggleCategory_expandable_selectsAllItemsThenItemTogglesToMixed() async {
-        let model = makeModel(count: { _, _ in 3 }, items: { _, c in c == .cookies ? self.cookieItems : [] })
+        let model = makeModel(count: { _, _ in 3 }, items: { _, c in c == .cookies ? Self.cookieItems : [] })
         await model.scan()
 
         XCTAssertEqual(model.categoryState(.chrome, .cookies), .off)
@@ -49,7 +49,7 @@ final class ProtectionPrivacyModelTests: XCTestCase {
     }
 
     func test_removalRequests_partialUsesItems_fullCollapsesToWholeCategory() async {
-        let model = makeModel(count: { _, _ in 3 }, items: { _, c in c == .cookies ? self.cookieItems : [] })
+        let model = makeModel(count: { _, _ in 3 }, items: { _, c in c == .cookies ? Self.cookieItems : [] })
         await model.scan()
 
         model.toggleItem(.chrome, .cookies, ".a.com")
@@ -87,7 +87,7 @@ final class ProtectionPrivacyModelTests: XCTestCase {
     }
 
     func test_setAllSelected_selectsEveryRemovableCategory() async {
-        let model = makeModel(count: { _, _ in 2 }, items: { _, c in c == .cookies ? self.cookieItems : [] })
+        let model = makeModel(count: { _, _ in 2 }, items: { _, c in c == .cookies ? Self.cookieItems : [] })
         await model.scan()
 
         model.setAllSelected(true, browser: .chrome)

@@ -270,7 +270,7 @@ struct ApplicationsDashboardView: View {
             localized: "%@ of Installation Files Found",
             comment: "Applications Installation Files card title; %@ is the reclaimable size."
         )
-        return String.localizedStringWithFormat(format, smartScanByteFormatter.string(fromByteCount: result.installationFilesTotalBytes))
+        return String.localizedStringWithFormat(format, smartScanFormattedBytes(result.installationFilesTotalBytes))
     }
 
     private var installationFilesDetail: String {
@@ -313,7 +313,7 @@ struct ApplicationsDashboardView: View {
                 localized: "You may not need these apps, but they use %@ of space in total.",
                 comment: "Applications Unused card detail; %@ is the total on-disk size of the unused apps."
             )
-            return String.localizedStringWithFormat(format, smartScanByteFormatter.string(fromByteCount: bytes))
+            return String.localizedStringWithFormat(format, smartScanFormattedBytes(bytes))
         }
         return String(
             localized: "You may not need these apps. Remove the ones you no longer use.",
@@ -359,7 +359,7 @@ struct ApplicationsDashboardView: View {
             localized: "%@ of App Leftovers Found",
             comment: "Applications Leftovers card title; %@ is the reclaimable size."
         )
-        return String.localizedStringWithFormat(format, smartScanByteFormatter.string(fromByteCount: result.leftoversTotalBytes))
+        return String.localizedStringWithFormat(format, smartScanFormattedBytes(result.leftoversTotalBytes))
     }
 
     private var leftoversDetail: String {

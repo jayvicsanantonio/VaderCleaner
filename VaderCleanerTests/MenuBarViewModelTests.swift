@@ -180,11 +180,11 @@ final class MenuBarViewModelTests: XCTestCase {
         let service = SystemStatsService(interval: 2.0, autostart: false)
         let sut = MenuBarViewModel(service: service)
 
-        var fired = false
+        let fired = TestBox(false)
         withObservationTracking {
             _ = sut.formattedRAMUsage
         } onChange: {
-            fired = true
+            fired.value = true
         }
 
         // Drive a refresh — the service's tracked-property setters fire
@@ -193,7 +193,7 @@ final class MenuBarViewModelTests: XCTestCase {
         service.refresh()
 
         XCTAssertTrue(
-            fired,
+            fired.value,
             "Mutating service.ramUsage must invalidate views observing vm.formattedRAMUsage"
         )
     }

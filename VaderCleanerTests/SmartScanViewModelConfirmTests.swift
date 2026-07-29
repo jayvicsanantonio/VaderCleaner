@@ -9,7 +9,7 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private nonisolated func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
+    private nonisolated static func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
         ScannedFile(
             url: URL(fileURLWithPath: path),
             size: size,
@@ -21,13 +21,13 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
 
     /// Junk (pre-approved, one safe file), duplicates (pre-approved, seeds its
     /// redundant copy), and one opt-in large file that stays out until chosen.
-    private nonisolated var plan: CarePlan {
-        let junk = ScanResult(items: [file("/cache/safe", size: 1_000, category: .userCache)])
+    private nonisolated static var plan: CarePlan {
+        let junk = ScanResult(items: [Self.file("/cache/safe", size: 1_000, category: .userCache)])
         let dupGroup = DuplicateGroup(files: [
-            file("/Downloads/original", size: 40),
-            file("/Downloads/copy", size: 40)
+            Self.file("/Downloads/original", size: 40),
+            Self.file("/Downloads/copy", size: 40)
         ])
-        let bigFile = file("/Movies/huge.mov", size: 9_000, category: .largeFile)
+        let bigFile = Self.file("/Movies/huge.mov", size: 9_000, category: .largeFile)
         return CarePlan(
             findings: [
                 CareFinding(kind: .junkCleanup, payload: .junk(junk)),
@@ -41,9 +41,9 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         )
     }
 
-    private func scannedViewModel(runRecorder: (() -> Void)? = nil) async -> SmartScanViewModel {
+    private func scannedViewModel(runRecorder: (@Sendable () -> Void)? = nil) async -> SmartScanViewModel {
         let vm = SmartScanViewModel(
-            scanEngine: { _, _ in self.plan },
+            scanEngine: { _, _ in Self.plan },
             junkCleaner: { files in runRecorder?(); return files.reduce(0) { $0 + $1.size } },
             recycleFiles: { runRecorder?(); return Set($0) }
         )
@@ -81,8 +81,8 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         // so what Fix frees — and the tile metric — is the safe subset only,
         // not the gross total the scanner found.
         let junk = ScanResult(items: [
-            file("/cache/safe", size: 1_000, category: .userCache),
-            file("/mail/attachment", size: 5_000, category: .mailAttachments),
+            Self.file("/cache/safe", size: 1_000, category: .userCache),
+            Self.file("/mail/attachment", size: 5_000, category: .mailAttachments),
         ])
         let plan = CarePlan(
             findings: [CareFinding(kind: .junkCleanup, payload: .junk(junk))],
@@ -128,51 +128,51 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
     // MARK: - Confirmation gate
 
     func test_requestRun_withJunk_raisesConfirmationWithoutRunning() async {
-        var ran = false
-        let vm = await scannedViewModel(runRecorder: { ran = true })
+        let ran = TestBox(false)
+        let vm = await scannedViewModel(runRecorder: { ran.value = true })
         await vm.requestRun()
         XCTAssertTrue(vm.isConfirmingRun, "a permanent junk delete must confirm first")
-        XCTAssertFalse(ran, "nothing runs until the user confirms")
+        XCTAssertFalse(ran.value, "nothing runs until the user confirms")
         XCTAssertFalse(vm.isRunDiscVisible, "the disc hides behind the sheet")
         guard case .results = vm.phase else { return XCTFail("still on the results feed") }
     }
 
     func test_requestRun_withoutPermanentDelete_runsImmediately() async {
-        var ran = false
-        let vm = await scannedViewModel(runRecorder: { ran = true })
+        let ran = TestBox(false)
+        let vm = await scannedViewModel(runRecorder: { ran.value = true })
         vm.setFindingIncluded(.junkCleanup, false) // leaves only Trash-safe duplicates
         await vm.requestRun()
         XCTAssertFalse(vm.isConfirmingRun, "no irreversible step, so no sheet")
-        XCTAssertTrue(ran, "the run proceeds on one tap")
+        XCTAssertTrue(ran.value, "the run proceeds on one tap")
         guard case .done = vm.phase else { return XCTFail("expected .done, got \(vm.phase)") }
     }
 
     func test_confirmRun_executesAndClearsTheSheet() async {
-        var ran = false
-        let vm = await scannedViewModel(runRecorder: { ran = true })
+        let ran = TestBox(false)
+        let vm = await scannedViewModel(runRecorder: { ran.value = true })
         await vm.requestRun()
         await vm.confirmRun()
         XCTAssertFalse(vm.isConfirmingRun)
-        XCTAssertTrue(ran)
+        XCTAssertTrue(ran.value)
         guard case .done = vm.phase else { return XCTFail("expected .done, got \(vm.phase)") }
     }
 
     func test_cancelRun_dismissesWithoutRunning() async {
-        var ran = false
-        let vm = await scannedViewModel(runRecorder: { ran = true })
+        let ran = TestBox(false)
+        let vm = await scannedViewModel(runRecorder: { ran.value = true })
         await vm.requestRun()
         vm.cancelRun()
         XCTAssertFalse(vm.isConfirmingRun)
-        XCTAssertFalse(ran, "cancel leaves the Mac untouched")
+        XCTAssertFalse(ran.value, "cancel leaves the Mac untouched")
         XCTAssertTrue(vm.isRunDiscVisible, "the disc returns after cancel")
         guard case .results = vm.phase else { return XCTFail("back on the results feed") }
     }
 
     func test_confirmRun_isNoOpWhenNotConfirming() async {
-        var ran = false
-        let vm = await scannedViewModel(runRecorder: { ran = true })
+        let ran = TestBox(false)
+        let vm = await scannedViewModel(runRecorder: { ran.value = true })
         await vm.confirmRun()
-        XCTAssertFalse(ran, "confirm without a pending sheet does nothing")
+        XCTAssertFalse(ran.value, "confirm without a pending sheet does nothing")
     }
 
     // MARK: - Sheet summary

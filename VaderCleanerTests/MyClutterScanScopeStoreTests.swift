@@ -19,47 +19,47 @@ final class MyClutterScanScopeStoreTests: XCTestCase {
     /// with nothing failing to say so.
     func test_selectingAFolder_notifiesObserversOfTheDisplayedName() {
         let store = MyClutterScanScopeStore(defaults: makeDefaults(), homeDirectory: home)
-        var notified = false
+        let notified = TestBox(false)
         withObservationTracking {
             _ = store.displayName
         } onChange: {
-            notified = true
+            notified.value = true
         }
 
         store.selectFolder(URL(fileURLWithPath: "/Volumes/Media/Archive"))
 
-        XCTAssertTrue(notified, "a folder change must invalidate every screen showing it")
+        XCTAssertTrue(notified.value, "a folder change must invalidate every screen showing it")
     }
 
     func test_returningToHome_notifiesObservers() {
         let store = MyClutterScanScopeStore(defaults: makeDefaults(), homeDirectory: home)
         store.selectFolder(URL(fileURLWithPath: "/Volumes/Media/Archive"))
-        var notified = false
+        let notified = TestBox(false)
         withObservationTracking {
             _ = store.selectedURL
         } onChange: {
-            notified = true
+            notified.value = true
         }
 
         store.selectHome()
 
-        XCTAssertTrue(notified)
+        XCTAssertTrue(notified.value)
     }
 
     /// The scan roots feed the scanner, not just the label — a change there
     /// must invalidate too, or a screen could scan the previous folder.
     func test_selectingAFolder_notifiesObserversOfTheScanRoots() {
         let store = MyClutterScanScopeStore(defaults: makeDefaults(), homeDirectory: home)
-        var notified = false
+        let notified = TestBox(false)
         withObservationTracking {
             _ = store.scanRoots
         } onChange: {
-            notified = true
+            notified.value = true
         }
 
         store.selectFolder(URL(fileURLWithPath: "/Volumes/Media/Archive"))
 
-        XCTAssertTrue(notified)
+        XCTAssertTrue(notified.value)
     }
 
     private func makeDefaults() -> UserDefaults {

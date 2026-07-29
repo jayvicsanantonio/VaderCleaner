@@ -52,14 +52,14 @@ final class AppUninstallerViewModelTests: XCTestCase {
     /// Toggling `includesSystemApps` and reloading must forward the flag
     /// to the discovery layer.
     func test_reloadApps_forwardsIncludesSystemAppsFlag() async {
-        var receivedFlag: Bool?
+        let receivedFlag = TestBox<Bool?>(nil)
         let vm = makeViewModel(discover: { includes in
-            receivedFlag = includes
+            receivedFlag.value = includes
             return []
         })
         vm.includesSystemApps = true
         await vm.reloadApps()
-        XCTAssertEqual(receivedFlag, true)
+        XCTAssertEqual(receivedFlag.value, true)
     }
 
     // MARK: - Filtering
@@ -120,7 +120,8 @@ final class AppUninstallerViewModelTests: XCTestCase {
             discover: { _ in [app] },
             findFiles: { _ in [
                 AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 1, category: .preferences)
-            ] }
+            ]
+            }
         )
         await vm.loadApps()
         vm.select(app.id)
@@ -134,11 +135,11 @@ final class AppUninstallerViewModelTests: XCTestCase {
     /// does not invoke the finder again.
     func test_select_secondTimeUsesCache() async {
         let app = makeApp(name: "Helio", bundleID: "com.acme.helio")
-        var finderCalls = 0
+        let finderCalls = TestBox(0)
         let vm = makeViewModel(
             discover: { _ in [app] },
             findFiles: { _ in
-                finderCalls += 1
+                finderCalls.value += 1
                 return [AssociatedFile(url: URL(fileURLWithPath: "/tmp/p"), sizeBytes: 1, category: .preferences)]
             }
         )
@@ -148,7 +149,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         vm.select(nil)
         vm.select(app.id)
         await waitFor { !vm.associatedFiles.isEmpty }
-        XCTAssertEqual(finderCalls, 1)
+        XCTAssertEqual(finderCalls.value, 1)
     }
 
     // MARK: - Totals
@@ -594,7 +595,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
     func test_recycleWithEscalation_runsTheSizeSnapshotOffTheMainThread() async throws {
         let bundle = URL(fileURLWithPath: "/Applications/Big.app")
         let fs = FakeFilesystem(existing: [bundle.path])
-        let sawMainThread = SendableBox<Bool?>(nil)
+        let sawMainThread = TestBox<Bool?>(nil)
 
         _ = try await AppUninstallerViewModel.recycleWithEscalation(
             bundleURL: bundle,
@@ -605,7 +606,10 @@ final class AppUninstallerViewModelTests: XCTestCase {
             },
             escalate: { _ in nil },
             sizeFor: { _ in
-                sawMainThread.value = Thread.isMainThread
+                // `pthread_main_np()` rather than `Thread.isMainThread`, which
+                // is unavailable from an async context — same question, and it
+                // is the check `isMainThread` itself is built on.
+                sawMainThread.value = pthread_main_np() != 0
                 return [:]
             },
             exists: { fs.contains($0) }
@@ -702,9 +706,9 @@ final class AppUninstallerViewModelTests: XCTestCase {
         let appA = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
         let appB = makeApp(name: "Bravo", bundleID: "com.acme.bravo")
         let measuredApps = ActorBox<[[AppInfo.ID]]>([])
-        var roster = [appA]
+        let roster = TestBox([appA])
         let vm = makeViewModel(
-            discover: { _ in roster },
+            discover: { _ in roster.value },
             measureListMetrics: { apps in
                 AsyncStream { continuation in
                     Task {
@@ -718,7 +722,7 @@ final class AppUninstallerViewModelTests: XCTestCase {
         await vm.loadApps()
         await vm.loadListMetrics()
 
-        roster = [appA, appB]
+        roster.value = [appA, appB]
         await vm.reloadApps()
         await vm.loadListMetrics()
 
@@ -864,14 +868,6 @@ private final class FakeFilesystem {
 /// Mutable reference cell for capturing call counts / arguments from the
 /// non-escaping fakes passed to `recycleWithEscalation`.
 private final class Box<T> {
-    var value: T
-    init(_ value: T) { self.value = value }
-}
-
-/// Like `Box`, but capturable by the `@Sendable` size-snapshot fake. The
-/// unchecked conformance is safe here: the test awaits the flow before
-/// reading, so the write strictly precedes the read.
-private final class SendableBox<T>: @unchecked Sendable {
     var value: T
     init(_ value: T) { self.value = value }
 }

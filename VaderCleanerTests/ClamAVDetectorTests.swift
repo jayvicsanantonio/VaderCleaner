@@ -6,12 +6,12 @@ import XCTest
 
 final class ClamAVDetectorTests: XCTestCase {
 
-    private let homebrew = URL(fileURLWithPath: "/opt/homebrew/bin/clamscan")
-    private let local = URL(fileURLWithPath: "/usr/local/bin/clamscan")
+    private static let homebrew = URL(fileURLWithPath: "/opt/homebrew/bin/clamscan")
+    private static let local = URL(fileURLWithPath: "/usr/local/bin/clamscan")
 
     func test_isInstalled_returnsBool_falseWhenNoCandidateIsExecutable() {
         let detector = ClamAVDetector(
-            candidatePaths: [homebrew, local],
+            candidatePaths: [Self.homebrew, Self.local],
             isExecutable: { _ in false },
             versionRunner: { _ in nil }
         )
@@ -20,26 +20,26 @@ final class ClamAVDetectorTests: XCTestCase {
 
     func test_path_returnsFirstExecutableCandidate() {
         let detector = ClamAVDetector(
-            candidatePaths: [homebrew, local],
-            isExecutable: { $0 == self.local.path },
+            candidatePaths: [Self.homebrew, Self.local],
+            isExecutable: { $0 == Self.local.path },
             versionRunner: { _ in nil }
         )
-        XCTAssertEqual(detector.path(), local)
+        XCTAssertEqual(detector.path(), Self.local)
         XCTAssertTrue(detector.isInstalled())
     }
 
     func test_path_prefersEarlierCandidateWhenMultipleExecutable() {
         let detector = ClamAVDetector(
-            candidatePaths: [homebrew, local],
+            candidatePaths: [Self.homebrew, Self.local],
             isExecutable: { _ in true },
             versionRunner: { _ in nil }
         )
-        XCTAssertEqual(detector.path(), homebrew)
+        XCTAssertEqual(detector.path(), Self.homebrew)
     }
 
     func test_path_isNilWhenNothingExecutable() {
         let detector = ClamAVDetector(
-            candidatePaths: [homebrew, local],
+            candidatePaths: [Self.homebrew, Self.local],
             isExecutable: { _ in false },
             versionRunner: { _ in nil }
         )
@@ -48,7 +48,7 @@ final class ClamAVDetectorTests: XCTestCase {
 
     func test_version_returnsTrimmedRunnerOutputWhenInstalled() async {
         let detector = ClamAVDetector(
-            candidatePaths: [homebrew],
+            candidatePaths: [Self.homebrew],
             isExecutable: { _ in true },
             versionRunner: { _ in "ClamAV 1.4.1/27000/Mon\n" }
         )
@@ -58,7 +58,7 @@ final class ClamAVDetectorTests: XCTestCase {
 
     func test_version_isNilWhenNotInstalled() async {
         let detector = ClamAVDetector(
-            candidatePaths: [homebrew],
+            candidatePaths: [Self.homebrew],
             isExecutable: { _ in false },
             versionRunner: { _ in "should not be called" }
         )

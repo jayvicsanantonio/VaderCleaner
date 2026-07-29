@@ -5,12 +5,11 @@ import AppKit
 import SwiftUI
 
 enum AppUninstallerFormatting {
-    static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.allowedUnits = .useAll
-        f.countStyle = .file
-        return f
-    }()
+    /// Finder-matching file-style byte string, formatted through the shared
+    /// helper so every surface reports sizes identically.
+    static func formattedBytes(_ bytes: Int64) -> String {
+        smartScanFormattedBytes(bytes)
+    }
 }
 
 struct AppUninstallerDetailPane: View {
@@ -90,8 +89,7 @@ struct AppUninstallerDetailHeader: View {
                             .foregroundStyle(.secondary)
                     }
                     if let bundleSize {
-                        Text(AppUninstallerFormatting.byteFormatter
-                            .string(fromByteCount: bundleSize))
+                        Text(AppUninstallerFormatting.formattedBytes(bundleSize))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -187,8 +185,7 @@ struct AppUninstallerFileRow: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Text(AppUninstallerFormatting.byteFormatter
-                .string(fromByteCount: file.sizeBytes))
+            Text(AppUninstallerFormatting.formattedBytes(file.sizeBytes))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
@@ -210,8 +207,7 @@ struct AppUninstallerDetailFooter: View {
                 ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(AppUninstallerFormatting.byteFormatter
-                    .string(fromByteCount: totalReclaimableSize))
+                Text(AppUninstallerFormatting.formattedBytes(totalReclaimableSize))
                     .font(.title3.weight(.semibold))
                     .accessibilityIdentifier("appUninstaller.totalReclaimable")
             }

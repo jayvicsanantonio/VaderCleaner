@@ -50,7 +50,7 @@ enum ProcessLineStreamer {
         environment: [String: String]? = nil,
         mergeStandardError: Bool = false,
         closeStandardInput: Bool = false,
-        onLine: @escaping (String) -> Void
+        onLine: @escaping @Sendable (String) -> Void
     ) async throws -> Int32 {
         let process = Process()
         process.executableURL = executable
@@ -91,8 +91,8 @@ enum ProcessLineStreamer {
             try? outputPipe.fileHandleForWriting.close()
         }
 
-        return try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) {
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
                 let handle = outputPipe.fileHandleForReading
                 var buffer = Data()
                 while case let chunk = handle.availableData, !chunk.isEmpty {
@@ -119,7 +119,7 @@ enum ProcessLineStreamer {
         }
     }
 
-    private static func emit(_ data: Data, to onLine: (String) -> Void) {
+    private static func emit(_ data: Data, to onLine: @Sendable (String) -> Void) {
         guard !data.isEmpty,
               let raw = String(data: data, encoding: .utf8) else { return }
         let line = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\r"))

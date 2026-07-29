@@ -1,0 +1,31 @@
+# SwiftFormat configuration for VaderCleaner.
+#
+# Deliberately minimal. The codebase is already hand-formatted consistently
+# (4-space indent throughout, no tab-indented files, every file ends in a
+# newline), and its own guidance prefers consistency within a file over a global
+# standard. A full SwiftFormat run would rewrite all 250 files and bury real
+# changes in reformatting noise.
+#
+# So this enables only the rules that enforce invariants the code already holds
+# to — running it is a near no-op today (8 trailing-whitespace lines) and it
+# stays that way. Formatting judgment stays with the author.
+
+--swiftversion 6.0
+
+# Allowlist: only these rules run. Everything else is disabled by omission.
+#
+# Two rules were removed after a real run showed them fighting deliberate
+# conventions rather than tidying accidents:
+#
+#   blankLinesAtStartOfScope (429 hits) — the house style puts a blank line
+#     after a type declaration before its first member.
+#   consecutiveSpaces (453 hits) — trailing comments and assignments are
+#     column-aligned on purpose in several files.
+#
+# What remains only removes whitespace nobody chose.
+--rules trailingSpace,linebreakAtEndOfFile,consecutiveBlankLines,duplicateImports,blankLinesAtEndOfScope,todos
+
+--maxwidth none
+--trimwhitespace always
+
+--exclude .build,DerivedData,Vendor,.claude,Scripts

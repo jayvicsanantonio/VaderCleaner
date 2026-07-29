@@ -148,9 +148,13 @@ struct WebDevScanFolderPicker: View {
         // A sheet rather than `runModal()`: a nested modal session run from the
         // SwiftUI `Settings` scene takes the settings window down with it when
         // the panel dismisses.
+        // AppKit invokes the completion handler on the main thread, so
+        // `assumeIsolated` states that rather than hopping through a Task.
         let handle: @Sendable (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK, let url = panel.url else { return }
-            scanScope.selectFolder(url)
+            MainActor.assumeIsolated {
+                guard response == .OK, let url = panel.url else { return }
+                scanScope.selectFolder(url)
+            }
         }
 
         if let window = NSApp.keyWindow {

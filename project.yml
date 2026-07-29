@@ -12,7 +12,7 @@ options:
 
 settings:
   base:
-    SWIFT_VERSION: "5.9"
+    SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     ENABLE_HARDENED_RUNTIME: NO
     # The Stage-ClamAV and ad-hoc-sign run-script phases read Vendor/clamav and

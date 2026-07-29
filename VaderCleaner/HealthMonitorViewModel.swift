@@ -194,7 +194,9 @@ final class HealthMonitorViewModel {
         guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
             return ""
         }
-        return String(cString: buffer)
+        // `String(cString:)` is deprecated; decode up to the null terminator.
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// Formats an OS version as `"macOS <major>.<minor>"` — the patch level is
@@ -279,10 +281,10 @@ final class HealthMonitorViewModel {
     /// Threshold at which the disk card flips from green to yellow.
     /// Disk fullness is a near-permanent state — anything ≥ 80% warrants
     /// surfacing in the UI because reclaiming space is slow user work.
-    static let diskWarningThreshold = 0.80
+    nonisolated static let diskWarningThreshold = 0.80
 
     /// Threshold at which the disk card flips from yellow to red.
-    static let diskCriticalThreshold = 0.95
+    nonisolated static let diskCriticalThreshold = 0.95
 
     /// Threshold at which the CPU card flips from green to yellow. Kept
     /// separate from `diskWarningThreshold` (even though the initial values
@@ -400,5 +402,4 @@ final class HealthMonitorViewModel {
         case .on: return .green
         }
     }
-
 }

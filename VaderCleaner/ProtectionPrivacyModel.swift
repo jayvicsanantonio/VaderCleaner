@@ -127,8 +127,7 @@ final class ProtectionPrivacyModel {
             let current = selectedItems[key] ?? []
             selectedItems[key] = current.count >= all.count && !all.isEmpty ? [] : all
         } else {
-            if selectedCategories.contains(key) { selectedCategories.remove(key) }
-            else { selectedCategories.insert(key) }
+            if selectedCategories.contains(key) { selectedCategories.remove(key) } else { selectedCategories.insert(key) }
         }
     }
 

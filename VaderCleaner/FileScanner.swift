@@ -17,7 +17,7 @@ struct ScanRoot: Equatable {
 /// Concrete implementation is `FileScanner` below. The required API emits
 /// batches so feature scanners can filter or publish partial progress without
 /// retaining every file under every scanned root.
-protocol FileScanning {
+protocol FileScanning: Sendable {
     func scan(
         roots: [ScanRoot],
         excluding: [URL],
@@ -129,7 +129,6 @@ extension FileScanning {
         }
         return results
     }
-
 }
 
 enum PathExclusionMatcher {

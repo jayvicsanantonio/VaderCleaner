@@ -7,7 +7,7 @@ import XCTest
 final class UnusedAppScannerTests: XCTestCase {
 
     /// Fixed reference "now" so age assertions don't depend on real time.
-    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+    private static let now = Date(timeIntervalSince1970: 1_700_000_000)
     private let day: TimeInterval = 24 * 60 * 60
 
     private func makeApp(_ name: String, bundleID: String) -> AppInfo {
@@ -29,7 +29,7 @@ final class UnusedAppScannerTests: XCTestCase {
             thresholdDays: thresholdDays,
             lastUsedDate: { app in dates[app.bundleID] ?? nil },
             bundleSize: { app in sizes[app.bundleID] ?? 0 },
-            now: { self.now }
+            now: { Self.now }
         )
     }
 
@@ -37,14 +37,14 @@ final class UnusedAppScannerTests: XCTestCase {
         let stale = makeApp("Stale", bundleID: "com.stale.app")
         let fresh = makeApp("Fresh", bundleID: "com.fresh.app")
         let s = scanner(dates: [
-            "com.stale.app": now.addingTimeInterval(-90 * day),
-            "com.fresh.app": now.addingTimeInterval(-3 * day),
+            "com.stale.app": Self.now.addingTimeInterval(-90 * day),
+            "com.fresh.app": Self.now.addingTimeInterval(-3 * day),
         ])
 
         let result = await s.scan(apps: [stale, fresh])
 
         XCTAssertEqual(result.map(\.app.bundleID), ["com.stale.app"])
-        XCTAssertEqual(result.first?.lastUsedDate, now.addingTimeInterval(-90 * day))
+        XCTAssertEqual(result.first?.lastUsedDate, Self.now.addingTimeInterval(-90 * day))
     }
 
     func test_scan_populatesSizeBytesFromProvider() async {
@@ -52,7 +52,7 @@ final class UnusedAppScannerTests: XCTestCase {
         // result, so each flagged app must carry its measured size.
         let stale = makeApp("Stale", bundleID: "com.stale.app")
         let s = scanner(
-            dates: ["com.stale.app": now.addingTimeInterval(-90 * day)],
+            dates: ["com.stale.app": Self.now.addingTimeInterval(-90 * day)],
             sizes: ["com.stale.app": 5_000_000]
         )
 
@@ -73,7 +73,7 @@ final class UnusedAppScannerTests: XCTestCase {
     func test_scan_thresholdBoundaryIsInclusive() async {
         // Exactly 60 days old → not used within the window → flagged.
         let boundary = makeApp("Boundary", bundleID: "com.boundary.app")
-        let s = scanner(dates: ["com.boundary.app": now.addingTimeInterval(-60 * day)])
+        let s = scanner(dates: ["com.boundary.app": Self.now.addingTimeInterval(-60 * day)])
 
         let result = await s.scan(apps: [boundary])
 
@@ -82,7 +82,7 @@ final class UnusedAppScannerTests: XCTestCase {
 
     func test_scan_justInsideThreshold_isNotFlagged() async {
         let recent = makeApp("Recent", bundleID: "com.recent.app")
-        let s = scanner(dates: ["com.recent.app": now.addingTimeInterval(-59 * day)])
+        let s = scanner(dates: ["com.recent.app": Self.now.addingTimeInterval(-59 * day)])
 
         let result = await s.scan(apps: [recent])
 
@@ -94,9 +94,9 @@ final class UnusedAppScannerTests: XCTestCase {
         let b = makeApp("B", bundleID: "b")
         let c = makeApp("C", bundleID: "c")
         let s = scanner(dates: [
-            "a": now.addingTimeInterval(-70 * day),
-            "b": now.addingTimeInterval(-200 * day),
-            "c": now.addingTimeInterval(-90 * day),
+            "a": Self.now.addingTimeInterval(-70 * day),
+            "b": Self.now.addingTimeInterval(-200 * day),
+            "c": Self.now.addingTimeInterval(-90 * day),
         ])
 
         let result = await s.scan(apps: [a, b, c])
@@ -108,8 +108,8 @@ final class UnusedAppScannerTests: XCTestCase {
     func test_scan_honorsCustomThreshold() async {
         let app = makeApp("App", bundleID: "com.app")
         // 10 days old: unused under a 7-day threshold, fine under 60.
-        let s7 = scanner(thresholdDays: 7, dates: ["com.app": now.addingTimeInterval(-10 * day)])
-        let s60 = scanner(thresholdDays: 60, dates: ["com.app": now.addingTimeInterval(-10 * day)])
+        let s7 = scanner(thresholdDays: 7, dates: ["com.app": Self.now.addingTimeInterval(-10 * day)])
+        let s60 = scanner(thresholdDays: 60, dates: ["com.app": Self.now.addingTimeInterval(-10 * day)])
 
         let under7 = await s7.scan(apps: [app])
         let under60 = await s60.scan(apps: [app])

@@ -180,7 +180,7 @@ final class ScanDiscWindowController {
     private func installObservers(for window: NSWindow) {
         let center = NotificationCenter.default
 
-        func observe(_ name: NSNotification.Name, _ handler: @escaping () -> Void) {
+        func observe(_ name: NSNotification.Name, _ handler: @escaping @MainActor () -> Void) {
             let token = center.addObserver(
                 forName: name, object: window, queue: .main
             ) { _ in

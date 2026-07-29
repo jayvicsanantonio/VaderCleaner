@@ -173,8 +173,7 @@ struct SpaceLensListPanel: View {
         // Hovering the row drives the shared highlight; the checkbox is a
         // separate control, so a row click drills in without toggling removal.
         .onHover { hovering in
-            if hovering { viewModel.highlightedNodeID = child.id }
-            else if viewModel.highlightedNodeID == child.id { viewModel.highlightedNodeID = nil }
+            if hovering { viewModel.highlightedNodeID = child.id } else if viewModel.highlightedNodeID == child.id { viewModel.highlightedNodeID = nil }
         }
         .accessibilityIdentifier("space-lens.row.\(child.name)")
     }
@@ -235,8 +234,7 @@ struct SpaceLensListPanel: View {
             .foregroundStyle(.secondary)
             .frame(width: 22)
             .onHover { hovering in
-                if hovering { hoveredProtectedID = child.id }
-                else if hoveredProtectedID == child.id { hoveredProtectedID = nil }
+                if hovering { hoveredProtectedID = child.id } else if hoveredProtectedID == child.id { hoveredProtectedID = nil }
             }
             .anchorPreference(key: ProtectedTooltipKey.self, value: .bounds) { anchor in
                 hoveredProtectedID == child.id

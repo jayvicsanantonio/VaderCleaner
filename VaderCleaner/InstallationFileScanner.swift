@@ -15,7 +15,12 @@ import os.log
 struct DefaultInstallationFileScanner: Sendable {
 
     private let roots: [URL]
-    private let fileManager: FileManager
+    /// `FileManager` is not `Sendable`, but the shared `.default` instance this
+    /// defaults to is documented as safe to use from multiple threads, and the
+    /// injected test instances are only ever touched by their own test. The
+    /// scanner reads from it off the main actor, so the isolation is opted out
+    /// of explicitly rather than the whole type losing `Sendable`.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "InstallationFileScanner")
 

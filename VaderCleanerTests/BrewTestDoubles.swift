@@ -43,7 +43,7 @@ final class StubBrewRunner: BrewRunning, @unchecked Sendable {
     var streamingCalls: [[String]] { lock.lock(); defer { lock.unlock() }; return _streamingCalls }
 
     func runCapturing(_ arguments: [String]) async throws -> BrewResult {
-        lock.lock(); _capturingCalls.append(arguments); lock.unlock()
+        lock.withLock { _capturingCalls.append(arguments) }
         let joined = arguments.joined(separator: " ")
         let first = arguments.first ?? ""
         if throwingCaptures.contains(joined) || throwingCaptures.contains(first) {
@@ -53,7 +53,7 @@ final class StubBrewRunner: BrewRunning, @unchecked Sendable {
     }
 
     func runStreaming(_ arguments: [String], onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 {
-        lock.lock(); _streamingCalls.append(arguments); lock.unlock()
+        lock.withLock { _streamingCalls.append(arguments) }
         let joined = arguments.joined(separator: " ")
         let first = arguments.first ?? ""
         if throwingStreams.contains(first) || throwingStreams.contains(joined) {

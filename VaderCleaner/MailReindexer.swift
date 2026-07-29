@@ -6,12 +6,12 @@ import Foundation
 /// Speeds up Mail by compacting and reindexing its envelope-index databases.
 /// The index locator and the per-database vacuum are injected so unit tests
 /// exercise the flow without touching real Mail data or running `sqlite3`.
-struct MailReindexer {
+struct MailReindexer: Sendable {
 
     /// Locates the envelope-index databases. Throwing so it can signal the
     /// difference between "no access" (Full Disk Access missing) and "no mail".
-    typealias LocateIndexes = () throws -> [URL]
-    typealias VacuumIndex = (URL) throws -> Void
+    typealias LocateIndexes = @Sendable () throws -> [URL]
+    typealias VacuumIndex = @Sendable (URL) throws -> Void
 
     private let locateIndexes: LocateIndexes
     private let vacuumIndex: VacuumIndex

@@ -19,8 +19,8 @@ struct BrowserDataCounter: Sendable {
 
     private let worker: BrowserDataCountWorker
 
-    init(pathProvider: BrowserDataPathProviding, fileManager: FileManager = .default) {
-        self.worker = BrowserDataCountWorker(pathProvider: pathProvider, fileManager: fileManager)
+    init(pathProvider: BrowserDataPathProviding) {
+        self.worker = BrowserDataCountWorker(pathProvider: pathProvider)
     }
 
     /// The number of items `(browser, category)` holds. Missing or unreadable
@@ -35,11 +35,12 @@ struct BrowserDataCounter: Sendable {
 private actor BrowserDataCountWorker {
 
     private let pathProvider: BrowserDataPathProviding
-    private let fileManager: FileManager
+    /// The shared instance, documented as safe across threads. Held directly
+    /// rather than injected: no caller or test ever supplied a different one.
+    private let fileManager = FileManager.default
 
-    init(pathProvider: BrowserDataPathProviding, fileManager: FileManager) {
+    init(pathProvider: BrowserDataPathProviding) {
         self.pathProvider = pathProvider
-        self.fileManager = fileManager
     }
 
     func count(for category: PrivacyCategory, browser: Browser) throws -> Int {

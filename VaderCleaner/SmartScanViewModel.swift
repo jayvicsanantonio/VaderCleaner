@@ -105,7 +105,6 @@ final class SmartScanViewModel {
     /// a large scan) never happens on the main thread mid-transition.
     @ObservationIgnored let junkManagerStore = CleanupManagerStore()
 
-
     /// Per-unit live status for the scanning checklist.
     private(set) var unitStatuses: [CareScanUnit: UnitStatus] = [:]
 
@@ -438,8 +437,7 @@ final class SmartScanViewModel {
             )
         }
         let running = domain.units.reduce(into: 0) { total, unit in
-            if case .running(let items) = unitStatuses[unit] { total += items }
-            else if let count = unitProgressCounts[unit] { total += count }
+            if case .running(let items) = unitStatuses[unit] { total += items } else if let count = unitProgressCounts[unit] { total += count }
         }
         let anyRunning = statuses.contains { status in
             if case .running = status { return true }
@@ -553,6 +551,33 @@ final class SmartScanViewModel {
             includedFindings.insert(kind)
         } else {
             includedFindings.remove(kind)
+        }
+    }
+
+    /// The one write path behind every per-finding `set…(_:selected:)` below:
+    /// apply a batch change to that finding's id set, then keep its card's
+    /// inclusion in step with whether anything is still checked.
+    ///
+    /// Each finding keeps its own named accessors — that vocabulary is what the
+    /// Review screens and the tests speak — but they all funnel through here, so
+    /// the "checking something opts the card in, clearing it opts back out" rule
+    /// lives in exactly one place rather than being restated per domain.
+    ///
+    /// `kind` is `nil` for pre-approved findings (duplicates), whose card is
+    /// included from the moment results land and does not track its selection.
+    private func applySelection<ID: Hashable>(
+        _ ids: some Sequence<ID>,
+        selected: Bool,
+        to storage: ReferenceWritableKeyPath<SmartScanViewModel, Set<ID>>,
+        optInKind kind: CareFinding.Kind?
+    ) {
+        if selected {
+            self[keyPath: storage].formUnion(ids)
+        } else {
+            self[keyPath: storage].subtract(ids)
+        }
+        if let kind {
+            syncOptInInclusion(kind, hasSelection: !self[keyPath: storage].isEmpty)
         }
     }
 
@@ -729,11 +754,7 @@ final class SmartScanViewModel {
 
     /// Check or uncheck a specific set of duplicate copies in one write.
     func setDuplicates(_ urls: [URL], selected: Bool) {
-        if selected {
-            duplicateSelection.formUnion(urls)
-        } else {
-            duplicateSelection.subtract(urls)
-        }
+        applySelection(urls, selected: selected, to: \.duplicateSelection, optInKind: nil)
     }
 
     /// Select every redundant copy in one write (kept originals are never
@@ -761,12 +782,7 @@ final class SmartScanViewModel {
     /// shot (the group's kept original) is never offered, so a photo always
     /// survives.
     func setSimilarImages(_ urls: [URL], selected: Bool) {
-        if selected {
-            similarImageSelection.formUnion(urls)
-        } else {
-            similarImageSelection.subtract(urls)
-        }
-        syncOptInInclusion(.similarImages, hasSelection: !similarImageSelection.isEmpty)
+        applySelection(urls, selected: selected, to: \.similarImageSelection, optInKind: .similarImages)
     }
 
     // MARK: - Downloads selection (opt-in)
@@ -781,12 +797,7 @@ final class SmartScanViewModel {
 
     /// Check or uncheck a set of downloads in one write.
     func setDownloads(_ urls: [URL], selected: Bool) {
-        if selected {
-            downloadSelection.formUnion(urls)
-        } else {
-            downloadSelection.subtract(urls)
-        }
-        syncOptInInclusion(.downloads, hasSelection: !downloadSelection.isEmpty)
+        applySelection(urls, selected: selected, to: \.downloadSelection, optInKind: .downloads)
     }
 
     // MARK: - Opt-in selections (large/old files, apps, installers, privacy)
@@ -801,12 +812,7 @@ final class SmartScanViewModel {
 
     /// Check or uncheck a set of large/old files in one write.
     func setLargeOldFiles(_ urls: [URL], selected: Bool) {
-        if selected {
-            largeOldFileSelection.formUnion(urls)
-        } else {
-            largeOldFileSelection.subtract(urls)
-        }
-        syncOptInInclusion(.largeOldFiles, hasSelection: !largeOldFileSelection.isEmpty)
+        applySelection(urls, selected: selected, to: \.largeOldFileSelection, optInKind: .largeOldFiles)
     }
 
     func isUnusedAppSelected(_ app: UnusedApp) -> Bool {
@@ -818,12 +824,7 @@ final class SmartScanViewModel {
     }
 
     func setUnusedApps(_ ids: [String], selected: Bool) {
-        if selected {
-            unusedAppSelection.formUnion(ids)
-        } else {
-            unusedAppSelection.subtract(ids)
-        }
-        syncOptInInclusion(.unusedApps, hasSelection: !unusedAppSelection.isEmpty)
+        applySelection(ids, selected: selected, to: \.unusedAppSelection, optInKind: .unusedApps)
     }
 
     func isUnsupportedAppSelected(_ app: UnsupportedApp) -> Bool {
@@ -835,12 +836,7 @@ final class SmartScanViewModel {
     }
 
     func setUnsupportedApps(_ ids: [String], selected: Bool) {
-        if selected {
-            unsupportedAppSelection.formUnion(ids)
-        } else {
-            unsupportedAppSelection.subtract(ids)
-        }
-        syncOptInInclusion(.unsupportedApps, hasSelection: !unsupportedAppSelection.isEmpty)
+        applySelection(ids, selected: selected, to: \.unsupportedAppSelection, optInKind: .unsupportedApps)
     }
 
     func isLeftoverSelected(_ group: LeftoverGroup) -> Bool {
@@ -852,12 +848,7 @@ final class SmartScanViewModel {
     }
 
     func setLeftovers(_ bundleIDs: [String], selected: Bool) {
-        if selected {
-            leftoverSelection.formUnion(bundleIDs)
-        } else {
-            leftoverSelection.subtract(bundleIDs)
-        }
-        syncOptInInclusion(.appLeftovers, hasSelection: !leftoverSelection.isEmpty)
+        applySelection(bundleIDs, selected: selected, to: \.leftoverSelection, optInKind: .appLeftovers)
     }
 
     func isInstallerSelected(_ file: InstallationFile) -> Bool {
@@ -869,12 +860,7 @@ final class SmartScanViewModel {
     }
 
     func setInstallers(_ ids: [String], selected: Bool) {
-        if selected {
-            installerSelection.formUnion(ids)
-        } else {
-            installerSelection.subtract(ids)
-        }
-        syncOptInInclusion(.installers, hasSelection: !installerSelection.isEmpty)
+        applySelection(ids, selected: selected, to: \.installerSelection, optInKind: .installers)
     }
 
     func isBrowserPrivacySelected(_ key: BrowserPrivacyKey) -> Bool {
@@ -1111,7 +1097,7 @@ final class SmartScanViewModel {
                 currentLabel: CareFindingCopy.runProgressLabel(for: finding.kind),
                 bytesFreed: bytesFreed
             )
-            if let line = await execute(finding, plan: plan) {
+            if let line = await execute(finding) {
                 lines.append(line)
                 bytesFreed += line.bytesFreed
             }
@@ -1132,34 +1118,13 @@ final class SmartScanViewModel {
         }
     }
 
-    private func execute(_ finding: CareFinding, plan: CarePlan) async -> CareReceiptLine? {
+    private func execute(_ finding: CareFinding) async -> CareReceiptLine? {
         switch finding.payload {
         case .junk(let result):
-            // The full junk result is a million files on a busy Mac; filter
-            // against the selection off the main actor — hashing that many
-            // URLs on the main thread froze the Run tap.
-            let selected = junkFileSelection
-            let selectedJunk = await ScanFileFilter.selected(from: result.items) { selected.contains($0.url) }
-            guard !selectedJunk.isEmpty else { return nil }
-            do {
-                let bytes = try await junkCleaner(selectedJunk)
-                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
-            } catch {
-                log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
-                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
-            }
+            return await executeJunkCleanup(result)
 
         case .threats(let threats):
-            let selected = threats.filter { threatSelection.contains($0.filePath) }
-            guard !selected.isEmpty else { return nil }
-            let failures = await threatRemover(selected)
-            let removed = selected.count - failures.count
-            return CareReceiptLine(
-                kind: .threats,
-                itemsProcessed: removed,
-                bytesFreed: 0,
-                outcome: failures.isEmpty ? .success : .partial(failedCount: failures.count)
-            )
+            return await executeThreatRemoval(threats)
 
         case .duplicates(let groups):
             return await recycleLine(
@@ -1222,80 +1187,130 @@ final class SmartScanViewModel {
             )
 
         case .appLeftovers(let groups):
-            let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
-            guard !selected.isEmpty else { return nil }
-            let recycled = await recycleFiles(selected.flatMap(\.urls))
-            // Byte credit per fully-recycled group — LeftoverGroup only
-            // carries a group total, so a partial group credits nothing.
-            let fullyRemoved = selected.filter { group in group.urls.allSatisfy(recycled.contains) }
-            let outcome: CareReceiptLine.Outcome = fullyRemoved.count == selected.count
-                ? .success
-                : .partial(failedCount: selected.count - fullyRemoved.count)
-            return CareReceiptLine(
-                kind: .appLeftovers,
-                itemsProcessed: fullyRemoved.count,
-                bytesFreed: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
-                outcome: outcome
-            )
+            return await executeLeftoverRemoval(groups)
 
         case .appUpdates(let updates):
-            let selected = updates.filter { updateSelection.contains($0.bundleID) }
-            guard !selected.isEmpty else { return nil }
-            for update in selected {
-                await updateOpener(update.updateURL)
-            }
-            return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
+            return await executeAppUpdates(updates)
 
         case .maintenanceDue(let taskIDs):
-            let selected = taskIDs.filter { maintenanceSelection.contains($0) }
-            guard !selected.isEmpty else { return nil }
-            var completed = 0
-            var lastError: String?
-            for taskID in selected {
-                do {
-                    try await maintenanceTaskRunner(taskID)
-                    recordMaintenanceRun(taskID)
-                    completed += 1
-                } catch {
-                    log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                    lastError = error.localizedDescription
-                }
-            }
-            let outcome: CareReceiptLine.Outcome
-            if completed == selected.count {
-                outcome = .success
-            } else if completed > 0 {
-                outcome = .partial(failedCount: selected.count - completed)
-            } else {
-                outcome = .failed(message: lastError ?? "")
-            }
-            return CareReceiptLine(kind: .maintenanceDue, itemsProcessed: completed, bytesFreed: 0, outcome: outcome)
+            return await executeMaintenance(taskIDs)
 
         case .browserPrivacy:
-            let selected = browserPrivacySelection
-            guard !selected.isEmpty else { return nil }
-            let requests = selected.map {
-                PrivacyRemovalRequest(browser: $0.browser, category: $0.category, scope: .wholeCategory)
-            }
-            do {
-                try await privacyRemover(requests)
-                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: requests.count, bytesFreed: 0, outcome: .success)
-            } catch let PrivacyRemovalError.browserRunning(browser) {
-                let message = String.localizedStringWithFormat(
-                    String(
-                        localized: "Close %@ first, then try again.",
-                        comment: "Receipt failure line when a browser must quit before its data can be cleared."
-                    ),
-                    browser.displayName
-                )
-                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: message))
-            } catch {
-                log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .public)")
-                return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
-            }
+            return await executeBrowserPrivacy()
 
         case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
             return nil
+        }
+    }
+
+    // MARK: - Per-kind execution
+    //
+    // One method per finding kind that does more than hand a URL list to
+    // `recycleLine`, so `execute(_:)` above stays a readable dispatch table.
+
+    private func executeJunkCleanup(_ result: ScanResult) async -> CareReceiptLine? {
+        // The full junk result is a million files on a busy Mac; filter
+        // against the selection off the main actor — hashing that many
+        // URLs on the main thread froze the Run tap.
+        let selected = junkFileSelection
+        let selectedJunk = await ScanFileFilter.selected(from: result.items) { selected.contains($0.url) }
+        guard !selectedJunk.isEmpty else { return nil }
+        do {
+            let bytes = try await junkCleaner(selectedJunk)
+            return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
+        } catch {
+            log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
+            return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
+        }
+    }
+
+    private func executeThreatRemoval(_ threats: [MalwareThreat]) async -> CareReceiptLine? {
+        let selected = threats.filter { threatSelection.contains($0.filePath) }
+        guard !selected.isEmpty else { return nil }
+        let failures = await threatRemover(selected)
+        let removed = selected.count - failures.count
+        return CareReceiptLine(
+            kind: .threats,
+            itemsProcessed: removed,
+            bytesFreed: 0,
+            outcome: failures.isEmpty ? .success : .partial(failedCount: failures.count)
+        )
+    }
+
+    private func executeLeftoverRemoval(_ groups: [LeftoverGroup]) async -> CareReceiptLine? {
+        let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
+        guard !selected.isEmpty else { return nil }
+        let recycled = await recycleFiles(selected.flatMap(\.urls))
+        // Byte credit per fully-recycled group — LeftoverGroup only
+        // carries a group total, so a partial group credits nothing.
+        let fullyRemoved = selected.filter { group in group.urls.allSatisfy(recycled.contains) }
+        let outcome: CareReceiptLine.Outcome = fullyRemoved.count == selected.count
+            ? .success
+            : .partial(failedCount: selected.count - fullyRemoved.count)
+        return CareReceiptLine(
+            kind: .appLeftovers,
+            itemsProcessed: fullyRemoved.count,
+            bytesFreed: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
+            outcome: outcome
+        )
+    }
+
+    private func executeAppUpdates(_ updates: [UpdateInfo]) async -> CareReceiptLine? {
+        let selected = updates.filter { updateSelection.contains($0.bundleID) }
+        guard !selected.isEmpty else { return nil }
+        for update in selected {
+            await updateOpener(update.updateURL)
+        }
+        return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
+    }
+
+    private func executeMaintenance(_ taskIDs: [String]) async -> CareReceiptLine? {
+        let selected = taskIDs.filter { maintenanceSelection.contains($0) }
+        guard !selected.isEmpty else { return nil }
+        var completed = 0
+        var lastError: String?
+        for taskID in selected {
+            do {
+                try await maintenanceTaskRunner(taskID)
+                recordMaintenanceRun(taskID)
+                completed += 1
+            } catch {
+                log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                lastError = error.localizedDescription
+            }
+        }
+        let outcome: CareReceiptLine.Outcome
+        if completed == selected.count {
+            outcome = .success
+        } else if completed > 0 {
+            outcome = .partial(failedCount: selected.count - completed)
+        } else {
+            outcome = .failed(message: lastError ?? "")
+        }
+        return CareReceiptLine(kind: .maintenanceDue, itemsProcessed: completed, bytesFreed: 0, outcome: outcome)
+    }
+
+    private func executeBrowserPrivacy() async -> CareReceiptLine? {
+        let selected = browserPrivacySelection
+        guard !selected.isEmpty else { return nil }
+        let requests = selected.map {
+            PrivacyRemovalRequest(browser: $0.browser, category: $0.category, scope: .wholeCategory)
+        }
+        do {
+            try await privacyRemover(requests)
+            return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: requests.count, bytesFreed: 0, outcome: .success)
+        } catch let PrivacyRemovalError.browserRunning(browser) {
+            let message = String.localizedStringWithFormat(
+                String(
+                    localized: "Close %@ first, then try again.",
+                    comment: "Receipt failure line when a browser must quit before its data can be cleared."
+                ),
+                browser.displayName
+            )
+            return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: message))
+        } catch {
+            log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .public)")
+            return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
         }
     }
 

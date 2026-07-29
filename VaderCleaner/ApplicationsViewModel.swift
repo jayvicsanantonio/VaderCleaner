@@ -625,11 +625,10 @@ extension ApplicationsViewModel {
                 if let error {
                     log.error("Installation-file recycle reported an error: \(String(describing: error), privacy: .public)")
                 }
-                continuation.resume(returning: Set(newURLs.keys.map { $0 }))
+                continuation.resume(returning: Set(newURLs.keys))
             }
         }
     }
-
 }
 
 // MARK: - ScanCoordinating

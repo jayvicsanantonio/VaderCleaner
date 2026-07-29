@@ -30,8 +30,9 @@ struct SpaceLensDisplayItem: Identifiable, Equatable {
 /// then everything else collapsed into "Other items".
 enum SpaceLensChildren {
 
-    /// Sentinel id for the aggregate row.
-    static let otherID = AnyHashable("space-lens.other-items")
+    /// Sentinel id for the aggregate row. Stored as the underlying `String`
+    /// (`AnyHashable` is not `Sendable`); it widens at the use site below.
+    static let otherID = "space-lens.other-items"
 
     /// Display rows for `node`, sorted largest-first. All children are shown —
     /// including zero-byte ones like `.localized`, matching the reference list —

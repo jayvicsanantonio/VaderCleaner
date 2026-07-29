@@ -26,11 +26,11 @@ struct SpaceLensHoverCard: View {
 
     /// Fixed width the bubble view frames the card to, so the anchor-clamping
     /// math has a known size to keep the card on-canvas.
-    static let preferredWidth: CGFloat = 260
+    nonisolated static let preferredWidth: CGFloat = 260
     /// Half the card's assumed height, used to clamp its center within the
     /// canvas and to push the card clear of the hovered bubble. A slight
     /// overestimate is harmless — it just keeps a tall card from being clipped.
-    static let halfHeight: CGFloat = 52
+    nonisolated static let halfHeight: CGFloat = 52
     /// Breathing room left between the hovered bubble and the nearest card edge.
     static let anchorGap: CGFloat = 8
 

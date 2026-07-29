@@ -27,7 +27,7 @@ import os.log
 /// file must never abort the whole clean. The returned `bytesFreed` reflects
 /// only the files we actually removed, so the UI never claims a freed-space
 /// total it did not deliver.
-struct SystemJunkDeleter {
+struct SystemJunkDeleter: Sendable {
 
     /// Closure that yields a fresh helper proxy bound to the supplied
     /// per-call XPC error handler, or `nil` if the helper is unreachable.
@@ -35,12 +35,12 @@ struct SystemJunkDeleter {
     /// `HelperConnectionManager` keep a single global one) so each
     /// `deleteViaHelper(...)` await can be resumed by whichever of the
     /// reply block or the connection-level error handler fires first.
-    typealias HelperProvider = (@escaping (Error) -> Void) -> VaderCleanerHelperProtocol?
+    typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
 
     /// Moves a single user-domain file to the Trash. Injectable so tests can
     /// redirect to a sandboxed directory instead of the real `~/.Trash`;
     /// production uses `FileManager.trashItem`.
-    typealias TrashItem = (URL) throws -> Void
+    typealias TrashItem = @Sendable (URL) throws -> Void
 
     /// Plain prefix matches that mean "must go through the helper". Stored
     /// with trailing slashes so the check matches descendants but not paths
@@ -71,7 +71,9 @@ struct SystemJunkDeleter {
     /// partial failure cost only its own batch.
     static let defaultHelperBatchSize = 10_000
 
-    private let fileManager: FileManager
+    /// See `DefaultAppDiscovery.fileManager` — `.default` is documented
+    /// thread-safe and test fixtures are single-threaded.
+    nonisolated(unsafe) private let fileManager: FileManager
     private let helperProvider: HelperProvider
     private let trashItem: TrashItem
     private let helperBatchSize: Int
@@ -87,9 +89,11 @@ struct SystemJunkDeleter {
         self.helperBatchSize = max(1, helperBatchSize)
         // `FileManager.trashItem` always targets the system Trash regardless of
         // the instance, so the trash destination is its own seam rather than a
-        // property of the injected `fileManager`.
+        // property of the injected `fileManager` — and the default can name the
+        // shared instance rather than capture the injected one, keeping this a
+        // plain `@Sendable` closure.
         self.trashItem = trashItem ?? { url in
-            try fileManager.trashItem(at: url, resultingItemURL: nil)
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
         }
     }
 

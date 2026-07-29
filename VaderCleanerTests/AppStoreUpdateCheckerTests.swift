@@ -9,7 +9,7 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
     /// On a successful lookup the checker returns the latest version and
     /// the App Store URL — both extracted from the iTunes Search response.
     func test_latestVersion_extractsVersionAndTrackViewURL() async throws {
-        let payload = """
+        let payload = Data("""
         {
           "resultCount": 1,
           "results": [
@@ -20,7 +20,7 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
             }
           ]
         }
-        """.data(using: .utf8)!
+        """.utf8)
 
         let fetcher = StubHTTPFetcher()
         await fetcher.set(
@@ -37,7 +37,7 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
     /// An empty `results` array means the bundle ID isn't present in the
     /// store and the checker must return `nil` — not throw.
     func test_latestVersion_returnsNilForEmptyResults() async throws {
-        let payload = #"{"resultCount":0,"results":[]}"#.data(using: .utf8)!
+        let payload = Data(#"{"resultCount":0,"results":[]}"#.utf8)
         let fetcher = StubHTTPFetcher()
         await fetcher.set(
             response: payload,
@@ -72,7 +72,7 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
         let fetcher = StubHTTPFetcher()
         let expected = URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio&entity=macSoftware")!
         await fetcher.set(
-            response: #"{"resultCount":0,"results":[]}"#.data(using: .utf8)!,
+            response: Data(#"{"resultCount":0,"results":[]}"#.utf8),
             for: expected
         )
         let checker = DefaultAppStoreUpdateChecker(httpFetcher: fetcher)

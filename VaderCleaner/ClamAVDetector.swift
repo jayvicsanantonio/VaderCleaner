@@ -11,10 +11,10 @@ import Foundation
 /// Apple silicon, `/usr/local` on Intel). The candidate paths, the
 /// executable-file check, and the `--version` runner are all injected so
 /// detection is unit-testable without a real install.
-struct ClamAVDetector {
+struct ClamAVDetector: Sendable {
 
-    typealias ExecutableCheck = (String) -> Bool
-    typealias VersionRunner = (URL) async -> String?
+    typealias ExecutableCheck = @Sendable (String) -> Bool
+    typealias VersionRunner = @Sendable (URL) async -> String?
 
     private let candidatePaths: [URL]
     private let isExecutable: ExecutableCheck
@@ -36,19 +36,19 @@ struct ClamAVDetector {
     /// bundled ClamAV wins), then falling back to Homebrew prefixes.
     static func defaultCandidatePaths() -> [URL] {
         var paths: [URL] = []
-        
+
         // 1. Bundled ClamAV (staged by Scripts/stage-clamav.sh)
         if let bundled = Bundle.main.resourceURL?
             .appendingPathComponent("clamav/bin/clamscan", isDirectory: false) {
             paths.append(bundled)
         }
-        
+
         // 2. Homebrew on Apple silicon
         paths.append(URL(fileURLWithPath: "/opt/homebrew/bin/clamscan"))
-        
+
         // 3. Homebrew on Intel
         paths.append(URL(fileURLWithPath: "/usr/local/bin/clamscan"))
-        
+
         return paths
     }
 
