@@ -5,17 +5,18 @@ import XCTest
 
 /// Exercises the Settings → Scanning tab. The selections persist to real
 /// UserDefaults, so each test restores any control it flips.
+@MainActor
 final class ScanningPreferencesUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         app = nil
     }
 

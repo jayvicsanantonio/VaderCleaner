@@ -11,8 +11,8 @@ final class TrashSizeMonitorTests: XCTestCase {
     private var dispatcher: StubNotificationDispatcher!
     private var virtualNow = Date(timeIntervalSince1970: 1_700_000_000)
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         let defaults = UserDefaults(suiteName: "VaderCleanerTests.TrashSize.\(UUID().uuidString)")!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()

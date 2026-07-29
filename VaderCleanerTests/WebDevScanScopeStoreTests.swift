@@ -10,15 +10,15 @@ final class WebDevScanScopeStoreTests: XCTestCase {
 
     private var tempHome: URL!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         tempHome = try TestHelpers.createTempDirectory()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         if let tempHome { TestHelpers.tearDownTempDirectory(tempHome) }
         tempHome = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeDefaults() -> UserDefaults {

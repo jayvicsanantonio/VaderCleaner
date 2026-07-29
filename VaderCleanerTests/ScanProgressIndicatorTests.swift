@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class ScanProgressIndicatorTests: XCTestCase {
 
     func testDefaultDiameterIsTheSharedHeroSize() {

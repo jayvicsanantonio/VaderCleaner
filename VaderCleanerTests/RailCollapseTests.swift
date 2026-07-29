@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class RailCollapseTests: XCTestCase {
 
     func testRailStaysExpandedOnAnIntroBeforeAnyCollapse() {

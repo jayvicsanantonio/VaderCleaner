@@ -10,17 +10,18 @@ import XCTest
 /// `SmartScanViewModelRunTests` against injected fakes. The Scan tap below
 /// only asserts the section reaches its checklist (working) state and
 /// returns immediately — `tearDown` terminates the app, killing the walk.
+@MainActor
 final class SmartScanUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         app.terminate()
         app = nil
     }

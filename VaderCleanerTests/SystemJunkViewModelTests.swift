@@ -50,7 +50,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         await yieldUntil({ vm.phase == .scanning }, "scan() advanced to .scanning")
         XCTAssertEqual(vm.phase, .scanning)
 
-        await gate.open()
+        gate.open()
         await task.value
         XCTAssertEqual(vm.phase, .preview(result))
     }
@@ -202,7 +202,6 @@ final class SystemJunkViewModelTests: XCTestCase {
         let result = makeResult(
             (.userCache, [makeFile(name: "a", size: 1_024, category: .userCache)])
         )
-        let file = makeFile(name: "a", size: 1_024, category: .userCache)
         let vm = makeViewModel(
             scanner: { result },
             deleter: { _ in 1_024 }

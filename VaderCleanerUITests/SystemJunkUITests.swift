@@ -8,6 +8,7 @@ import XCTest
 /// here, hitting the real `Clean` button would remove files from the user's
 /// `~/Library/Caches` (and similar) on the machine running the test, which is
 /// not something a UI test should ever do as a side effect.
+@MainActor
 final class SystemJunkUITests: XCTestCase {
 
     /// Matches any state that means the section has left `.intro`: the
@@ -25,13 +26,13 @@ final class SystemJunkUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         app.terminate()
         app = nil
     }

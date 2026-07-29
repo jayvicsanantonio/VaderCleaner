@@ -16,8 +16,8 @@ final class AppUpdatesMonitorTests: XCTestCase {
     /// work is skipped, not merely that the banner is suppressed.
     private var probeCount = 0
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         suiteName = "VaderCleanerTests.AppUpdates.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
         preferences = PreferencesStore(defaults: defaults)
@@ -25,13 +25,13 @@ final class AppUpdatesMonitorTests: XCTestCase {
         probeCount = 0
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
         suiteName = nil
         preferences = nil
         dispatcher = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeMonitor(updateCount: @escaping () -> Int) -> AppUpdatesMonitor {
