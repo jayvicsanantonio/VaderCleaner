@@ -1,18 +1,27 @@
-// SmartScanByteFormatter.swift
-// File-style byte formatting shared by the Applications manager and dashboard so sizes read identically to Finder.
+// ByteFormatting.swift
+// The app's shared byte-to-string formatting, so every surface reports sizes the same way.
 
 import Foundation
 
-/// File-style byte string ("2.3 GB") matching `ScanResult.formattedTotalSize`,
-/// so byte figures read the same way across surfaces and as Finder reports
-/// sizes. (Smart Scan itself formats through `CareFindingCopy`.)
+/// File-style byte string ("2.3 GB") — decimal units, matching how Finder
+/// reports sizes, which is what users compare our numbers against. The default
+/// for every size the user reads as a file or a reclaimable total.
 ///
 /// Formats through `ByteCountFormatter`'s type method rather than a shared
 /// instance: the class has no documented thread-safety guarantee, and these
 /// surfaces format from both the main actor and background scan work. `.file`
 /// with default units is the same configuration the shared instance used.
-func smartScanFormattedBytes(_ bytes: Int64) -> String {
+func formattedFileBytes(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+}
+
+/// Binary-style byte string — powers of 1024, which is the convention Space
+/// Lens reports in because its figures are compared against disk-usage tools
+/// rather than against Finder. Kept distinct from `formattedFileBytes` because
+/// the two produce different numbers for the same input, and collapsing them
+/// would silently change what Space Lens shows.
+func formattedBinaryBytes(_ bytes: Int64) -> String {
+    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)
 }
 
 /// A reusable `ByteCountFormatter` for the surfaces that need a configuration

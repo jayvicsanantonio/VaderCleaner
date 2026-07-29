@@ -75,7 +75,7 @@ struct HomebrewUninstallContent: View {
         if case .bytes(let bytes) = viewModel.reclaimablePreview {
             Text(String.localizedStringWithFormat(
                 String(localized: "About %@ can be freed.", comment: "Homebrew reclaimable preview."),
-                ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+                formattedFileBytes(bytes)
             ))
             .font(.caption).foregroundStyle(.secondary)
         } else if case .unavailable = viewModel.reclaimablePreview {

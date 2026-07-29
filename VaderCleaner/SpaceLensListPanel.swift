@@ -280,7 +280,7 @@ struct SpaceLensListPanel: View {
                     .font(.callout)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(ByteCountFormatter.string(fromByteCount: item.size, countStyle: .binary))
+                Text(formattedBinaryBytes(item.size))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }

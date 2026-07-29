@@ -71,16 +71,6 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     private let log = OSLog(subsystem: "com.personal.VaderCleaner",
                             category: "NotificationManager")
 
-    /// Single shared formatter for byte → string conversion in the
-    /// large-files notification body. `ByteCountFormatter` allocates internal
-    /// state on each construction; reusing one instance avoids unnecessary
-    /// churn even though the per-kind cooldown already throttles fire rate.
-    private static let byteCountFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter
-    }()
-
     /// - Parameters:
     ///   - center: `UNUserNotificationCenter.current()` is the right
     ///     production instance; tests can pass a different instance only
@@ -243,7 +233,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     static func makeLowDiskContent(freeBytes: Int64, sound: Bool = true) -> UNMutableNotificationContent {
         // Reads in the same Finder-style units the Notifications picker offers
         // ("Less than 10 GB"), so the banner and the setting speak the same way.
-        let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+        let free = formattedFileBytes(freeBytes)
         return content(
             title: "Your disk is getting full",
             body: "Only \(free) left. A quick clean-up will give your Mac room to breathe.",
@@ -268,7 +258,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     }
 
     static func makeLargeFilesFoundContent(count: Int, totalSize: Int64, sound: Bool = true) -> UNMutableNotificationContent {
-        let formattedSize = byteCountFormatter.string(fromByteCount: totalSize)
+        let formattedSize = formattedFileBytes(totalSize)
         return content(
             title: "Large & forgotten files",
             body: "\(count) files are taking up \(formattedSize). Worth a look.",
@@ -285,7 +275,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     }
 
     static func makeTrashSizeContent(sizeBytes: Int64, sound: Bool = true) -> UNMutableNotificationContent {
-        let size = ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+        let size = formattedFileBytes(sizeBytes)
         return content(
             title: "Your Trash is filling up",
             body: "It's holding \(size). Emptying it gives that space back.",
@@ -310,7 +300,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
     }
 
     static func makeOverfilledDriveContent(volumeName: String, freeBytes: Int64, totalBytes: Int64, sound: Bool = true) -> UNMutableNotificationContent {
-        let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+        let free = formattedFileBytes(freeBytes)
         return content(
             title: "\(volumeName) is nearly full",
             body: "Only \(free) left on it. A clean-up will make room.",

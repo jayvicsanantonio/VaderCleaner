@@ -300,7 +300,7 @@ struct SystemJunkView: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(.green)
-            Text(smartScanFormattedBytes(bytesFreed) + " freed")
+            Text(formattedFileBytes(bytesFreed) + " freed")
                 .font(.title2.weight(.semibold))
                 .accessibilityIdentifier("system-junk.bytesFreed")
             Button("Scan Again") {
@@ -335,12 +335,6 @@ struct SystemJunkView: View {
         }
         .padding()
     }
-
-    // MARK: - Formatter
-
-    /// Shared `ByteCountFormatter` for the "freed" summary on the complete
-    /// state. Kept as a static so the allocation does not happen inside the
-    /// view body's expression evaluator on every redraw.
 }
 
 // MARK: - Subviews

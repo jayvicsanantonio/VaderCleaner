@@ -161,7 +161,7 @@ struct SpaceLensReviewSheet: View {
                 .font(.callout.weight(.semibold))
                 .accessibilityIdentifier("space-lens.review.selectedCount")
             Text("|").foregroundStyle(.tertiary)
-            Text(ByteCountFormatter.string(fromByteCount: totals.size, countStyle: .binary))
+            Text(formattedBinaryBytes(totals.size))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
             Button {
