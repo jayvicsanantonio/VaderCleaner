@@ -37,7 +37,7 @@ struct DocumentVersionsScanner {
         let payload: ([String], [NSNumber])? = await withCheckedContinuation { continuation in
             let resumer = OnceResumer(continuation: continuation)
             let helper = helperProvider { [log] connectionError in
-                log.error("Document Versions scan failed: \(connectionError.localizedDescription, privacy: .public)")
+                log.error("Document Versions scan failed: \(connectionError.localizedDescription, privacy: .private)")
                 resumer.resume(returning: nil)
             }
             guard let helper else {
@@ -46,7 +46,7 @@ struct DocumentVersionsScanner {
             }
             helper.scanDocumentVersions { [log] paths, sizes, replyError in
                 if let replyError {
-                    log.error("Document Versions scan failed: \(replyError.localizedDescription, privacy: .public)")
+                    log.error("Document Versions scan failed: \(replyError.localizedDescription, privacy: .private)")
                     resumer.resume(returning: nil)
                 } else {
                     resumer.resume(returning: (paths, sizes))

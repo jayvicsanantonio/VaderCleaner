@@ -50,7 +50,7 @@ struct PrivilegedTaskRunner: Sendable {
             }
         }
         if let error {
-            log.error("Maintenance task failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Maintenance task failed: \(error.localizedDescription, privacy: .private)")
             throw error
         }
         return successMessage

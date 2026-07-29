@@ -268,7 +268,7 @@ enum PackageDirectorySizer {
             errorHandler: { url, error in
                 isAccessible = false
                 Self.log.debug(
-                    "Skipping unreadable package path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
+                    "Skipping unreadable package path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)"
                 )
                 return true
             }
@@ -441,7 +441,7 @@ struct FileScanner: FileScanning {
                 options: enumerationOptions,
                 errorHandler: { url, error in
                     Self.log.debug(
-                        "Skipping unreadable path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
+                        "Skipping unreadable path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)"
                     )
                     return true
                 }

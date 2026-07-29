@@ -121,7 +121,7 @@ struct SystemJunkDeleter: Sendable {
                 }
                 bytesFreed += file.size
             } catch {
-                log.debug("Skipping unremovable user file \(file.url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)")
+                log.debug("Skipping unremovable user file \(file.url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             }
         }
 
@@ -215,7 +215,7 @@ struct SystemJunkDeleter: Sendable {
         }
 
         if let error {
-            log.error("Helper deletion failed for \(paths.count, privacy: .public) paths: \(error.localizedDescription, privacy: .public)")
+            log.error("Helper deletion failed for \(paths.count, privacy: .public) paths: \(error.localizedDescription, privacy: .private)")
             return 0
         }
         return totalBytes
@@ -230,7 +230,7 @@ struct SystemJunkDeleter: Sendable {
         let log = Logger(subsystem: "com.personal.VaderCleaner",
                          category: "SystemJunkDeleter.HelperProvider")
         return HelperConnectionManager.shared.helper { error in
-            log.error("Helper connection error: \(error.localizedDescription, privacy: .public)")
+            log.error("Helper connection error: \(error.localizedDescription, privacy: .private)")
             errorHandler(error)
         }
     }

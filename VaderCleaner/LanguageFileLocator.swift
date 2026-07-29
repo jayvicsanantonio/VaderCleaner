@@ -95,7 +95,7 @@ struct LanguageFileLocator {
             options: [.skipsHiddenFiles],
             errorHandler: { url, error in
                 Self.log.debug(
-                    "Skipping unreadable language path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
+                    "Skipping unreadable language path \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)"
                 )
                 return true
             }

@@ -129,6 +129,16 @@ lint suggestions in this repo were unsound and would not have compiled.
 - Errors are logged through `os.Logger` with an explicit privacy annotation.
   Anything that can carry a user path or filename is `.private`; only stable
   identifiers are `.public`. Never `print()`.
+- **An error's own text counts as user data.** `error.localizedDescription` and
+  `String(describing: error)` are always `.private`, because Foundation embeds
+  the offending filename in Cocoa file errors verbatim — a failed delete reads
+  `“Tax Return 2025.pdf” couldn't be removed because you don't have permission
+  to access it.` Masking the path you passed in does nothing if the error text
+  beside it is `.public`. What stays `.public` is the context that is safe by
+  construction: counts, exit codes, task kinds, and other compile-time literals.
+- User files reach the Trash through `UserFileRecycler` — never a hand-rolled
+  `NSWorkspace.recycle` wrapper. Four copies had drifted apart on empty-input
+  handling and error reporting before it existed.
 - Comments explain *why*, and are evergreen — they describe the code as it is,
   not how it changed.
 - User files are moved to the Trash, never hard-deleted, so a change of heart is

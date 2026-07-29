@@ -36,7 +36,7 @@ struct RAMManager {
             }
         }
         if let error {
-            log.error("RAM flush failed: \(error.localizedDescription, privacy: .public)")
+            log.error("RAM flush failed: \(error.localizedDescription, privacy: .private)")
             throw error
         }
     }

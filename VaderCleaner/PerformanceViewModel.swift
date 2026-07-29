@@ -285,7 +285,7 @@ final class PerformanceViewModel {
             rebuildRecommendations()
             phase = .ready
         } catch {
-            log.error("Maintenance task \(kind.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Maintenance task \(kind.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .private)")
             if case MailReindexerError.fullDiskAccessRequired = error {
                 failureNeedsFullDiskAccess = true
             }
@@ -367,7 +367,7 @@ final class PerformanceViewModel {
             )
             phase = .ready
         } catch {
-            log.error("RAM flush failed: \(error.localizedDescription, privacy: .public)")
+            log.error("RAM flush failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
@@ -382,7 +382,7 @@ final class PerformanceViewModel {
             maintenanceOutput = try await runMaintenance()
             phase = .ready
         } catch {
-            log.error("Maintenance scripts failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Maintenance scripts failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
@@ -398,7 +398,7 @@ final class PerformanceViewModel {
             loginItems = await loadLoginItems()
             phase = .ready
         } catch {
-            log.error("Login-item toggle failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Login-item toggle failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
@@ -459,7 +459,7 @@ final class PerformanceViewModel {
             if let current = userAgents.firstIndex(where: { $0.id == agent.id }) {
                 userAgents[current] = original
             }
-            log.error("Agent loaded-state change failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Agent loaded-state change failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
@@ -483,7 +483,7 @@ final class PerformanceViewModel {
             systemAgents.removeAll { $0.id == agent.id }
             phase = .ready
         } catch {
-            log.error("Agent removal failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Agent removal failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
@@ -516,7 +516,7 @@ final class PerformanceViewModel {
             rebuildRecommendations()
             phase = .ready
         } catch {
-            log.error("Batch remove failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Batch remove failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
     }
