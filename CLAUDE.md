@@ -43,6 +43,19 @@ session crashed and was retried. Run UI tests from Xcode.
 Child-process tests (`BrewRunner`, `ProcessLineStreamer`) intermittently hang
 `xcodebuild` indefinitely. `pkill -f xcodebuild` and re-run.
 
+**CI skips those two suites** (`-skip-testing:` in `.github/workflows/ci.yml`)
+because the hang wedges the whole session at teardown rather than failing — one
+run sat for 37 minutes. They still run in the command above, so **the only
+coverage of subprocess cancellation and pipe-EOF handling now lives on
+developer machines**. If you change `ProcessLineStreamer` or `DefaultBrewRunner`,
+run the suite locally without `-skip-testing`; CI will not catch a regression
+there.
+
+The underlying leak is unfixed: a grandchild process that survives
+`Process.terminate()` keeps its inherited dup of the stdout pipe's write end, so
+the reader never sees EOF. `DefaultBrewRunnerTests` documents the mechanism and
+defends against it with `exec`, which suggests the remaining path is elsewhere.
+
 ## Linting
 
 ```bash
