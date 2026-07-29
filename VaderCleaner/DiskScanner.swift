@@ -306,7 +306,7 @@ struct DiskScanner: DiskScanning {
                 throw DiskScanError.rootInaccessible(url)
             }
             log.debug(
-                "Skipping unreadable directory \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .public)"
+                "Skipping unreadable directory \(url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)"
             )
             return DiskNode(
                 url: url,

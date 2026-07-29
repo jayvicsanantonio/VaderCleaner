@@ -43,7 +43,7 @@ struct MaintenanceScriptRunner {
             }
         }
         if let error {
-            log.error("Maintenance scripts failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Maintenance scripts failed: \(error.localizedDescription, privacy: .private)")
             throw error
         }
         return String(

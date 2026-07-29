@@ -1219,7 +1219,7 @@ final class SmartScanViewModel {
             let bytes = try await junkCleaner(selectedJunk)
             return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
         } catch {
-            log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .public)")
+            log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .private)")
             return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
         }
     }
@@ -1275,7 +1275,7 @@ final class SmartScanViewModel {
                 recordMaintenanceRun(taskID)
                 completed += 1
             } catch {
-                log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .private)")
                 lastError = error.localizedDescription
             }
         }
@@ -1309,7 +1309,7 @@ final class SmartScanViewModel {
             )
             return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: message))
         } catch {
-            log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .public)")
+            log.error("Smart Scan browser privacy clear failed: \(String(describing: error), privacy: .private)")
             return CareReceiptLine(kind: .browserPrivacy, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
         }
     }
@@ -1385,8 +1385,6 @@ extension SmartScanViewModel {
         let detector = ClamAVDetector()
         let threatRemover = MalwareThreatRemover()
         let privacyRemover = BrowserPrivacyRemover(pathProvider: DefaultBrowserDataPathProvider())
-        let log = Logger(subsystem: "com.personal.VaderCleaner",
-                         category: "SmartScanViewModel.live")
 
         return SmartScanViewModel(
             scanEngine: { configuration, onEvent in
@@ -1397,7 +1395,7 @@ extension SmartScanViewModel {
             updateOpener: { url in
                 await MainActor.run { _ = NSWorkspace.shared.open(url) }
             },
-            recycleFiles: { urls in await Self.recycle(urls, log: log) },
+            recycleFiles: { urls in await UserFileRecycler.recycle(urls, context: "Smart Scan") },
             maintenanceTaskRunner: { taskID in
                 switch MaintenanceTask.Kind(rawValue: taskID) {
                 case .runMaintenanceScripts: _ = try await MaintenanceScriptRunner().run()
@@ -1432,17 +1430,6 @@ extension SmartScanViewModel {
     /// `NSWorkspace.recycle` (restorable) and return the URLs that actually
     /// moved. Marked `nonisolated` so a multi-gigabyte batch runs off the
     /// main actor. Failures are logged with hash-masked privacy.
-    nonisolated private static func recycle(_ urls: [URL], log: Logger) async -> Set<URL> {
-        guard !urls.isEmpty else { return [] }
-        return await withCheckedContinuation { continuation in
-            NSWorkspace.shared.recycle(urls) { trashed, error in
-                if let error {
-                    log.error("Smart Scan recycle reported: \(error.localizedDescription, privacy: .private(mask: .hash))")
-                }
-                continuation.resume(returning: Set(trashed.keys))
-            }
-        }
-    }
 }
 
 // MARK: - ScanCoordinating

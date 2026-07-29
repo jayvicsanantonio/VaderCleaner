@@ -203,7 +203,7 @@ struct LaunchAgentManager: Sendable {
             }
         }
         if let error {
-            log.error("Helper launch-agent removal failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Helper launch-agent removal failed: \(error.localizedDescription, privacy: .private)")
             throw error
         }
     }

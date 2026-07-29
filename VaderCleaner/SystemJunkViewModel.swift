@@ -287,7 +287,7 @@ final class SystemJunkViewModel {
             self.apply(await ScanSelectionSeed.safeDefaults(from: result))
             self.phase = .preview(result)
         } catch {
-            log.error("System Junk scan failed: \(String(describing: error), privacy: .public)")
+            log.error("System Junk scan failed: \(String(describing: error), privacy: .private)")
             self.latestResult = nil
             self.managerStore.unload()
             self.selectedURLs = []
@@ -348,7 +348,7 @@ final class SystemJunkViewModel {
             let bytes = try await deleter(toDelete)
             self.phase = .complete(bytesFreed: bytes)
         } catch {
-            log.error("System Junk clean failed: \(String(describing: error), privacy: .public)")
+            log.error("System Junk clean failed: \(String(describing: error), privacy: .private)")
             self.phase = .failed(stage: .cleaning, message: error.localizedDescription)
         }
     }

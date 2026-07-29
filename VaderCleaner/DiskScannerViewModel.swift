@@ -305,24 +305,12 @@ final class DiskScannerViewModel {
 
     init(
         scanner: @escaping Scanner,
-        trash: @escaping TrashSink = DiskScannerViewModel.recycle,
+        trash: @escaping TrashSink = { await UserFileRecycler.recycle($0, context: "Space Lens") },
         volumeUsageProvider: @escaping (URL) -> SpaceLensVolumeUsage = SpaceLensVolumeUsage.current
     ) {
         self.scanner = scanner
         self.trash = trash
         self.volumeUsageProvider = volumeUsageProvider
-    }
-
-    /// Default removal sink — moves `urls` to the Trash via
-    /// `NSWorkspace.recycle`, returning the set actually moved. Mirrors
-    /// `MyClutterViewModel`'s deletion path; failures are skipped so one locked
-    /// file never aborts the batch.
-    nonisolated static func recycle(_ urls: [URL]) async -> Set<URL> {
-        await withCheckedContinuation { continuation in
-            NSWorkspace.shared.recycle(urls) { newURLs, _ in
-                continuation.resume(returning: Set(newURLs.keys))
-            }
-        }
     }
 
     /// Cancel any in-flight walk if the view-model is torn down while a
