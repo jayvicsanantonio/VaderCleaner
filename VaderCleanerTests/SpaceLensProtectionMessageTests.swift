@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class SpaceLensProtectionMessageTests: XCTestCase {
 
     private func node(_ url: URL) -> DiskNode {

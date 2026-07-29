@@ -50,6 +50,6 @@ struct ScanResult: Equatable {
     /// `ByteCountFormatter`'s file-size style so labels match how Finder
     /// reports sizes — which is what users compare scan output to.
     var formattedTotalSize: String {
-        smartScanFormattedBytes(totalSize)
+        formattedFileBytes(totalSize)
     }
 }

@@ -93,7 +93,7 @@ struct SpaceLensHoverCard: View {
                     .lineLimit(1)
             }
             if selectedCount > 0 {
-                Text("Selected: \(ByteCountFormatter.string(fromByteCount: selectedSize, countStyle: .binary))  |  \(Self.itemsLabel(selectedCount))")
+                Text("Selected: \(formattedBinaryBytes(selectedSize))  |  \(Self.itemsLabel(selectedCount))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Color(red: 0.96, green: 0.45, blue: 0.85))
             }

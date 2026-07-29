@@ -21,7 +21,7 @@ enum CareFindingCopy {
     /// shared instance used — `test_formattedBytes_matchesFinderFileStyle`
     /// pins the two to identical output.
     static func formattedBytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        formattedFileBytes(bytes)
     }
 
     /// Card headline, one per kind.

@@ -137,8 +137,14 @@ lint suggestions in this repo were unsound and would not have compiled.
 
 ## Concurrency
 
-The app builds in the **Swift 6 language mode** with a clean build (0 warnings).
-Keep it that way:
+Everything builds in the **Swift 6 language mode** with 0 warnings — the app,
+`Shared/`, the helper, **and both test targets**. Keep it that way; the test
+targets count, and a clean incremental build is not evidence, because only
+recompiled files re-emit warnings. To check honestly:
+
+```bash
+xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal"
+```
 
 - Injected-collaborator typealiases are `@Sendable`, because scanners invoke
   them from detached tasks.
@@ -152,6 +158,12 @@ Keep it that way:
   don't land a frame late.
 - Test doubles record through `TestBox` (`VaderCleanerTests/Helpers`), since a
   `@Sendable` closure cannot capture a local `var`.
+- `XCTestCase` subclasses that touch main-actor state are `@MainActor`, and they
+  override the **async** lifecycle hooks (`setUp() async throws` /
+  `tearDown() async throws`). The sync `setUp()` / `setUpWithError()` are
+  `nonisolated`, so a `@MainActor` class overriding those gets an isolation
+  warning on every main-actor touch inside them. Inside an async override,
+  `super.setUp()` resolves to the async overload — it needs `try await`.
 
 ## Gotchas
 

@@ -10,8 +10,8 @@ final class PreferencesStoreTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         // Each test gets its own UserDefaults suite so reads/writes never
         // touch the host machine's real .standard defaults and tests cannot
         // observe each other's state.
@@ -19,11 +19,11 @@ final class PreferencesStoreTests: XCTestCase {
         defaults = UserDefaults(suiteName: suiteName)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
         suiteName = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Defaults

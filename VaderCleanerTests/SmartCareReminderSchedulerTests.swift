@@ -12,8 +12,8 @@ final class SmartCareReminderSchedulerTests: XCTestCase {
     private var scheduled: [UNNotificationRequest] = []
     private var cancelled: [[String]] = []
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         let defaults = UserDefaults(suiteName: "VaderCleanerTests.SmartCare.\(UUID().uuidString)")!
         preferences = PreferencesStore(defaults: defaults)
         scheduled = []

@@ -126,7 +126,7 @@ struct SpaceLensBubbleView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(ByteCountFormatter.string(fromByteCount: item.size, countStyle: .binary))
+                    Text(formattedBinaryBytes(item.size))
                         .font(.system(size: min(max(circle.radius * 0.13, 11), 21)).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.85))
                 }
@@ -244,7 +244,7 @@ struct SpaceLensBubbleView: View {
                 categoryIsProtected: item.node.map {
                     SpaceLensProtection.isProtected(url: $0.url, isDirectory: $0.isDirectory)
                 } ?? false,
-                formattedSize: ByteCountFormatter.string(fromByteCount: item.size, countStyle: .binary),
+                formattedSize: formattedBinaryBytes(item.size),
                 itemCount: item.itemCount,
                 modificationDate: item.node?.modificationDate,
                 selectedCount: hoveredSelection.count,

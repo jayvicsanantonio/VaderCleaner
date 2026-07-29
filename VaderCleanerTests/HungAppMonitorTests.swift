@@ -13,8 +13,8 @@ final class HungAppMonitorTests: XCTestCase {
     private var apps: [RunningAppInfo] = []
     private var probeState: ProbeState!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         let defaults = UserDefaults(suiteName: "VaderCleanerTests.HungApp.\(UUID().uuidString)")!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()

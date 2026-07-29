@@ -6,17 +6,18 @@ import XCTest
 /// These tests never trigger destructive controls. They drive the scan and
 /// open the dashboard's detail screens, but stop at display states — the
 /// uninstall / update side-effects are covered by the view-model unit tests.
+@MainActor
 final class ApplicationsUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         app.terminate()
         app = nil
     }

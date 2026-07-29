@@ -425,7 +425,7 @@ final class MenuBarViewModel {
     static func speedString(_ bytesPerSec: Double) -> String {
         let bytes = max(0, bytesPerSec)
         guard bytes >= 1 else { return "0 KB/s" }
-        let formatted = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        let formatted = formattedFileBytes(Int64(bytes))
         return "\(formatted)/s"
     }
 

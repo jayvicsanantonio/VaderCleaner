@@ -7,6 +7,7 @@ import XCTest
 /// (Large & Old Files) we only wait for a terminal *display* state and never
 /// touch Delete — the deletion contracts are covered exhaustively by the
 /// view-model unit tests against injected fakes.
+@MainActor
 final class FinalPolishUITests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -30,13 +31,13 @@ final class FinalPolishUITests: XCTestCase {
         "sidebar.healthMonitor",
     ]
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         app.terminate()
         app = nil
     }

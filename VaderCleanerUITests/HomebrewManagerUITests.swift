@@ -5,17 +5,18 @@ import XCTest
 
 /// Drives display states only; never presses upgrade, uninstall, or cleanup.
 /// The mutating side-effects are covered by HomebrewViewModel unit tests.
+@MainActor
 final class HomebrewManagerUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         app.terminate()
         app = nil
     }

@@ -33,7 +33,11 @@ final class LanguageFileLocatorTests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "realpath failed for \(url.path)"]
             )
         }
-        return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+        // `realpath` NUL-terminates into the buffer, so the bytes past the
+        // terminator are the zero fill from `repeating: 0` and must be dropped
+        // before decoding — `String(decoding:as:)` would otherwise keep them.
+        let pathBytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return URL(fileURLWithPath: String(decoding: pathBytes, as: UTF8.self), isDirectory: true)
     }
 
     override func tearDown() {

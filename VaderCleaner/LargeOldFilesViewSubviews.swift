@@ -8,7 +8,7 @@ enum LargeOldFilesFormatting {
     /// Finder-matching file-style byte string, formatted through the shared
     /// helper so every surface reports sizes identically.
     static func formattedBytes(_ bytes: Int64) -> String {
-        smartScanFormattedBytes(bytes)
+        formattedFileBytes(bytes)
     }
 }
 

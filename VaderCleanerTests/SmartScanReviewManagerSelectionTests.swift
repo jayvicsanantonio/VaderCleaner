@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class SmartScanReviewManagerSelectionTests: XCTestCase {
 
     /// Everything in the category selected → every row is checked without a

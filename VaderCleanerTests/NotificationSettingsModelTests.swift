@@ -10,14 +10,14 @@ final class NotificationSettingsModelTests: XCTestCase {
 
     private var dispatcher: StubNotificationDispatcher!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         dispatcher = StubNotificationDispatcher()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         dispatcher = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func makeModel(

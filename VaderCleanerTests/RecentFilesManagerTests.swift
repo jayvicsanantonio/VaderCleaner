@@ -9,15 +9,15 @@ final class RecentFilesManagerTests: XCTestCase {
 
     private var tempHome: URL!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         tempHome = try TestHelpers.createTempDirectory()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         TestHelpers.tearDownTempDirectory(tempHome)
         tempHome = nil
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     /// `clear()` must invoke the injected app-level clear action exactly

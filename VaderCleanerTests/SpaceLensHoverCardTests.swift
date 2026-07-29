@@ -8,6 +8,7 @@ import CoreGraphics
 /// Unit tests for `SpaceLensHoverCard`'s positioning and formatting helpers.
 /// These are pure static functions, so the tests reconstruct the card's
 /// rectangle from its returned center and assert it clears the hovered bubble.
+@MainActor
 final class SpaceLensHoverCardTests: XCTestCase {
 
     private let halfWidth = SpaceLensHoverCard.preferredWidth / 2

@@ -11,8 +11,8 @@ final class DeviceBatteryMonitorTests: XCTestCase {
     private var dispatcher: StubNotificationDispatcher!
     private var virtualNow = Date(timeIntervalSince1970: 1_700_000_000)
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         let defaults = UserDefaults(suiteName: "VaderCleanerTests.DeviceBattery.\(UUID().uuidString)")!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()

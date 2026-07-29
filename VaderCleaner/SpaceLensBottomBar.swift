@@ -83,7 +83,7 @@ struct SpaceLensBottomBar: View {
                 .monospacedDigit()
                 .accessibilityIdentifier("space-lens.selectedCount")
             Text("|").foregroundStyle(.tertiary)
-            Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .binary))
+            Text(formattedBinaryBytes(size))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
         }

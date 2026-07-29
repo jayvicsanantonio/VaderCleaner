@@ -607,26 +607,26 @@ final class MenuBarViewModelTests: XCTestCase {
     /// A second click while the purge is in flight must not start a second
     /// helper call — mirrors `runSpeedTest`'s in-flight guard.
     func test_flushMemory_ignoresReentrantCalls() async {
-        var calls = 0
+        let calls = TestBox(0)
         // Holds the first flush observably mid-flight (the action can't
         // finish until the test releases it), so the re-entrant call below is
         // guaranteed to arrive while the state is `.running`.
-        var release = false
+        let release = TestBox(false)
         let vm = MenuBarViewModel(
             service: SystemStatsService(autostart: false),
             flushMemory: {
-                calls += 1
-                while !release { await Task.yield() }
+                calls.value += 1
+                while !release.value { await Task.yield() }
             }
         )
 
         let first = Task { await vm.flushMemory() }
         while vm.memoryFlushState != .running { await Task.yield() }
         await vm.flushMemory()
-        release = true
+        release.value = true
         await first.value
 
-        XCTAssertEqual(calls, 1, "A flush in flight must swallow re-entrant calls")
+        XCTAssertEqual(calls.value, 1, "A flush in flight must swallow re-entrant calls")
         XCTAssertEqual(vm.memoryFlushState, .flushed)
     }
 

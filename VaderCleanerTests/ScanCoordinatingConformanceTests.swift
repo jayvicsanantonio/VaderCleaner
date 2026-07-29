@@ -594,7 +594,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         let gate = ScanGate()
         let counter = CallCounter()
         let vm = makePrivacy(detector: {
-            await counter.bump()
+            counter.bump()
             await gate.wait()
             return []
         })

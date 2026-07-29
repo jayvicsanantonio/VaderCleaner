@@ -109,13 +109,13 @@ final class NotificationManagerTests: XCTestCase {
     /// The manager reads the live preference through its injected closure, so
     /// flipping the toggle takes effect on the next banner without a relaunch.
     func test_manager_readsSoundPreferenceAtDispatchTime() {
-        var soundsOn = true
+        let soundsOn = TestBox(true)
         let manager = NotificationManager(
             authorizationRequester: { true },
-            soundEnabled: { soundsOn }
+            soundEnabled: { soundsOn.value }
         )
         XCTAssertTrue(manager.currentSoundEnabled)
-        soundsOn = false
+        soundsOn.value = false
         XCTAssertFalse(manager.currentSoundEnabled)
     }
 

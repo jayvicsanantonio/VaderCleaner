@@ -4,6 +4,7 @@
 import XCTest
 @testable import VaderCleaner
 
+@MainActor
 final class ManagerContentTokenTests: XCTestCase {
 
     private func item(_ id: String) -> ManagerItem {

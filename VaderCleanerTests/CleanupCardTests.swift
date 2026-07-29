@@ -5,6 +5,7 @@ import XCTest
 import SwiftUI
 @testable import VaderCleaner
 
+@MainActor
 final class CleanupCardTests: XCTestCase {
 
     func test_titleFont_isLargeAndBoldForHeroAndWideCards() {

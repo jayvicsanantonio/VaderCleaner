@@ -86,8 +86,8 @@ final class NotificationThresholdMonitorTests: XCTestCase {
     /// boundary without sleeping.
     private var virtualNow: Date = Date(timeIntervalSince1970: 1_700_000_000)
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         let suite = "VaderCleanerTests.NotificationThresholdMonitor.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         preferences = PreferencesStore(defaults: defaults)
@@ -98,11 +98,11 @@ final class NotificationThresholdMonitorTests: XCTestCase {
         virtualNow = Date(timeIntervalSince1970: 1_700_000_000)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         preferences = nil
         stats = nil
         dispatcher = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// Fresh monitor pinned to the test's virtual clock. Tests that need to
