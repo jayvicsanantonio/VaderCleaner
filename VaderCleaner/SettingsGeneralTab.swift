@@ -11,6 +11,8 @@ struct GeneralTab: View {
     @Environment(PreferencesStore.self) private var preferences
     @Environment(ProtectionSettingsStore.self) private var protectionSettings
     @Environment(SmartScanSettingsStore.self) private var smartScanSettings
+    @Environment(WebDevScanScopeStore.self) private var webDevScanScope
+    @Environment(MyClutterScanScopeStore.self) private var myClutterScanScope
     @Environment(CareHistoryStore.self) private var history
     @Environment(AppState.self) private var appState
 
@@ -78,7 +80,7 @@ struct GeneralTab: View {
                 } header: {
                     Text("Startup")
                 } footer: {
-                    Text("VaderCleaner opens quietly in the background when you log in, so it's ready whenever you need it.")
+                    Text("VaderCleaner starts up with your Mac and opens its window, so it's ready whenever you need it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -149,9 +151,13 @@ struct GeneralTab: View {
             titleVisibility: .visible
         ) {
             Button("Restore Defaults", role: .destructive) {
-                preferences.restoreDefaults()
-                protectionSettings.restoreDefaults()
-                smartScanSettings.restoreDefaults()
+                SettingsRestore.restoreAll(
+                    preferences: preferences,
+                    protection: protectionSettings,
+                    smartScan: smartScanSettings,
+                    webDevScanScope: webDevScanScope,
+                    myClutterScanScope: myClutterScanScope
+                )
             }
             Button("Cancel", role: .cancel) {}
         } message: {

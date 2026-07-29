@@ -38,6 +38,23 @@ final class CareScanEngineLiveTests: XCTestCase {
         XCTAssertEqual(scope.excludedDirectories, quick.excludedDirectories)
     }
 
+    /// The malware lane was the one runner in `live()` that never received the
+    /// Ignore List, so a folder every other lane skipped was still walked here.
+    @MainActor
+    func test_malwareScanScope_carriesTheUsersIgnoredPaths() {
+        let ignored = URL(fileURLWithPath: "/Users/x/Archive")
+
+        let scope = CareScanEngine.UnitRunners.malwareScanScope(
+            excludeICloud: false,
+            userExclusions: [ignored]
+        )
+
+        XCTAssertTrue(
+            scope.excludedDirectories.contains("^/Users/x/Archive(/|$)"),
+            "Smart Scan's malware lane must honour the Ignore List like every other lane"
+        )
+    }
+
     @MainActor
     func test_malwareScanScope_checksPersistenceVectorsNotTheUserFolders() {
         // The behaviour the alignment is for: a care-plan sweep that stays

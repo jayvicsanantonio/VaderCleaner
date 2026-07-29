@@ -93,6 +93,26 @@ final class ProtectionSettingsStoreTests: XCTestCase {
 
     // MARK: - ScanMode contract
 
+    // MARK: - clamscan options
+
+    /// Both malware surfaces — the Protection screen and Smart Scan's malware
+    /// unit — build their scan options here, so a user who switches a content
+    /// type off gets the same scan from either. Smart Scan used to construct a
+    /// default `ScanOptions` instead, quietly ignoring both toggles.
+    func test_clamAVOptions_mirrorTheContentToggles() {
+        let store = ProtectionSettingsStore(defaults: defaults)
+
+        store.scanEmailAttachments = false
+        store.scanArchives = true
+        XCTAssertFalse(store.clamAVOptions.scanMail)
+        XCTAssertTrue(store.clamAVOptions.scanArchives)
+
+        store.scanEmailAttachments = true
+        store.scanArchives = false
+        XCTAssertTrue(store.clamAVOptions.scanMail)
+        XCTAssertFalse(store.clamAVOptions.scanArchives)
+    }
+
     func test_scanMode_rawValuesAreStable() {
         // The raw values are persisted keys — a drift here would silently
         // reset a user's saved mode on upgrade.

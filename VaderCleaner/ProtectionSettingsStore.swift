@@ -72,9 +72,10 @@ enum ScanMode: String, CaseIterable, Identifiable, Sendable {
 /// skip locally-downloaded iCloud files, and how thorough the scan is.
 /// Persisted in `UserDefaults` so the choices survive relaunch.
 ///
-/// Defaults mirror the reference design — every content option on and Deep
-/// Scan selected — so a fresh install behaves like a thorough, comprehensive
-/// sweep. The `UserDefaults` instance is injected so tests can use an
+/// Both content options ship on, so a fresh install inspects everything
+/// clamscan inspects by default. The scan mode ships as Quick — see
+/// `defaultScanMode` for why a first scan is a fast checkup rather than a
+/// whole-home pass. The `UserDefaults` instance is injected so tests can use an
 /// isolated suite, the same seam `SmartScanSettingsStore` uses.
 @MainActor
 @Observable
@@ -118,6 +119,20 @@ final class ProtectionSettingsStore {
 
     var scanMode: ScanMode {
         didSet { defaults.set(scanMode.rawValue, forKey: Key.scanMode) }
+    }
+
+    // MARK: - Derived scan configuration
+
+    /// The content options for `clamscan`, derived from the two toggles above.
+    /// Both malware surfaces read them from here — the Protection screen's own
+    /// scan and Smart Scan's malware unit — so a user who switches archives off
+    /// gets the same scan from either. Smart Scan used to build a default
+    /// `ScanOptions` of its own, which silently ignored both toggles.
+    var clamAVOptions: ClamAVScanner.ScanOptions {
+        ClamAVScanner.ScanOptions(
+            scanMail: scanEmailAttachments,
+            scanArchives: scanArchives
+        )
     }
 
     // MARK: - Restore defaults

@@ -36,6 +36,11 @@ final class MyClutterViewModel {
     /// Deletion sink. Returns the URLs actually moved to the Trash; survivors
     /// stay in the dashboard.
     typealias Deleter = ([URL]) async -> Set<URL>
+    /// Reports that a finished scan surfaced large & old files, with how many and
+    /// their combined size. Production routes this to the notification monitor,
+    /// which owns the "large or forgotten files" preference and its cooldown; a
+    /// nil handler means nothing is notified.
+    typealias LargeOldFilesFoundHandler = @MainActor (_ count: Int, _ totalSize: Int64) -> Void
 
     private(set) var phase: Phase = .idle
     private(set) var scannedItemCount = 0
@@ -78,6 +83,7 @@ final class MyClutterViewModel {
     @ObservationIgnored private let largeOldScan: LargeOldScan
     @ObservationIgnored private let downloadsScan: DownloadsScan
     @ObservationIgnored private let deleter: Deleter
+    @ObservationIgnored private let onLargeOldFilesFound: LargeOldFilesFoundHandler?
     @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "MyClutterViewModel")
@@ -87,13 +93,15 @@ final class MyClutterViewModel {
         similarScan: @escaping SimilarScan,
         largeOldScan: @escaping LargeOldScan,
         downloadsScan: @escaping DownloadsScan,
-        deleter: @escaping Deleter
+        deleter: @escaping Deleter,
+        onLargeOldFilesFound: LargeOldFilesFoundHandler? = nil
     ) {
         self.duplicateScan = duplicateScan
         self.similarScan = similarScan
         self.largeOldScan = largeOldScan
         self.downloadsScan = downloadsScan
         self.deleter = deleter
+        self.onLargeOldFilesFound = onLargeOldFilesFound
     }
 
     // MARK: - Derived totals
@@ -343,6 +351,13 @@ final class MyClutterViewModel {
 
         resultsVersion &+= 1
         phase = totalFileCount == 0 ? .empty : .results
+
+        // Announce the large & old findings once the results are settled, so the
+        // banner reports the same totals the dashboard is about to show. Nothing
+        // found means nothing to say.
+        if !largeOldFiles.isEmpty {
+            onLargeOldFilesFound?(largeOldFiles.count, largeOldBytes)
+        }
     }
 
     private func rebuildSizeMap() {
@@ -457,7 +472,8 @@ extension MyClutterViewModel {
     @MainActor
     static func live(
         exclusions: ExclusionsStore,
-        scanScope: MyClutterScanScopeStore
+        scanScope: MyClutterScanScopeStore,
+        onLargeOldFilesFound: LargeOldFilesFoundHandler? = nil
     ) -> MyClutterViewModel {
         MyClutterViewModel(
             // Each closure snapshots the stores on the main actor (their
@@ -491,7 +507,8 @@ extension MyClutterViewModel {
                 }
                 return try await DownloadsScanner().scan(excluding: ex, onProgress: onProgress)
             },
-            deleter: { urls in await UserFileRecycler.recycle(urls, context: "My Clutter") }
+            deleter: { urls in await UserFileRecycler.recycle(urls, context: "My Clutter") },
+            onLargeOldFilesFound: onLargeOldFilesFound
         )
     }
 
