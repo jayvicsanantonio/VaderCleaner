@@ -30,7 +30,8 @@ final class MyClutterViewModelTests: XCTestCase {
         similar: [SimilarImageGroup] = [],
         largeOld: [ScannedFile] = [],
         downloads: [DownloadItem] = [],
-        deleted: ((Set<URL>) -> Void)? = nil
+        deleted: ((Set<URL>) -> Void)? = nil,
+        onLargeOldFilesFound: MyClutterViewModel.LargeOldFilesFoundHandler? = nil
     ) -> MyClutterViewModel {
         MyClutterViewModel(
             duplicateScan: { _ in duplicates },
@@ -41,7 +42,8 @@ final class MyClutterViewModelTests: XCTestCase {
                 let set = Set(urls)
                 deleted?(set)
                 return set
-            }
+            },
+            onLargeOldFilesFound: onLargeOldFilesFound
         )
     }
 
@@ -62,6 +64,42 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertEqual(vm.largeOldBytes, 1000)
         XCTAssertEqual(vm.downloadsBytes, 500)
         XCTAssertEqual(vm.dominantDownloadSource, "Google Chrome")
+    }
+
+    // MARK: - Large & old files notification
+
+    /// The "Tell me when large or forgotten files turn up" preference had no
+    /// production trigger at all — the monitor's entry point was called only
+    /// from its own tests, so the toggle did nothing. A finished My Clutter scan
+    /// is what the preference describes, so it reports here.
+    func test_scanReportsLargeOldFilesWithTheirCountAndCombinedSize() async {
+        let reported = TestBox<(count: Int, bytes: Int64)?>(nil)
+        let large = [file("/big/movie.mov", size: 1000), file("/big/dump.zip", size: 2500)]
+        let vm = makeViewModel(
+            largeOld: large,
+            onLargeOldFilesFound: { count, bytes in reported.value = (count, bytes) }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(reported.value?.count, 2)
+        XCTAssertEqual(reported.value?.bytes, 3500)
+    }
+
+    /// A scan that turned up nothing large must stay silent — a banner
+    /// announcing zero findings is worse than no banner.
+    func test_scanWithNoLargeOldFiles_reportsNothing() async {
+        let reported = TestBox<Bool>(false)
+        let dup = DuplicateGroup(files: [file("/a/orig.txt", size: 10), file("/a/copy.txt", size: 10)])
+        let vm = makeViewModel(
+            duplicates: [dup],
+            onLargeOldFilesFound: { _, _ in reported.value = true }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.phase, .results, "the scan still found duplicates")
+        XCTAssertFalse(reported.value, "no large or old files means no notification")
     }
 
     func test_scanSelectsRedundantCopiesByDefault() async {

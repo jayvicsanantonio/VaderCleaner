@@ -20,6 +20,7 @@
 		04D9468D00A7CFE2758CDF8E /* LaunchAgentManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD357ABDE3B8870727141BD5 /* LaunchAgentManagerTests.swift */; };
 		067E5321D0D1EC27BCB91421 /* SettingsRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D3DDA2AD38124F925AA572 /* SettingsRouter.swift */; };
 		070022969C225740C90D111D /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = CE304A4C8973520C602AE369 /* AppIcon.icon */; };
+		074CD956B7F68BFF4637349C /* SettingsRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B081CCC5A45E9F8C5DDAEAC /* SettingsRestore.swift */; };
 		078FC7A54A7C2FE68C56402A /* ExclusionEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6144167533DAC571F3FB8902 /* ExclusionEntryTests.swift */; };
 		0839BF8CC096B1771BFF313C /* ScanningPreferencesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193D790F046085F3D309FF8C /* ScanningPreferencesUITests.swift */; };
 		0849175D7723A3D6B17FACF1 /* ApplicationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5FD7F60311101E723D73E11 /* ApplicationsUITests.swift */; };
@@ -477,6 +478,7 @@
 		FC5355702BCBC1A1C4DD43AC /* ScanCompletionNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E174B0BDF4FBEE8C025626 /* ScanCompletionNotifierTests.swift */; };
 		FE156E2CD69BA8F894E9078D /* FloatingScanButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A35775D85A4E890A04EE26 /* FloatingScanButtonTests.swift */; };
 		FEFC9C434D8719662403778A /* DiskNodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E70D995D68953417DB5C7A /* DiskNodeTests.swift */; };
+		FF0F339E0958D32BD65E0767 /* SettingsRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F38CBD585AED28AC2D7EC1 /* SettingsRestoreTests.swift */; };
 		FF682D31048750C4AA9E3C1A /* DefaultBrewRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1151F265D76234A8C0B344 /* DefaultBrewRunner.swift */; };
 		FF8163DBE33C05789BE5F41C /* MaintenanceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D83104C36AA0A0E85DB7698 /* MaintenanceTask.swift */; };
 		FF87A6FAB563AF43345061BB /* PreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A3E48892F238EEC77DA6E5 /* PreferencesStore.swift */; };
@@ -790,6 +792,7 @@
 		8A791BBD75807EE466740BD0 /* SmartScanSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanSettingsStore.swift; sourceTree = "<group>"; };
 		8AE1D0804B8FCB3DD9A50123 /* CleanupCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupCardTests.swift; sourceTree = "<group>"; };
 		8AE3D70086A4D06A40C2A899 /* MenuBarViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarViewModel.swift; sourceTree = "<group>"; };
+		8B081CCC5A45E9F8C5DDAEAC /* SettingsRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRestore.swift; sourceTree = "<group>"; };
 		8B18E28D449EF4D5FB1D6E0B /* SmartScanUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanUITests.swift; sourceTree = "<group>"; };
 		8B3E0FC7C1A4A1AA750255FF /* AssociatedFileFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssociatedFileFinder.swift; sourceTree = "<group>"; };
 		8B4703AF41629FA4FA05F270 /* MyClutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterView.swift; sourceTree = "<group>"; };
@@ -844,6 +847,7 @@
 		A1B0ABA8AA490286024757B9 /* MalwareUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareUITests.swift; sourceTree = "<group>"; };
 		A2328CD0C88FCF0B17773A1D /* ScanSelectionSeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanSelectionSeedTests.swift; sourceTree = "<group>"; };
 		A25BE525CD287D91EE80A6CF /* VaderCleanerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaderCleanerApp.swift; sourceTree = "<group>"; };
+		A2F38CBD585AED28AC2D7EC1 /* SettingsRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRestoreTests.swift; sourceTree = "<group>"; };
 		A3852658DC221FB8B03631D1 /* HelperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProtocol.swift; sourceTree = "<group>"; };
 		A457B6C8523278A91D85120D /* SimilarImageScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarImageScannerTests.swift; sourceTree = "<group>"; };
 		A46D48A6B426D060FC516CF0 /* SmartCareReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartCareReminderScheduler.swift; sourceTree = "<group>"; };
@@ -1261,6 +1265,7 @@
 				9EF205FB127262AB54CB742E /* SettingsMenuBarTab.swift */,
 				D77F5ECDB9EC7676D631FC29 /* SettingsNotificationsTab.swift */,
 				F9A6840EC60D2A5BAE672A01 /* SettingsProtectionTab.swift */,
+				8B081CCC5A45E9F8C5DDAEAC /* SettingsRestore.swift */,
 				09D3DDA2AD38124F925AA572 /* SettingsRouter.swift */,
 				5A40F9E81EA594D06410AD50 /* SettingsScanningTab.swift */,
 				331110971EA8F8690773FE88 /* SimilarImageGroup.swift */,
@@ -1537,6 +1542,7 @@
 				D04B389DB9840D533358345D /* SectionRecommendationSelectorTests.swift */,
 				9815EB34FC1894653528A9E0 /* SectionThemeTests.swift */,
 				580022F875E6E23B10E943C7 /* SettingsAccessStatusTests.swift */,
+				A2F38CBD585AED28AC2D7EC1 /* SettingsRestoreTests.swift */,
 				A457B6C8523278A91D85120D /* SimilarImageScannerTests.swift */,
 				74FE0A87F7A4FBC3866E5DB3 /* SmartCareReminderSchedulerTests.swift */,
 				E46DDDE3F7D8DD0D954FF1E1 /* SmartInsightsPromptTests.swift */,
@@ -1941,6 +1947,7 @@
 				52D10BA2CB08E461B2A87A7D /* SectionRecommendationSelectorTests.swift in Sources */,
 				2D8DAC3191BC1733AE762C03 /* SectionThemeTests.swift in Sources */,
 				7D1FFD75F50A16F6E7540B60 /* SettingsAccessStatusTests.swift in Sources */,
+				FF0F339E0958D32BD65E0767 /* SettingsRestoreTests.swift in Sources */,
 				54C07EBB0CD76D45308A2E9E /* SimilarImageScannerTests.swift in Sources */,
 				771932E96231B65B69F5FC9E /* SmartCareReminderSchedulerTests.swift in Sources */,
 				97A28C7C9FE9B3549C73781B /* SmartInsightsPromptTests.swift in Sources */,
@@ -2208,6 +2215,7 @@
 				562E452A310BD35A108CEE0B /* SettingsMenuBarTab.swift in Sources */,
 				58400B564E815777CAE52CB4 /* SettingsNotificationsTab.swift in Sources */,
 				4A76928E3CC7A259402C5620 /* SettingsProtectionTab.swift in Sources */,
+				074CD956B7F68BFF4637349C /* SettingsRestore.swift in Sources */,
 				067E5321D0D1EC27BCB91421 /* SettingsRouter.swift in Sources */,
 				9F5A82C7A9A96EFE1CF17784 /* SettingsScanningTab.swift in Sources */,
 				AFE3EC8473F0D6BC1141FD07 /* SimilarImageGroup.swift in Sources */,

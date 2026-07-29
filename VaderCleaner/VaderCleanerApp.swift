@@ -122,12 +122,6 @@ struct VaderCleanerApp: App {
         _systemJunkViewModel = State(
             initialValue: SystemJunkViewModel.live(exclusions: exclusions, webDevScanScope: webDevScanScope)
         )
-        _myClutterViewModel = State(
-            initialValue: MyClutterViewModel.live(
-                exclusions: exclusions,
-                scanScope: myClutterScanScope
-            )
-        )
         _spaceLensViewModel = State(
             initialValue: DiskScannerViewModel.live(exclusions: exclusions)
         )
@@ -176,7 +170,8 @@ struct VaderCleanerApp: App {
         let malware = MalwareViewModel.live(
             dispatcher: notificationManager,
             preferences: prefs,
-            settings: protectionSettings
+            settings: protectionSettings,
+            exclusions: exclusions
         )
         _malwareViewModel = State(initialValue: malware)
         // The Protection dashboard runs the malware scan and the privacy
@@ -210,11 +205,22 @@ struct VaderCleanerApp: App {
         // request through `monitor.requestPermission()` after the FDA
         // onboarding sheet has settled — so we don't need a separate App-
         // level reference to the manager.
-        _notificationMonitor = State(
-            initialValue: NotificationThresholdMonitor(
-                stats: stats,
-                preferences: prefs,
-                dispatcher: notificationManager
+        let notificationMonitor = NotificationThresholdMonitor(
+            stats: stats,
+            preferences: prefs,
+            dispatcher: notificationManager
+        )
+        _notificationMonitor = State(initialValue: notificationMonitor)
+        // Built after the monitor so a finished My Clutter scan can report its
+        // large & old findings through it — that monitor owns the "large or
+        // forgotten files" preference and the per-kind cooldown.
+        _myClutterViewModel = State(
+            initialValue: MyClutterViewModel.live(
+                exclusions: exclusions,
+                scanScope: myClutterScanScope,
+                onLargeOldFilesFound: { [notificationMonitor] count, totalSize in
+                    notificationMonitor.triggerLargeFilesFound(count: count, totalSize: totalSize)
+                }
             )
         )
         // The Notifications-pane background monitors share the same preferences

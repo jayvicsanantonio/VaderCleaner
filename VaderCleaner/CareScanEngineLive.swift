@@ -55,23 +55,35 @@ extension CareScanEngine.UnitRunners {
             largeOldFiles: { onProgress in
                 try await LargeOldFilesScanner().scan(excluding: await excludedURLs(), onProgress: onProgress)
             },
-            // The same sweep the standalone Protection screen runs on Quick.
-            // Read per scan (weak capture) so a Settings → Protection change
-            // takes effect on the next run, exactly like the exclusions above.
+            // The same sweep the standalone Protection screen runs on Quick —
+            // same scope, same content options, same Ignore List. Read per scan
+            // (weak capture) so a Settings → Protection change takes effect on
+            // the next run, exactly like the exclusions above.
             malware: { [weak protectionSettings] onProgress in
-                let scope = await MainActor.run {
-                    malwareScanScope(
-                        excludeICloud: protectionSettings?.excludeDownloadedICloudFiles
-                            ?? ProtectionSettingsStore.defaultExcludeDownloadedICloudFiles
+                let ignored = await excludedURLs()
+                let (scope, options) = await MainActor.run {
+                    (
+                        malwareScanScope(
+                            excludeICloud: protectionSettings?.excludeDownloadedICloudFiles
+                                ?? ProtectionSettingsStore.defaultExcludeDownloadedICloudFiles,
+                            userExclusions: ignored
+                        ),
+                        // The content toggles come from the same store as the
+                        // standalone Protection scan, so both surfaces inspect
+                        // the same things.
+                        protectionSettings?.clamAVOptions ?? ClamAVScanner.ScanOptions()
                     )
                 }
                 let scanner = ClamAVScanner(
                     detector: detector,
-                    excludedDirectories: scope.excludedDirectories
+                    excludedDirectories: scope.excludedDirectories,
+                    excludedFiles: scope.excludedFiles
                 )
-                return try await scanner.scan(paths: scope.paths, progress: { _, filesScanned in
-                    onProgress(filesScanned)
-                })
+                return try await scanner.scan(
+                    paths: scope.paths,
+                    options: options,
+                    progress: { _, filesScanned in onProgress(filesScanned) }
+                )
             },
             installers: {
                 await DefaultInstallationFileScanner().scan(excluding: await excludedURLs())
@@ -147,9 +159,14 @@ extension CareScanEngine.UnitRunners {
     /// Pinned by `test_malwareScanScope_matchesTheProtectionQuickScan`.
     @MainActor
     static func malwareScanScope(
-        excludeICloud: Bool
-    ) -> (paths: [URL], excludedDirectories: [String]) {
-        MalwareViewModel.scanScope(for: .quick, excludeICloud: excludeICloud)
+        excludeICloud: Bool,
+        userExclusions: [URL] = []
+    ) -> (paths: [URL], excludedDirectories: [String], excludedFiles: [String]) {
+        MalwareViewModel.scanScope(
+            for: .quick,
+            excludeICloud: excludeICloud,
+            userExclusions: userExclusions
+        )
     }
 
     /// The maintenance-cocktail task ids currently due: the same catalog and

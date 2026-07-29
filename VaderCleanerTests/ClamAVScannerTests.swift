@@ -67,6 +67,37 @@ final class ClamAVScannerTests: XCTestCase {
         )
     }
 
+    func test_scan_appendsExcludeArgumentsForExcludedFiles() async throws {
+        // `--exclude-dir` only skips directories, so an Ignore List entry that
+        // names a single file needs `--exclude`. Emitting one without the other
+        // leaves file exclusions silently unenforced.
+        let capturedArguments = TestBox<[String]?>(nil)
+        let scanner = makeScanner(
+            installed: true,
+            databaseDirectory: nil,
+            excludedDirectories: ["^/Users/x/Archive(/|$)"],
+            excludedFiles: ["^/Users/x/Notes\\.txt$"]
+        ) { _, arguments, _ in
+            capturedArguments.value = arguments
+            return 0
+        }
+
+        _ = try await scanner.scan(
+            paths: [URL(fileURLWithPath: "/Users/x")],
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(
+            capturedArguments.value,
+            [
+                "--exclude-dir=^/Users/x/Archive(/|$)",
+                "--exclude=^/Users/x/Notes\\.txt$",
+                "--recursive", "--no-summary",
+                "/Users/x"
+            ]
+        )
+    }
+
     func test_scan_defaultOptionsAddNoScanContentFlags() async throws {
         // The default ScanOptions mirrors clamscan's own defaults (mail and
         // archives inspected), so a default-constructed value must add no
@@ -345,6 +376,7 @@ final class ClamAVScannerTests: XCTestCase {
         installed: Bool,
         databaseDirectory: URL? = nil,
         excludedDirectories: [String]? = nil,
+        excludedFiles: [String] = [],
         progressThrottleInterval: TimeInterval = 0,
         runner: @escaping ClamAVScanner.ScanRunner
     ) -> ClamAVScanner {
@@ -363,6 +395,7 @@ final class ClamAVScannerTests: XCTestCase {
             runner: runner,
             databaseDirectoryProvider: { databaseDirectory },
             excludedDirectories: excludedDirectories ?? [],
+            excludedFiles: excludedFiles,
             progressThrottleInterval: progressThrottleInterval
         )
     }

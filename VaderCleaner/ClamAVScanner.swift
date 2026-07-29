@@ -101,6 +101,7 @@ struct ClamAVScanner {
     private let runner: ScanRunner
     private let databaseDirectoryProvider: DatabaseDirectoryProvider
     private let excludedDirectories: [String]
+    private let excludedFiles: [String]
     private let progressThrottleInterval: TimeInterval
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "ClamAVScanner")
@@ -111,12 +112,14 @@ struct ClamAVScanner {
         databaseDirectoryProvider: @escaping DatabaseDirectoryProvider =
             ClamAVScanner.defaultDatabaseDirectoryProvider,
         excludedDirectories: [String] = ClamAVScanner.defaultExcludedDirectories,
+        excludedFiles: [String] = [],
         progressThrottleInterval: TimeInterval = 0.1
     ) {
         self.detector = detector
         self.runner = runner
         self.databaseDirectoryProvider = databaseDirectoryProvider
         self.excludedDirectories = excludedDirectories
+        self.excludedFiles = excludedFiles
         self.progressThrottleInterval = progressThrottleInterval
     }
 
@@ -165,6 +168,12 @@ struct ClamAVScanner {
         // is unambiguous.
         for pattern in excludedDirectories {
             arguments.append("--exclude-dir=\(pattern)")
+        }
+        // `--exclude-dir` only skips directories, so a single ignored *file*
+        // needs `--exclude`, which takes the same regex flavour against the
+        // candidate file path.
+        for pattern in excludedFiles {
+            arguments.append("--exclude=\(pattern)")
         }
         // `--infected` (a.k.a. `-i`) suppresses the `: OK` lines that
         // make up >99% of clamscan's output on a clean machine — we
