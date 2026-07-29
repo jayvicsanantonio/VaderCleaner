@@ -582,8 +582,6 @@ extension ApplicationsViewModel {
         let unsupportedScanner = DefaultUnsupportedAppScanner()
         let unusedScanner = DefaultUnusedAppScanner()
         let leftoverScanner = DefaultAppLeftoverScanner()
-        let log = Logger(subsystem: "com.personal.VaderCleaner",
-                         category: "ApplicationsViewModel.live")
         return ApplicationsViewModel(
             discoverApps: {
                 try await discovery.installedApps(includingSystemApps: false)
@@ -607,7 +605,7 @@ extension ApplicationsViewModel {
                 )
             },
             recycleFiles: { urls in
-                await Self.recycle(urls, log: log)
+                await UserFileRecycler.recycle(urls, context: "Applications")
             }
         )
     }
@@ -618,17 +616,6 @@ extension ApplicationsViewModel {
     /// error only when the whole batch fails, so the success set comes from the
     /// returned original→Trash URL map. Marked `nonisolated` so the batch runs
     /// off the main actor.
-    nonisolated private static func recycle(_ urls: [URL], log: Logger) async -> Set<URL> {
-        guard !urls.isEmpty else { return [] }
-        return await withCheckedContinuation { continuation in
-            NSWorkspace.shared.recycle(urls) { newURLs, error in
-                if let error {
-                    log.error("Installation-file recycle reported an error: \(String(describing: error), privacy: .public)")
-                }
-                continuation.resume(returning: Set(newURLs.keys))
-            }
-        }
-    }
 }
 
 // MARK: - ScanCoordinating

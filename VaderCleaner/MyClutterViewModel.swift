@@ -491,7 +491,7 @@ extension MyClutterViewModel {
                 }
                 return try await DownloadsScanner().scan(excluding: ex, onProgress: onProgress)
             },
-            deleter: { urls in await Self.trash(urls) }
+            deleter: { urls in await UserFileRecycler.recycle(urls, context: "My Clutter") }
         )
     }
 
@@ -513,17 +513,5 @@ extension MyClutterViewModel {
     private static func clutterExclusions(_ exclusions: ExclusionsStore?) -> [URL] {
         let user = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
         return user + DefaultUserFilesPathProvider().protectedMediaStores()
-    }
-
-    /// Moves `urls` to the Trash via `NSWorkspace.recycle`, returning the set
-    /// that was actually moved. Failures are skipped so a single locked file
-    /// never aborts the batch.
-    private nonisolated static func trash(_ urls: [URL]) async -> Set<URL> {
-        await withCheckedContinuation { continuation in
-            NSWorkspace.shared.recycle(urls) { newURLs, _ in
-                let moved = Set(newURLs.keys)
-                continuation.resume(returning: moved)
-            }
-        }
     }
 }
