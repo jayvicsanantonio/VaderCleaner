@@ -20,6 +20,8 @@ enum UpdaterFacet: Hashable {
     /// Apps with no detectable update mechanism — the blind spot the
     /// update list alone would silently imply doesn't exist.
     case unmonitored
+    /// Updates the user declined. Listed so the choice stays reversible.
+    case skipped
 }
 
 /// The Updater pane — the facet column plus the available-updates list.
@@ -76,6 +78,8 @@ struct UpdaterPaneView: View {
                 .accessibilityIdentifier("applications.manager.updater.facet.selfupdating")
             facetRow(.unmonitored, String(localized: "Not monitored", comment: "Updater coverage facet."), coverage.unmonitored.count)
                 .accessibilityIdentifier("applications.manager.updater.facet.unmonitored")
+            facetRow(.skipped, String(localized: "Skipped", comment: "Updater coverage facet."), updaterViewModel.skippedUpdates.count)
+                .accessibilityIdentifier("applications.manager.updater.facet.skipped")
         }
     }
 
@@ -97,6 +101,7 @@ struct UpdaterPaneView: View {
         case .homebrewManaged:  return String(localized: "Managed by Homebrew", comment: "Updater right pane title.")
         case .selfUpdating:     return String(localized: "Self-updating", comment: "Updater right pane title.")
         case .unmonitored:      return String(localized: "Not monitored", comment: "Updater right pane title.")
+        case .skipped:          return String(localized: "Skipped", comment: "Updater right pane title.")
         }
     }
 
@@ -110,6 +115,7 @@ struct UpdaterPaneView: View {
         case .homebrewManaged:  return String(localized: "Homebrew installed these apps and upgrades them in place.", comment: "Updater right pane description.")
         case .selfUpdating:     return String(localized: "These apps update themselves, so we don't check them.", comment: "Updater right pane description.")
         case .unmonitored:      return String(localized: "We found no way to check these apps for updates.", comment: "Updater right pane description.")
+        case .skipped:          return String(localized: "Versions you chose not to install. A newer release will appear again.", comment: "Updater right pane description.")
         }
     }
 
@@ -139,6 +145,8 @@ struct UpdaterPaneView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
                 switch facet {
+                case .skipped:
+                    skippedList
                 case .homebrewManaged:
                     coverageList(
                         coverage.homebrewManaged.map { ($0.app, homebrewDetail($0.token)) },
@@ -161,6 +169,35 @@ struct UpdaterPaneView: View {
                     list
                 }
             }
+        }
+    }
+
+    /// Declined updates, each offering its way back. Reuses the update
+    /// row so a skipped entry looks like what it is — an update, set
+    /// aside — rather than a different kind of thing.
+    @ViewBuilder
+    private var skippedList: some View {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entries = trimmed.isEmpty
+            ? updaterViewModel.skippedUpdates
+            : updaterViewModel.skippedUpdates.filter { $0.appName.localizedCaseInsensitiveContains(trimmed) }
+        if entries.isEmpty {
+            ApplicationsManagerEmptyState(
+                icon: "clock.arrow.circlepath",
+                title: rightPaneTitle,
+                detail: String(localized: "You haven't skipped any updates.", comment: "Skipped empty-state detail.")
+            )
+            .accessibilityIdentifier("applications.manager.updater.skipped.empty")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(entries) { info in
+                        row(info)
+                    }
+                }
+                .padding(.horizontal, 24).padding(.vertical, 12)
+            }
+            .accessibilityIdentifier("applications.manager.updater.skipped.list")
         }
     }
 
@@ -236,7 +273,7 @@ struct UpdaterPaneView: View {
             case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
             // Homebrew and the coverage facets are separate lists, not
             // filters over the available updates.
-            case .homebrew, .homebrewManaged, .selfUpdating, .unmonitored:
+            case .homebrew, .homebrewManaged, .selfUpdating, .unmonitored, .skipped:
                 matchesFacet = false
             }
             guard matchesFacet else { return false }
@@ -313,6 +350,21 @@ struct UpdaterPaneView: View {
         .padding(12)
         .managerRowCard()
         .accessibilityIdentifier("applications.manager.updater.row.\(info.bundleID)")
+        // A context menu rather than a row control: skipping is an
+        // occasional choice, and a per-row button would compete with the
+        // checkbox that drives the footer's Update action.
+        .contextMenu {
+            if facet == .skipped {
+                Button(String(localized: "Stop Skipping", comment: "Restores a skipped update to the list.")) {
+                    updaterViewModel.clearSkip(forBundleID: info.bundleID)
+                }
+            } else {
+                Button(String(localized: "Skip This Version", comment: "Declines one version of an update.")) {
+                    updaterViewModel.skip(info)
+                    selection.remove(info.id)
+                }
+            }
+        }
     }
 
     private func versionTransition(_ info: UpdateInfo) -> String {

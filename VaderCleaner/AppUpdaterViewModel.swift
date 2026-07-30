@@ -38,12 +38,21 @@ final class AppUpdaterViewModel {
     /// The list of updates alone reads as "everything else is current",
     /// which is false on any machine where most apps publish no feed.
     private(set) var coverage = UpdateCoverage()
+    /// Updates withheld because the user declined this version. Surfaced
+    /// so the choice is reversible — a skip the user cannot find again is
+    /// indistinguishable from the update having vanished.
+    private(set) var skippedUpdates: [UpdateInfo] = []
 
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let checkAppStore: CheckAppStore
     @ObservationIgnored private let checkSparkle: CheckSparkle
     @ObservationIgnored private let classifyUnchecked: UpdateProbe.ClassifyUnchecked
     @ObservationIgnored private let loadCaskOwnership: LoadCaskOwnership
+    /// Optional because "no suppression configured" is a real state — it
+    /// is what the dashboard and Smart Scan paths use, and it keeps unit
+    /// tests off `UserDefaults.standard` without every call site wiring a
+    /// throwaway suite.
+    @ObservationIgnored private let suppression: UpdateSuppressionStore?
     @ObservationIgnored private let opener: Opener
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUpdaterViewModel")
@@ -64,6 +73,7 @@ final class AppUpdaterViewModel {
         classifyUnchecked: @escaping UpdateProbe.ClassifyUnchecked
             = UpdateProbe.liveClassifyUnchecked(),
         loadCaskOwnership: @escaping LoadCaskOwnership = { CaskOwnershipMap() },
+        suppression: UpdateSuppressionStore? = nil,
         opener: @escaping Opener
     ) {
         self.discover = discover
@@ -71,6 +81,7 @@ final class AppUpdaterViewModel {
         self.checkSparkle = checkSparkle
         self.classifyUnchecked = classifyUnchecked
         self.loadCaskOwnership = loadCaskOwnership
+        self.suppression = suppression
         self.opener = opener
     }
 
@@ -123,6 +134,8 @@ final class AppUpdaterViewModel {
             }
             self.coverage = UpdateCoverage(results: results)
 
+            updates = withholdDeclinedUpdates(from: updates, installedIn: apps)
+
             // Sort case-insensitively by app name so the list order is
             // deterministic between successive checks.
             self.availableUpdates = updates.sorted {
@@ -148,6 +161,7 @@ final class AppUpdaterViewModel {
             log.error("App Updater discovery failed: \(String(describing: error), privacy: .private)")
             guard self.checkGeneration == generation else { return }
             self.availableUpdates = []
+            self.skippedUpdates = []
             // Stale counts beside an error would misreport what was
             // inspected — nothing was.
             self.coverage = UpdateCoverage()
@@ -160,6 +174,35 @@ final class AppUpdaterViewModel {
     /// production opener delegates to `NSWorkspace.open`.
     func update(_ info: UpdateInfo) async {
         await opener(info.updateURL)
+    }
+
+    /// Declines `info.latestVersion` for its app. A later release still
+    /// surfaces — this is "skip this version", not "mute this app".
+    /// Inert when no suppression store is configured.
+    func skip(_ info: UpdateInfo) {
+        guard let suppression else { return }
+        suppression.skip(info)
+        availableUpdates.removeAll { $0.id == info.id }
+        guard !skippedUpdates.contains(where: { $0.id == info.id }) else { return }
+        skippedUpdates.append(info)
+        skippedUpdates.sort {
+            $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+        }
+    }
+
+    /// Undoes a skip, so the app's pending update is offered again on the
+    /// next check.
+    func clearSkip(forBundleID bundleID: String) {
+        guard let suppression else { return }
+        suppression.clearSkip(forBundleID: bundleID)
+        // Move it straight back into the offered list rather than making
+        // the user re-run a whole check to see the effect.
+        let restored = skippedUpdates.filter { $0.bundleID == bundleID }
+        skippedUpdates.removeAll { $0.bundleID == bundleID }
+        availableUpdates.append(contentsOf: restored)
+        availableUpdates.sort {
+            $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+        }
     }
 
     /// Applies a batch of updates.
@@ -188,6 +231,34 @@ final class AppUpdaterViewModel {
 
     // MARK: - Private
 
+    /// Splits declined updates out of `updates` into `skippedUpdates`,
+    /// and drops skip records the installed version has caught up to.
+    ///
+    /// Coverage is tallied before this runs and deliberately unaffected:
+    /// a declined app was still contacted, so it stays counted as
+    /// checked. Withholding it from the list must not make the coverage
+    /// headline understate what the check actually did.
+    private func withholdDeclinedUpdates(
+        from updates: [UpdateInfo],
+        installedIn apps: [AppInfo]
+    ) -> [UpdateInfo] {
+        guard let suppression else {
+            skippedUpdates = []
+            return updates
+        }
+        suppression.pruneSkips(
+            installedVersionsByBundleID: Dictionary(
+                apps.map { ($0.bundleID, $0.version ?? "0") },
+                uniquingKeysWith: { first, _ in first }
+            )
+        )
+        let declined = suppression.snapshot()
+        skippedUpdates = updates
+            .filter { declined.suppresses($0) }
+            .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+        return updates.filter { !declined.suppresses($0) }
+    }
+
     private func beginCheck() -> Int {
         checkGeneration += 1
         return checkGeneration
@@ -212,6 +283,7 @@ extension AppUpdaterViewModel {
             checkAppStore: UpdateProbe.liveAppStoreCheck(),
             checkSparkle: UpdateProbe.liveSparkleCheck(),
             loadCaskOwnership: { await ownershipLoader.load() },
+            suppression: UpdateSuppressionStore(),
             opener: { url in
                 await MainActor.run {
                     _ = NSWorkspace.shared.open(url)
