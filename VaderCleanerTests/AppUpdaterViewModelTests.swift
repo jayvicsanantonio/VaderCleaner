@@ -378,6 +378,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
             discover: discover,
             checkAppStore: checkAppStore,
             checkSparkle: checkSparkle,
+            classifyUnchecked: { _ in .unmonitored },
             opener: opener
         )
     }

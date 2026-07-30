@@ -11,6 +11,12 @@ enum UpdaterFacet: Hashable {
     /// Outdated Homebrew packages — a parallel list under the Stores group,
     /// upgraded through `brew upgrade` rather than opening an update URL.
     case homebrew
+    /// Apps that keep themselves current through a bundled updater. Listed
+    /// so the coverage headline is accountable, not as work to do.
+    case selfUpdating
+    /// Apps with no detectable update mechanism — the blind spot the
+    /// update list alone would silently imply doesn't exist.
+    case unmonitored
 }
 
 /// The Updater pane — the facet column plus the available-updates list.
@@ -59,8 +65,16 @@ struct UpdaterPaneView: View {
             facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Updater store facet."), updates.count - appStore)
             facetRow(.homebrew, String(localized: "Homebrew", comment: "Updater store facet."), homebrewViewModel.availableUpdateCount)
                 .accessibilityIdentifier("applications.manager.updater.facet.homebrew")
+
+            ApplicationsManagerFacetSectionHeader(title: String(localized: "Coverage", comment: "Updater facet group header."))
+            facetRow(.selfUpdating, String(localized: "Self-updating", comment: "Updater coverage facet."), coverage.selfUpdating.count)
+                .accessibilityIdentifier("applications.manager.updater.facet.selfupdating")
+            facetRow(.unmonitored, String(localized: "Not monitored", comment: "Updater coverage facet."), coverage.unmonitored.count)
+                .accessibilityIdentifier("applications.manager.updater.facet.unmonitored")
         }
     }
+
+    private var coverage: UpdateCoverage { updaterViewModel.coverage }
 
     private func facetRow(_ target: UpdaterFacet, _ label: String, _ count: Int) -> some View {
         ApplicationsManagerFacetRow(label: label, count: count, selected: facet == target) {
@@ -75,17 +89,33 @@ struct UpdaterPaneView: View {
         case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
         case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
         case .homebrew:         return String(localized: "Homebrew", comment: "Updater right pane title.")
+        case .selfUpdating:     return String(localized: "Self-updating", comment: "Updater right pane title.")
+        case .unmonitored:      return String(localized: "Not monitored", comment: "Updater right pane title.")
         }
     }
 
     private var rightPaneDescription: String {
         switch facet {
-        case .all:              return String(localized: "Apps with new versions available.", comment: "Updater right pane description.")
+        case .all:              return coverageSummary
         case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
         case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
         case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
         case .homebrew:         return String(localized: "Homebrew packages with a newer version.", comment: "Updater right pane description.")
+        case .selfUpdating:     return String(localized: "These apps update themselves, so we don't check them.", comment: "Updater right pane description.")
+        case .unmonitored:      return String(localized: "We found no way to check these apps for updates.", comment: "Updater right pane description.")
         }
+    }
+
+    /// The All Updates header states what was inspected, not just what was
+    /// found. A bare "apps with new versions" list reads as "everything
+    /// else is current", which is false whenever most installed apps
+    /// publish no feed we can query.
+    private var coverageSummary: String {
+        let base = String(localized: "Apps with new versions available.", comment: "Updater right pane description.")
+        guard coverage.total > 0 else { return base }
+        let format = String(localized: "Checked %1$lld of %2$lld apps.", comment: "Updater coverage headline; apps reached out of apps installed.")
+        let checked = String.localizedStringWithFormat(format, Int64(coverage.checked), Int64(coverage.total))
+        return "\(base)  ·  \(checked)"
     }
 
     // MARK: Right (list)
@@ -101,8 +131,81 @@ struct UpdaterPaneView: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
-                list
+                switch facet {
+                case .selfUpdating:
+                    coverageList(
+                        coverage.selfUpdating.map { ($0.app, selfUpdaterDetail($0.updater)) },
+                        emptyDetail: String(localized: "No installed app ships its own updater.", comment: "Self-updating empty-state detail."),
+                        identifier: "selfupdating"
+                    )
+                case .unmonitored:
+                    coverageList(
+                        coverage.unmonitored.map { ($0, String(localized: "No update feed detected", comment: "Unmonitored app row detail.")) },
+                        emptyDetail: String(localized: "Every installed app has a way to stay current.", comment: "Not-monitored empty-state detail."),
+                        identifier: "unmonitored"
+                    )
+                default:
+                    list
+                }
             }
+        }
+    }
+
+    /// Rows for the coverage facets: an app and why it wasn't checked.
+    /// No checkbox — there is nothing here to act on, which is the point.
+    @ViewBuilder
+    private func coverageList(
+        _ entries: [(app: AppInfo, detail: String)],
+        emptyDetail: String,
+        identifier: String
+    ) -> some View {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = trimmed.isEmpty
+            ? entries
+            : entries.filter { $0.app.name.localizedCaseInsensitiveContains(trimmed) }
+        if filtered.isEmpty {
+            ApplicationsManagerEmptyState(
+                icon: "checkmark.shield",
+                title: rightPaneTitle,
+                detail: emptyDetail
+            )
+            .accessibilityIdentifier("applications.manager.updater.\(identifier).empty")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(filtered, id: \.app.id) { entry in
+                        coverageRow(entry.app, detail: entry.detail)
+                    }
+                }
+                .padding(.horizontal, 24).padding(.vertical, 12)
+            }
+            .accessibilityIdentifier("applications.manager.updater.\(identifier).list")
+        }
+    }
+
+    private func coverageRow(_ app: AppInfo, detail: String) -> some View {
+        HStack(spacing: 12) {
+            Image(nsImage: iconCache.icon(for: app.bundleURL))
+                .resizable().frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(app.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(app.version ?? String(localized: "Unknown", comment: "Placeholder for an app with no version string."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .managerRowCard()
+        .accessibilityIdentifier("applications.manager.updater.coverage.row.\(app.bundleID)")
+    }
+
+    private func selfUpdaterDetail(_ updater: SelfUpdater) -> String {
+        switch updater {
+        case .keystone:
+            return String(localized: "Updates through Google Software Update", comment: "Self-updating row detail for Keystone apps.")
+        case .squirrel:
+            return String(localized: "Updates itself in the background", comment: "Self-updating row detail for Squirrel apps.")
         }
     }
 
@@ -113,8 +216,10 @@ struct UpdaterPaneView: View {
             case .all:                    matchesFacet = true
             case .selected:               matchesFacet = selection.contains(info.id)
             case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
-            // Homebrew is a separate list, not an app-update filter.
-            case .homebrew:               matchesFacet = false
+            // Homebrew and the coverage facets are separate lists, not
+            // filters over the available updates.
+            case .homebrew, .selfUpdating, .unmonitored:
+                matchesFacet = false
             }
             guard matchesFacet else { return false }
             let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)

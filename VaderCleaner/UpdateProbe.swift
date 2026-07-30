@@ -25,19 +25,38 @@ enum CheckResult<Payload: Sendable>: Sendable {
     case skipped
 }
 
+/// Why an app was never queried for updates. The split matters: an app
+/// carrying Keystone or Squirrel keeps itself current and needs no
+/// attention, while an app with no updater at all is the one the user
+/// would actually want to know about. Reporting both as one number
+/// produces an alarming total that is mostly noise.
+enum UncheckedReason: Hashable, Sendable {
+    case selfUpdating(SelfUpdater)
+    case unmonitored
+}
+
 /// Per-app result after version comparison. `.noUpdate` means the
 /// feed was reached but there is nothing newer to offer (including a
 /// swallowed non-network failure — the server answered, so the
 /// network is fine). `.unreachable` means the feed could not be
 /// reached at all. `.skipped` means no request was attempted (no
-/// feed configured). `AppUpdaterViewModel` uses the
+/// feed configured), and carries why. `AppUpdaterViewModel` uses the
 /// reachable/unreachable split to tell "up to date" from "offline",
 /// and keeps `.skipped` out of that split entirely.
 enum UpdateProbeOutcome: Sendable {
     case update(UpdateInfo)
     case noUpdate
     case unreachable
-    case skipped
+    case skipped(UncheckedReason)
+}
+
+/// An outcome paired with the app that produced it. The fan-out returns
+/// results in *completion* order, so without the pairing there is no way
+/// to say which apps went unchecked — which is the whole content of the
+/// coverage report.
+struct UpdateProbeResult: Sendable {
+    let app: AppInfo
+    let outcome: UpdateProbeOutcome
 }
 
 /// Probes installed apps for available updates. Each app is dispatched
@@ -53,6 +72,9 @@ struct UpdateProbe: Sendable {
 
     typealias CheckAppStore = @Sendable (_ bundleID: String) async -> CheckResult<AppStoreLookup>
     typealias CheckSparkle  = @Sendable (_ app: AppInfo) async -> CheckResult<SparkleAppcastItem>
+    /// Explains an app that no channel could query. Runs only for skipped
+    /// apps, so the bundle reads it performs stay off the checked path.
+    typealias ClassifyUnchecked = @Sendable (_ app: AppInfo) -> UncheckedReason
 
     /// Maximum number of update checks (HTTPS requests) in flight at once.
     /// Sized to keep the scan responsive without stampeding the iTunes
@@ -61,13 +83,20 @@ struct UpdateProbe: Sendable {
 
     private let checkAppStore: CheckAppStore
     private let checkSparkle: CheckSparkle
+    private let classifyUnchecked: ClassifyUnchecked
 
+    /// - Parameter classifyUnchecked: defaults to the real bundle-reading
+    ///   detector. It is the safe default in both directions — production
+    ///   gets true classification without every call site wiring it, and
+    ///   tests pointing at paths that don't exist get `.unmonitored`.
     init(
         checkAppStore: @escaping CheckAppStore,
-        checkSparkle: @escaping CheckSparkle
+        checkSparkle: @escaping CheckSparkle,
+        classifyUnchecked: @escaping ClassifyUnchecked = UpdateProbe.liveClassifyUnchecked()
     ) {
         self.checkAppStore = checkAppStore
         self.checkSparkle = checkSparkle
+        self.classifyUnchecked = classifyUnchecked
     }
 
     /// Probes every app and returns one outcome per app, in completion
@@ -84,12 +113,13 @@ struct UpdateProbe: Sendable {
     func outcomes(
         for apps: [AppInfo],
         onProgress: @Sendable (_ checked: Int, _ total: Int) -> Void = { _, _ in }
-    ) async -> [UpdateProbeOutcome] {
+    ) async -> [UpdateProbeResult] {
         let appStoreCheck = checkAppStore
         let sparkleCheck = checkSparkle
+        let classify = classifyUnchecked
         let total = apps.count
         onProgress(0, total)
-        return await withTaskGroup(of: UpdateProbeOutcome.self) { group -> [UpdateProbeOutcome] in
+        return await withTaskGroup(of: UpdateProbeResult.self) { group -> [UpdateProbeResult] in
             var nextIndex = 0
             while nextIndex < apps.count, nextIndex < Self.maxConcurrentChecks {
                 let app = apps[nextIndex]
@@ -97,14 +127,15 @@ struct UpdateProbe: Sendable {
                     await Self.checkUpdate(
                         app: app,
                         appStoreCheck: appStoreCheck,
-                        sparkleCheck: sparkleCheck
+                        sparkleCheck: sparkleCheck,
+                        classify: classify
                     )
                 }
                 nextIndex += 1
             }
-            var results: [UpdateProbeOutcome] = []
-            while let outcome = await group.next() {
-                results.append(outcome)
+            var results: [UpdateProbeResult] = []
+            while let result = await group.next() {
+                results.append(result)
                 onProgress(results.count, total)
                 if nextIndex < apps.count {
                     let app = apps[nextIndex]
@@ -112,7 +143,8 @@ struct UpdateProbe: Sendable {
                         await Self.checkUpdate(
                             app: app,
                             appStoreCheck: appStoreCheck,
-                            sparkleCheck: sparkleCheck
+                            sparkleCheck: sparkleCheck,
+                            classify: classify
                         )
                     }
                     nextIndex += 1
@@ -135,9 +167,9 @@ struct UpdateProbe: Sendable {
 
     /// Extracts the `.update` payloads, sorted case-insensitively by app
     /// name so the list order is deterministic between successive checks.
-    static func updates(in outcomes: [UpdateProbeOutcome]) -> [UpdateInfo] {
-        let updates = outcomes.compactMap { outcome -> UpdateInfo? in
-            guard case .update(let info) = outcome else { return nil }
+    static func updates(in results: [UpdateProbeResult]) -> [UpdateInfo] {
+        let updates = results.compactMap { result -> UpdateInfo? in
+            guard case .update(let info) = result.outcome else { return nil }
             return info
         }
         return updates.sorted {
@@ -154,13 +186,19 @@ struct UpdateProbe: Sendable {
     private static func checkUpdate(
         app: AppInfo,
         appStoreCheck: CheckAppStore,
-        sparkleCheck: CheckSparkle
-    ) async -> UpdateProbeOutcome {
-        if app.isAppStore {
-            return await checkAppStoreUpdate(app: app, check: appStoreCheck)
-        } else {
-            return await checkSparkleUpdate(app: app, check: sparkleCheck)
-        }
+        sparkleCheck: CheckSparkle,
+        classify: ClassifyUnchecked
+    ) async -> UpdateProbeResult {
+        // The channel functions return nil for "no request was made"; the
+        // reason is filled in here. Classification reads the bundle off
+        // disk, so it runs only for skipped apps, never on the checked path.
+        let outcome = app.isAppStore
+            ? await checkAppStoreUpdate(app: app, check: appStoreCheck)
+            : await checkSparkleUpdate(app: app, check: sparkleCheck)
+        return UpdateProbeResult(
+            app: app,
+            outcome: outcome ?? .skipped(classify(app))
+        )
     }
 
     /// Runs the App Store lookup and folds the result into an
@@ -171,14 +209,15 @@ struct UpdateProbe: Sendable {
     private static func checkAppStoreUpdate(
         app: AppInfo,
         check: CheckAppStore
-    ) async -> UpdateProbeOutcome {
+    ) async -> UpdateProbeOutcome? {
         switch await check(app.bundleID) {
         case .unreachable:
             return .unreachable
         case .noResult:
             return .noUpdate
         case .skipped:
-            return .skipped
+            // No request was made — the caller classifies why.
+            return nil
         case .found(let lookup):
             let installed = app.version ?? "0"
             guard VersionComparator.isNewer(version: lookup.version, than: installed) else {
@@ -199,14 +238,15 @@ struct UpdateProbe: Sendable {
     private static func checkSparkleUpdate(
         app: AppInfo,
         check: CheckSparkle
-    ) async -> UpdateProbeOutcome {
+    ) async -> UpdateProbeOutcome? {
         switch await check(app) {
         case .unreachable:
             return .unreachable
         case .noResult:
             return .noUpdate
         case .skipped:
-            return .skipped
+            // No feed configured — the caller classifies why.
+            return nil
         case .found(let item):
             let installed = app.version ?? "0"
             guard VersionComparator.isNewer(version: item.shortVersion, than: installed) else {
@@ -234,8 +274,21 @@ extension UpdateProbe {
     static func live() -> UpdateProbe {
         UpdateProbe(
             checkAppStore: liveAppStoreCheck(),
-            checkSparkle: liveSparkleCheck()
+            checkSparkle: liveSparkleCheck(),
+            classifyUnchecked: liveClassifyUnchecked()
         )
+    }
+
+    /// Live skip classifier. An app the probe could not query either ships
+    /// its own updater (Keystone, Squirrel) or has none at all, and only
+    /// the second is worth the user's attention.
+    static func liveClassifyUnchecked(
+        detector: SelfUpdaterDetector = SelfUpdaterDetector()
+    ) -> ClassifyUnchecked {
+        { app in
+            guard let updater = detector.selfUpdater(for: app) else { return .unmonitored }
+            return .selfUpdating(updater)
+        }
     }
 
     /// Live App Store checker. Re-surfaces only loss of connectivity.

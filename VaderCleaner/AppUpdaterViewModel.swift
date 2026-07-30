@@ -30,10 +30,15 @@ final class AppUpdaterViewModel {
 
     private(set) var phase: Phase = .idle
     private(set) var availableUpdates: [UpdateInfo] = []
+    /// How much of the installed-app population the last check reached.
+    /// The list of updates alone reads as "everything else is current",
+    /// which is false on any machine where most apps publish no feed.
+    private(set) var coverage = UpdateCoverage()
 
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let checkAppStore: CheckAppStore
     @ObservationIgnored private let checkSparkle: CheckSparkle
+    @ObservationIgnored private let classifyUnchecked: UpdateProbe.ClassifyUnchecked
     @ObservationIgnored private let opener: Opener
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUpdaterViewModel")
@@ -47,11 +52,14 @@ final class AppUpdaterViewModel {
         discover: @escaping Discover,
         checkAppStore: @escaping CheckAppStore,
         checkSparkle: @escaping CheckSparkle,
+        classifyUnchecked: @escaping UpdateProbe.ClassifyUnchecked
+            = UpdateProbe.liveClassifyUnchecked(),
         opener: @escaping Opener
     ) {
         self.discover = discover
         self.checkAppStore = checkAppStore
         self.checkSparkle = checkSparkle
+        self.classifyUnchecked = classifyUnchecked
         self.opener = opener
     }
 
@@ -72,16 +80,17 @@ final class AppUpdaterViewModel {
             // lists.
             let probe = UpdateProbe(
                 checkAppStore: checkAppStore,
-                checkSparkle: checkSparkle
+                checkSparkle: checkSparkle,
+                classifyUnchecked: classifyUnchecked
             )
-            let outcomes = await probe.outcomes(for: apps)
+            let results = await probe.outcomes(for: apps)
             guard self.checkGeneration == generation else { return }
 
             var updates: [UpdateInfo] = []
             var anyReachable = false
             var anyUnreachable = false
-            for outcome in outcomes {
-                switch outcome {
+            for result in results {
+                switch result.outcome {
                 case .update(let info):
                     updates.append(info)
                     anyReachable = true
@@ -91,10 +100,12 @@ final class AppUpdaterViewModel {
                     anyUnreachable = true
                 case .skipped:
                     // No request was made — neither evidence the
-                    // network is up nor that it is down.
+                    // network is up nor that it is down. It still counts
+                    // toward coverage, which is tallied separately.
                     break
                 }
             }
+            self.coverage = UpdateCoverage(results: results)
 
             // Sort case-insensitively by app name so the list order is
             // deterministic between successive checks.
@@ -121,6 +132,9 @@ final class AppUpdaterViewModel {
             log.error("App Updater discovery failed: \(String(describing: error), privacy: .private)")
             guard self.checkGeneration == generation else { return }
             self.availableUpdates = []
+            // Stale counts beside an error would misreport what was
+            // inspected — nothing was.
+            self.coverage = UpdateCoverage()
             self.phase = .failed(message: AppUpdaterError.userFacingMessage(for: error))
         }
     }

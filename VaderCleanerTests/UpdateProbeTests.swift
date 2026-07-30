@@ -50,7 +50,7 @@ final class UpdateProbeTests: XCTestCase {
 
         let outcomes = await probe.outcomes(for: [app])
 
-        guard case .update(let info)? = outcomes.first else {
+        guard case .update(let info)? = outcomes.first?.outcome else {
             return XCTFail("Expected .update, got \(outcomes)")
         }
         XCTAssertEqual(info.appName, "Helio")
@@ -78,7 +78,7 @@ final class UpdateProbeTests: XCTestCase {
                 checkSparkle: { _ in .skipped }
             )
             let outcomes = await probe.outcomes(for: [app])
-            guard case .noUpdate? = outcomes.first else {
+            guard case .noUpdate? = outcomes.first?.outcome else {
                 return XCTFail("Expected .noUpdate for remote \(remote), got \(outcomes)")
             }
         }
@@ -99,7 +99,7 @@ final class UpdateProbeTests: XCTestCase {
             checkSparkle: { _ in .skipped }
         )
         let outcomes = await probe.outcomes(for: [app])
-        guard case .update(let info)? = outcomes.first else {
+        guard case .update(let info)? = outcomes.first?.outcome else {
             return XCTFail("Expected .update, got \(outcomes)")
         }
         XCTAssertEqual(info.installedVersion, "0")
@@ -121,11 +121,11 @@ final class UpdateProbeTests: XCTestCase {
             )
             let outcomes = await probe.outcomes(for: [app])
             XCTAssertEqual(outcomes.count, 1)
-            switch (outcomes[0], expected) {
-            case (.noUpdate, "noUpdate"), (.unreachable, "unreachable"), (.skipped, "skipped"):
+            switch (outcomes[0].outcome, expected) {
+            case (.noUpdate, "noUpdate"), (.unreachable, "unreachable"), (.skipped(_), "skipped"):
                 break
             default:
-                XCTFail("Expected \(expected), got \(outcomes[0])")
+                XCTFail("Expected \(expected), got \(outcomes[0].outcome)")
             }
         }
     }
@@ -151,7 +151,7 @@ final class UpdateProbeTests: XCTestCase {
 
         let outcomes = await probe.outcomes(for: [app])
 
-        guard case .update(let info)? = outcomes.first else {
+        guard case .update(let info)? = outcomes.first?.outcome else {
             return XCTFail("Expected .update, got \(outcomes)")
         }
         XCTAssertEqual(info.appName, "Mango")
@@ -177,11 +177,11 @@ final class UpdateProbeTests: XCTestCase {
             )
             let outcomes = await probe.outcomes(for: [app])
             XCTAssertEqual(outcomes.count, 1)
-            switch (outcomes[0], expected) {
-            case (.noUpdate, "noUpdate"), (.unreachable, "unreachable"), (.skipped, "skipped"):
+            switch (outcomes[0].outcome, expected) {
+            case (.noUpdate, "noUpdate"), (.unreachable, "unreachable"), (.skipped(_), "skipped"):
                 break
             default:
-                XCTFail("Expected \(expected), got \(outcomes[0])")
+                XCTFail("Expected \(expected), got \(outcomes[0].outcome)")
             }
         }
     }
@@ -251,6 +251,105 @@ final class UpdateProbeTests: XCTestCase {
         let peak = await gauge.peak
         XCTAssertLessThanOrEqual(peak, UpdateProbe.maxConcurrentChecks)
         XCTAssertGreaterThan(peak, 1, "Probes should actually run concurrently")
+    }
+
+    // MARK: - Skip classification
+
+    /// An app with no queryable feed and no embedded updater lands in
+    /// `.unmonitored` — the bucket the coverage report treats as a real
+    /// blind spot rather than as reassurance.
+    func test_outcomes_skippedCarriesUnmonitoredWhenNoSelfUpdaterDetected() async {
+        let app = makeApp(name: "Bare", bundleID: "com.acme.bare", isAppStore: false)
+        let probe = UpdateProbe(
+            checkAppStore: { _ in .skipped },
+            checkSparkle: { _ in .skipped },
+            classifyUnchecked: { _ in .unmonitored }
+        )
+
+        let outcomes = await probe.outcomes(for: [app])
+
+        guard case .skipped(let reason)? = outcomes.first?.outcome else {
+            return XCTFail("Expected .skipped, got \(outcomes)")
+        }
+        XCTAssertEqual(reason, .unmonitored)
+    }
+
+    /// An app that ships its own updater is skipped for a benign reason,
+    /// and the reason rides along so the UI can say which mechanism keeps
+    /// it current instead of listing it as neglected.
+    func test_outcomes_skippedCarriesSelfUpdaterWhenDetected() async {
+        for updater in SelfUpdater.allCases {
+            let app = makeApp(name: "Selfie", bundleID: "com.acme.selfie", isAppStore: false)
+            let probe = UpdateProbe(
+                checkAppStore: { _ in .skipped },
+                checkSparkle: { _ in .skipped },
+                classifyUnchecked: { _ in .selfUpdating(updater) }
+            )
+
+            let outcomes = await probe.outcomes(for: [app])
+
+            guard case .skipped(let reason)? = outcomes.first?.outcome else {
+                return XCTFail("Expected .skipped for \(updater), got \(outcomes)")
+            }
+            XCTAssertEqual(reason, .selfUpdating(updater))
+        }
+    }
+
+    /// The classifier runs only for apps that were actually skipped —
+    /// reading a bundle off disk for every checked app would be wasted work.
+    func test_outcomes_doesNotClassifyAppsThatWereChecked() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio", isAppStore: true)
+        let classified = ActorBox<[String]>([])
+        let probe = UpdateProbe(
+            checkAppStore: { _ in .noResult },
+            checkSparkle: { _ in .skipped },
+            classifyUnchecked: { app in
+                Task { await classified.append(app.bundleID) }
+                return .unmonitored
+            }
+        )
+
+        _ = await probe.outcomes(for: [app])
+
+        let calls = await classified.value
+        XCTAssertTrue(calls.isEmpty, "Checked apps must not be classified, got \(calls)")
+    }
+
+    // MARK: - App association
+
+    /// Results are produced in completion order, so each one must carry the
+    /// app that produced it. Without the pairing the coverage lists cannot
+    /// name which apps went unchecked.
+    func test_outcomes_pairsEachResultWithTheAppThatProducedIt() async {
+        let apps = (0..<20).map { index in
+            makeApp(name: "App\(index)", bundleID: "com.acme.app\(index)",
+                    version: "1.0", isAppStore: true)
+        }
+        let probe = UpdateProbe(
+            checkAppStore: { bundleID in
+                // Stagger completions so results genuinely arrive out of
+                // dispatch order rather than trivially in sequence.
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 1_000_000...8_000_000))
+                return .found(AppStoreLookup(
+                    version: "2.0",
+                    appStoreURL: URL(string: "https://apps.apple.com/app/\(bundleID)")!
+                ))
+            },
+            checkSparkle: { _ in .skipped },
+            classifyUnchecked: { _ in .unmonitored }
+        )
+
+        let outcomes = await probe.outcomes(for: apps)
+
+        XCTAssertEqual(outcomes.count, 20)
+        for result in outcomes {
+            guard case .update(let info) = result.outcome else {
+                return XCTFail("Expected .update for \(result.app.bundleID)")
+            }
+            XCTAssertEqual(info.bundleID, result.app.bundleID)
+            XCTAssertEqual(info.bundleURL, result.app.bundleURL)
+        }
+        XCTAssertEqual(Set(outcomes.map(\.app.bundleID)).count, 20)
     }
 
     // MARK: - Fixtures
