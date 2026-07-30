@@ -49,6 +49,9 @@ struct CarePlanFeedView: View {
     private var feedContent: some View {
         VStack(spacing: 22) {
             topBar
+            if viewModel.isRefreshingFindings {
+                refreshingNote
+            }
             if let verdict = viewModel.verdict, let plan = viewModel.currentPlan {
                 CareVerdictHero(
                     verdict: verdict,
@@ -65,7 +68,9 @@ struct CarePlanFeedView: View {
                     coverageNote: coverageNote
                 )
             }
-            if viewModel.rankedFindings.isEmpty {
+            // An empty feed mid-re-check isn't an all-clear — the findings being
+            // re-scanned are simply not back yet. The note above says so.
+            if viewModel.rankedFindings.isEmpty && !viewModel.isRefreshingFindings {
                 ReassuranceCard(
                     content: ReassuranceContent(
                         id: "smartScan.allClear",
@@ -187,6 +192,24 @@ struct CarePlanFeedView: View {
             Spacer()
         }
         .frame(maxWidth: 960)
+    }
+
+    /// Shown while a post-Fix re-check runs. The cards the pass cleaned are off
+    /// the feed until their re-scan lands, and this says why rather than leaving
+    /// the gap unexplained.
+    private var refreshingNote: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(String(
+                localized: "Re-checking what Fix changed…",
+                comment: "Feed note shown while the findings a Fix pass acted on are re-scanned."
+            ))
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.75))
+        }
+        .frame(maxWidth: 960, alignment: .leading)
+        .accessibilityIdentifier("smartScan.refreshingNote")
     }
 
     /// Honest coverage line when parts of the scan were skipped or failed.

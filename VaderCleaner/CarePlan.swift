@@ -75,4 +75,45 @@ struct CarePlan: Equatable, Sendable {
             return false
         }
     }
+
+    /// This plan without the findings for `units` — the interim feed shown while
+    /// a targeted re-scan re-checks them. Outcomes stay as they were: the units
+    /// did run, and the coverage footnote still speaks for that scan.
+    func removingFindings(for units: Set<CareScanUnit>) -> CarePlan {
+        CarePlan(
+            findings: findings.filter { !units.contains($0.kind.unit) },
+            health: health,
+            unitOutcomes: unitOutcomes,
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+    }
+
+    /// This plan with `refreshed` substituted in for `units` — the units a Run
+    /// pass acted on and a targeted re-scan has just re-checked.
+    ///
+    /// Findings and outcomes for those units come from `refreshed`, so work that
+    /// is genuinely gone disappears instead of lingering as a stale card. Every
+    /// other finding is carried forward untouched: the run never touched it, so
+    /// it is still true, and re-walking the filesystem to rediscover it is what
+    /// made a post-run re-scan expensive.
+    ///
+    /// Health rides along on every re-scan (a cleanup changes free space), but a
+    /// refresh that captured none keeps the earlier reading rather than blanking
+    /// the verdict hero. Dates span the original scan through the re-check: the
+    /// plan began when the user's scan began and is current as of now.
+    func merging(_ refreshed: CarePlan, for units: Set<CareScanUnit>) -> CarePlan {
+        var outcomes = unitOutcomes
+        for unit in units {
+            outcomes[unit] = refreshed.unitOutcomes[unit]
+        }
+        return CarePlan(
+            findings: findings.filter { !units.contains($0.kind.unit) }
+                + refreshed.findings.filter { units.contains($0.kind.unit) && !$0.isEmpty },
+            health: refreshed.health ?? health,
+            unitOutcomes: outcomes,
+            startedAt: startedAt,
+            finishedAt: refreshed.finishedAt
+        )
+    }
 }
