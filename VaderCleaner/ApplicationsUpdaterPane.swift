@@ -11,6 +11,9 @@ enum UpdaterFacet: Hashable {
     /// Outdated Homebrew packages — a parallel list under the Stores group,
     /// upgraded through `brew upgrade` rather than opening an update URL.
     case homebrew
+    /// Apps installed by a Homebrew cask. Upgraded from the Homebrew
+    /// facet — offering them a download would overwrite a managed install.
+    case homebrewManaged
     /// Apps that keep themselves current through a bundled updater. Listed
     /// so the coverage headline is accountable, not as work to do.
     case selfUpdating
@@ -67,6 +70,8 @@ struct UpdaterPaneView: View {
                 .accessibilityIdentifier("applications.manager.updater.facet.homebrew")
 
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Coverage", comment: "Updater facet group header."))
+            facetRow(.homebrewManaged, String(localized: "Managed by Homebrew", comment: "Updater coverage facet."), coverage.homebrewManaged.count)
+                .accessibilityIdentifier("applications.manager.updater.facet.homebrewmanaged")
             facetRow(.selfUpdating, String(localized: "Self-updating", comment: "Updater coverage facet."), coverage.selfUpdating.count)
                 .accessibilityIdentifier("applications.manager.updater.facet.selfupdating")
             facetRow(.unmonitored, String(localized: "Not monitored", comment: "Updater coverage facet."), coverage.unmonitored.count)
@@ -89,6 +94,7 @@ struct UpdaterPaneView: View {
         case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
         case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
         case .homebrew:         return String(localized: "Homebrew", comment: "Updater right pane title.")
+        case .homebrewManaged:  return String(localized: "Managed by Homebrew", comment: "Updater right pane title.")
         case .selfUpdating:     return String(localized: "Self-updating", comment: "Updater right pane title.")
         case .unmonitored:      return String(localized: "Not monitored", comment: "Updater right pane title.")
         }
@@ -101,6 +107,7 @@ struct UpdaterPaneView: View {
         case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
         case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
         case .homebrew:         return String(localized: "Homebrew packages with a newer version.", comment: "Updater right pane description.")
+        case .homebrewManaged:  return String(localized: "Homebrew installed these apps and upgrades them in place.", comment: "Updater right pane description.")
         case .selfUpdating:     return String(localized: "These apps update themselves, so we don't check them.", comment: "Updater right pane description.")
         case .unmonitored:      return String(localized: "We found no way to check these apps for updates.", comment: "Updater right pane description.")
         }
@@ -132,6 +139,12 @@ struct UpdaterPaneView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
                 switch facet {
+                case .homebrewManaged:
+                    coverageList(
+                        coverage.homebrewManaged.map { ($0.app, homebrewDetail($0.token)) },
+                        emptyDetail: String(localized: "Homebrew hasn't installed any of your apps.", comment: "Homebrew-managed empty-state detail."),
+                        identifier: "homebrewmanaged"
+                    )
                 case .selfUpdating:
                     coverageList(
                         coverage.selfUpdating.map { ($0.app, selfUpdaterDetail($0.updater)) },
@@ -200,6 +213,11 @@ struct UpdaterPaneView: View {
         .accessibilityIdentifier("applications.manager.updater.coverage.row.\(app.bundleID)")
     }
 
+    private func homebrewDetail(_ token: String) -> String {
+        let format = String(localized: "Upgrade with Homebrew (%@)", comment: "Homebrew-managed row detail; the cask token.")
+        return String.localizedStringWithFormat(format, token)
+    }
+
     private func selfUpdaterDetail(_ updater: SelfUpdater) -> String {
         switch updater {
         case .keystone:
@@ -218,7 +236,7 @@ struct UpdaterPaneView: View {
             case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
             // Homebrew and the coverage facets are separate lists, not
             // filters over the available updates.
-            case .homebrew, .selfUpdating, .unmonitored:
+            case .homebrew, .homebrewManaged, .selfUpdating, .unmonitored:
                 matchesFacet = false
             }
             guard matchesFacet else { return false }

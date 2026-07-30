@@ -2,6 +2,11 @@
 
 Design spec for two changes to the Applications Manager's Updater pane.
 
+> **Status: both changes implemented.** Three decisions were made during
+> implementation that this document originally called differently; each is
+> recorded inline below under *Implementation note*. Read those before
+> treating a section as a description of the code.
+
 Both address the same defect from different angles: **the pane reports a
 number the user reads as "your apps are current", and that reading is
 false.** Change 1 makes the unchecked population visible. Change 2 stops
@@ -107,6 +112,15 @@ a Squirrel app): **cask > appStore > sparkle > selfUpdating >
 unmonitored.** Cask wins because it determines the *action* — see
 Change 2. Whether a cask self-updates is carried alongside as a flag,
 not as a competing case.
+
+> **Implementation note.** The full `UpdateChannel` taxonomy was not
+> built. Change 1 can only ever produce two skip reasons, so three of the
+> five cases would have had no producer — dead code plus exhaustive
+> switches to maintain. The shipped type is
+> `UncheckedReason { selfUpdating(SelfUpdater), homebrew(token:),
+> unmonitored }`, with the `homebrew` case added by Change 2. Precedence
+> is unchanged in effect: ownership is resolved before any channel
+> dispatch.
 
 ### Classifier
 
@@ -319,6 +333,24 @@ This rule is the whole point of the change: the failure mode being
 prevented is silently clobbering a managed install, so ambiguity must
 resolve toward inaction.
 
+> **Implementation note — this rule was not shipped as written.** It was
+> drafted before the two missing tokens were diagnosed. Both turned out
+> to be *rename leftovers*: `docker` lingering after the cask became
+> `docker-desktop`, and `windsurf` after `devin-desktop`. `Docker.app` is
+> already owned by the resolved `docker-desktop` entry, and no
+> `Windsurf.app` exists on disk at all.
+>
+> Suppressing on an unresolved token would therefore have bought no
+> safety while risking the opposite defect: an app suppressed on a stale
+> token is one Homebrew can no longer upgrade either, so it would vanish
+> from both surfaces — exactly the invisibility Change 1 exists to fix.
+>
+> Shipped behaviour: **only confirmed ownership suppresses.**
+> `CaskOwnershipMap.unresolvedTokens` still reports the cross-check
+> result, and `owner(of:)` deliberately never matches on it
+> (`test_owner_unresolvedTokenDoesNotClaimOwnership`). Surfacing stale
+> tokens as cleanable leftovers is follow-up work.
+
 ### Broken cask installs
 
 A token whose Caskroom directory contains only a `*.upgrading` version
@@ -347,15 +379,30 @@ the honest place for "fine, not your problem".
 
 ### Routing the action
 
-In `ApplicationsManagerView.updateSelected()`, an `UpdateInfo` whose
-channel is `.homebrewCask(token:)` must not reach
-`NSWorkspace.open`. Route it to
-`HomebrewViewModel.upgrade(.some([token]))`, which already streams,
-handles pinning, cancels cleanly, and refreshes the outdated list.
+> **Implementation note — suppression was shipped instead of routing.**
+> A cask-owned app never becomes an `UpdateInfo` at all: ownership is
+> checked before channel dispatch, so no update row is produced and no
+> action can reach `NSWorkspace.open`. The app is reported under the
+> **Managed by Homebrew** coverage facet, and the existing Homebrew facet
+> remains the single place it is upgraded.
+>
+> Why not route: adding a second path into `HomebrewViewModel.upgrade`
+> would mean `UpdateInfo` carrying a token, the footer distinguishing row
+> kinds, `updateSelected()` mixing two action types, and the Homebrew
+> busy-guard interacting with an app-side selection — substantial surface
+> for one edge case (brew's cask definition lagging an upstream release).
+> Suppression also removes the double-listing, which routing would not.
+>
+> The cost is real and one-sided: when brew's definition lags upstream,
+> the user waits for the cask to catch up. That is the contract they
+> accepted by installing through Homebrew.
+>
+> Skipping before dispatch also spares the network request entirely
+> (`test_outcomes_caskOwnedAppIsSkippedWithoutContactingAnyChannel`).
 
-Row presentation for a cask-owned app: source label reads **"Homebrew"**
-rather than "Web" or "App Store", so the user can see which subsystem
-owns it before acting.
+Broken cask installs (the `*.upgrading`-only Caskroom state) were **not**
+implemented — that is a Homebrew-facet health feature needing its own
+surface, not part of ownership resolution.
 
 ## Tests
 

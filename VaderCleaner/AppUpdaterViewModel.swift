@@ -27,6 +27,10 @@ final class AppUpdaterViewModel {
     typealias CheckAppStore  = @Sendable (_ bundleID: String) async -> CheckResult<AppStoreLookup>
     typealias CheckSparkle   = @Sendable (_ app: AppInfo) async -> CheckResult<SparkleAppcastItem>
     typealias Opener         = @Sendable (_ url: URL) async -> Void
+    /// Resolves which installed apps Homebrew owns. Async because it
+    /// shells out to `brew`, so it is loaded once per check and the probe
+    /// consults the resulting map synchronously.
+    typealias LoadCaskOwnership = @Sendable () async -> CaskOwnershipMap
 
     private(set) var phase: Phase = .idle
     private(set) var availableUpdates: [UpdateInfo] = []
@@ -39,6 +43,7 @@ final class AppUpdaterViewModel {
     @ObservationIgnored private let checkAppStore: CheckAppStore
     @ObservationIgnored private let checkSparkle: CheckSparkle
     @ObservationIgnored private let classifyUnchecked: UpdateProbe.ClassifyUnchecked
+    @ObservationIgnored private let loadCaskOwnership: LoadCaskOwnership
     @ObservationIgnored private let opener: Opener
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUpdaterViewModel")
@@ -54,12 +59,14 @@ final class AppUpdaterViewModel {
         checkSparkle: @escaping CheckSparkle,
         classifyUnchecked: @escaping UpdateProbe.ClassifyUnchecked
             = UpdateProbe.liveClassifyUnchecked(),
+        loadCaskOwnership: @escaping LoadCaskOwnership = { CaskOwnershipMap() },
         opener: @escaping Opener
     ) {
         self.discover = discover
         self.checkAppStore = checkAppStore
         self.checkSparkle = checkSparkle
         self.classifyUnchecked = classifyUnchecked
+        self.loadCaskOwnership = loadCaskOwnership
         self.opener = opener
     }
 
@@ -74,6 +81,10 @@ final class AppUpdaterViewModel {
         phase = .checking
         do {
             let apps = try await discover(false)
+            // Loaded once per check, then consulted synchronously per app.
+            // An empty map claims nothing, so a machine without Homebrew
+            // behaves exactly as it did before ownership existed.
+            let ownership = await loadCaskOwnership()
             // The bounded-concurrency fan-out and per-app channel routing
             // live in `UpdateProbe`, shared with the Applications dashboard
             // and Smart Scan so all three surfaces produce identical update
@@ -81,7 +92,8 @@ final class AppUpdaterViewModel {
             let probe = UpdateProbe(
                 checkAppStore: checkAppStore,
                 checkSparkle: checkSparkle,
-                classifyUnchecked: classifyUnchecked
+                classifyUnchecked: classifyUnchecked,
+                resolveHomebrewToken: { ownership.owner(of: $0)?.token }
             )
             let results = await probe.outcomes(for: apps)
             guard self.checkGeneration == generation else { return }
@@ -173,12 +185,14 @@ extension AppUpdaterViewModel {
     @MainActor
     static func live() -> AppUpdaterViewModel {
         let discovery = DefaultAppDiscovery()
+        let ownershipLoader = CaskOwnershipLoader()
         return AppUpdaterViewModel(
             discover: { includingSystemApps in
                 try await discovery.installedApps(includingSystemApps: includingSystemApps)
             },
             checkAppStore: UpdateProbe.liveAppStoreCheck(),
             checkSparkle: UpdateProbe.liveSparkleCheck(),
+            loadCaskOwnership: { await ownershipLoader.load() },
             opener: { url in
                 await MainActor.run {
                     _ = NSWorkspace.shared.open(url)

@@ -315,6 +315,85 @@ final class UpdateProbeTests: XCTestCase {
         XCTAssertTrue(calls.isEmpty, "Checked apps must not be classified, got \(calls)")
     }
 
+    // MARK: - Homebrew ownership
+
+    /// A cask-installed app is never dispatched to a channel at all. This
+    /// is the clobber guard: offering its Sparkle download would overwrite
+    /// a Caskroom-tracked install and desync Homebrew's manifest, so the
+    /// probe must not even produce an update row for it.
+    func test_outcomes_caskOwnedAppIsSkippedWithoutContactingAnyChannel() async {
+        let app = makeApp(name: "VLC", bundleID: "org.videolan.vlc", isAppStore: false)
+        let checkerCalls = ActorBox(0)
+        let probe = UpdateProbe(
+            checkAppStore: { _ in await checkerCalls.increment(); return .noResult },
+            checkSparkle: { _ in await checkerCalls.increment(); return .noResult },
+            resolveHomebrewToken: { _ in "vlc" }
+        )
+
+        let outcomes = await probe.outcomes(for: [app])
+
+        guard case .skipped(let reason)? = outcomes.first?.outcome else {
+            return XCTFail("Expected .skipped, got \(outcomes)")
+        }
+        XCTAssertEqual(reason, .homebrew(token: "vlc"))
+        let calls = await checkerCalls.value
+        XCTAssertEqual(calls, 0, "A cask-owned app must not be checked at all")
+    }
+
+    /// Ownership is resolved per app, so an unmanaged app alongside a
+    /// cask-owned one is still checked normally.
+    func test_outcomes_unmanagedAppIsStillCheckedAlongsideCaskOwnedApp() async {
+        let managed = makeApp(name: "VLC", bundleID: "org.videolan.vlc", isAppStore: false)
+        let unmanaged = makeApp(name: "Telegram", bundleID: "ru.keepcoder.telegram",
+                                version: "1.0", isAppStore: false)
+        let probe = UpdateProbe(
+            checkAppStore: { _ in .skipped },
+            checkSparkle: { _ in
+                .found(SparkleAppcastItem(
+                    shortVersion: "2.0",
+                    version: "2000",
+                    downloadURL: URL(string: "https://example.com/t.dmg")!
+                ))
+            },
+            resolveHomebrewToken: { $0.bundleID == "org.videolan.vlc" ? "vlc" : nil }
+        )
+
+        let outcomes = await probe.outcomes(for: [managed, unmanaged])
+
+        let byID = Dictionary(uniqueKeysWithValues: outcomes.map { ($0.app.bundleID, $0.outcome) })
+        guard case .skipped(.homebrew(let token))? = byID["org.videolan.vlc"] else {
+            return XCTFail("Expected VLC to be brew-managed")
+        }
+        XCTAssertEqual(token, "vlc")
+        guard case .update(let info)? = byID["ru.keepcoder.telegram"] else {
+            return XCTFail("Expected Telegram to yield an update")
+        }
+        XCTAssertEqual(info.latestVersion, "2.0")
+    }
+
+    /// With no Homebrew on the machine nothing is claimed, and every app
+    /// is checked exactly as before.
+    func test_outcomes_noHomebrewOwnershipLeavesEveryAppChecked() async {
+        let app = makeApp(name: "Telegram", bundleID: "ru.keepcoder.telegram",
+                          version: "1.0", isAppStore: true)
+        let probe = UpdateProbe(
+            checkAppStore: { _ in
+                .found(AppStoreLookup(
+                    version: "2.0",
+                    appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
+                ))
+            },
+            checkSparkle: { _ in .skipped },
+            resolveHomebrewToken: { _ in nil }
+        )
+
+        let outcomes = await probe.outcomes(for: [app])
+
+        guard case .update? = outcomes.first?.outcome else {
+            return XCTFail("Expected .update, got \(outcomes)")
+        }
+    }
+
     // MARK: - App association
 
     /// Results are produced in completion order, so each one must carry the

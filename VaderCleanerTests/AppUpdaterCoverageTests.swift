@@ -161,6 +161,92 @@ final class AppUpdaterCoverageTests: XCTestCase {
         XCTAssertEqual(vm.coverage, UpdateCoverage())
     }
 
+    // MARK: - Homebrew ownership
+
+    /// A cask-installed app must never reach `availableUpdates`, because
+    /// every action there opens a download URL — which for a cask-owned
+    /// app overwrites a Caskroom-tracked install. It is accounted for in
+    /// coverage instead, so it is suppressed without being hidden.
+    func test_checkForUpdates_caskOwnedAppIsReportedNotOffered() async {
+        let cask = makeApp(name: "VLC", bundleID: "org.videolan.vlc",
+                           version: "3.0.21", isAppStore: false)
+        let vm = makeViewModel(
+            discover: { _ in [cask] },
+            checkSparkle: { _ in
+                .found(SparkleAppcastItem(
+                    shortVersion: "3.0.23",
+                    version: "3023",
+                    downloadURL: URL(string: "https://example.com/vlc.dmg")!
+                ))
+            },
+            loadCaskOwnership: {
+                CaskOwnershipMap(casks: [
+                    CaskOwnership(token: "vlc", autoUpdates: true, appNames: ["VLC.app"])
+                ])
+            }
+        )
+
+        await vm.checkForUpdates()
+
+        XCTAssertEqual(vm.phase, .ready)
+        XCTAssertTrue(vm.availableUpdates.isEmpty, "A cask-owned app must not be offered a download")
+        XCTAssertEqual(vm.coverage.homebrewManaged.map(\.app.bundleID), ["org.videolan.vlc"])
+        XCTAssertEqual(vm.coverage.homebrewManaged.map(\.token), ["vlc"])
+        XCTAssertEqual(vm.coverage.total, 1)
+    }
+
+    /// Ownership applies per app: an unmanaged app alongside a cask-owned
+    /// one is still offered its update.
+    func test_checkForUpdates_unmanagedAppStillOfferedAlongsideCaskOwned() async {
+        let cask = makeApp(name: "VLC", bundleID: "org.videolan.vlc",
+                           version: "3.0.21", isAppStore: false)
+        let direct = makeApp(name: "Telegram", bundleID: "ru.keepcoder.telegram",
+                             version: "12.8", isAppStore: false)
+        let vm = makeViewModel(
+            discover: { _ in [cask, direct] },
+            checkSparkle: { app in
+                .found(SparkleAppcastItem(
+                    shortVersion: app.bundleID == "org.videolan.vlc" ? "3.0.23" : "12.9",
+                    version: nil,
+                    downloadURL: URL(string: "https://example.com/\(app.bundleID).dmg")!
+                ))
+            },
+            loadCaskOwnership: {
+                CaskOwnershipMap(casks: [CaskOwnership(token: "vlc", appNames: ["VLC.app"])])
+            }
+        )
+
+        await vm.checkForUpdates()
+
+        XCTAssertEqual(vm.availableUpdates.map(\.bundleID), ["ru.keepcoder.telegram"])
+        XCTAssertEqual(vm.coverage.homebrewManaged.map(\.token), ["vlc"])
+        XCTAssertEqual(vm.coverage.checked, 1)
+        XCTAssertEqual(vm.coverage.total, 2)
+    }
+
+    /// With Homebrew absent the map claims nothing and behaviour is
+    /// exactly as it was before ownership existed.
+    func test_checkForUpdates_emptyOwnershipMapOffersEveryUpdate() async {
+        let app = makeApp(name: "VLC", bundleID: "org.videolan.vlc",
+                          version: "3.0.21", isAppStore: false)
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            checkSparkle: { _ in
+                .found(SparkleAppcastItem(
+                    shortVersion: "3.0.23",
+                    version: nil,
+                    downloadURL: URL(string: "https://example.com/vlc.dmg")!
+                ))
+            },
+            loadCaskOwnership: { CaskOwnershipMap() }
+        )
+
+        await vm.checkForUpdates()
+
+        XCTAssertEqual(vm.availableUpdates.map(\.bundleID), ["org.videolan.vlc"])
+        XCTAssertTrue(vm.coverage.homebrewManaged.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel(
@@ -168,6 +254,7 @@ final class AppUpdaterCoverageTests: XCTestCase {
         checkAppStore: @escaping AppUpdaterViewModel.CheckAppStore = { _ in .noResult },
         checkSparkle: @escaping AppUpdaterViewModel.CheckSparkle = { _ in .noResult },
         classifyUnchecked: @escaping UpdateProbe.ClassifyUnchecked = { _ in .unmonitored },
+        loadCaskOwnership: @escaping AppUpdaterViewModel.LoadCaskOwnership = { CaskOwnershipMap() },
         opener: @escaping AppUpdaterViewModel.Opener = { _ in }
     ) -> AppUpdaterViewModel {
         AppUpdaterViewModel(
@@ -175,6 +262,7 @@ final class AppUpdaterCoverageTests: XCTestCase {
             checkAppStore: checkAppStore,
             checkSparkle: checkSparkle,
             classifyUnchecked: classifyUnchecked,
+            loadCaskOwnership: loadCaskOwnership,
             opener: opener
         )
     }

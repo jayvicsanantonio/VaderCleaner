@@ -32,6 +32,10 @@ enum CheckResult<Payload: Sendable>: Sendable {
 /// produces an alarming total that is mostly noise.
 enum UncheckedReason: Hashable, Sendable {
     case selfUpdating(SelfUpdater)
+    /// Installed by the named Homebrew cask. Handing this app a direct
+    /// download would overwrite a Caskroom-tracked install, so it is left
+    /// to the Homebrew surface, which upgrades it in place.
+    case homebrew(token: String)
     case unmonitored
 }
 
@@ -75,6 +79,9 @@ struct UpdateProbe: Sendable {
     /// Explains an app that no channel could query. Runs only for skipped
     /// apps, so the bundle reads it performs stay off the checked path.
     typealias ClassifyUnchecked = @Sendable (_ app: AppInfo) -> UncheckedReason
+    /// The Homebrew cask token that installed this app, or nil when
+    /// Homebrew doesn't own it. Consulted *before* any channel dispatch.
+    typealias ResolveHomebrewToken = @Sendable (_ app: AppInfo) -> String?
 
     /// Maximum number of update checks (HTTPS requests) in flight at once.
     /// Sized to keep the scan responsive without stampeding the iTunes
@@ -84,19 +91,25 @@ struct UpdateProbe: Sendable {
     private let checkAppStore: CheckAppStore
     private let checkSparkle: CheckSparkle
     private let classifyUnchecked: ClassifyUnchecked
+    private let resolveHomebrewToken: ResolveHomebrewToken
 
     /// - Parameter classifyUnchecked: defaults to the real bundle-reading
     ///   detector. It is the safe default in both directions — production
     ///   gets true classification without every call site wiring it, and
     ///   tests pointing at paths that don't exist get `.unmonitored`.
+    /// - Parameter resolveHomebrewToken: defaults to claiming nothing.
+    ///   The ownership map is built asynchronously (it shells out to
+    ///   `brew`), so the caller loads it first and captures it here.
     init(
         checkAppStore: @escaping CheckAppStore,
         checkSparkle: @escaping CheckSparkle,
-        classifyUnchecked: @escaping ClassifyUnchecked = UpdateProbe.liveClassifyUnchecked()
+        classifyUnchecked: @escaping ClassifyUnchecked = UpdateProbe.liveClassifyUnchecked(),
+        resolveHomebrewToken: @escaping ResolveHomebrewToken = { _ in nil }
     ) {
         self.checkAppStore = checkAppStore
         self.checkSparkle = checkSparkle
         self.classifyUnchecked = classifyUnchecked
+        self.resolveHomebrewToken = resolveHomebrewToken
     }
 
     /// Probes every app and returns one outcome per app, in completion
@@ -117,6 +130,7 @@ struct UpdateProbe: Sendable {
         let appStoreCheck = checkAppStore
         let sparkleCheck = checkSparkle
         let classify = classifyUnchecked
+        let resolveToken = resolveHomebrewToken
         let total = apps.count
         onProgress(0, total)
         return await withTaskGroup(of: UpdateProbeResult.self) { group -> [UpdateProbeResult] in
@@ -128,7 +142,8 @@ struct UpdateProbe: Sendable {
                         app: app,
                         appStoreCheck: appStoreCheck,
                         sparkleCheck: sparkleCheck,
-                        classify: classify
+                        classify: classify,
+                        resolveToken: resolveToken
                     )
                 }
                 nextIndex += 1
@@ -144,7 +159,8 @@ struct UpdateProbe: Sendable {
                             app: app,
                             appStoreCheck: appStoreCheck,
                             sparkleCheck: sparkleCheck,
-                            classify: classify
+                            classify: classify,
+                            resolveToken: resolveToken
                         )
                     }
                     nextIndex += 1
@@ -187,8 +203,16 @@ struct UpdateProbe: Sendable {
         app: AppInfo,
         appStoreCheck: CheckAppStore,
         sparkleCheck: CheckSparkle,
-        classify: ClassifyUnchecked
+        classify: ClassifyUnchecked,
+        resolveToken: ResolveHomebrewToken
     ) async -> UpdateProbeResult {
+        // Homebrew ownership is decided before any dispatch. A cask-owned
+        // app must never produce an update row: its download would
+        // overwrite a Caskroom-tracked install. Checking it first also
+        // spares the network request entirely.
+        if let token = resolveToken(app) {
+            return UpdateProbeResult(app: app, outcome: .skipped(.homebrew(token: token)))
+        }
         // The channel functions return nil for "no request was made"; the
         // reason is filled in here. Classification reads the bundle off
         // disk, so it runs only for skipped apps, never on the checked path.

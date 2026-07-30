@@ -13,6 +13,17 @@ struct SelfUpdatingApp: Identifiable, Hashable, Sendable {
     var id: String { app.id }
 }
 
+/// An app Homebrew installed, paired with the cask that owns it. Listed
+/// separately because Homebrew — not this pane — is where it gets
+/// upgraded, and offering it a direct download would overwrite a
+/// Caskroom-tracked install.
+struct HomebrewManagedApp: Identifiable, Hashable, Sendable {
+    let app: AppInfo
+    let token: String
+
+    var id: String { app.id }
+}
+
 /// The outcome of an update check, counted by what it could reach.
 ///
 /// The Updater previously reported only the updates it found, which reads
@@ -27,23 +38,28 @@ struct UpdateCoverage: Equatable, Sendable {
     let unreachable: Int
     /// Apps that ship their own updater. Reassurance, not a to-do list.
     let selfUpdating: [SelfUpdatingApp]
+    /// Apps Homebrew installed. Upgraded from the Homebrew surface, so
+    /// they are accounted for here rather than offered a download.
+    let homebrewManaged: [HomebrewManagedApp]
     /// Apps with no update mechanism we can detect. The real blind spot,
     /// and the only bucket that warrants the user's attention.
     let unmonitored: [AppInfo]
 
     var total: Int {
-        checked + unreachable + selfUpdating.count + unmonitored.count
+        checked + unreachable + selfUpdating.count + homebrewManaged.count + unmonitored.count
     }
 
     init(
         checked: Int = 0,
         unreachable: Int = 0,
         selfUpdating: [SelfUpdatingApp] = [],
+        homebrewManaged: [HomebrewManagedApp] = [],
         unmonitored: [AppInfo] = []
     ) {
         self.checked = checked
         self.unreachable = unreachable
         self.selfUpdating = selfUpdating
+        self.homebrewManaged = homebrewManaged
         self.unmonitored = unmonitored
     }
 
@@ -55,6 +71,7 @@ struct UpdateCoverage: Equatable, Sendable {
         var checked = 0
         var unreachable = 0
         var selfUpdating: [SelfUpdatingApp] = []
+        var homebrewManaged: [HomebrewManagedApp] = []
         var unmonitored: [AppInfo] = []
 
         for result in results {
@@ -65,6 +82,8 @@ struct UpdateCoverage: Equatable, Sendable {
                 unreachable += 1
             case .skipped(.selfUpdating(let updater)):
                 selfUpdating.append(SelfUpdatingApp(app: result.app, updater: updater))
+            case .skipped(.homebrew(let token)):
+                homebrewManaged.append(HomebrewManagedApp(app: result.app, token: token))
             case .skipped(.unmonitored):
                 unmonitored.append(result.app)
             }
@@ -74,6 +93,9 @@ struct UpdateCoverage: Equatable, Sendable {
             checked: checked,
             unreachable: unreachable,
             selfUpdating: selfUpdating.sorted {
+                $0.app.name.localizedCaseInsensitiveCompare($1.app.name) == .orderedAscending
+            },
+            homebrewManaged: homebrewManaged.sorted {
                 $0.app.name.localizedCaseInsensitiveCompare($1.app.name) == .orderedAscending
             },
             unmonitored: unmonitored.sorted {
