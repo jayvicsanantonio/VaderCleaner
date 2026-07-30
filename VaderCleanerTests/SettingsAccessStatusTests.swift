@@ -41,14 +41,43 @@ final class SettingsAccessStatusTests: XCTestCase {
     // MARK: - Helper daemon
 
     func test_helper_enabled_isHealthy_andOffersNoAction() {
-        let status = SettingsAccessStatus.helper(status: .enabled)
+        let status = SettingsAccessStatus.helper(status: .enabled, isReachable: true)
 
         XCTAssertTrue(status.isHealthy)
         XCTAssertNil(status.actionTitle)
     }
 
+    /// A registration can read `.enabled` while the helper is unreachable — a
+    /// rebuilt binary leaves the approval record behind but no running service,
+    /// and every privileged call then fails. The row must not claim health it
+    /// hasn't verified.
+    func test_helper_enabledButUnreachable_needsAttention_andOffersRepair() {
+        let status = SettingsAccessStatus.helper(status: .enabled, isReachable: false)
+
+        XCTAssertFalse(status.isHealthy)
+        XCTAssertNotNil(status.actionTitle, "the user needs a way to repair it")
+    }
+
+    func test_helper_enabledButUnreachable_detailDiffersFromBothWorkingAndMissing() {
+        let unreachable = SettingsAccessStatus.helper(status: .enabled, isReachable: false).detail
+        let working = SettingsAccessStatus.helper(status: .enabled, isReachable: true).detail
+        let missing = SettingsAccessStatus.helper(status: .notRegistered, isReachable: false).detail
+
+        XCTAssertNotEqual(unreachable, working)
+        XCTAssertNotEqual(unreachable, missing, "\"installed but silent\" is not \"never installed\"")
+    }
+
+    /// Reachability only decides the `.enabled` row: the other states are
+    /// unusable regardless, and probing them would say nothing new.
+    func test_helper_unregistered_readsTheSameWhetherProbedOrNot() {
+        XCTAssertEqual(
+            SettingsAccessStatus.helper(status: .notRegistered, isReachable: true),
+            SettingsAccessStatus.helper(status: .notRegistered, isReachable: false)
+        )
+    }
+
     func test_helper_requiresApproval_needsAttention_andSendsUserToApprove() {
-        let status = SettingsAccessStatus.helper(status: .requiresApproval)
+        let status = SettingsAccessStatus.helper(status: .requiresApproval, isReachable: false)
 
         XCTAssertFalse(status.isHealthy)
         XCTAssertNotNil(status.actionTitle)
@@ -59,25 +88,27 @@ final class SettingsAccessStatusTests: XCTestCase {
     }
 
     func test_helper_notRegistered_needsAttention_andOffersRepair() {
-        let status = SettingsAccessStatus.helper(status: .notRegistered)
+        let status = SettingsAccessStatus.helper(status: .notRegistered, isReachable: false)
 
         XCTAssertFalse(status.isHealthy)
         XCTAssertNotNil(status.actionTitle)
     }
 
     func test_helper_notFound_needsAttention_andOffersRepair() {
-        let status = SettingsAccessStatus.helper(status: .notFound)
+        let status = SettingsAccessStatus.helper(status: .notFound, isReachable: false)
 
         XCTAssertFalse(status.isHealthy)
         XCTAssertNotNil(status.actionTitle)
     }
 
     /// Every unhealthy helper state must carry a distinct explanation —
-    /// "needs approval" and "isn't installed" call for different user moves.
+    /// "needs approval", "isn't installed", and "installed but silent" call for
+    /// different user moves.
     func test_helper_unhealthyStates_haveDistinctDetails() {
         let details = [
-            SettingsAccessStatus.helper(status: .requiresApproval).detail,
-            SettingsAccessStatus.helper(status: .notRegistered).detail,
+            SettingsAccessStatus.helper(status: .requiresApproval, isReachable: false).detail,
+            SettingsAccessStatus.helper(status: .notRegistered, isReachable: false).detail,
+            SettingsAccessStatus.helper(status: .enabled, isReachable: false).detail,
         ]
 
         XCTAssertEqual(Set(details).count, details.count, "each state explains itself differently")
@@ -90,9 +121,11 @@ final class SettingsAccessStatusTests: XCTestCase {
         let jargon = ["smappservice", "daemon", "launchd", "plist", "xpc"]
 
         for state in allStates {
-            let detail = SettingsAccessStatus.helper(status: state).detail.lowercased()
-            for term in jargon {
-                XCTAssertFalse(detail.contains(term), "\(state) detail leaks \"\(term)\": \(detail)")
+            for isReachable in [true, false] {
+                let detail = SettingsAccessStatus.helper(status: state, isReachable: isReachable).detail.lowercased()
+                for term in jargon {
+                    XCTAssertFalse(detail.contains(term), "\(state) detail leaks \"\(term)\": \(detail)")
+                }
             }
         }
     }

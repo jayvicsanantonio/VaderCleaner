@@ -27,12 +27,14 @@ final class HelperConnectionErrorTests: XCTestCase {
         )
     }
 
-    /// NSXPCConnection surfaces connection loss as NSCocoaErrorDomain codes
-    /// 4097 (interrupted), 4099 (invalid), 4101 (reply invalid). All three
-    /// must read as the same friendly copy rather than the cryptic system
-    /// string ("Couldn't communicate with a helper application.").
+    /// NSXPCConnection surfaces a refused or lost connection as
+    /// NSCocoaErrorDomain codes 4097 (interrupted), 4099 (invalid), 4101 (reply
+    /// invalid), and 4102 (the peer failed our code-signing requirement). All
+    /// four must read as the same friendly copy rather than a cryptic system
+    /// string ("Couldn't communicate with a helper application.", "The code
+    /// signature requirement failed.").
     func test_userFacingMessage_forXPCConnectionErrors_isPrescribedCopy() {
-        for code in [4097, 4099, 4101] {
+        for code in [4097, 4099, 4101, 4102] {
             let error = NSError(domain: NSCocoaErrorDomain, code: code)
             XCTAssertEqual(
                 HelperConnectionError.userFacingMessage(for: error),
@@ -57,11 +59,11 @@ final class HelperConnectionErrorTests: XCTestCase {
     }
 
     /// `isConnectionFailure` recognises the helper-unavailable sentinel and the
-    /// three NSXPC connection-class codes — the signal a caller uses to offer a
+    /// four NSXPC connection-class codes — the signal a caller uses to offer a
     /// "Reinstall Helper" recovery.
     func test_isConnectionFailure_trueForHelperErrorAndXPCConnectionCodes() {
         XCTAssertTrue(HelperConnectionError.isConnectionFailure(HelperConnectionError.unavailable))
-        for code in [4097, 4099, 4101] {
+        for code in [4097, 4099, 4101, 4102] {
             XCTAssertTrue(
                 HelperConnectionError.isConnectionFailure(NSError(domain: NSCocoaErrorDomain, code: code)),
                 "Expected XPC NSCocoaError \(code) to count as a connection failure"
@@ -77,5 +79,17 @@ final class HelperConnectionErrorTests: XCTestCase {
         let otherDomain = NSError(domain: "com.example.other", code: 4097)
         XCTAssertFalse(HelperConnectionError.isConnectionFailure(otherDomain),
                        "Connection codes only count in NSCocoaErrorDomain")
+    }
+
+    /// A helper that answers but fails the app's code-signing requirement is a
+    /// connection failure, not a substantive one: the two ends disagree on
+    /// identity, and re-registering the helper is the fix.
+    func test_isConnectionFailure_trueForCodeSigningRequirementFailure() {
+        let rejected = NSError(
+            domain: NSCocoaErrorDomain,
+            code: 4102,
+            userInfo: [NSLocalizedDescriptionKey: "The code signature requirement failed."]
+        )
+        XCTAssertTrue(HelperConnectionError.isConnectionFailure(rejected))
     }
 }

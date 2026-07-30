@@ -136,6 +136,12 @@ final class SmartScanViewModel {
     /// running screen's action label, step count, and freed-so-far total.
     private(set) var runProgress: RunProgress?
 
+    /// Whether a post-Fix re-check is in flight. The feed is on screen the whole
+    /// time — the findings the pass consumed are simply off it until their
+    /// re-scan lands — so this drives the note that says why, and holds the Run
+    /// disc back until the plan is whole again.
+    private(set) var isRefreshingFindings = false
+
     // Per-finding selections. Pre-approved kinds seed full; opt-in kinds
     // (real user data) seed empty — removal is always an explicit choice.
     private(set) var junkFileSelection: Set<URL> = [] {
@@ -172,6 +178,11 @@ final class SmartScanViewModel {
     /// Incremented at the start of every scan so an event that hops back to
     /// the main actor after a newer scan (or a reset) began is dropped.
     @ObservationIgnored private var scanGeneration = 0
+
+    /// The plan the Run pass acted on. Kept because the phase stops carrying it
+    /// at `.running`, and Done needs it to hand the feed back every finding the
+    /// run didn't touch.
+    @ObservationIgnored private var planUnderRun: CarePlan?
 
     @ObservationIgnored private let scanEngine: ScanEngine
     @ObservationIgnored private let junkCleaner: JunkCleaner
@@ -297,7 +308,11 @@ final class SmartScanViewModel {
     /// Lands a completed plan: decide failed-vs-results, warm the junk
     /// manager store, and seed every selection tier off-main where the data
     /// can be large.
-    private func land(_ plan: CarePlan) async {
+    ///
+    /// `stampHistory` is false for a post-Run refresh: a targeted re-check of
+    /// what the run changed is not a new scan, and dating the user's scan
+    /// history from it would overstate what was looked at.
+    private func land(_ plan: CarePlan, stampHistory: Bool = true) async {
         // A new plan is arriving: drop anything memoized from the last one.
         invalidateResultsCaches()
         let attempted = CareScanUnit.allCases.filter { unit in
@@ -372,7 +387,9 @@ final class SmartScanViewModel {
         )
 
         phase = .results(plan)
-        recordScan(plan.finishedAt)
+        if stampHistory {
+            recordScan(plan.finishedAt)
+        }
         onScanCompleted?(plan)
     }
 
@@ -380,6 +397,8 @@ final class SmartScanViewModel {
     private func clearScanState() {
         unitStatuses = [:]
         liveFindings = [:]
+        planUnderRun = nil
+        isRefreshingFindings = false
         unitProgressCounts = [:]
         scannedItemCount = 0
         includedFindings = []
@@ -1012,11 +1031,11 @@ final class SmartScanViewModel {
     }
 
     /// Whether the floating Run disc should be on screen: only on the
-    /// results feed, only with work to do, and never while a Review or the
-    /// confirmation sheet is up.
+    /// results feed, only with work to do, and never while a Review, the
+    /// confirmation sheet, or a post-Fix re-check is in flight.
     var isRunDiscVisible: Bool {
         guard case .results = phase else { return false }
-        return hasExecutableWork && !isReviewing && !isConfirmingRun
+        return hasExecutableWork && !isReviewing && !isConfirmingRun && !isRefreshingFindings
     }
 
     /// Records whether a Review screen is open, so the floating Run disc can
@@ -1032,7 +1051,9 @@ final class SmartScanViewModel {
     /// permanently delete junk — the one step the Trash can't undo. A no-op
     /// unless the results feed has work to do.
     func requestRun() async {
-        guard case .results = phase, hasExecutableWork else { return }
+        // A re-check in flight means the plan is missing the findings it is
+        // re-scanning; running against that would act on half a picture.
+        guard case .results = phase, hasExecutableWork, !isRefreshingFindings else { return }
         if runIncludesPermanentDelete {
             isConfirmingRun = true
         } else {
@@ -1076,7 +1097,12 @@ final class SmartScanViewModel {
     /// single failure leaves the rest of the pass intact. A no-op unless the
     /// results feed is showing.
     func run() async {
-        guard case .results(let plan) = phase else { return }
+        // The single funnel for every Run entry point, so a re-check in flight
+        // can't be acted against: the plan is missing what it's re-scanning.
+        guard case .results(let plan) = phase, !isRefreshingFindings else { return }
+        // The phase stops carrying the plan from here on; Done re-checks only
+        // what this pass changed and hands the rest of it straight back.
+        planUnderRun = plan
         // Resolve the queue up front so the running screen can show honest
         // "step N of M" progress and the current action's label.
         let queue = CarePlanRanker.ranked(plan.findings).filter { willExecuteDuringRun($0) }
@@ -1276,7 +1302,12 @@ final class SmartScanViewModel {
                 completed += 1
             } catch {
                 log.error("Smart Scan maintenance task \(taskID, privacy: .public) failed: \(String(describing: error), privacy: .private)")
-                lastError = error.localizedDescription
+                // Every task here runs through the privileged helper, so an
+                // unreachable helper is the common failure. Mapped rather than
+                // reported raw: the system text for a dropped XPC connection is
+                // "Couldn't communicate with a helper application.", which names
+                // nothing the user can act on.
+                lastError = HelperConnectionError.userFacingMessage(for: error)
             }
         }
         let outcome: CareReceiptLine.Outcome
@@ -1339,6 +1370,124 @@ final class SmartScanViewModel {
             )
         }
         return CareReceiptLine(kind: kind, itemsProcessed: recycled.count, bytesFreed: bytes, outcome: outcome)
+    }
+
+    // MARK: - Finishing a run
+
+    /// The receipt's Done button: dismiss it and go back to the feed.
+    func finishRun() {
+        runScanActivity(reason: "VaderCleaner is re-checking what it cleaned") {
+            await self.rescanHandledFindings()
+        }
+    }
+
+    /// Leaves the receipt for the results feed — never the intro, and never a
+    /// scanning screen.
+    ///
+    /// The feed comes back immediately, minus the findings the pass actually
+    /// consumed; those are re-scanned in the background and drop back in when
+    /// they land. Everything else carries forward untouched: the run never went
+    /// near it, so it is still true, and re-walking the filesystem to rediscover
+    /// it is what made Done cost a whole second scan.
+    func rescanHandledFindings() async {
+        guard case .done(let receipt) = phase else { return }
+        guard let plan = planUnderRun else {
+            // No plan to hand back — the intro is the only honest place to land.
+            reset()
+            return
+        }
+        // A line that processed items is work that landed, so its finding is
+        // stale. A line that processed nothing changed nothing — a refused
+        // tune-up, a threat that couldn't be quarantined — and its finding is
+        // still true, so it stays on the feed without being re-scanned.
+        let changed = Set(receipt.lines.filter { $0.itemsProcessed > 0 }.map(\.kind.unit))
+        guard !changed.isEmpty else {
+            phase = .results(plan)
+            planUnderRun = nil
+            return
+        }
+        // Health rides along because a cleanup changes free space, which is the
+        // number the verdict hero reads. The gates in Customize Smart Care
+        // aren't re-applied: this re-checks work just done, it isn't a new scan.
+        let units = changed.union([.healthSnapshot])
+
+        scanGeneration += 1
+        let generation = scanGeneration
+        // Back to the feed at once, without the cards the pass consumed — their
+        // counts describe deleted files. Their selections go too, or the footer
+        // and hero totals would keep counting what is gone.
+        for kind in plan.findings.map(\.kind) where units.contains(kind.unit) {
+            clearSelection(for: kind)
+        }
+        invalidateResultsCaches()
+        planUnderRun = nil
+        isRefreshingFindings = true
+        phase = .results(plan.removingFindings(for: units))
+        // The junk tree is the largest thing the app holds and the run just
+        // deleted part of it, so drop it now instead of keeping a stale copy
+        // alive across the re-scan; `land` reloads from the merged plan.
+        if units.contains(.systemJunk) {
+            junkManagerStore.unload()
+        }
+
+        let configuration = CareScanEngine.Configuration(
+            enabledUnits: units,
+            enabledJunkCategories: enabledJunkCategories(),
+            malwareEngineAvailable: malwareEngineAvailable()
+        )
+        // No event handling: the feed shows no per-unit progress, and the
+        // checklist isn't on screen to fill in.
+        let refreshed = await scanEngine(configuration) { _ in }
+        isRefreshingFindings = false
+        // Merge only into the feed the user is still on — a fresh scan, Start
+        // Over, or a reset supersedes this re-check.
+        guard generation == scanGeneration, case .results = phase else { return }
+        await land(plan.merging(refreshed, for: units), stampHistory: false)
+    }
+
+    /// Where each finding keyed by file URL keeps its selection, so clearing one
+    /// doesn't cost a branch per kind. The informational kinds are absent
+    /// because they carry no selection at all.
+    private static let fileSelectionPaths: [CareFinding.Kind: ReferenceWritableKeyPath<SmartScanViewModel, Set<URL>>] = [
+        .junkCleanup: \.junkFileSelection,
+        .threats: \.threatSelection,
+        .duplicates: \.duplicateSelection,
+        .similarImages: \.similarImageSelection,
+        .downloads: \.downloadSelection,
+        .largeOldFiles: \.largeOldFileSelection,
+    ]
+
+    /// The same table for findings whose items are identified by a stable id
+    /// (bundle id, task id, group id) rather than a file URL.
+    private static let identifierSelectionPaths: [CareFinding.Kind: ReferenceWritableKeyPath<SmartScanViewModel, Set<String>>] = [
+        .appUpdates: \.updateSelection,
+        .maintenanceDue: \.maintenanceSelection,
+        .unusedApps: \.unusedAppSelection,
+        .appLeftovers: \.leftoverSelection,
+        .installers: \.installerSelection,
+        .unsupportedApps: \.unsupportedAppSelection,
+    ]
+
+    /// Clears one finding's selection, used when a Run pass has consumed it: the
+    /// selection names items that are gone, and every total derived from it
+    /// (zone footers, the disc caption, the hero) would keep counting them.
+    private func clearSelection(for kind: CareFinding.Kind) {
+        if let path = Self.fileSelectionPaths[kind] {
+            self[keyPath: path] = []
+        }
+        if let path = Self.identifierSelectionPaths[kind] {
+            self[keyPath: path] = []
+        }
+        if kind == .browserPrivacy {
+            browserPrivacySelection = []
+        }
+        if kind == .junkCleanup {
+            // Derived tallies kept beside the junk selection for O(1) reads.
+            selectedJunkBytes = 0
+            selectedJunkBytesByCategory = [:]
+            selectedJunkCountByCategory = [:]
+        }
+        includedFindings.remove(kind)
     }
 
     // MARK: - Recovery

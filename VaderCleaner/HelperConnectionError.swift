@@ -36,16 +36,20 @@ enum HelperConnectionError: LocalizedError {
     /// use this to offer a "Reinstall Helper" recovery rather than a plain
     /// retry.
     ///
-    /// `NSXPCConnection` reports a dropped/unavailable connection as
-    /// `NSCocoaErrorDomain` 4097 (interrupted), 4099 (invalid), or 4101
-    /// (reply invalid) — the codes whose system `localizedDescription` is the
-    /// cryptic "Couldn't communicate with a helper application."
+    /// `NSXPCConnection` reports a dropped or refused connection as
+    /// `NSCocoaErrorDomain` 4097 (interrupted), 4099 (invalid), 4101 (reply
+    /// invalid), or 4102 (the peer failed the code-signing requirement the app
+    /// sets on the connection). The first three carry the cryptic "Couldn't
+    /// communicate with a helper application."; 4102 reads "The code signature
+    /// requirement failed.", which is just as opaque and means the same thing
+    /// for the user — the helper on disk isn't the one this app can talk to, and
+    /// re-registering it is the fix.
     static func isConnectionFailure(_ error: Error) -> Bool {
         if error is HelperConnectionError {
             return true
         }
         let nsError = error as NSError
         return nsError.domain == NSCocoaErrorDomain
-            && [4097, 4099, 4101].contains(nsError.code)
+            && [4097, 4099, 4101, 4102].contains(nsError.code)
     }
 }

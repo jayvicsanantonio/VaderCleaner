@@ -133,7 +133,7 @@ struct SmartScanView: View {
         case .done(let receipt):
             CareReceiptView(
                 receipt: receipt,
-                onDone: { viewModel.reset() },
+                onDone: { viewModel.finishRun() },
                 onShowTrash: Self.showTrash
             )
         case .failed(let message):

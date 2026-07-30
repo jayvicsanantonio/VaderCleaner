@@ -22,6 +22,10 @@ struct GeneralTab: View {
     /// The helper's live registration status, re-read whenever the pane appears
     /// so approving it in System Settings reflects without a relaunch.
     @State private var helperStatus = HelperRegistration.currentStatus
+    /// Whether the helper answered its last probe. Starts optimistic so a
+    /// healthy helper doesn't flash amber for the length of one round trip;
+    /// `refreshAccess()` corrects it as soon as the probe lands.
+    @State private var isHelperReachable = true
     /// Set while a repair is in flight so the button can't be fired twice.
     @State private var isRepairingHelper = false
 
@@ -63,7 +67,7 @@ struct GeneralTab: View {
                     AccessStatusRow(
                         symbol: "wrench.adjustable",
                         title: "Cleanup Helper",
-                        status: SettingsAccessStatus.helper(status: helperStatus),
+                        status: SettingsAccessStatus.helper(status: helperStatus, isReachable: isHelperReachable),
                         isBusy: isRepairingHelper,
                         action: repairHelper
                     )
@@ -202,27 +206,37 @@ struct GeneralTab: View {
 
     // MARK: Actions
 
-    /// Re-reads both capability states from the system.
+    /// Re-reads both capability states from the system. A registration that
+    /// reads as enabled is then confirmed with an actual round trip, since that
+    /// status survives the helper itself going away; the other states need no
+    /// probe because they're already unusable.
     private func refreshAccess() {
         appState.refresh()
         helperStatus = HelperRegistration.currentStatus
+        guard helperStatus == .enabled else {
+            isHelperReachable = false
+            return
+        }
+        Task { isHelperReachable = await HelperReachability().probe() }
     }
 
     private func openFullDiskAccessSettings() {
         NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
     }
 
-    /// Re-registers the helper. A fresh registration commonly lands in
-    /// `.requiresApproval`, so send the user straight to Login Items when the
-    /// repair doesn't land enabled rather than leaving them to find it.
+    /// Re-registers the helper, then confirms the repair actually took by
+    /// probing it. A fresh registration commonly lands in `.requiresApproval`,
+    /// so send the user straight to Login Items whenever the repair doesn't end
+    /// with a helper that answers, rather than leaving them to find it.
     private func repairHelper() {
         guard !isRepairingHelper else { return }
         isRepairingHelper = true
         Task {
             let status = await HelperRegistration.reregister()
             helperStatus = status
+            isHelperReachable = status == .enabled ? await HelperReachability().probe() : false
             isRepairingHelper = false
-            if status != .enabled {
+            if !isHelperReachable {
                 HelperRegistration.openLoginItemsSettings()
             }
         }

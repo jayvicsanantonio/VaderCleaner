@@ -49,9 +49,15 @@ enum SettingsAccessStatus {
         )
     }
 
-    static func helper(status: SMAppService.Status) -> AccessStatusDisplay {
+    /// `isReachable` is the result of an actual round trip to the helper
+    /// (`HelperReachability`), and it only decides the `.enabled` row — the
+    /// other states are unusable whatever a probe would say. Registration
+    /// status on its own is not evidence of health: a rebuilt helper leaves the
+    /// approval record behind while the service is gone, which reads `.enabled`
+    /// and fails every call.
+    static func helper(status: SMAppService.Status, isReachable: Bool) -> AccessStatusDisplay {
         switch status {
-        case .enabled:
+        case .enabled where isReachable:
             return AccessStatusDisplay(
                 isHealthy: true,
                 detail: String(
@@ -59,6 +65,18 @@ enum SettingsAccessStatus {
                     comment: "General settings: the privileged helper is installed and enabled."
                 ),
                 actionTitle: nil
+            )
+        case .enabled:
+            return AccessStatusDisplay(
+                isHealthy: false,
+                detail: String(
+                    localized: "Installed but not answering, so cleanups that need your Mac's permission will fail.",
+                    comment: "General settings: the privileged helper is registered but unreachable."
+                ),
+                actionTitle: String(
+                    localized: "Repair…",
+                    comment: "General settings: button re-registering the helper."
+                )
             )
         case .requiresApproval:
             return AccessStatusDisplay(
