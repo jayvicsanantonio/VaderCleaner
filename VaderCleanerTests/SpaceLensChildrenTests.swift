@@ -46,4 +46,31 @@ final class SpaceLensChildrenTests: XCTestCase {
         let expected = children.sorted { $0.size > $1.size }.suffix(7).reduce(Int64(0)) { $0 + $1.size }
         XCTAssertEqual(other?.size, expected)
     }
+
+    // MARK: - Drill target
+
+    func test_drillTarget_isTheFolderForADirectoryRow() {
+        let folder = node([file("a", 10)])
+        let tree = DiskNode(url: URL(fileURLWithPath: "/"), name: "/", size: folder.size,
+                            isDirectory: true, children: [folder], itemCount: 1)
+        let row = try? XCTUnwrap(SpaceLensChildren.displayed(for: tree).first)
+        XCTAssertTrue(row?.drillTarget === folder,
+                      "A folder row should drill into its own node")
+    }
+
+    func test_drillTarget_isNilForAFileRow() {
+        let tree = node([file("a", 10)])
+        let row = try? XCTUnwrap(SpaceLensChildren.displayed(for: tree).first)
+        XCTAssertNil(row?.drillTarget,
+                     "A file has nothing deeper to open")
+    }
+
+    func test_drillTarget_isNilForTheOtherItemsAggregate() {
+        let children = (1...10).map { file("f\($0)", Int64(100 - $0 * 5)) }
+        let rows = SpaceLensChildren.displayed(for: node(children), maxRows: 4)
+        let other = try? XCTUnwrap(rows.last)
+        XCTAssertEqual(other?.isOther, true)
+        XCTAssertNil(other?.drillTarget,
+                     "The aggregate expands in the list; it has no node to navigate into")
+    }
 }

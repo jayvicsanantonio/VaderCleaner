@@ -118,6 +118,19 @@ struct SpaceLensBubbleView: View {
                             radius: isSelected ? 22 : (isHighlighted ? 16 : 0))
                 )
 
+            // The drill-in surface. It rides above the glass because the glass
+            // circle is filled with `.clear` and `.glassEffect` takes the clicks
+            // that land on it, so a tap gesture on the bubble itself never
+            // reaches the view model. It stays *below* the checkbox in the
+            // stack, so a click on the checkbox goes to the checkbox alone and
+            // toggling removal is always deliberate.
+            if let target = item.drillTarget {
+                Circle()
+                    .fill(Color.black.opacity(0.001))
+                    .contentShape(Circle())
+                    .onTapGesture { viewModel.drillDown(into: target) }
+            }
+
             VStack(spacing: 6) {
                 bubbleIcon(item: item, size: iconSize)
                 if showLabel {
@@ -143,11 +156,6 @@ struct SpaceLensBubbleView: View {
         }
         .frame(width: circle.radius * 2, height: circle.radius * 2)
         .position(circle.center)
-        .onTapGesture {
-            if let target = item.node, target.isDirectory {
-                viewModel.drillDown(into: target)
-            }
-        }
         .help(item.name)
         .accessibilityIdentifier("space-lens.bubble.\(item.name)")
     }
