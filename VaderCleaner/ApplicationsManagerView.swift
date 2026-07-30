@@ -431,11 +431,13 @@ struct ApplicationsManagerView: View {
         )
     }
 
-    /// Opens the update URL for every selected update.
+    /// Applies every selected update as one batch, so App Store entries
+    /// collapse to a single Updates page and repeated download URLs open
+    /// once rather than per row.
     private func updateSelected() async {
-        for info in updaterViewModel.availableUpdates where updateSelection.contains(info.id) {
-            await updaterViewModel.update(info)
-        }
+        await updaterViewModel.update(
+            updaterViewModel.availableUpdates.filter { updateSelection.contains($0.id) }
+        )
     }
 
     /// Removes every selected extension, dropping each from the selection.

@@ -48,6 +48,10 @@ final class AppUpdaterViewModel {
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUpdaterViewModel")
 
+    /// The Mac App Store's Updates page. Every App Store update in a
+    /// batch routes here instead of to its own product page.
+    static let appStoreUpdatesURL = URL(string: "macappstore://showUpdatesPage")!
+
     /// Monotonic counter — a second `checkForUpdates()` invalidates the
     /// older results so a slow first pass can't overwrite a fresh second
     /// pass with stale data. Same pattern as `AppUninstallerViewModel`.
@@ -158,13 +162,28 @@ final class AppUpdaterViewModel {
         await opener(info.updateURL)
     }
 
-    /// Opens every available update's URL in sequence. The system
-    /// handles deduplication if multiple URLs point at the same App
-    /// Store entry.
-    func updateAll() async {
-        for info in availableUpdates {
+    /// Applies a batch of updates.
+    ///
+    /// App Store entries collapse to a **single** open of the Updates
+    /// page: one product page per app buries the user in windows and
+    /// still leaves them pressing Update once per app. Web downloads are
+    /// deduplicated, since two apps from one suite can share an
+    /// installer and starting the same download twice helps nobody.
+    func update(_ infos: [UpdateInfo]) async {
+        var opened = Set<URL>()
+        if infos.contains(where: { $0.source == .appStore }) {
+            opened.insert(Self.appStoreUpdatesURL)
+            await opener(Self.appStoreUpdatesURL)
+        }
+        for info in infos where info.source != .appStore {
+            guard opened.insert(info.updateURL).inserted else { continue }
             await opener(info.updateURL)
         }
+    }
+
+    /// Applies every available update.
+    func updateAll() async {
+        await update(availableUpdates)
     }
 
     // MARK: - Private
