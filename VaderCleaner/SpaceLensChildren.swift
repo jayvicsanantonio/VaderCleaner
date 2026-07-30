@@ -21,6 +21,14 @@ struct SpaceLensDisplayItem: Identifiable, Equatable {
 
     var isOther: Bool { node == nil }
 
+    /// The folder this row drills into when it's clicked, or `nil` when there
+    /// is nothing deeper to open — a file, or the "Other items" aggregate,
+    /// which expands in the list rather than navigating.
+    var drillTarget: DiskNode? {
+        guard let node, node.isDirectory else { return nil }
+        return node
+    }
+
     static func == (lhs: SpaceLensDisplayItem, rhs: SpaceLensDisplayItem) -> Bool {
         lhs.id == rhs.id && lhs.size == rhs.size && lhs.itemCount == rhs.itemCount
     }
