@@ -254,7 +254,8 @@ struct UpdateProbe: Sendable {
                 installedVersion: installed,
                 latestVersion: lookup.version,
                 source: .appStore,
-                updateURL: lookup.appStoreURL
+                updateURL: lookup.appStoreURL,
+                releaseNotes: lookup.releaseNotes
             ))
         }
     }
@@ -283,7 +284,8 @@ struct UpdateProbe: Sendable {
                 installedVersion: installed,
                 latestVersion: item.shortVersion,
                 source: .sparkle,
-                updateURL: item.downloadURL
+                updateURL: item.downloadURL,
+                releaseNotes: item.releaseNotes
             ))
         }
     }

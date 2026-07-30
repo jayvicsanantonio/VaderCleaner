@@ -290,6 +290,17 @@ struct UpdaterPaneView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(info.appName).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 Text(versionTransition(info)).font(.caption).foregroundStyle(.secondary)
+                // "12.8 → 12.9" says nothing about whether the update
+                // matters. The summary is already length-capped upstream;
+                // the tooltip carries whatever the two lines cut off.
+                if let notes = info.releaseNotes {
+                    Text(notes)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        .help(notes)
+                        .accessibilityIdentifier("applications.manager.updater.notes.\(info.bundleID)")
+                }
             }
             Spacer(minLength: 8)
             SmartInsightsSparkle(itemTitle: info.appName, accent: ApplicationsManagerChrome.accent, topic: .application)

@@ -9,6 +9,15 @@ import Foundation
 struct AppStoreLookup: Hashable, Sendable {
     let version: String
     let appStoreURL: URL
+    /// One-line summary of the store's "What's New" text, or nil when the
+    /// entry carries none.
+    let releaseNotes: String?
+
+    init(version: String, appStoreURL: URL, releaseNotes: String? = nil) {
+        self.version = version
+        self.appStoreURL = appStoreURL
+        self.releaseNotes = releaseNotes
+    }
 }
 
 /// Production implementation. Returns `nil` on empty result sets rather
@@ -70,7 +79,11 @@ struct DefaultAppStoreUpdateChecker: Sendable {
         guard supportsCurrentSystem(minimum: first.minimumOsVersion) else {
             return nil
         }
-        return AppStoreLookup(version: first.version, appStoreURL: storeURL)
+        return AppStoreLookup(
+            version: first.version,
+            appStoreURL: storeURL,
+            releaseNotes: ReleaseNotesSummary.summary(from: first.releaseNotes)
+        )
     }
 
     /// Whether the running macOS satisfies `minimum`. An absent or
@@ -88,6 +101,9 @@ struct DefaultAppStoreUpdateChecker: Sendable {
             let trackViewUrl: String
             /// Absent on some entries, so optional rather than defaulted.
             let minimumOsVersion: String?
+            /// The store's "What's New" text. Plain text, unlike the HTML
+            /// an appcast description often carries.
+            let releaseNotes: String?
         }
     }
 }

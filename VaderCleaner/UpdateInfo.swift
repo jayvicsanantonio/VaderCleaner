@@ -29,6 +29,30 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
     let latestVersion: String
     let source: UpdateSource
     let updateURL: URL
+    /// What changed in `latestVersion`, as one plain-text line, or nil
+    /// when the channel published none. "12.8 → 12.9" alone tells the
+    /// user nothing about whether the update matters to them.
+    let releaseNotes: String?
 
     var id: String { bundleURL.path }
+
+    init(
+        appName: String,
+        bundleID: String,
+        bundleURL: URL,
+        installedVersion: String,
+        latestVersion: String,
+        source: UpdateSource,
+        updateURL: URL,
+        releaseNotes: String? = nil
+    ) {
+        self.appName = appName
+        self.bundleID = bundleID
+        self.bundleURL = bundleURL
+        self.installedVersion = installedVersion
+        self.latestVersion = latestVersion
+        self.source = source
+        self.updateURL = updateURL
+        self.releaseNotes = releaseNotes
+    }
 }

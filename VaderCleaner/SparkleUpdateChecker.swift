@@ -12,6 +12,22 @@ struct SparkleAppcastItem: Hashable, Sendable {
     let shortVersion: String
     let version: String?
     let downloadURL: URL
+    /// One-line summary of the item's `<description>`, or nil when the
+    /// feed carries none. Many feeds put HTML here and some put plain
+    /// text, so it is normalised through `ReleaseNotesSummary`.
+    let releaseNotes: String?
+
+    init(
+        shortVersion: String,
+        version: String?,
+        downloadURL: URL,
+        releaseNotes: String? = nil
+    ) {
+        self.shortVersion = shortVersion
+        self.version = version
+        self.downloadURL = downloadURL
+        self.releaseNotes = releaseNotes
+    }
 }
 
 /// Production implementation. The Info.plist read happens synchronously
@@ -92,6 +108,7 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
     private var currentShortVersion: String?
     private var currentVersion: String?
     private var currentMinimumSystemVersion: String?
+    private var currentDescription: String?
     private var inItem = false
     /// True while inside a `<sparkle:deltas>` block. Delta enclosures are
     /// binary patches keyed to a specific installed build and are useless
@@ -143,6 +160,7 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
             inDeltas = false
             currentEnclosureURL = nil
             currentMinimumSystemVersion = nil
+            currentDescription = nil
             // Seed from any version attributes carried on the `<item>`
             // itself — older feeds place `sparkle:shortVersionString` /
             // `sparkle:version` here rather than on the enclosure. The
@@ -162,7 +180,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         if !inDeltas,
            local == "minimumSystemVersion"
             || local == "shortVersionString"
-            || local == "version" {
+            || local == "version"
+            || local == "description" {
             // These can appear as child elements carrying their value as
             // text (Sparkle's element form) rather than as enclosure
             // attributes — buffer the character data until the end tag.
@@ -230,6 +249,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 if currentShortVersion == nil { currentShortVersion = value }
             case "version":
                 if currentVersion == nil { currentVersion = value }
+            case "description":
+                currentDescription = value
             default:
                 break
             }
@@ -251,18 +272,29 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
             item: SparkleAppcastItem(
                 shortVersion: shortVersion,
                 version: currentVersion,
-                downloadURL: downloadURL
+                downloadURL: downloadURL,
+                releaseNotes: ReleaseNotesSummary.summary(from: currentDescription)
             ),
             minimumSystemVersion: currentMinimumSystemVersion
         ))
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        // Only accumulate while inside one of the buffered version
-        // elements — we don't care about any other text nodes.
+        // Only accumulate while inside one of the buffered elements — we
+        // don't care about any other text nodes.
         if bufferingElement != nil {
             textBuffer.append(string)
         }
+    }
+
+    /// Release notes are routinely wrapped in CDATA so HTML can be
+    /// embedded without escaping, and `XMLParser` reports those bytes
+    /// here rather than through `foundCharacters:`. Without this, every
+    /// HTML-notes feed would parse to nothing.
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        guard bufferingElement != nil,
+              let text = String(data: CDATABlock, encoding: .utf8) else { return }
+        textBuffer.append(text)
     }
 
     /// XMLParser delivers the qualified name ("sparkle:enclosure") rather

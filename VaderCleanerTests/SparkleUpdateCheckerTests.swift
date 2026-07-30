@@ -325,6 +325,93 @@ final class SparkleUpdateCheckerTests: XCTestCase {
         XCTAssertNil(item)
     }
 
+    // MARK: - Release notes
+
+    /// An item's `<description>` becomes its release-notes summary. This
+    /// is the only notes source in many real feeds — Telegram's carries a
+    /// plain-text description and no `sparkle:releaseNotesLink` at all.
+    func test_parseAppcast_readsPlainTextDescriptionAsReleaseNotes() throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <description>Updates for Helio</description>
+            <item>
+              <description>• Bug fixes, minor improvements, and more.</description>
+              <enclosure url="https://example.com/Helio-2.0.0.zip"
+                         sparkle:shortVersionString="2.0.0" sparkle:version="200"/>
+            </item>
+          </channel>
+        </rss>
+        """.utf8)
+        let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml, currentSystemVersion: "26.0.0")
+        XCTAssertEqual(item?.releaseNotes, "• Bug fixes, minor improvements, and more.")
+    }
+
+    /// Feeds commonly wrap HTML notes in CDATA, which `XMLParser` delivers
+    /// through `foundCDATA:` rather than `foundCharacters:`. Without
+    /// handling that, every HTML-notes feed would silently yield nothing.
+    func test_parseAppcast_readsCDATADescriptionAsReleaseNotes() throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <description><![CDATA[<ul><li>Fixed a crash</li><li>Added a setting</li></ul>]]></description>
+              <enclosure url="https://example.com/Helio-2.0.0.zip"
+                         sparkle:shortVersionString="2.0.0" sparkle:version="200"/>
+            </item>
+          </channel>
+        </rss>
+        """.utf8)
+        let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml, currentSystemVersion: "26.0.0")
+        XCTAssertEqual(item?.releaseNotes, "Fixed a crash Added a setting")
+    }
+
+    /// The channel-level `<description>` describes the feed, not a
+    /// release, and must never be attributed to an item.
+    func test_parseAppcast_ignoresChannelLevelDescription() throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <description>Updates for Helio</description>
+            <item>
+              <enclosure url="https://example.com/Helio-2.0.0.zip"
+                         sparkle:shortVersionString="2.0.0" sparkle:version="200"/>
+            </item>
+          </channel>
+        </rss>
+        """.utf8)
+        let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml, currentSystemVersion: "26.0.0")
+        XCTAssertNil(item?.releaseNotes)
+    }
+
+    /// Notes belong to the item that wins version selection, not to
+    /// whichever item appeared last in the document.
+    func test_parseAppcast_attributesNotesToTheSelectedItem() throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <description>Notes for 2.0.0</description>
+              <enclosure url="https://example.com/Helio-2.0.0.zip"
+                         sparkle:shortVersionString="2.0.0" sparkle:version="200"/>
+            </item>
+            <item>
+              <description>Notes for 1.0.0</description>
+              <enclosure url="https://example.com/Helio-1.0.0.zip"
+                         sparkle:shortVersionString="1.0.0" sparkle:version="100"/>
+            </item>
+          </channel>
+        </rss>
+        """.utf8)
+        let item = DefaultSparkleUpdateChecker.parseAppcast(xml: xml, currentSystemVersion: "26.0.0")
+        XCTAssertEqual(item?.shortVersion, "2.0.0")
+        XCTAssertEqual(item?.releaseNotes, "Notes for 2.0.0")
+    }
+
     // MARK: - Helpers
 
     private func makeAppBundle(
