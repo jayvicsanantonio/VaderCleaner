@@ -16,17 +16,23 @@ struct SparkleAppcastItem: Hashable, Sendable {
     /// feed carries none. Many feeds put HTML here and some put plain
     /// text, so it is normalised through `ReleaseNotesSummary`.
     let releaseNotes: String?
+    /// Base64 Ed25519 signature of the enclosure (`sparkle:edSignature`),
+    /// or nil on feeds that don't publish one — including every Sparkle 1
+    /// feed, which signs with the legacy DSA attribute instead.
+    let edSignature: String?
 
     init(
         shortVersion: String,
         version: String?,
         downloadURL: URL,
-        releaseNotes: String? = nil
+        releaseNotes: String? = nil,
+        edSignature: String? = nil
     ) {
         self.shortVersion = shortVersion
         self.version = version
         self.downloadURL = downloadURL
         self.releaseNotes = releaseNotes
+        self.edSignature = edSignature
     }
 }
 
@@ -52,6 +58,19 @@ struct DefaultSparkleUpdateChecker: Sendable {
             return nil
         }
         return URL(string: raw)
+    }
+
+    /// The Ed25519 public key the installed app advertises
+    /// (`SUPublicEDKey`), which is what an enclosure signature must
+    /// verify against. Read from the bundle rather than the feed, so a
+    /// hijacked appcast cannot supply its own key.
+    func publicEDKey(for app: AppInfo) -> String? {
+        guard let bundle = Bundle(url: app.bundleURL),
+              let raw = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+              !raw.isEmpty else {
+            return nil
+        }
+        return raw
     }
 
     func fetchAppcast(feedURL: URL) async throws -> SparkleAppcastItem? {
@@ -109,6 +128,7 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
     private var currentVersion: String?
     private var currentMinimumSystemVersion: String?
     private var currentDescription: String?
+    private var currentEdSignature: String?
     private var inItem = false
     /// True while inside a `<sparkle:deltas>` block. Delta enclosures are
     /// binary patches keyed to a specific installed build and are useless
@@ -161,6 +181,7 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
             currentEnclosureURL = nil
             currentMinimumSystemVersion = nil
             currentDescription = nil
+            currentEdSignature = nil
             // Seed from any version attributes carried on the `<item>`
             // itself — older feeds place `sparkle:shortVersionString` /
             // `sparkle:version` here rather than on the enclosure. The
@@ -223,6 +244,10 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 ?? attributeDict["version"] {
                 currentVersion = version
             }
+            if let signature = attributeDict["sparkle:edSignature"]
+                ?? attributeDict["edSignature"] {
+                currentEdSignature = signature
+            }
         }
     }
 
@@ -273,7 +298,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 shortVersion: shortVersion,
                 version: currentVersion,
                 downloadURL: downloadURL,
-                releaseNotes: ReleaseNotesSummary.summary(from: currentDescription)
+                releaseNotes: ReleaseNotesSummary.summary(from: currentDescription),
+                edSignature: currentEdSignature
             ),
             minimumSystemVersion: currentMinimumSystemVersion
         ))
