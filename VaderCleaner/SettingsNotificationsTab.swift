@@ -81,6 +81,10 @@ struct NotificationsTab: View {
                         caption("VaderCleaner checks once a day. Turning this off stops the checks entirely.")
                     }
                     VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Install app updates for me", isOn: $preferences.installUpdatesAutomatically)
+                        caption("Updates from developer websites are checked against the developer's signature and installed in place — the app quits and reopens. Left off, they're just downloaded for you.")
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
                         Toggle("Offer to remove apps completely", isOn: $preferences.offerUninstallOnTrash)
                         caption("Dragging an app to the Trash leaves its files behind. VaderCleaner will offer to clear those out too.")
                     }

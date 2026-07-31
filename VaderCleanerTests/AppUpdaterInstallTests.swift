@@ -69,6 +69,27 @@ final class AppUpdaterInstallTests: XCTestCase {
         XCTAssertEqual(urls, [URL(string: "https://example.com/helio.zip")!])
     }
 
+    /// Auto-install is opt-in. With the preference off the installer is
+    /// never consulted at all — the Updater downloads exactly as it did
+    /// before in-place installs existed.
+    func test_update_doesNotInstallWhenThePreferenceIsOff() async {
+        let attempted = ActorBox(0)
+        let opened = ActorBox<[URL]>([])
+        let vm = await readyViewModel(
+            outcome: .installed,
+            opened: opened,
+            autoInstallEnabled: false,
+            onInstallAttempt: { await attempted.increment() }
+        )
+
+        await vm.update(vm.availableUpdates)
+
+        let count = await attempted.value
+        XCTAssertEqual(count, 0, "The installer must not run when the preference is off")
+        let urls = await opened.value
+        XCTAssertEqual(urls, [URL(string: "https://example.com/helio.zip")!])
+    }
+
     /// App Store updates are Apple's to install; we never try to swap one.
     func test_update_neverAttemptsToInstallAnAppStoreUpdate() async {
         let attempted = ActorBox(0)
@@ -97,7 +118,9 @@ final class AppUpdaterInstallTests: XCTestCase {
 
     private func readyViewModel(
         outcome: UpdateInstallOutcome?,
-        opened: ActorBox<[URL]>
+        opened: ActorBox<[URL]>,
+        autoInstallEnabled: Bool = true,
+        onInstallAttempt: (@Sendable () async -> Void)? = nil
     ) async -> AppUpdaterViewModel {
         let app = AppInfo(name: "Helio", bundleID: "com.acme.helio", version: "1.0",
                           bundleURL: URL(fileURLWithPath: "/Applications/Helio.app"), isAppStore: false)
@@ -113,9 +136,13 @@ final class AppUpdaterInstallTests: XCTestCase {
             },
             classifyUnchecked: { _ in .unmonitored },
             install: outcome.map { result -> AppUpdaterViewModel.Install in
-                { _, _, _ in result }
+                { _, _, _ in
+                    await onInstallAttempt?()
+                    return result
+                }
             },
             readSigningInputs: { _ in (URL(string: "https://example.com/appcast.xml"), "key") },
+            isAutoInstallEnabled: { autoInstallEnabled },
             opener: { url in await opened.set(opened.value + [url]) }
         )
         await vm.checkForUpdates()

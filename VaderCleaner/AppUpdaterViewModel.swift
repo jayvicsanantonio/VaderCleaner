@@ -36,6 +36,10 @@ final class AppUpdaterViewModel {
     typealias Install = @Sendable (_ update: UpdateInfo, _ feedURL: URL?, _ publicEDKey: String?) async -> UpdateInstallOutcome
     /// Reads the installed bundle's Sparkle feed URL and public key.
     typealias ReadSigningInputs = @Sendable (_ bundleURL: URL) -> (feedURL: URL?, publicEDKey: String?)
+    /// Whether the user has opted into in-place installs. Read per attempt
+    /// rather than captured once, so toggling the preference takes effect
+    /// without relaunching.
+    typealias IsAutoInstallEnabled = @MainActor () -> Bool
 
     private(set) var phase: Phase = .idle
     /// Every update the user can act on, direct and Homebrew-managed
@@ -72,6 +76,7 @@ final class AppUpdaterViewModel {
     /// downloads. Auto-install is additive, never a prerequisite.
     @ObservationIgnored private let install: Install?
     @ObservationIgnored private let readSigningInputs: ReadSigningInputs
+    @ObservationIgnored private let isAutoInstallEnabled: IsAutoInstallEnabled
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUpdaterViewModel")
 
@@ -102,6 +107,7 @@ final class AppUpdaterViewModel {
         suppression: UpdateSuppressionStore? = nil,
         install: Install? = nil,
         readSigningInputs: @escaping ReadSigningInputs = { _ in (nil, nil) },
+        isAutoInstallEnabled: @escaping IsAutoInstallEnabled = { true },
         opener: @escaping Opener
     ) {
         self.discover = discover
@@ -112,6 +118,7 @@ final class AppUpdaterViewModel {
         self.suppression = suppression
         self.install = install
         self.readSigningInputs = readSigningInputs
+        self.isAutoInstallEnabled = isAutoInstallEnabled
         self.opener = opener
     }
 
@@ -294,6 +301,10 @@ final class AppUpdaterViewModel {
     /// denial has a safe fallback, and the user asked for the update, not
     /// for a lecture about appcast signing.
     private func installInPlace(_ info: UpdateInfo) async -> Bool {
+        // Installing replaces an application in place. That is the user's
+        // call to make, and until they make it the Updater does exactly
+        // what it always did.
+        guard isAutoInstallEnabled() else { return false }
         guard let install, info.source == .sparkle else { return false }
         installingIDs.insert(info.id)
         defer { installingIDs.remove(info.id) }
@@ -393,8 +404,10 @@ extension AppUpdaterViewModel {
     /// Build a view-model wired to the real `DefaultAppDiscovery`,
     /// `UpdateProbe`'s live App Store / Sparkle checkers, and
     /// `NSWorkspace.open`.
+    /// - Parameter preferences: gates in-place installs. Absent — as in
+    ///   previews — means download only, the conservative reading.
     @MainActor
-    static func live() -> AppUpdaterViewModel {
+    static func live(preferences: PreferencesStore? = nil) -> AppUpdaterViewModel {
         let discovery = DefaultAppDiscovery()
         let ownershipLoader = CaskOwnershipLoader()
         return AppUpdaterViewModel(
@@ -420,6 +433,7 @@ extension AppUpdaterViewModel {
                 return (checker.feedURL(forBundleAt: bundleURL),
                         checker.publicEDKey(forBundleAt: bundleURL))
             },
+            isAutoInstallEnabled: { preferences?.installUpdatesAutomatically ?? false },
             opener: { url in
                 await MainActor.run {
                     _ = NSWorkspace.shared.open(url)

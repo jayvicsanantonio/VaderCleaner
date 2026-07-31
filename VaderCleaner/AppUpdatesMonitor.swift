@@ -107,6 +107,26 @@ final class AppUpdatesMonitor {
         guard let apps = try? await DefaultAppDiscovery().installedApps(includingSystemApps: false) else {
             return 0
         }
-        return await UpdateProbe.live().availableUpdates(for: apps).count
+        let updates = await UpdateProbe.live().availableUpdates(for: apps)
+        return announceableCount(
+            for: updates,
+            suppression: UpdateSuppressionStore().snapshot()
+        )
+    }
+
+    /// How many updates are worth telling the user about.
+    ///
+    /// Versions the user declined in the Updater are excluded. Announcing
+    /// one of those is precisely the nag skip-version exists to end, and
+    /// the notification is the surface where it would be most annoying —
+    /// it arrives unprompted, a day later, about a decision already made.
+    ///
+    /// Split out from `liveProbe` so the rule is testable without a
+    /// filesystem walk or a network call.
+    static func announceableCount(
+        for updates: [UpdateInfo],
+        suppression: UpdateSuppressionSnapshot
+    ) -> Int {
+        updates.filter { !suppression.suppresses($0) }.count
     }
 }
