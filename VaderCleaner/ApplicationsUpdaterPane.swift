@@ -7,7 +7,10 @@ import SwiftUI
 enum UpdaterFacet: Hashable {
     case all
     case selected
-    case store(isAppStore: Bool)
+    /// Keyed by the channel itself rather than an "is App Store" flag, so
+    /// the facet, its title, and the row badge all read their label from
+    /// one place and a future channel can't inherit another's name.
+    case store(UpdateSource)
     /// Outdated Homebrew packages — a parallel list under the Stores group,
     /// upgraded through `brew upgrade` rather than opening an update URL.
     case homebrew
@@ -66,8 +69,8 @@ struct UpdaterPaneView: View {
             facetRow(.selected, String(localized: "Selected", comment: "Updater facet."), selection.count)
 
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Updater facet group header."))
-            facetRow(.store(isAppStore: true), String(localized: "App Store", comment: "Updater store facet."), appStore)
-            facetRow(.store(isAppStore: false), String(localized: "Other", comment: "Updater store facet."), updates.count - appStore)
+            facetRow(.store(.appStore), sourceLabel(.appStore), appStore)
+            facetRow(.store(.sparkle), sourceLabel(.sparkle), updates.count - appStore)
             facetRow(.homebrew, String(localized: "Homebrew", comment: "Updater store facet."), homebrewViewModel.availableUpdateCount)
                 .accessibilityIdentifier("applications.manager.updater.facet.homebrew")
 
@@ -95,8 +98,7 @@ struct UpdaterPaneView: View {
         switch facet {
         case .all:              return String(localized: "All Updates", comment: "Updater right pane title.")
         case .selected:         return String(localized: "Selected", comment: "Updater right pane title.")
-        case .store(true):      return String(localized: "App Store", comment: "Updater right pane title.")
-        case .store(false):     return String(localized: "Other", comment: "Updater right pane title.")
+        case .store(let source): return sourceLabel(source)
         case .homebrew:         return String(localized: "Homebrew", comment: "Updater right pane title.")
         case .homebrewManaged:  return String(localized: "Managed by Homebrew", comment: "Updater right pane title.")
         case .selfUpdating:     return String(localized: "Self-updating", comment: "Updater right pane title.")
@@ -109,8 +111,8 @@ struct UpdaterPaneView: View {
         switch facet {
         case .all:              return coverageSummary
         case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
-        case .store(true):      return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
-        case .store(false):     return String(localized: "Updates available from developer websites.", comment: "Updater right pane description.")
+        case .store(.appStore): return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
+        case .store(.sparkle):  return String(localized: "Updates downloaded from the developer's website.", comment: "Updater right pane description.")
         case .homebrew:         return String(localized: "Homebrew packages with a newer version.", comment: "Updater right pane description.")
         case .homebrewManaged:  return String(localized: "Homebrew installed these apps and upgrades them in place.", comment: "Updater right pane description.")
         case .selfUpdating:     return String(localized: "These apps update themselves, so we don't check them.", comment: "Updater right pane description.")
@@ -270,7 +272,7 @@ struct UpdaterPaneView: View {
             switch facet {
             case .all:                    matchesFacet = true
             case .selected:               matchesFacet = selection.contains(info.id)
-            case .store(let isAppStore):  matchesFacet = (info.source == .appStore) == isAppStore
+            case .store(let source):      matchesFacet = info.source == source
             // Homebrew and the coverage facets are separate lists, not
             // filters over the available updates.
             case .homebrew, .homebrewManaged, .selfUpdating, .unmonitored, .skipped:
@@ -341,9 +343,7 @@ struct UpdaterPaneView: View {
             }
             Spacer(minLength: 8)
             SmartInsightsSparkle(itemTitle: info.appName, accent: ApplicationsManagerChrome.accent, topic: .application)
-            Text(info.source == .appStore
-                 ? String(localized: "App Store", comment: "Update source label.")
-                 : String(localized: "Web", comment: "Update source label."))
+            Text(sourceLabel(info.source))
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .trailing)
         }
@@ -364,6 +364,20 @@ struct UpdaterPaneView: View {
                     selection.remove(info.id)
                 }
             }
+        }
+    }
+
+    /// The single naming authority for an update channel — used by the
+    /// facet row, the right-pane title, and the row badge, which
+    /// previously called the same set "Other" and "Web" respectively.
+    ///
+    /// Exhaustive rather than an `== .appStore` ternary: a fallback would
+    /// silently label any future channel "Web", asserting a direct
+    /// download for something that may not have one.
+    private func sourceLabel(_ source: UpdateSource) -> String {
+        switch source {
+        case .appStore: return String(localized: "App Store", comment: "Update source label.")
+        case .sparkle:  return String(localized: "Web", comment: "Update source label.")
         }
     }
 
