@@ -250,3 +250,59 @@ final class ApplicationsManagerControlScopeTests: XCTestCase {
         XCTAssertFalse(ApplicationsManagerModel.matchesSearch("com.acme", name: "Helio"))
     }
 }
+
+/// The store tally behind the Updater's facet column. The count this
+/// replaces was `total - appStore`, which quietly absorbed Homebrew rows
+/// into Web the day a third channel was added.
+final class UpdateStoreCountsTests: XCTestCase {
+
+    /// Every source gets an entry, so the facet column can be built by
+    /// iterating `UpdateSource.allCases` rather than listing rows by hand.
+    func test_updateStoreCounts_coversEverySource() {
+        let counts = ApplicationsManagerModel.updateStoreCounts([])
+        XCTAssertEqual(Set(counts.keys), Set(UpdateSource.allCases))
+        XCTAssertTrue(counts.values.allSatisfy { $0 == 0 })
+    }
+
+    /// The counts partition the list exactly — no update is missed and
+    /// none is counted twice, whatever mix of channels is present.
+    func test_updateStoreCounts_partitionTheList() {
+        let updates = [
+            update(bundleID: "a", source: .appStore),
+            update(bundleID: "b", source: .sparkle),
+            update(bundleID: "c", source: .homebrew),
+            update(bundleID: "d", source: .homebrew),
+        ]
+        let counts = ApplicationsManagerModel.updateStoreCounts(updates)
+        XCTAssertEqual(counts[.appStore], 1)
+        XCTAssertEqual(counts[.sparkle], 1)
+        XCTAssertEqual(counts[.homebrew], 2)
+        XCTAssertEqual(counts.values.reduce(0, +), updates.count)
+    }
+
+    /// The regression that prompted this: with Homebrew rows present, Web
+    /// must report only the Sparkle ones. The old subtraction reported
+    /// every non-App-Store row, so a list of one web update and six casks
+    /// showed "Web 7".
+    func test_updateStoreCounts_webExcludesHomebrewRows() {
+        let updates = [update(bundleID: "telegram", source: .sparkle)]
+            + (0..<6).map { update(bundleID: "cask\($0)", source: .homebrew) }
+
+        let counts = ApplicationsManagerModel.updateStoreCounts(updates)
+
+        XCTAssertEqual(counts[.sparkle], 1)
+        XCTAssertEqual(counts[.homebrew], 6)
+    }
+
+    private func update(bundleID: String, source: UpdateSource) -> UpdateInfo {
+        UpdateInfo(
+            appName: bundleID,
+            bundleID: bundleID,
+            bundleURL: URL(fileURLWithPath: "/Applications/\(bundleID).app"),
+            installedVersion: "1.0",
+            latestVersion: "2.0",
+            source: source,
+            updateURL: source == .homebrew ? nil : URL(string: "https://example.com/\(bundleID).zip")
+        )
+    }
+}

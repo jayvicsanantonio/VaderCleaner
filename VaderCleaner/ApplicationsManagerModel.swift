@@ -56,6 +56,19 @@ enum ManagerListState: Equatable, Sendable {
 /// SwiftUI — the same split as `MyClutterManagerModel`.
 enum ApplicationsManagerModel {
 
+    /// Updates tallied by channel, with an entry for **every** source.
+    ///
+    /// Complete rather than sparse so the facet column can be derived by
+    /// iterating `UpdateSource.allCases`. The count it replaces was
+    /// `total - appStore`, which silently absorbed a third channel the
+    /// day one was added: Homebrew-managed rows started counting as Web.
+    /// A subtraction cannot be made exhaustive; a tally can.
+    static func updateStoreCounts(_ updates: [UpdateInfo]) -> [UpdateSource: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: UpdateSource.allCases.map { ($0, 0) })
+        for update in updates { counts[update.source, default: 0] += 1 }
+        return counts
+    }
+
     /// The sort options a pane can actually honour.
     ///
     /// Not every pane has every dimension: updates carry no size or

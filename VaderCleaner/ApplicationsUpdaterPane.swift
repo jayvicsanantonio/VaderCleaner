@@ -63,15 +63,19 @@ struct UpdaterPaneView: View {
 
     private var facets: some View {
         let updates = updaterViewModel.availableUpdates
-        let appStore = updates.filter { $0.source == .appStore }.count
+        let storeCounts = ApplicationsManagerModel.updateStoreCounts(updates)
         return VStack(spacing: 4) {
             facetRow(.all, String(localized: "All Updates", comment: "Updater facet."), updates.count)
             facetRow(.selected, String(localized: "Selected", comment: "Updater facet."), selection.count)
 
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Updater facet group header."))
-            facetRow(.store(.appStore), sourceLabel(.appStore), appStore)
-            facetRow(.store(.sparkle), sourceLabel(.sparkle), updates.count - appStore)
-            facetRow(.homebrew, String(localized: "Homebrew", comment: "Updater store facet."), homebrewViewModel.availableUpdateCount)
+            // Derived from the sources themselves, so a channel added later
+            // gets its own row instead of being absorbed into a neighbour's
+            // count.
+            ForEach(UpdateSource.allCases, id: \.self) { source in
+                facetRow(.store(source), sourceLabel(source), storeCounts[source] ?? 0)
+            }
+            facetRow(.homebrew, String(localized: "Homebrew Packages", comment: "Updater store facet for the brew package list."), homebrewViewModel.availableUpdateCount)
                 .accessibilityIdentifier("applications.manager.updater.facet.homebrew")
 
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Coverage", comment: "Updater facet group header."))
@@ -99,7 +103,7 @@ struct UpdaterPaneView: View {
         case .all:              return String(localized: "All Updates", comment: "Updater right pane title.")
         case .selected:         return String(localized: "Selected", comment: "Updater right pane title.")
         case .store(let source): return sourceLabel(source)
-        case .homebrew:         return String(localized: "Homebrew", comment: "Updater right pane title.")
+        case .homebrew:         return String(localized: "Homebrew Packages", comment: "Updater right pane title.")
         case .homebrewManaged:  return String(localized: "Managed by Homebrew", comment: "Updater right pane title.")
         case .selfUpdating:     return String(localized: "Self-updating", comment: "Updater right pane title.")
         case .unmonitored:      return String(localized: "Not monitored", comment: "Updater right pane title.")
@@ -114,7 +118,7 @@ struct UpdaterPaneView: View {
         case .store(.appStore): return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
         case .store(.sparkle):  return String(localized: "Updates downloaded from the developer's website.", comment: "Updater right pane description.")
         case .store(.homebrew): return String(localized: "Updates Homebrew applies in place.", comment: "Updater right pane description.")
-        case .homebrew:         return String(localized: "Homebrew packages with a newer version.", comment: "Updater right pane description.")
+        case .homebrew:         return String(localized: "Every outdated Homebrew package, including command-line tools.", comment: "Updater right pane description.")
         case .homebrewManaged:  return String(localized: "Homebrew installed these apps and upgrades them in place.", comment: "Updater right pane description.")
         case .selfUpdating:     return String(localized: "These apps update themselves, so we don't check them.", comment: "Updater right pane description.")
         case .unmonitored:      return String(localized: "We found no way to check these apps for updates.", comment: "Updater right pane description.")

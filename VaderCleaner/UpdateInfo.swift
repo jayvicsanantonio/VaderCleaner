@@ -6,7 +6,7 @@ import Foundation
 /// Which channel surfaced an `UpdateInfo`. The App Updater UI renders a
 /// badge per row using this; the view-model also routes the click target
 /// (Mac App Store URL vs. Sparkle download URL) off this distinction.
-enum UpdateSource: String, Hashable, Sendable {
+enum UpdateSource: String, Hashable, Sendable, CaseIterable {
     case appStore
     case sparkle
     /// Installed by a Homebrew cask and upgraded in place by `brew`.
