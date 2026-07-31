@@ -13,9 +13,11 @@ enum InstallDenial: Hashable, Sendable {
     /// A signature was present and did not match. The strongest possible
     /// signal that something is wrong.
     case signatureInvalid
-    /// No signature, or no key to check it against. Not evidence of an
-    /// attack, and not permission either.
-    case signatureUnverifiable
+    /// The download is a different app than the one it would replace.
+    /// A vendor's Team ID covers everything they ship — Google's signs
+    /// Chrome and Drive alike — so identity has to be pinned to the app,
+    /// not just the developer.
+    case bundleIdentifierMismatch
     /// The downloaded bundle isn't validly signed.
     case downloadNotValidlySigned
     /// The installed app carries no Team ID, so there is no identity to
@@ -42,11 +44,23 @@ enum InstallDecision: Hashable, Sendable {
 /// that same feed becomes arbitrary code execution — so this is written
 /// to deny by default and allow only when every check passes.
 ///
-/// The load-bearing check is Team ID continuity, because it does not
+/// The load-bearing check is identity continuity, because it does not
 /// trust the feed at all. An attacker who fully controls the appcast host
 /// still cannot produce a bundle signed by the developer's certificate,
-/// so a matching Team ID means the replacement came from whoever signed
-/// what is already installed.
+/// so a matching Team ID *and* bundle ID mean the replacement is a
+/// genuine build of the same app by whoever signed what is installed.
+///
+/// A missing appcast signature is therefore **not** a refusal. Sparkle 1
+/// feeds sign with DSA, which has no supported verification path left on
+/// macOS — `SecTransform` is deprecated as "no longer supported" — so
+/// treating absence as refusal would permanently exclude most feeds. And
+/// the fallback that refusal drops to is the user downloading the same
+/// archive from the same URL and installing it with no checks at all.
+/// Installing it here, having proven the developer and the app, is
+/// strictly safer than the thing it would otherwise defer to.
+///
+/// A signature that is *present and fails* stays a hard refusal. Absence
+/// means Sparkle 1; failure means something is actively wrong.
 enum UpdateInstallGate {
 
     static func decide(
@@ -54,6 +68,8 @@ enum UpdateInstallGate {
         signature: AppcastSignatureResult,
         installed: BundleCodeSignature?,
         downloaded: BundleCodeSignature?,
+        installedBundleID: String,
+        downloadedBundleID: String?,
         installedVersion: String,
         downloadedVersion: String
     ) -> InstallDecision {
@@ -63,10 +79,8 @@ enum UpdateInstallGate {
         guard let feedURL, feedURL.scheme?.lowercased() == "https" else {
             return .deny(.insecureFeed)
         }
-        switch signature {
-        case .invalid:      return .deny(.signatureInvalid)
-        case .unverifiable: return .deny(.signatureUnverifiable)
-        case .valid:        break
+        if signature == .invalid {
+            return .deny(.signatureInvalid)
         }
         guard let downloaded, downloaded.isValid else {
             return .deny(.downloadNotValidlySigned)
@@ -77,6 +91,11 @@ enum UpdateInstallGate {
         guard downloaded.teamIdentifier == installedTeam else {
             return .deny(.teamIdentifierMismatch)
         }
+        guard downloadedBundleID == installedBundleID else {
+            return .deny(.bundleIdentifierMismatch)
+        }
+        // Blocks a rollback: a hostile host can only serve genuine builds,
+        // so pinning the user to an older one is the attack left to it.
         guard VersionComparator.isNewer(version: downloadedVersion, than: installedVersion) else {
             return .deny(.notNewer)
         }

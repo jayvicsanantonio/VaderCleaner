@@ -24,7 +24,7 @@ final class AppUpdaterInstallTests: XCTestCase {
     /// route. Every denial has a safe fallback.
     func test_update_fallsBackToDownloadWhenInstallIsRefused() async {
         let opened = ActorBox<[URL]>([])
-        let vm = await readyViewModel(outcome: .denied(.signatureUnverifiable), opened: opened)
+        let vm = await readyViewModel(outcome: .denied(.signatureInvalid), opened: opened)
 
         await vm.update(vm.availableUpdates)
 

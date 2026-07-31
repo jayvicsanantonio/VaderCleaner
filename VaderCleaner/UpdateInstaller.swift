@@ -34,6 +34,9 @@ struct UpdateInstaller: Sendable {
     /// Expands an archive and returns the `.app` inside it.
     typealias Extract = @Sendable (_ archive: URL) async throws -> URL
     typealias ReadSignature = @Sendable (_ bundle: URL) -> BundleCodeSignature?
+    /// The `CFBundleIdentifier` of a bundle on disk, used to prove the
+    /// download is the same app rather than merely the same developer.
+    typealias ReadBundleIdentifier = @Sendable (_ bundle: URL) -> String?
     /// Whether an app with this bundle ID is currently running.
     typealias IsRunning = @Sendable (_ bundleID: String) -> Bool
     /// Asks the app to quit; returns whether it actually exited.
@@ -47,6 +50,7 @@ struct UpdateInstaller: Sendable {
     private let download: Download
     private let extract: Extract
     private let readSignature: ReadSignature
+    private let readBundleIdentifier: ReadBundleIdentifier
     private let isRunning: IsRunning
     private let quit: Quit
     private let replace: Replace
@@ -59,6 +63,7 @@ struct UpdateInstaller: Sendable {
         download: @escaping Download,
         extract: @escaping Extract,
         readSignature: @escaping ReadSignature,
+        readBundleIdentifier: @escaping ReadBundleIdentifier = { _ in nil },
         isRunning: @escaping IsRunning,
         quit: @escaping Quit,
         replace: @escaping Replace,
@@ -68,6 +73,7 @@ struct UpdateInstaller: Sendable {
         self.download = download
         self.extract = extract
         self.readSignature = readSignature
+        self.readBundleIdentifier = readBundleIdentifier
         self.isRunning = isRunning
         self.quit = quit
         self.replace = replace
@@ -119,17 +125,22 @@ struct UpdateInstaller: Sendable {
         do {
             let archive = try await download(downloadURL)
 
-            // Verify the archive as delivered, before expanding it. An
-            // extractor is a parser, and parsers are attack surface —
-            // there is no reason to run one over bytes we already know
-            // we will refuse.
+            // Check the archive as delivered, before expanding it. An
+            // extractor is a parser and therefore attack surface, so a
+            // signature we can already prove wrong stops here rather than
+            // being fed to one.
+            //
+            // An *absent* signature can't be judged yet — the proof of
+            // identity is in the bundle, which means extracting first.
+            // The early exit covers what is knowable early; it never
+            // claimed to cover everything.
             let signature = AppcastSignatureVerifier.verify(
                 data: try Data(contentsOf: archive),
                 edSignature: edSignature,
                 publicEDKey: publicEDKey
             )
-            if signature != .valid {
-                return .denied(signature == .invalid ? .signatureInvalid : .signatureUnverifiable)
+            if signature == .invalid {
+                return .denied(.signatureInvalid)
             }
 
             let replacement = try await extract(archive)
@@ -138,12 +149,14 @@ struct UpdateInstaller: Sendable {
                 signature: signature,
                 installed: readSignature(update.bundleURL),
                 downloaded: readSignature(replacement),
+                installedBundleID: update.bundleID,
+                downloadedBundleID: readBundleIdentifier(replacement),
                 installedVersion: update.installedVersion,
                 downloadedVersion: update.latestVersion
             )
             guard case .allow = decision else {
                 if case .deny(let reason) = decision { return .denied(reason) }
-                return .denied(.signatureUnverifiable)
+                return .denied(.downloadNotValidlySigned)
             }
 
             return await swap(replacement, into: update)

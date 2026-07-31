@@ -1,5 +1,5 @@
 // UpdateInstallGateTests.swift
-// Exercises the auto-install decision — every denial path, the ordering that makes an insecure feed decide first, and the Team ID continuity check that holds even when the feed is fully attacker-controlled.
+// Exercises the auto-install decision — every denial path, the ordering that makes an insecure feed decide first, and the identity continuity that holds even when the feed is fully attacker-controlled.
 
 import XCTest
 @testable import VaderCleaner
@@ -10,22 +10,51 @@ final class UpdateInstallGateTests: XCTestCase {
     private let http = URL(string: "http://example.com/appcast.xml")!
     private let signed = BundleCodeSignature(teamIdentifier: "ABCDE12345", isValid: true)
 
+    /// Every input defaulted to the permitting case, so each test varies
+    /// exactly the one thing it is about.
+    private func decide(
+        feedURL: URL?? = nil,
+        signature: AppcastSignatureResult = .valid,
+        installed: BundleCodeSignature?? = nil,
+        downloaded: BundleCodeSignature?? = nil,
+        installedBundleID: String = "com.acme.helio",
+        downloadedBundleID: String? = "com.acme.helio",
+        installedVersion: String = "1.0",
+        downloadedVersion: String = "2.0"
+    ) -> InstallDecision {
+        UpdateInstallGate.decide(
+            feedURL: feedURL ?? https,
+            signature: signature,
+            installed: installed ?? signed,
+            downloaded: downloaded ?? signed,
+            installedBundleID: installedBundleID,
+            downloadedBundleID: downloadedBundleID,
+            installedVersion: installedVersion,
+            downloadedVersion: downloadedVersion
+        )
+    }
+
     // MARK: - Allowing
 
-    /// The only combination that permits an install: secure feed, valid
-    /// signature, validly signed download, same developer, newer version.
+    /// The permitting case: secure feed, validly signed download, same
+    /// developer, same app, newer version.
     func test_decide_allowsWhenEveryCheckPasses() {
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: https,
-                signature: .valid,
-                installed: signed,
-                downloaded: signed,
-                installedVersion: "1.0",
-                downloadedVersion: "2.0"
-            ),
-            .allow
-        )
+        XCTAssertEqual(decide(), .allow)
+    }
+
+    /// A Sparkle 1 feed publishes no Ed signature, and macOS has no
+    /// supported way left to check its DSA one. Refusing would exclude
+    /// most feeds permanently — and would defer to the user downloading
+    /// the same archive from the same URL with no checks at all. Proving
+    /// the developer and the app is strictly safer than that.
+    func test_decide_allowsUnsignedFeedWhenIdentityIsProven() {
+        XCTAssertEqual(decide(signature: .unverifiable), .allow)
+    }
+
+    /// An uppercase scheme is still https — URL schemes are
+    /// case-insensitive and rejecting one would be a false alarm.
+    func test_decide_acceptsUppercaseHTTPSScheme() {
+        XCTAssertEqual(decide(feedURL: URL(string: "HTTPS://example.com/appcast.xml")!), .allow)
     }
 
     // MARK: - Denying
@@ -34,61 +63,25 @@ final class UpdateInstallGateTests: XCTestCase {
     /// signature — so it is rejected before anything downstream is
     /// consulted, even when every other input looks perfect.
     func test_decide_deniesInsecureFeedAheadOfEveryOtherCheck() {
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: http,
-                signature: .valid,
-                installed: signed,
-                downloaded: signed,
-                installedVersion: "1.0",
-                downloadedVersion: "2.0"
-            ),
-            .deny(.insecureFeed)
-        )
+        XCTAssertEqual(decide(feedURL: http), .deny(.insecureFeed))
     }
 
     func test_decide_deniesMissingFeedURL() {
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: nil, signature: .valid, installed: signed, downloaded: signed,
-                installedVersion: "1.0", downloadedVersion: "2.0"
-            ),
-            .deny(.insecureFeed)
-        )
+        XCTAssertEqual(decide(feedURL: .some(nil)), .deny(.insecureFeed))
     }
 
-    /// A signature that fails is the strongest signal something is wrong.
-    func test_decide_deniesInvalidSignature() {
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: https, signature: .invalid, installed: signed, downloaded: signed,
-                installedVersion: "1.0", downloadedVersion: "2.0"
-            ),
-            .deny(.signatureInvalid)
-        )
-    }
-
-    /// No signature is not permission. This is the common real-world case
-    /// — a Sparkle 1 feed like Telegram's — and it must fall back to a
-    /// manual download rather than installing on trust.
-    func test_decide_deniesUnverifiableSignature() {
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: https, signature: .unverifiable, installed: signed, downloaded: signed,
-                installedVersion: "1.0", downloadedVersion: "2.0"
-            ),
-            .deny(.signatureUnverifiable)
-        )
+    /// Absence of a signature is tolerated; failure never is. A signature
+    /// that is present and does not match means something is actively
+    /// wrong, and no amount of identity evidence redeems it.
+    func test_decide_deniesInvalidSignatureEvenWithProvenIdentity() {
+        XCTAssertEqual(decide(signature: .invalid), .deny(.signatureInvalid))
     }
 
     func test_decide_deniesUnsignedOrInvalidDownload() {
         let unsigned = BundleCodeSignature(teamIdentifier: "ABCDE12345", isValid: false)
         for downloaded in [unsigned, nil] {
             XCTAssertEqual(
-                UpdateInstallGate.decide(
-                    feedURL: https, signature: .valid, installed: signed, downloaded: downloaded,
-                    installedVersion: "1.0", downloadedVersion: "2.0"
-                ),
+                decide(downloaded: .some(downloaded)),
                 .deny(.downloadNotValidlySigned)
             )
         }
@@ -99,53 +92,42 @@ final class UpdateInstallGateTests: XCTestCase {
     /// case, as are ad-hoc builds.
     func test_decide_deniesWhenInstalledAppHasNoTeamIdentifier() {
         let noTeam = BundleCodeSignature(teamIdentifier: nil, isValid: true)
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: https, signature: .valid, installed: noTeam, downloaded: signed,
-                installedVersion: "1.0", downloadedVersion: "2.0"
-            ),
-            .deny(.noInstalledTeamIdentifier)
-        )
+        XCTAssertEqual(decide(installed: .some(noTeam)), .deny(.noInstalledTeamIdentifier))
     }
 
     /// The check that survives a fully compromised feed: a different
-    /// developer's signature is refused even with a valid appcast
-    /// signature, because the attacker cannot sign as the developer.
+    /// developer's signature is refused, because an attacker who owns the
+    /// appcast host still cannot sign as the developer.
     func test_decide_deniesDifferentDeveloper() {
         let other = BundleCodeSignature(teamIdentifier: "ZZZZZ99999", isValid: true)
+        XCTAssertEqual(decide(downloaded: .some(other)), .deny(.teamIdentifierMismatch))
+    }
+
+    /// A Team ID covers everything a vendor ships — Google's signs Chrome
+    /// and Drive alike — so without a bundle-ID check an unsigned feed
+    /// could swap one of a vendor's apps for another and still pass.
+    func test_decide_deniesADifferentAppFromTheSameDeveloper() {
         XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: https, signature: .valid, installed: signed, downloaded: other,
-                installedVersion: "1.0", downloadedVersion: "2.0"
+            decide(
+                signature: .unverifiable,
+                installedBundleID: "com.google.Chrome",
+                downloadedBundleID: "com.google.drivefs"
             ),
-            .deny(.teamIdentifierMismatch)
+            .deny(.bundleIdentifierMismatch)
         )
     }
 
-    /// A download that isn't newer has no business replacing anything —
-    /// this is what blocks a downgrade attack via a rolled-back feed.
+    /// A bundle whose identifier can't be read proves nothing.
+    func test_decide_deniesWhenTheDownloadHasNoBundleIdentifier() {
+        XCTAssertEqual(decide(downloadedBundleID: nil), .deny(.bundleIdentifierMismatch))
+    }
+
+    /// A download that isn't newer has no business replacing anything.
+    /// With identity proven, a hostile host can only serve genuine builds,
+    /// so pinning the user to an older one is the attack left to it.
     func test_decide_deniesSameOrOlderVersion() {
         for version in ["1.0", "0.9"] {
-            XCTAssertEqual(
-                UpdateInstallGate.decide(
-                    feedURL: https, signature: .valid, installed: signed, downloaded: signed,
-                    installedVersion: "1.0", downloadedVersion: version
-                ),
-                .deny(.notNewer)
-            )
+            XCTAssertEqual(decide(downloadedVersion: version), .deny(.notNewer))
         }
-    }
-
-    /// An uppercase scheme is still https — URL schemes are
-    /// case-insensitive and rejecting one would be a false alarm.
-    func test_decide_acceptsUppercaseHTTPSScheme() {
-        XCTAssertEqual(
-            UpdateInstallGate.decide(
-                feedURL: URL(string: "HTTPS://example.com/appcast.xml")!,
-                signature: .valid, installed: signed, downloaded: signed,
-                installedVersion: "1.0", downloadedVersion: "2.0"
-            ),
-            .allow
-        )
     }
 }

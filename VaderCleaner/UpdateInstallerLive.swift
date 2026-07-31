@@ -43,6 +43,7 @@ extension UpdateInstaller {
             download: { url in try await tools.download(url) },
             extract: { archive in try await tools.extractApplication(from: archive) },
             readSignature: { CodeSignatureReader().signature(of: $0) },
+            readBundleIdentifier: { Bundle(url: $0)?.bundleIdentifier },
             isRunning: { bundleID in
                 !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
             },

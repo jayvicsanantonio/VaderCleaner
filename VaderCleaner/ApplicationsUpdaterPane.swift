@@ -411,8 +411,8 @@ struct UpdaterPaneView: View {
             return String(localized: "Downloaded — this app's update feed isn't secure.", comment: "Install fallback reason.")
         case .signatureInvalid:
             return String(localized: "Downloaded — the update's signature didn't match.", comment: "Install fallback reason.")
-        case .signatureUnverifiable:
-            return String(localized: "Downloaded — this app doesn't sign its updates.", comment: "Install fallback reason.")
+        case .bundleIdentifierMismatch:
+            return String(localized: "Downloaded — the update is for a different app.", comment: "Install fallback reason.")
         case .downloadNotValidlySigned:
             return String(localized: "Downloaded — the update isn't properly signed.", comment: "Install fallback reason.")
         case .noInstalledTeamIdentifier, .teamIdentifierMismatch:

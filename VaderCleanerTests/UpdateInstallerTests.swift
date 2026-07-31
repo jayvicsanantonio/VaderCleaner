@@ -98,10 +98,11 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertFalse(events.contains("replace"))
     }
 
-    /// An unsigned feed is refused rather than trusted. This is the
-    /// common real case, and the reason auto-install can't simply be
-    /// switched on for every Sparkle app.
-    func test_install_refusesUnsignedFeed() async {
+    /// A Sparkle 1 feed publishes no Ed signature. Unlike a failed one,
+    /// absence can't be judged from the archive alone — the proof of
+    /// identity is inside the bundle — so the install proceeds to extract
+    /// and lets the gate decide on Team ID and bundle ID.
+    func test_install_extractsAnUnsignedFeedToProveIdentityFromTheBundle() async {
         let recorder = Recorder()
         let installer = makeInstaller(recorder: recorder, running: false)
 
@@ -109,9 +110,26 @@ final class UpdateInstallerTests: XCTestCase {
             update(), feedURL: httpsFeed, edSignature: nil, publicEDKey: publicKey
         )
 
-        XCTAssertEqual(outcome, .denied(.signatureUnverifiable))
+        XCTAssertEqual(outcome, .installed)
         let events = await recorder.events
-        XCTAssertFalse(events.contains("extract"))
+        XCTAssertTrue(events.contains("extract"))
+    }
+
+    /// The same feed, but the bundle inside is a different app. Identity
+    /// is what an unsigned feed rests on, so this must refuse.
+    func test_install_refusesUnsignedFeedWhoseBundleIsADifferentApp() async {
+        let recorder = Recorder()
+        let installer = makeInstaller(
+            recorder: recorder, running: false, downloadedBundleID: "com.acme.other"
+        )
+
+        let outcome = await installer.install(
+            update(), feedURL: httpsFeed, edSignature: nil, publicEDKey: publicKey
+        )
+
+        XCTAssertEqual(outcome, .denied(.bundleIdentifierMismatch))
+        let events = await recorder.events
+        XCTAssertFalse(events.contains("replace"))
     }
 
     /// A correctly signed archive that expands to a bundle from another
@@ -224,6 +242,7 @@ final class UpdateInstallerTests: XCTestCase {
         running: Bool,
         quitSucceeds: Bool = true,
         downloadedTeam: String = "ABCDE12345",
+        downloadedBundleID: String = "com.acme.helio",
         downloadError: Error? = nil
     ) -> UpdateInstaller {
         let archive = archiveURL!
@@ -243,6 +262,9 @@ final class UpdateInstallerTests: XCTestCase {
                     teamIdentifier: url == extracted ? downloadedTeam : "ABCDE12345",
                     isValid: true
                 )
+            },
+            readBundleIdentifier: { url in
+                url == extracted ? downloadedBundleID : "com.acme.helio"
             },
             isRunning: { _ in running },
             quit: { _ in
