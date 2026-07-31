@@ -33,6 +33,9 @@ final class AppUpdaterViewModel {
     typealias LoadCaskOwnership = @Sendable () async -> CaskOwnershipMap
 
     private(set) var phase: Phase = .idle
+    /// Every update the user can act on, direct and Homebrew-managed
+    /// together. One inventory rather than two half-lists in separate
+    /// facets, each with its own selection and footer.
     private(set) var availableUpdates: [UpdateInfo] = []
     /// How much of the installed-app population the last check reached.
     /// The list of updates alone reads as "everything else is current",
@@ -65,6 +68,14 @@ final class AppUpdaterViewModel {
     /// older results so a slow first pass can't overwrite a fresh second
     /// pass with stale data. Same pattern as `AppUninstallerViewModel`.
     @ObservationIgnored private var checkGeneration: Int = 0
+    /// Updates from the probe (App Store and Sparkle), post-suppression.
+    @ObservationIgnored private var directUpdates: [UpdateInfo] = []
+    /// Apps Homebrew owns, from the last check's coverage.
+    @ObservationIgnored private var homebrewManaged: [HomebrewManagedApp] = []
+    /// Brew's outdated list, supplied by the view — `HomebrewViewModel`
+    /// is owned elsewhere in the hierarchy, so this is pushed in rather
+    /// than pulled, and re-running `brew outdated` here is avoided.
+    @ObservationIgnored private var homebrewOutdated: [BrewOutdatedItem] = []
 
     init(
         discover: @escaping Discover,
@@ -136,11 +147,9 @@ final class AppUpdaterViewModel {
 
             updates = withholdDeclinedUpdates(from: updates, installedIn: apps)
 
-            // Sort case-insensitively by app name so the list order is
-            // deterministic between successive checks.
-            self.availableUpdates = updates.sorted {
-                $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-            }
+            self.directUpdates = updates
+            self.homebrewManaged = self.coverage.homebrewManaged
+            self.rebuildAvailableUpdates()
 
             // Offline only when *every* feed we contacted was
             // unreachable and not one came back with an answer. If even
@@ -160,6 +169,8 @@ final class AppUpdaterViewModel {
             // Privacy: errors may include user-specific paths.
             log.error("App Updater discovery failed: \(String(describing: error), privacy: .private)")
             guard self.checkGeneration == generation else { return }
+            self.directUpdates = []
+            self.homebrewManaged = []
             self.availableUpdates = []
             self.skippedUpdates = []
             // Stale counts beside an error would misreport what was
@@ -173,7 +184,34 @@ final class AppUpdaterViewModel {
     /// entries, the appcast enclosure URL for Sparkle entries. The
     /// production opener delegates to `NSWorkspace.open`.
     func update(_ info: UpdateInfo) async {
-        await opener(info.updateURL)
+        guard let url = info.updateURL else { return }
+        await opener(url)
+    }
+
+    /// Supplies Homebrew's outdated list so cask-owned apps appear as
+    /// ordinary rows. Pushed in by the view because `HomebrewViewModel`
+    /// is owned higher in the hierarchy, and because re-running `brew
+    /// outdated` here would duplicate a networked call it already made.
+    func setHomebrewOutdated(_ items: [BrewOutdatedItem]) {
+        homebrewOutdated = items
+        rebuildAvailableUpdates()
+    }
+
+    /// How a batch of updates must be applied. Brew rows are upgraded in
+    /// place by `brew`; everything else opens a URL. Splitting it here
+    /// keeps the routing testable instead of buried in a view action.
+    struct UpdatePlan {
+        /// Cask tokens to hand to `brew upgrade --cask`.
+        let homebrewTokens: [String]
+        /// Updates with somewhere to send the user.
+        let openable: [UpdateInfo]
+    }
+
+    func updatePlan(for infos: [UpdateInfo]) -> UpdatePlan {
+        UpdatePlan(
+            homebrewTokens: infos.compactMap { $0.source == .homebrew ? $0.homebrewToken : nil },
+            openable: infos.filter { $0.source != .homebrew }
+        )
     }
 
     /// Declines `info.latestVersion` for its app. A later release still
@@ -219,8 +257,11 @@ final class AppUpdaterViewModel {
             await opener(Self.appStoreUpdatesURL)
         }
         for info in infos where info.source != .appStore {
-            guard opened.insert(info.updateURL).inserted else { continue }
-            await opener(info.updateURL)
+            // Homebrew rows have no URL by construction — they are
+            // upgraded in place via `updatePlan(for:)`, never opened.
+            guard let url = info.updateURL else { continue }
+            guard opened.insert(url).inserted else { continue }
+            await opener(url)
         }
     }
 
@@ -257,6 +298,36 @@ final class AppUpdaterViewModel {
             .filter { declined.suppresses($0) }
             .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
         return updates.filter { !declined.suppresses($0) }
+    }
+
+    /// Recombines the probe's updates with the Homebrew-managed ones into
+    /// a single name-sorted list, so ordering is stable across checks and
+    /// the two sources are indistinguishable to the user.
+    private func rebuildAvailableUpdates() {
+        let outdatedByToken = Dictionary(
+            homebrewOutdated.filter { !$0.isPinned }.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let brewRows = homebrewManaged.compactMap { managed -> UpdateInfo? in
+            // A cask brew considers current, or one that installs no app,
+            // contributes nothing.
+            guard let item = outdatedByToken[managed.token] else { return nil }
+            return UpdateInfo(
+                appName: managed.app.name,
+                bundleID: managed.app.bundleID,
+                bundleURL: managed.app.bundleURL,
+                // The bundle's own version is what is actually installed;
+                // brew's record can lag for casks that self-update.
+                installedVersion: managed.app.version ?? item.installedVersion,
+                latestVersion: item.candidateVersion,
+                source: .homebrew,
+                updateURL: nil,
+                homebrewToken: managed.token
+            )
+        }
+        let declined = suppression?.snapshot() ?? UpdateSuppressionSnapshot()
+        availableUpdates = (directUpdates + brewRows.filter { !declined.suppresses($0) })
+            .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
     }
 
     private func beginCheck() -> Int {

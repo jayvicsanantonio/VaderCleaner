@@ -117,14 +117,14 @@ final class AppUpdaterBulkUpdateTests: XCTestCase {
             discover: { _ in apps },
             checkAppStore: { bundleID in
                 guard let info = byBundleID[bundleID] else { return .noResult }
-                return .found(AppStoreLookup(version: info.latestVersion, appStoreURL: info.updateURL))
+                return .found(AppStoreLookup(version: info.latestVersion, appStoreURL: info.updateURL!))
             },
             checkSparkle: { app in
                 guard let info = byBundleID[app.bundleID] else { return .noResult }
                 return .found(SparkleAppcastItem(
                     shortVersion: info.latestVersion,
                     version: nil,
-                    downloadURL: info.updateURL
+                    downloadURL: info.updateURL!
                 ))
             },
             opener: { url in await opened.set(opened.value + [url]) }

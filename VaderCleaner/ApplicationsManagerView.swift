@@ -165,6 +165,17 @@ struct ApplicationsManagerView: View {
         .task {
             if extensionsManagerViewModel.phase == .idle { await extensionsManagerViewModel.refresh() }
         }
+        // Feed Homebrew's outdated list into the Updater so cask-installed
+        // apps appear as ordinary rows. Pushed rather than pulled: the
+        // Homebrew view model is owned by ApplicationsView, and it has
+        // already run the networked `brew outdated` — the Updater must not
+        // run a second one. Keyed on the list so a later brew refresh (or
+        // a completed upgrade) re-merges.
+        .task(id: homebrewViewModel.outdated) {
+            await homebrewViewModel.loadIfNeeded()
+            await homebrewViewModel.checkUpdatesIfNeeded()
+            updaterViewModel.setHomebrewOutdated(homebrewViewModel.outdated)
+        }
         .task(id: uninstallerViewModel.apps.map(\.id)) { await uninstallerViewModel.loadListMetrics() }
         // Warm the shared icon cache for every roster this manager renders.
         // The cache never loads on a miss — `icon(for:)` returns the generic
@@ -431,13 +442,21 @@ struct ApplicationsManagerView: View {
         )
     }
 
-    /// Applies every selected update as one batch, so App Store entries
-    /// collapse to a single Updates page and repeated download URLs open
-    /// once rather than per row.
+    /// Applies every selected update as one batch, routing each row to the
+    /// mechanism that can actually install it: Homebrew-managed apps are
+    /// upgraded in place, App Store entries collapse to a single Updates
+    /// page, and remaining downloads open once each.
     private func updateSelected() async {
-        await updaterViewModel.update(
-            updaterViewModel.availableUpdates.filter { updateSelection.contains($0.id) }
-        )
+        let selected = updaterViewModel.availableUpdates.filter { updateSelection.contains($0.id) }
+        let plan = updaterViewModel.updatePlan(for: selected)
+        if !plan.openable.isEmpty {
+            await updaterViewModel.update(plan.openable)
+        }
+        // Guarded because brew refuses to run two operations at once; the
+        // Homebrew facet's own footer shares the same view model.
+        if !plan.homebrewTokens.isEmpty, !homebrewViewModel.isBusy {
+            await homebrewViewModel.upgrade(.some(plan.homebrewTokens))
+        }
     }
 
     /// Removes every selected extension, dropping each from the selection.

@@ -9,6 +9,9 @@ import Foundation
 enum UpdateSource: String, Hashable, Sendable {
     case appStore
     case sparkle
+    /// Installed by a Homebrew cask and upgraded in place by `brew`.
+    /// These rows carry no `updateURL` at all — see `UpdateInfo`.
+    case homebrew
 }
 
 /// A single update available for an installed app.
@@ -28,7 +31,17 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
     let installedVersion: String
     let latestVersion: String
     let source: UpdateSource
-    let updateURL: URL
+    /// Where to send the user to obtain this update, or `nil` when the
+    /// update is applied in place rather than downloaded.
+    ///
+    /// Homebrew rows are the nil case, and deliberately so: handing a
+    /// cask-owned app a direct download overwrites a Caskroom-tracked
+    /// install. Modelling the absence removes the failure structurally,
+    /// rather than relying on every call site to remember a guard.
+    let updateURL: URL?
+    /// The cask that installed this app, for `brew upgrade --cask`.
+    /// Non-nil exactly when `source` is `.homebrew`.
+    let homebrewToken: String?
     /// What changed in `latestVersion`, as one plain-text line, or nil
     /// when the channel published none. "12.8 → 12.9" alone tells the
     /// user nothing about whether the update matters to them.
@@ -43,7 +56,8 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
         installedVersion: String,
         latestVersion: String,
         source: UpdateSource,
-        updateURL: URL,
+        updateURL: URL?,
+        homebrewToken: String? = nil,
         releaseNotes: String? = nil
     ) {
         self.appName = appName
@@ -53,6 +67,7 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
         self.latestVersion = latestVersion
         self.source = source
         self.updateURL = updateURL
+        self.homebrewToken = homebrewToken
         self.releaseNotes = releaseNotes
     }
 }

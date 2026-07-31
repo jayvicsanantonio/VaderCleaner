@@ -113,6 +113,7 @@ struct UpdaterPaneView: View {
         case .selected:         return String(localized: "Updates you've chosen to install.", comment: "Updater right pane description.")
         case .store(.appStore): return String(localized: "Updates available through the Mac App Store.", comment: "Updater right pane description.")
         case .store(.sparkle):  return String(localized: "Updates downloaded from the developer's website.", comment: "Updater right pane description.")
+        case .store(.homebrew): return String(localized: "Updates Homebrew applies in place.", comment: "Updater right pane description.")
         case .homebrew:         return String(localized: "Homebrew packages with a newer version.", comment: "Updater right pane description.")
         case .homebrewManaged:  return String(localized: "Homebrew installed these apps and upgrades them in place.", comment: "Updater right pane description.")
         case .selfUpdating:     return String(localized: "These apps update themselves, so we don't check them.", comment: "Updater right pane description.")
@@ -378,6 +379,7 @@ struct UpdaterPaneView: View {
         switch source {
         case .appStore: return String(localized: "App Store", comment: "Update source label.")
         case .sparkle:  return String(localized: "Web", comment: "Update source label.")
+        case .homebrew: return String(localized: "Homebrew", comment: "Update source label.")
         }
     }
 

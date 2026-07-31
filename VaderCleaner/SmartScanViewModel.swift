@@ -1285,7 +1285,11 @@ final class SmartScanViewModel {
         let selected = updates.filter { updateSelection.contains($0.bundleID) }
         guard !selected.isEmpty else { return nil }
         for update in selected {
-            await updateOpener(update.updateURL)
+            // Homebrew-managed updates carry no URL — they are applied by
+            // `brew`, not opened. Smart Scan's probe never yields them,
+            // but the model allows it, so skip rather than assume.
+            guard let url = update.updateURL else { continue }
+            await updateOpener(url)
         }
         return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
     }

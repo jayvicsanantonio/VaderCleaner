@@ -356,6 +356,7 @@
 		B3289BEA17E2D156D19E8E71 /* CleanupGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17630CA93451A0E1A29ED6A1 /* CleanupGroupTests.swift */; };
 		B32F72C5914C024EA4647729 /* .swiftlint.yml in Resources */ = {isa = PBXBuildFile; fileRef = EF2E05CC421ABECA654697A0 /* .swiftlint.yml */; };
 		B407103664900660268A501A /* SmartScanDownloadsReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 074073ACC90698149309B503 /* SmartScanDownloadsReview.swift */; };
+		B44C26ECBCB5F0AE392E8923 /* AppUpdaterHomebrewMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0F872FBEC3324855E36269B /* AppUpdaterHomebrewMergeTests.swift */; };
 		B467DC825BCD1DEE5E9136EB /* DownloadsScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB3763B221D5E92E4B06A824 /* DownloadsScannerTests.swift */; };
 		B4AD90301796B37E91C6EC0C /* SmartScanUnusedAppsReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C9B6A44E802C8593083F1E /* SmartScanUnusedAppsReview.swift */; };
 		B51203EFD0B1E0734609E427 /* VersionComparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAF96E747AD4C1378B4043D /* VersionComparator.swift */; };
@@ -991,6 +992,7 @@
 		E019E447AA2F4328BF9B2EF0 /* BrewPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPackage.swift; sourceTree = "<group>"; };
 		E01C8CB7BE63B3851A6E8503 /* FinalPolishUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalPolishUITests.swift; sourceTree = "<group>"; };
 		E0A3E48892F238EEC77DA6E5 /* PreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesStore.swift; sourceTree = "<group>"; };
+		E0F872FBEC3324855E36269B /* AppUpdaterHomebrewMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdaterHomebrewMergeTests.swift; sourceTree = "<group>"; };
 		E11B461971702470D7F3E488 /* CareScanEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareScanEngine.swift; sourceTree = "<group>"; };
 		E12A2F1D83447E7306463614 /* SMCReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCReader.swift; sourceTree = "<group>"; };
 		E177C5757BB8E0E39F5A0DE1 /* MalwareOnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingViewModel.swift; sourceTree = "<group>"; };
@@ -1456,6 +1458,7 @@
 				DE3035D7167F852BF99FB672 /* AppUpdaterBulkUpdateTests.swift */,
 				520F795D23551F21BD2BD780 /* AppUpdaterCoverageTests.swift */,
 				8E433919E8C7F3BD3490A19D /* AppUpdaterErrorTests.swift */,
+				E0F872FBEC3324855E36269B /* AppUpdaterHomebrewMergeTests.swift */,
 				FADF3CD518AB6015C707E484 /* AppUpdaterSkipVersionTests.swift */,
 				42925F5D185AFC988AD68E43 /* AppUpdaterViewModelTests.swift */,
 				3308C3289036B116C3726AC7 /* AppUpdatesMonitorTests.swift */,
@@ -1871,6 +1874,7 @@
 				D9B5F29739F91FECD82C5F60 /* AppUpdaterBulkUpdateTests.swift in Sources */,
 				7BE7A9A3B8B98659C8AE4E0D /* AppUpdaterCoverageTests.swift in Sources */,
 				565D536F93383C694A29481C /* AppUpdaterErrorTests.swift in Sources */,
+				B44C26ECBCB5F0AE392E8923 /* AppUpdaterHomebrewMergeTests.swift in Sources */,
 				29FB616498AEAF93E4F3CC7A /* AppUpdaterSkipVersionTests.swift in Sources */,
 				381B0722743E849AE519579F /* AppUpdaterViewModelTests.swift in Sources */,
 				CD527CC87D1D26AB2987CFFD /* AppUpdatesMonitorTests.swift in Sources */,
