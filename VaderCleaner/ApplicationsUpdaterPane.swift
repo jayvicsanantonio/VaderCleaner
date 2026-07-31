@@ -180,10 +180,11 @@ struct UpdaterPaneView: View {
     /// aside — rather than a different kind of thing.
     @ViewBuilder
     private var skippedList: some View {
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let entries = trimmed.isEmpty
-            ? updaterViewModel.skippedUpdates
-            : updaterViewModel.skippedUpdates.filter { $0.appName.localizedCaseInsensitiveContains(trimmed) }
+        let entries = updaterViewModel.skippedUpdates.filter {
+            ApplicationsManagerModel.matchesSearch(
+                search, name: $0.appName, identifier: $0.bundleID
+            )
+        }
         if entries.isEmpty {
             ApplicationsManagerEmptyState(
                 icon: "clock.arrow.circlepath",
@@ -212,10 +213,11 @@ struct UpdaterPaneView: View {
         emptyDetail: String,
         identifier: String
     ) -> some View {
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = trimmed.isEmpty
-            ? entries
-            : entries.filter { $0.app.name.localizedCaseInsensitiveContains(trimmed) }
+        let filtered = entries.filter {
+            ApplicationsManagerModel.matchesSearch(
+                search, name: $0.app.name, identifier: $0.app.bundleID
+            )
+        }
         if filtered.isEmpty {
             ApplicationsManagerEmptyState(
                 icon: "checkmark.shield",
@@ -280,8 +282,9 @@ struct UpdaterPaneView: View {
                 matchesFacet = false
             }
             guard matchesFacet else { return false }
-            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty || info.appName.localizedCaseInsensitiveContains(trimmed)
+            return ApplicationsManagerModel.matchesSearch(
+                search, name: info.appName, identifier: info.bundleID
+            )
         }
     }
 

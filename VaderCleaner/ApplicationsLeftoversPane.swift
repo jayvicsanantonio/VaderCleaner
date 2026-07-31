@@ -16,6 +16,8 @@ enum LeftoverSection: Hashable {
 struct LeftoversPaneView: View {
     let viewModel: ApplicationsViewModel
     let result: ApplicationsScanResult
+    let search: String
+    let sort: AppManagerSort
     @Binding var section: LeftoverSection
 
     var body: some View {
@@ -110,15 +112,35 @@ struct LeftoversPaneView: View {
         let toggle: () -> Void
     }
 
+    /// Applies the manager's search and sort to a section's rows. These
+    /// were previously ignored here entirely — the search field was
+    /// visible on this pane and typing in it did nothing.
+    private func prepared(_ rows: [DisplayRow]) -> [DisplayRow] {
+        let matched = rows.filter {
+            ApplicationsManagerModel.matchesSearch(search, name: $0.name, identifier: $0.id)
+        }
+        // Files have a size but no last-opened date, so the header offers
+        // name and size only — see `sortOptions(for:)`.
+        switch sort {
+        case .size:
+            return matched.sorted { $0.bytes > $1.bytes }
+        case .name, .lastOpened:
+            return matched.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        }
+    }
+
     private func fileList(
         title: String,
         description: String,
-        rows: [DisplayRow],
+        rows unpreparedRows: [DisplayRow],
         onSelectNone: @escaping () -> Void,
         onSelectAll: @escaping () -> Void,
         usesDiskIcon: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let rows = prepared(unpreparedRows)
+        return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.title3.weight(.semibold))
                 Text(description).font(.callout).foregroundStyle(.secondary)

@@ -239,15 +239,15 @@ struct ApplicationsManagerView: View {
             // The Homebrew facets order by name and don't honor the app sort
             // options (they have no size/last-opened), so hide the control there
             // rather than leave it silently ineffective.
-            if !isHomebrewFacetActive {
+            if !isHomebrewFacetActive, sortOptions.count > 1 {
                 Menu {
-                    ForEach(AppManagerSort.allCases) { option in
+                    ForEach(sortOptions) { option in
                         Button(option.label) { sort = option }
                     }
                 } label: {
                     HStack(spacing: 4) {
                         Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                        Text(sort.label).foregroundStyle(.tint)
+                        Text(effectiveSort.label).foregroundStyle(.tint)
                     }
                 }
                 .menuStyle(.borderlessButton)
@@ -257,6 +257,18 @@ struct ApplicationsManagerView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+    }
+
+    /// The sort options the visible pane can actually honour, and the one
+    /// in effect. A selection carried in from another pane falls back to
+    /// name rather than leaving the header naming an ordering that isn't
+    /// applied.
+    private var sortOptions: [AppManagerSort] {
+        ApplicationsManagerModel.sortOptions(for: pane)
+    }
+
+    private var effectiveSort: AppManagerSort {
+        ApplicationsManagerModel.resolvedSort(sort, for: pane)
     }
 
     /// `true` when the visible pane is showing its Homebrew facet, whose lists
@@ -307,7 +319,7 @@ struct ApplicationsManagerView: View {
                 result: result,
                 iconCache: iconCache,
                 search: search,
-                sort: sort,
+                sort: effectiveSort,
                 facet: $uninstallerFacet,
                 inspectingAppID: $inspectingAppID,
                 displayedApps: $displayedApps,
@@ -328,6 +340,7 @@ struct ApplicationsManagerView: View {
             ExtensionsPaneView(
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 search: search,
+                sort: effectiveSort,
                 facet: $extensionsFacet,
                 selection: $extensionSelection,
                 displayed: $displayedExtensions
@@ -336,6 +349,8 @@ struct ApplicationsManagerView: View {
             LeftoversPaneView(
                 viewModel: viewModel,
                 result: result,
+                search: search,
+                sort: effectiveSort,
                 section: $leftoverSection
             )
         case .unsupported:
@@ -343,7 +358,8 @@ struct ApplicationsManagerView: View {
                 viewModel: viewModel,
                 result: result,
                 iconCache: iconCache,
-                search: search
+                search: search,
+                sort: effectiveSort
             )
         }
     }

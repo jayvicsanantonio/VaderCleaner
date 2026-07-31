@@ -165,3 +165,88 @@ final class ApplicationsManagerModelTests: XCTestCase {
         XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: false, isEmpty: false), .content)
     }
 }
+
+/// Sort scoping and the shared search rule — the two behaviours that were
+/// previously restated (or silently skipped) per pane.
+final class ApplicationsManagerControlScopeTests: XCTestCase {
+
+    // MARK: - sortOptions
+
+    /// Every pane can order by name, so the fallback is always available.
+    func test_sortOptions_everyPaneSupportsName() {
+        for pane in [ApplicationsManagerView.Pane.uninstaller, .updater,
+                     .extensions, .leftovers, .unsupported] {
+            XCTAssertTrue(
+                ApplicationsManagerModel.sortOptions(for: pane).contains(.name),
+                "\(pane) must support name ordering"
+            )
+        }
+    }
+
+    /// Updates carry no size and no last-opened date, so the pane offers
+    /// one option and the header shows no menu.
+    func test_sortOptions_updaterOffersNameOnly() {
+        XCTAssertEqual(ApplicationsManagerModel.sortOptions(for: .updater), [.name])
+    }
+
+    /// Extensions have a size but were never opened as apps.
+    func test_sortOptions_extensionsOfferSizeButNotLastOpened() {
+        let options = ApplicationsManagerModel.sortOptions(for: .extensions)
+        XCTAssertTrue(options.contains(.size))
+        XCTAssertFalse(options.contains(.lastOpened))
+    }
+
+    /// Unsupported apps carry a last-opened date but no measured size.
+    func test_sortOptions_unsupportedOffersLastOpenedButNotSize() {
+        let options = ApplicationsManagerModel.sortOptions(for: .unsupported)
+        XCTAssertTrue(options.contains(.lastOpened))
+        XCTAssertFalse(options.contains(.size))
+    }
+
+    // MARK: - resolvedSort
+
+    /// A supported selection is honoured as-is.
+    func test_resolvedSort_keepsASupportedSelection() {
+        XCTAssertEqual(
+            ApplicationsManagerModel.resolvedSort(.size, for: .uninstaller),
+            .size
+        )
+    }
+
+    /// Carrying "Size" into a pane with no sizes falls back to name,
+    /// rather than leaving the header claiming an ordering that isn't in
+    /// effect.
+    func test_resolvedSort_fallsBackWhenTheSelectionIsUnsupported() {
+        XCTAssertEqual(ApplicationsManagerModel.resolvedSort(.size, for: .updater), .name)
+        XCTAssertEqual(ApplicationsManagerModel.resolvedSort(.lastOpened, for: .extensions), .name)
+        XCTAssertEqual(ApplicationsManagerModel.resolvedSort(.size, for: .unsupported), .name)
+    }
+
+    // MARK: - matchesSearch
+
+    /// An empty query matches everything, so an untouched field filters
+    /// nothing out.
+    func test_matchesSearch_emptyQueryMatchesEverything() {
+        XCTAssertTrue(ApplicationsManagerModel.matchesSearch("", name: "Helio"))
+        XCTAssertTrue(ApplicationsManagerModel.matchesSearch("   ", name: "Helio"))
+    }
+
+    func test_matchesSearch_matchesNameCaseInsensitively() {
+        XCTAssertTrue(ApplicationsManagerModel.matchesSearch("hel", name: "Helio"))
+        XCTAssertFalse(ApplicationsManagerModel.matchesSearch("zzz", name: "Helio"))
+    }
+
+    /// The inconsistency this replaces: a bundle ID found apps in some
+    /// panes and nothing in others.
+    func test_matchesSearch_matchesTheIdentifierToo() {
+        XCTAssertTrue(
+            ApplicationsManagerModel.matchesSearch("com.acme", name: "Helio", identifier: "com.acme.helio")
+        )
+    }
+
+    /// Without an identifier only the name is considered — nothing is
+    /// invented to match against.
+    func test_matchesSearch_withoutAnIdentifierOnlyTheNameCounts() {
+        XCTAssertFalse(ApplicationsManagerModel.matchesSearch("com.acme", name: "Helio"))
+    }
+}

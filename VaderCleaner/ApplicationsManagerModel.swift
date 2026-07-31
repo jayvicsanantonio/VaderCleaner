@@ -56,6 +56,53 @@ enum ManagerListState: Equatable, Sendable {
 /// SwiftUI — the same split as `MyClutterManagerModel`.
 enum ApplicationsManagerModel {
 
+    /// The sort options a pane can actually honour.
+    ///
+    /// Not every pane has every dimension: updates carry no size or
+    /// last-opened date, extensions have no last-opened, and unsupported
+    /// apps have no measured size. Offering an option a pane ignores is
+    /// the same defect as showing a control that does nothing — the
+    /// header already hides the menu for Homebrew facets on exactly this
+    /// reasoning, and this applies it everywhere.
+    ///
+    /// A pane with one option gets no menu at all: there is no choice to
+    /// present.
+    static func sortOptions(for pane: ApplicationsManagerView.Pane) -> [AppManagerSort] {
+        switch pane {
+        case .uninstaller:  return [.name, .lastOpened, .size]
+        case .extensions:   return [.name, .size]
+        case .leftovers:    return [.name, .size]
+        case .unsupported:  return [.name, .lastOpened]
+        case .updater:      return [.name]
+        }
+    }
+
+    /// The sort a pane will actually apply, falling back to `.name` when
+    /// the carried selection isn't one it supports. Switching from a pane
+    /// sorted by size to one that has no sizes must not silently leave
+    /// the header claiming an ordering that isn't in effect.
+    static func resolvedSort(
+        _ sort: AppManagerSort,
+        for pane: ApplicationsManagerView.Pane
+    ) -> AppManagerSort {
+        sortOptions(for: pane).contains(sort) ? sort : .name
+    }
+
+    /// Whether an item matches the manager's search field.
+    ///
+    /// `identifier` is the bundle ID or path, searched alongside the
+    /// display name. Panes previously disagreed about this — typing a
+    /// bundle ID found apps in the Uninstaller and nothing in the
+    /// Updater — so the rule lives here rather than being restated per
+    /// pane.
+    static func matchesSearch(_ search: String, name: String, identifier: String? = nil) -> Bool {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        if name.localizedCaseInsensitiveContains(trimmed) { return true }
+        guard let identifier else { return false }
+        return identifier.localizedCaseInsensitiveContains(trimmed)
+    }
+
     /// Which state a manager list should render.
     ///
     /// An empty list while work is still running is not the same as an
@@ -110,11 +157,8 @@ enum ApplicationsManagerModel {
             case .homebrew:                 return false
             }
         }
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return faceted }
         return faceted.filter {
-            $0.name.localizedCaseInsensitiveContains(trimmed)
-                || $0.bundleID.localizedCaseInsensitiveContains(trimmed)
+            matchesSearch(search, name: $0.name, identifier: $0.bundleID)
         }
     }
 

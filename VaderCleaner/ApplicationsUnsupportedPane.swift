@@ -12,6 +12,7 @@ struct UnsupportedPaneView: View {
     let result: ApplicationsScanResult
     let iconCache: AppIconCache
     let search: String
+    let sort: AppManagerSort
 
     var body: some View {
         HStack(spacing: 0) {
@@ -53,11 +54,23 @@ struct UnsupportedPaneView: View {
     // MARK: Right (list)
 
     private var displayedApps: [UnsupportedApp] {
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return result.unsupportedApps }
-        return result.unsupportedApps.filter {
-            $0.app.name.localizedCaseInsensitiveContains(trimmed)
-                || $0.app.bundleID.localizedCaseInsensitiveContains(trimmed)
+        let matched = result.unsupportedApps.filter {
+            ApplicationsManagerModel.matchesSearch(
+                search, name: $0.app.name, identifier: $0.app.bundleID
+            )
+        }
+        // No size is measured for these, so the header offers name and
+        // last-opened only — see `sortOptions(for:)`.
+        switch sort {
+        case .lastOpened:
+            let floor = Date.distantPast
+            return matched.sorted {
+                ($0.app.lastUsedDate ?? floor) > ($1.app.lastUsedDate ?? floor)
+            }
+        case .name, .size:
+            return matched.sorted {
+                $0.app.name.localizedCaseInsensitiveCompare($1.app.name) == .orderedAscending
+            }
         }
     }
 
