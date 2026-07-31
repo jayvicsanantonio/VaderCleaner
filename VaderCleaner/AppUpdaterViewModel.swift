@@ -31,6 +31,11 @@ final class AppUpdaterViewModel {
     /// shells out to `brew`, so it is loaded once per check and the probe
     /// consults the resulting map synchronously.
     typealias LoadCaskOwnership = @Sendable () async -> CaskOwnershipMap
+    /// Installs an update in place. Returns the outcome so the caller can
+    /// fall back to a download when the install is refused.
+    typealias Install = @Sendable (_ update: UpdateInfo, _ feedURL: URL?, _ publicEDKey: String?) async -> UpdateInstallOutcome
+    /// Reads the installed bundle's Sparkle feed URL and public key.
+    typealias ReadSigningInputs = @Sendable (_ bundleURL: URL) -> (feedURL: URL?, publicEDKey: String?)
 
     private(set) var phase: Phase = .idle
     /// Every update the user can act on, direct and Homebrew-managed
@@ -45,6 +50,12 @@ final class AppUpdaterViewModel {
     /// so the choice is reversible — a skip the user cannot find again is
     /// indistinguishable from the update having vanished.
     private(set) var skippedUpdates: [UpdateInfo] = []
+    /// Updates currently being downloaded and installed.
+    private(set) var installingIDs: Set<UpdateInfo.ID> = []
+    /// Why an in-place install didn't happen, per update. Recorded so the
+    /// row can explain that it fell back to a download rather than
+    /// silently doing something different from what the button said.
+    private(set) var installFallbacks: [UpdateInfo.ID: InstallDenial] = [:]
 
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let checkAppStore: CheckAppStore
@@ -57,6 +68,10 @@ final class AppUpdaterViewModel {
     /// throwaway suite.
     @ObservationIgnored private let suppression: UpdateSuppressionStore?
     @ObservationIgnored private let opener: Opener
+    /// Optional: without it the Updater behaves exactly as before, opening
+    /// downloads. Auto-install is additive, never a prerequisite.
+    @ObservationIgnored private let install: Install?
+    @ObservationIgnored private let readSigningInputs: ReadSigningInputs
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUpdaterViewModel")
 
@@ -85,6 +100,8 @@ final class AppUpdaterViewModel {
             = UpdateProbe.liveClassifyUnchecked(),
         loadCaskOwnership: @escaping LoadCaskOwnership = { CaskOwnershipMap() },
         suppression: UpdateSuppressionStore? = nil,
+        install: Install? = nil,
+        readSigningInputs: @escaping ReadSigningInputs = { _ in (nil, nil) },
         opener: @escaping Opener
     ) {
         self.discover = discover
@@ -93,6 +110,8 @@ final class AppUpdaterViewModel {
         self.classifyUnchecked = classifyUnchecked
         self.loadCaskOwnership = loadCaskOwnership
         self.suppression = suppression
+        self.install = install
+        self.readSigningInputs = readSigningInputs
         self.opener = opener
     }
 
@@ -260,8 +279,39 @@ final class AppUpdaterViewModel {
             // Homebrew rows have no URL by construction — they are
             // upgraded in place via `updatePlan(for:)`, never opened.
             guard let url = info.updateURL else { continue }
+            // Prefer installing it outright. Opening a download is the
+            // fallback, not the goal: it leaves the user to mount, drag,
+            // and authenticate something they already asked us to apply.
+            if await installInPlace(info) { continue }
             guard opened.insert(url).inserted else { continue }
             await opener(url)
+        }
+    }
+
+    /// Attempts an in-place install, returning whether it succeeded.
+    ///
+    /// A refusal is recorded rather than surfaced as an error: every
+    /// denial has a safe fallback, and the user asked for the update, not
+    /// for a lecture about appcast signing.
+    private func installInPlace(_ info: UpdateInfo) async -> Bool {
+        guard let install, info.source == .sparkle else { return false }
+        installingIDs.insert(info.id)
+        defer { installingIDs.remove(info.id) }
+
+        let inputs = readSigningInputs(info.bundleURL)
+        switch await install(info, inputs.feedURL, inputs.publicEDKey) {
+        case .installed:
+            availableUpdates.removeAll { $0.id == info.id }
+            installFallbacks[info.id] = nil
+            return true
+        case .denied(let reason):
+            installFallbacks[info.id] = reason
+            return false
+        case .failed:
+            // Distinct from a denial: nothing was refused, something
+            // broke. Either way the download still works.
+            installFallbacks[info.id] = nil
+            return false
         }
     }
 
@@ -355,6 +405,21 @@ extension AppUpdaterViewModel {
             checkSparkle: UpdateProbe.liveSparkleCheck(),
             loadCaskOwnership: { await ownershipLoader.load() },
             suppression: UpdateSuppressionStore(),
+            install: { update, feedURL, publicEDKey in
+                // A fresh installer per attempt: each owns its own scratch
+                // directory and removes it when done.
+                await UpdateInstaller.live().install(
+                    update,
+                    feedURL: feedURL,
+                    edSignature: update.edSignature,
+                    publicEDKey: publicEDKey
+                )
+            },
+            readSigningInputs: { bundleURL in
+                let checker = DefaultSparkleUpdateChecker()
+                return (checker.feedURL(forBundleAt: bundleURL),
+                        checker.publicEDKey(forBundleAt: bundleURL))
+            },
             opener: { url in
                 await MainActor.run {
                     _ = NSWorkspace.shared.open(url)

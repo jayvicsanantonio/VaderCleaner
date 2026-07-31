@@ -333,7 +333,20 @@ struct UpdaterPaneView: View {
                 // "12.8 → 12.9" says nothing about whether the update
                 // matters. The summary is already length-capped upstream;
                 // the tooltip carries whatever the two lines cut off.
-                if let notes = info.releaseNotes {
+                if updaterViewModel.installingIDs.contains(info.id) {
+                    Text(String(localized: "Downloading and installing…", comment: "Update row status during an in-place install."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("applications.manager.updater.installing.\(info.bundleID)")
+                } else if let reason = updaterViewModel.installFallbacks[info.id] {
+                    // Say why we downloaded instead of installing. Doing
+                    // something other than what the button said, silently,
+                    // is worse than the refusal itself.
+                    Text(installFallbackDetail(reason))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("applications.manager.updater.fallback.\(info.bundleID)")
+                } else if let notes = info.releaseNotes {
                     Text(notes)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -375,6 +388,25 @@ struct UpdaterPaneView: View {
     /// Exhaustive rather than an `== .appStore` ternary: a fallback would
     /// silently label any future channel "Web", asserting a direct
     /// download for something that may not have one.
+    /// Why an update was downloaded rather than installed. Phrased as
+    /// what happened and what it means, not as a security lecture.
+    private func installFallbackDetail(_ reason: InstallDenial) -> String {
+        switch reason {
+        case .insecureFeed:
+            return String(localized: "Downloaded — this app's update feed isn't secure.", comment: "Install fallback reason.")
+        case .signatureInvalid:
+            return String(localized: "Downloaded — the update's signature didn't match.", comment: "Install fallback reason.")
+        case .signatureUnverifiable:
+            return String(localized: "Downloaded — this app doesn't sign its updates.", comment: "Install fallback reason.")
+        case .downloadNotValidlySigned:
+            return String(localized: "Downloaded — the update isn't properly signed.", comment: "Install fallback reason.")
+        case .noInstalledTeamIdentifier, .teamIdentifierMismatch:
+            return String(localized: "Downloaded — the update is from a different developer.", comment: "Install fallback reason.")
+        case .notNewer:
+            return String(localized: "Downloaded — this isn't a newer version.", comment: "Install fallback reason.")
+        }
+    }
+
     private func sourceLabel(_ source: UpdateSource) -> String {
         switch source {
         case .appStore: return String(localized: "App Store", comment: "Update source label.")

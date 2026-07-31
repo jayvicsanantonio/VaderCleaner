@@ -285,6 +285,7 @@ struct UpdateProbe: Sendable {
                 latestVersion: item.shortVersion,
                 source: .sparkle,
                 updateURL: item.downloadURL,
+                edSignature: item.edSignature,
                 releaseNotes: item.releaseNotes
             ))
         }

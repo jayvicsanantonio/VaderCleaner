@@ -48,11 +48,17 @@ struct DefaultSparkleUpdateChecker: Sendable {
     }
 
     func feedURL(for app: AppInfo) -> URL? {
+        feedURL(forBundleAt: app.bundleURL)
+    }
+
+    /// Feed URL for a bundle path. The install path only has the bundle
+    /// URL from an `UpdateInfo`, not the original `AppInfo`.
+    func feedURL(forBundleAt bundleURL: URL) -> URL? {
         // `Bundle(url:)` + `object(forInfoDictionaryKey:)` transparently
         // handles binary vs. XML plists and leverages the system bundle
         // cache, rather than us re-reading and re-parsing Info.plist by
         // hand.
-        guard let bundle = Bundle(url: app.bundleURL),
+        guard let bundle = Bundle(url: bundleURL),
               let raw = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
               !raw.isEmpty else {
             return nil
@@ -65,7 +71,13 @@ struct DefaultSparkleUpdateChecker: Sendable {
     /// verify against. Read from the bundle rather than the feed, so a
     /// hijacked appcast cannot supply its own key.
     func publicEDKey(for app: AppInfo) -> String? {
-        guard let bundle = Bundle(url: app.bundleURL),
+        publicEDKey(forBundleAt: app.bundleURL)
+    }
+
+    /// `SUPublicEDKey` for a bundle path, for the same reason as
+    /// `feedURL(forBundleAt:)`.
+    func publicEDKey(forBundleAt bundleURL: URL) -> String? {
+        guard let bundle = Bundle(url: bundleURL),
               let raw = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
               !raw.isEmpty else {
             return nil

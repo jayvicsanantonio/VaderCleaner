@@ -42,6 +42,10 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
     /// The cask that installed this app, for `brew upgrade --cask`.
     /// Non-nil exactly when `source` is `.homebrew`.
     let homebrewToken: String?
+    /// The appcast enclosure's Ed25519 signature, carried so an install
+    /// can verify the download against the key on the installed bundle.
+    /// Nil on channels that publish none, which blocks auto-install.
+    let edSignature: String?
     /// What changed in `latestVersion`, as one plain-text line, or nil
     /// when the channel published none. "12.8 → 12.9" alone tells the
     /// user nothing about whether the update matters to them.
@@ -58,6 +62,7 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
         source: UpdateSource,
         updateURL: URL?,
         homebrewToken: String? = nil,
+        edSignature: String? = nil,
         releaseNotes: String? = nil
     ) {
         self.appName = appName
@@ -68,6 +73,7 @@ struct UpdateInfo: Identifiable, Hashable, Sendable {
         self.source = source
         self.updateURL = updateURL
         self.homebrewToken = homebrewToken
+        self.edSignature = edSignature
         self.releaseNotes = releaseNotes
     }
 }
