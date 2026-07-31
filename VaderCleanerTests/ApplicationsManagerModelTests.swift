@@ -76,15 +76,6 @@ final class ApplicationsManagerModelTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [apps[1].id])
     }
 
-    /// `.suspicious` is a parity placeholder with no members, so it filters to
-    /// an empty list.
-    func test_filter_suspicious_isEmpty() {
-        let result = ApplicationsManagerModel.filter(
-            apps, facet: .suspicious, search: "", unusedIDs: [], selectedIDs: []
-        )
-        XCTAssertTrue(result.isEmpty)
-    }
-
     /// A store facet keeps only apps with the matching receipt state.
     func test_filter_store_keepsMatchingStore() {
         let result = ApplicationsManagerModel.filter(
@@ -146,5 +137,31 @@ final class ApplicationsManagerModelTests: XCTestCase {
             dated, by: .lastOpened, sizes: [:]
         )
         XCTAssertEqual(result.map(\.name), ["Pages", "Chrome", "Safari", "Firefox"])
+    }
+
+    // MARK: - listState
+
+    /// An empty list while work is still running is not an empty result.
+    /// The empty states in this manager assert facts — "Everything is in
+    /// order", "No extensions were found" — and saying them mid-scan is
+    /// simply untrue.
+    func test_listState_emptyWhileLoadingIsLoading() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: true, isEmpty: true), .loading)
+    }
+
+    /// An empty list once the work is done is a real result.
+    func test_listState_emptyAfterLoadingIsEmpty() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: false, isEmpty: true), .empty)
+    }
+
+    /// A pane that already has results keeps showing them through a
+    /// refresh. Blanking a populated list to a spinner loses the user's
+    /// place for no gain.
+    func test_listState_populatedListStaysContentWhileReloading() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: true, isEmpty: false), .content)
+    }
+
+    func test_listState_populatedAndIdleIsContent() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: false, isEmpty: false), .content)
     }
 }

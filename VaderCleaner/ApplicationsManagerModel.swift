@@ -31,8 +31,6 @@ enum AppManagerSort: String, CaseIterable, Identifiable, Sendable {
 enum AppManagerFacet: Hashable, Sendable {
     case all
     case unused
-    /// Parity placeholder — no detector is wired, so this filters to nothing.
-    case suspicious
     case selected
     case store(isAppStore: Bool)
     case vendor(AppVendor)
@@ -42,10 +40,32 @@ enum AppManagerFacet: Hashable, Sendable {
     case homebrew
 }
 
+/// What a manager's item list should render.
+///
+/// `loading` applies only to an *empty* list: a pane that already has
+/// results must keep showing them through a refresh, because blanking a
+/// populated list to a spinner loses the user's place for no gain.
+enum ManagerListState: Equatable, Sendable {
+    case loading
+    case empty
+    case content
+}
+
 /// Stateless derivations over the installed-app list. Kept separate from the
 /// view so the facet counts, filtering, and ordering are unit-testable without
 /// SwiftUI — the same split as `MyClutterManagerModel`.
 enum ApplicationsManagerModel {
+
+    /// Which state a manager list should render.
+    ///
+    /// An empty list while work is still running is not the same as an
+    /// empty result, and the empty states in this manager assert facts —
+    /// "Everything is in order", "No browser extensions were found". Said
+    /// before the scan finishes, those are simply untrue.
+    static func listState(isLoading: Bool, isEmpty: Bool) -> ManagerListState {
+        guard isEmpty else { return .content }
+        return isLoading ? .loading : .empty
+    }
 
     /// Count of App Store vs. non-App-Store apps, off `AppInfo.isAppStore`.
     static func storeCounts(apps: [AppInfo]) -> (appStore: Int, other: Int) {
@@ -81,7 +101,6 @@ enum ApplicationsManagerModel {
             switch facet {
             case .all:                      return true
             case .unused:                   return unusedIDs.contains(app.id)
-            case .suspicious:               return false
             case .selected:                 return selectedIDs.contains(app.id)
             case .store(let isAppStore):    return app.isAppStore == isAppStore
             case .vendor(let vendor):       return AppVendor.of(bundleID: app.bundleID) == vendor

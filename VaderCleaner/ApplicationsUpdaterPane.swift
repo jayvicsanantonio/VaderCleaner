@@ -291,7 +291,15 @@ struct UpdaterPaneView: View {
         // both branches — otherwise an initially empty `displayed` would pin the
         // empty state and never recompute into the list.
         Group {
-            if displayed.isEmpty {
+            // A check is a network round-trip per app. Until it lands,
+            // "Everything is in order" is a claim about work that hasn't
+            // happened yet.
+            if ApplicationsManagerModel.listState(
+                isLoading: updaterViewModel.phase == .checking,
+                isEmpty: displayed.isEmpty
+            ) == .loading {
+                ApplicationsManagerLoadingPane()
+            } else if displayed.isEmpty {
                 ApplicationsManagerEmptyState(
                     icon: "arrow.down.circle",
                     title: String(localized: "Updater", comment: "Updater empty-state title."),

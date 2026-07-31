@@ -91,7 +91,12 @@ struct UnsupportedPaneView: View {
 
     @ViewBuilder
     private var list: some View {
-        if result.unsupportedApps.isEmpty {
+        if ApplicationsManagerModel.listState(
+            isLoading: viewModel.phase == .scanning,
+            isEmpty: result.unsupportedApps.isEmpty
+        ) == .loading {
+            ApplicationsManagerLoadingPane()
+        } else if result.unsupportedApps.isEmpty {
             ApplicationsManagerEmptyState(
                 icon: "checkmark.seal.fill",
                 title: String(localized: "Unsupported", comment: "Unsupported empty-state title."),

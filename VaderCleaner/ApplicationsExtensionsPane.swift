@@ -125,7 +125,12 @@ struct ExtensionsPaneView: View {
         // both branches — otherwise an initially empty `displayed` would pin the
         // empty state and never recompute into the list.
         Group {
-            if displayed.isEmpty {
+            if ApplicationsManagerModel.listState(
+                isLoading: extensionsManagerViewModel.phase == .loading,
+                isEmpty: displayed.isEmpty
+            ) == .loading {
+                ApplicationsManagerLoadingPane()
+            } else if displayed.isEmpty {
                 ApplicationsManagerEmptyState(
                     icon: "puzzlepiece.extension",
                     title: String(localized: "Extensions", comment: "Extensions empty-state title."),
