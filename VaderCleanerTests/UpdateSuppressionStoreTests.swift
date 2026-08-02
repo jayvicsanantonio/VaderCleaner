@@ -147,6 +147,20 @@ final class UpdateSuppressionStoreTests: XCTestCase {
         XCTAssertFalse(snapshot.suppresses(update(version: "2.0")))
     }
 
+    /// The surfaces that only render a list (Smart Scan, the Applications
+    /// dashboard) own no store, so they read the persisted decisions
+    /// directly. What they see must be what the Updater wrote — otherwise
+    /// a skip holds on one screen and not the next.
+    func test_current_readsWhatTheUpdaterPersisted() {
+        let store = UpdateSuppressionStore(defaults: defaults)
+        store.skip(update(version: "2.0"))
+
+        let snapshot = UpdateSuppressionSnapshot.current(defaults: defaults)
+
+        XCTAssertTrue(snapshot.suppresses(update(version: "2.0")))
+        XCTAssertFalse(snapshot.suppresses(update(version: "2.1")))
+    }
+
     // MARK: - Fixtures
 
     private func update(

@@ -136,6 +136,43 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
         XCTAssertTrue(vm.isUpdateSelected(update))
     }
 
+    /// The same app installed in two locations is two rows, and the review
+    /// keys them by `UpdateInfo.id` (the bundle path) for exactly that
+    /// reason. A selection keyed on the bundle ID instead would collapse
+    /// them: one checkbox would drive both rows, and Run would open both
+    /// downloads when the user chose one.
+    func test_updateSelection_keepsTwoInstallsOfTheSameAppIndependent() async {
+        let inApplications = UpdateInfo(
+            appName: "One", bundleID: "com.example.one",
+            bundleURL: URL(fileURLWithPath: "/Applications/One.app"),
+            installedVersion: "1", latestVersion: "2",
+            source: .appStore, updateURL: URL(string: "https://example.com")!
+        )
+        let inHome = UpdateInfo(
+            appName: "One", bundleID: "com.example.one",
+            bundleURL: URL(fileURLWithPath: "/Users/vader/Applications/One.app"),
+            installedVersion: "1", latestVersion: "2",
+            source: .appStore, updateURL: URL(string: "https://example.com")!
+        )
+        let plan = CarePlan(
+            findings: [CareFinding(kind: .appUpdates, payload: .appUpdates([inApplications, inHome]))],
+            health: nil,
+            unitOutcomes: [.appUpdates: .completed],
+            startedAt: Date(),
+            finishedAt: Date()
+        )
+        let vm = SmartScanViewModel(scanEngine: { _, _ in plan })
+        await vm.scan()
+
+        XCTAssertEqual(vm.selectionCount(for: .appUpdates), 2, "both installs seed selected")
+
+        vm.toggleUpdate(inApplications)
+
+        XCTAssertFalse(vm.isUpdateSelected(inApplications))
+        XCTAssertTrue(vm.isUpdateSelected(inHome), "deselecting one copy must not deselect the other")
+        XCTAssertEqual(vm.selectionCount(for: .appUpdates), 1)
+    }
+
     // MARK: - Maintenance tasks
 
     func test_maintenanceSelection_seedsAllThenToggleAndBulk() async {

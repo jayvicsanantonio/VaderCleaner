@@ -16,6 +16,17 @@ struct UpdateSuppressionSnapshot: Sendable {
         self.skippedVersions = skippedVersions
     }
 
+    /// The decisions the Updater has persisted, read fresh.
+    ///
+    /// For the surfaces that render updates without owning a store — Smart
+    /// Scan and the Applications dashboard. A skip is a decision about an
+    /// app, not about the screen it was made on, so it has to hold
+    /// everywhere the update could be offered.
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> UpdateSuppressionSnapshot {
+        UpdateSuppressionStore(defaults: defaults).snapshot()
+    }
+
     /// Whether `info` should be withheld.
     ///
     /// Only versions at or below the declined one are suppressed. A newer

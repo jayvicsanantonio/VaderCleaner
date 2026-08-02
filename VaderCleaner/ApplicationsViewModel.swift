@@ -562,9 +562,10 @@ final class ApplicationsViewModel {
 extension ApplicationsViewModel {
 
     /// Builds a view-model wired to the real `DefaultAppDiscovery` and
-    /// `UpdateProbe.live()` — the same collaborators `AppUpdaterViewModel.live`
-    /// uses, so the dashboard's update count matches the updater list it
-    /// opens.
+    /// `UpdateProbe.liveDirectUpdates` — the same collaborators
+    /// `AppUpdaterViewModel.live` uses, including the Homebrew ownership map
+    /// and the skipped-version records, so the dashboard's update count
+    /// matches the updater list it opens.
     /// - Parameter exclusions: the user's Ignore List. Snapshotted per scan (as
     ///   in every other section) and applied to the installer, unused-app and
     ///   leftover passes, which previously ignored it entirely. `nil` keeps the
@@ -577,7 +578,6 @@ extension ApplicationsViewModel {
             }
         }
         let discovery = DefaultAppDiscovery()
-        let probe = UpdateProbe.live()
         let installerScanner = DefaultInstallationFileScanner()
         let unsupportedScanner = DefaultUnsupportedAppScanner()
         let unusedScanner = DefaultUnusedAppScanner()
@@ -586,8 +586,11 @@ extension ApplicationsViewModel {
             discoverApps: {
                 try await discovery.installedApps(includingSystemApps: false)
             },
+            // Built per scan rather than once: the Homebrew ownership map is
+            // read from `brew` at probe-construction time, and a cask
+            // installed since launch must be recognised on the next scan.
             checkUpdates: { apps in
-                await probe.availableUpdates(for: apps)
+                await UpdateProbe.liveDirectUpdates(for: apps)
             },
             scanInstallationFiles: {
                 await installerScanner.scan(excluding: await excludedURLs())

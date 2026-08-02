@@ -300,9 +300,11 @@ final class SmartScanViewModelScanTests: XCTestCase {
         // Junk: only the safe category's file is pre-checked.
         XCTAssertEqual(vm.junkFileSelection, [URL(fileURLWithPath: "/cache/safe")])
         XCTAssertEqual(vm.selectedJunkBytes, 1_000)
-        // Threats, updates: everything checked.
+        // Threats, updates: everything checked. Updates are keyed by
+        // `UpdateInfo.id` — the installed bundle's path — so two installs of
+        // one app stay two independent rows.
         XCTAssertEqual(vm.threatSelection, [URL(fileURLWithPath: "/tmp/evil")])
-        XCTAssertEqual(vm.updateSelection, ["com.example.app"])
+        XCTAssertEqual(vm.updateSelection, ["/Applications/App.app"])
         // Duplicates: redundant copies only — never the kept original.
         XCTAssertEqual(vm.duplicateSelection, [URL(fileURLWithPath: "/Downloads/copy")])
         // Opt-in tiers: user data starts unchecked.
