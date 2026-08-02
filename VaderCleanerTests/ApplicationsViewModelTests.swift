@@ -510,53 +510,6 @@ final class ApplicationsViewModelTests: XCTestCase {
         XCTAssertEqual(received.value, apps, "The unused scan must receive the discovered apps")
     }
 
-    func test_deleteSelectedUnusedApps_recyclesBundlesAndRebuildsPayload() async {
-        let a = makeUnused(name: "Dusty", bundleID: "com.dusty.app")
-        let b = makeUnused(name: "Stale", bundleID: "com.stale.app")
-        let recycled = TestBox<[URL]>([])
-        let vm = makeViewModel(
-            discover: { [] },
-            unused: { _ in [a, b] },
-            recycle: { urls in recycled.value = urls; return Set(urls) }
-        )
-        await vm.scan()
-        vm.toggleUnusedApp(a)
-
-        await vm.deleteSelectedUnusedApps()
-
-        XCTAssertEqual(recycled.value, [a.app.bundleURL], "Only the selected app bundle is recycled.value")
-        guard case .results(let result) = vm.phase else {
-            return XCTFail("Expected .results, got \(vm.phase)")
-        }
-        XCTAssertEqual(result.unusedApps, [b],
-                       "The recycled.value app must be dropped from the payload")
-        XCTAssertFalse(vm.isRemovingUnusedApps)
-    }
-
-    func test_unusedAppDelete_preservesOtherPayload() async {
-        // Removing an unused app must not touch installers / unsupported.
-        let unused = makeUnused(name: "Dusty", bundleID: "com.dusty.app")
-        let installer = Self.makeInstaller(name: "A.dmg", size: 5_000)
-        let unsupported = Self.makeUnsupported(name: "Old", bundleID: "com.old.app")
-        let vm = makeViewModel(
-            discover: { [] },
-            installers: { [installer] },
-            unsupported: { _ in [unsupported] },
-            unused: { _ in [unused] }
-        )
-        await vm.scan()
-        vm.selectAllUnusedApps()
-
-        await vm.deleteSelectedUnusedApps()
-
-        guard case .results(let result) = vm.phase else {
-            return XCTFail("Expected .results, got \(vm.phase)")
-        }
-        XCTAssertTrue(result.unusedApps.isEmpty)
-        XCTAssertEqual(result.installationFiles, [installer])
-        XCTAssertEqual(result.unsupportedApps, [unsupported])
-    }
-
     // MARK: - Leftovers
 
     func test_scan_passesInstalledBundleIDsToLeftoverScan() async {

@@ -219,12 +219,6 @@ final class ApplicationsViewModel {
     /// True while an unsupported-app recycle batch is in flight.
     private(set) var isRemovingUnsupportedApps = false
 
-    /// Per-app gate for the Unused Applications review screen, keyed by the
-    /// app's bundle URL. Seeded *empty* — removal is destructive and opt-in.
-    private(set) var unusedAppSelection: Set<URL> = []
-    /// True while an unused-app recycle batch is in flight.
-    private(set) var isRemovingUnusedApps = false
-
     /// Per-group gate for the App Leftovers review screen, keyed by the
     /// orphaned bundle ID. Seeded *empty* — removal is destructive and opt-in.
     private(set) var leftoverSelection: Set<String> = []
@@ -283,7 +277,6 @@ final class ApplicationsViewModel {
         let generation = scanGeneration
         installationFileSelection = []
         unsupportedAppSelection = []
-        unusedAppSelection = []
         leftoverSelection = []
 
         do {
@@ -328,7 +321,6 @@ final class ApplicationsViewModel {
         phase = .idle
         installationFileSelection = []
         unsupportedAppSelection = []
-        unusedAppSelection = []
         leftoverSelection = []
     }
 
@@ -442,57 +434,12 @@ final class ApplicationsViewModel {
         unsupportedAppSelection.subtract(removed)
     }
 
-    // MARK: - Unused apps selection
-
-    func isUnusedAppSelected(_ entry: UnusedApp) -> Bool {
-        unusedAppSelection.contains(entry.app.bundleURL)
-    }
-
-    func toggleUnusedApp(_ entry: UnusedApp) {
-        if unusedAppSelection.contains(entry.app.bundleURL) {
-            unusedAppSelection.remove(entry.app.bundleURL)
-        } else {
-            unusedAppSelection.insert(entry.app.bundleURL)
-        }
-    }
-
-    func selectAllUnusedApps() {
-        guard case .results(let result) = phase else { return }
-        unusedAppSelection = Set(result.unusedApps.map(\.app.bundleURL))
-    }
-
-    func clearUnusedAppSelection() {
-        unusedAppSelection = []
-    }
-
-    /// Whether a Remove press would actually recycle anything right now.
-    var canRemoveUnusedApps: Bool {
-        !unusedAppSelection.isEmpty && !isRemovingUnusedApps
-    }
-
-    // MARK: - Unused apps removal
-
-    /// Moves the selected unused app bundles to the Trash and rebuilds the
-    /// results payload with the survivors. Like the unsupported path, only the
-    /// `.app` bundle is moved here; full associated-file cleanup remains
-    /// available via Manage (the uninstaller). A no-op unless results are
-    /// showing and at least one app is selected.
-    func deleteSelectedUnusedApps() async {
-        guard case .results(let result) = phase else { return }
-        let targets = result.unusedApps.filter {
-            unusedAppSelection.contains($0.app.bundleURL)
-        }
-        guard !targets.isEmpty, !isRemovingUnusedApps else { return }
-
-        isRemovingUnusedApps = true
-        let removed = await recycleFiles(targets.map(\.app.bundleURL))
-        isRemovingUnusedApps = false
-
-        guard case .results(var current) = phase else { return }
-        current.unusedApps.removeAll { removed.contains($0.app.bundleURL) }
-        phase = .results(current)
-        unusedAppSelection.subtract(removed)
-    }
+    // Unused apps are scanned here (the dashboard tile counts them and the
+    // Uninstaller's "Unused" facet filters on them) but never removed here:
+    // the Unused card deep-links to the Uninstaller pane, which uninstalls an
+    // app properly — bundle *plus* its associated files. A second, shallower
+    // removal path on this view model would leave preferences and caches
+    // behind and quietly disagree with the screen it links into.
 
     // MARK: - Leftovers selection
 
