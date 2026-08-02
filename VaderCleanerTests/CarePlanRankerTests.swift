@@ -108,6 +108,28 @@ final class CarePlanRankerTests: XCTestCase {
         )
     }
 
+    func test_regrownFinding_outranksAQuietPeerOfTheSameSize() {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let cleared = CareReceipt(
+            date: now.addingTimeInterval(-86_400),
+            lines: [CareReceiptLine(kind: .installers, itemsProcessed: 4, bytesFreed: 0, outcome: .success)]
+        )
+        let regrown = CareFinding(kind: .installers, payload: .installers((0..<4).map {
+            InstallationFile(
+                url: URL(fileURLWithPath: "/Downloads/app\($0).dmg"),
+                name: "app\($0).dmg",
+                sizeBytes: 1_000_000_000,
+                kind: .diskImage
+            )
+        }))
+        let quiet = largeOld(bytes: 4_000_000_000)
+        let ranked = CarePlanRanker.ranked(
+            [quiet, regrown],
+            context: CareSeverityContext(health: nil, receipts: [cleared], now: now)
+        )
+        XCTAssertEqual(ranked.map(\.kind), [.installers, .largeOldFiles])
+    }
+
     func test_rankingWithContext_isDeterministic() {
         let ctx = CareSeverityContext(
             health: CareHealthSnapshot(

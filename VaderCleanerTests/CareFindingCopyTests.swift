@@ -103,4 +103,34 @@ final class CareFindingCopyTests: XCTestCase {
         XCTAssertTrue(note.contains("2"), note)
         XCTAssertTrue(note.contains("selected"))
     }
+
+    // MARK: - Severity note
+
+    func test_severityNote_isNilWhenNoSignalFired() {
+        XCTAssertNil(CareFindingCopy.severityNote(for: []))
+    }
+
+    func test_severityNote_coversEverySignal() {
+        let signals: [CareSignal] = [.magnitude, .diskPressure, .regrowth(since: Date())]
+        for signal in signals {
+            let note = CareFindingCopy.severityNote(for: [signal])
+            XCTAssertNotNil(note, "\(signal) needs a note")
+            XCTAssertFalse(note?.isEmpty ?? true)
+        }
+    }
+
+    func test_severityNote_prefersRegrowth_overTheOtherSignals() {
+        let note = CareFindingCopy.severityNote(for: [.magnitude, .diskPressure, .regrowth(since: Date())])
+        XCTAssertEqual(note, CareFindingCopy.severityNote(for: [.regrowth(since: Date())]))
+    }
+
+    func test_severityNote_prefersDiskPressure_overMagnitude() {
+        let note = CareFindingCopy.severityNote(for: [.magnitude, .diskPressure])
+        XCTAssertEqual(note, CareFindingCopy.severityNote(for: [.diskPressure]))
+    }
+
+    func test_severityNote_statesOneThing_notAParagraph() {
+        let note = CareFindingCopy.severityNote(for: [.magnitude, .diskPressure, .regrowth(since: Date())])
+        XCTAssertEqual(note?.filter { $0 == "." }.count, 1, "signals must not stack into a paragraph")
+    }
 }

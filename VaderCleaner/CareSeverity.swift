@@ -10,6 +10,9 @@ enum CareSignal: Equatable, Sendable {
     case magnitude
     /// Free space is short enough that reclaiming it matters more than usual.
     case diskPressure
+    /// A recent Run cleaned this kind and it has come back. Carries the date of
+    /// the receipt that cleared it, so the copy can be specific.
+    case regrowth(since: Date)
 }
 
 /// How loudly a finding should lead, and why. `urgency` keeps the existing
@@ -30,10 +33,21 @@ struct CareSeverity: Equatable, Sendable {
 /// is reachable.
 struct CareSeverityContext: Sendable {
     let health: CareHealthSnapshot?
+    /// Past Run receipts, oldest first — the order `CareHistoryStore` keeps.
+    let receipts: [CareReceipt]
+    /// Reference point for receipt ages. Snapshotted when a plan lands rather
+    /// than read per render, so a feed's order never shifts under the user.
+    let now: Date
 
-    /// The context for surfaces with no telemetry to consult. Findings resolve
-    /// to their kind-derived tier and a pure magnitude score.
-    static let none = CareSeverityContext(health: nil)
+    init(health: CareHealthSnapshot?, receipts: [CareReceipt] = [], now: Date = Date()) {
+        self.health = health
+        self.receipts = receipts
+        self.now = now
+    }
+
+    /// The context for surfaces with no telemetry or history to consult.
+    /// Findings resolve to their kind-derived tier and a pure magnitude score.
+    static let none = CareSeverityContext(health: nil, receipts: [], now: .distantPast)
 }
 
 /// Deterministic severity rules, `PerformanceRecommendationEngine`-style: no
@@ -62,11 +76,31 @@ enum CareSeverityEngine {
     /// Magnitude at or above which the `.magnitude` signal fires.
     static let magnitudeSignalThreshold = 0.9
 
-    /// Score weights. Magnitude carries the ordering; disk pressure is a
-    /// deliberate nudge, large enough to lift a safe win over a comparable
-    /// peer and too small to outrank a finding an order of magnitude bigger.
-    static let magnitudeWeight = 0.85
+    /// How recently a Run must have cleaned a kind for its return to count as
+    /// regrowth, and how far the signal's weight decays across that span.
+    static let regrowthWindowDays = 30.0
+
+    /// A kind counts as regrown once it is back to this fraction of what the
+    /// last Run cleared. Below it, the finding is residue rather than a return.
+    static let regrowthCountFraction = 0.5
+
+    /// Kinds whose return is worth escalating. `junkCleanup` is deliberately
+    /// absent: macOS rebuilding its own caches is the system working as
+    /// designed, and treating that as a growing problem would be alarming and
+    /// wrong. Junk still reports the signal — the note is useful — but scores
+    /// nothing for it.
+    static let regrowthScoringKinds: Set<CareFinding.Kind> = [
+        .duplicates, .appLeftovers, .installers, .downloads,
+    ]
+
+    /// Score weights, summing to 1. Magnitude carries the ordering; disk
+    /// pressure is a deliberate nudge, large enough to lift a safe win over a
+    /// comparable peer and too small to outrank a finding an order of
+    /// magnitude bigger. Recency sits between them: work the user already did
+    /// once and is being asked to do again deserves to lead its peers.
+    static let magnitudeWeight = 0.60
     static let pressureWeight = 0.15
+    static let recencyWeight = 0.25
 
     // MARK: - Derivation
 
@@ -84,10 +118,23 @@ enum CareSeverityEngine {
             signals.append(.diskPressure)
         }
 
+        var recency = 0.0
+        if let clearedAt = regrowth(for: finding, context: context) {
+            signals.append(.regrowth(since: clearedAt))
+            if regrowthScoringKinds.contains(finding.kind) {
+                recency = recencyDecay(from: clearedAt, to: context.now)
+            }
+        }
+
         // Escalation only raises: a finding never drops below the tier its kind
         // guarantees, whatever the telemetry says.
         let urgency = isCriticallyFull ? max(finding.urgency, .critical) : finding.urgency
-        let score = min(1.0, magnitudeWeight * magnitude + (isBoosted ? pressureWeight : 0))
+        let score = min(
+            1.0,
+            magnitudeWeight * magnitude
+                + (isBoosted ? pressureWeight : 0)
+                + recencyWeight * recency
+        )
 
         return CareSeverity(urgency: urgency, score: score, signals: signals)
     }
@@ -155,6 +202,37 @@ enum CareSeverityEngine {
               finding.reclaimableBytes > diskPressureFloorBytes,
               let disk = context.health?.disk else { return false }
         return HealthMonitorViewModel.diskUsageRatio(disk) >= diskWarningThreshold
+    }
+
+    /// When the most recent Run pass cleared this finding's kind, if it did so
+    /// recently enough and the kind has since come back far enough to count.
+    ///
+    /// Only the newest clearing receipt is consulted: an older one describes a
+    /// cleanup that a later pass already superseded, and walking past it would
+    /// let ancient history revive a signal the recent record contradicts.
+    static func regrowth(for finding: CareFinding, context: CareSeverityContext) -> Date? {
+        guard finding.itemCount > 0 else { return nil }
+        for receipt in context.receipts.reversed() {
+            guard let line = receipt.lines.first(
+                where: { $0.kind == finding.kind && $0.itemsProcessed > 0 }
+            ) else { continue }
+
+            let age = context.now.timeIntervalSince(receipt.date)
+            guard age >= 0, age <= regrowthWindowDays * 86_400 else { return nil }
+            guard Double(finding.itemCount) >= Double(line.itemsProcessed) * regrowthCountFraction
+            else { return nil }
+            return receipt.date
+        }
+        return nil
+    }
+
+    /// Full weight the day after a cleanup, fading to nothing across the
+    /// regrowth window — something back within a week is a louder signal than
+    /// something back after a month.
+    private static func recencyDecay(from clearedAt: Date, to now: Date) -> Double {
+        let window = regrowthWindowDays * 86_400
+        guard window > 0 else { return 0 }
+        return clamped(1.0 - now.timeIntervalSince(clearedAt) / window)
     }
 
     private static func clamped(_ value: Double) -> Double {

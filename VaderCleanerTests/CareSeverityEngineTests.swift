@@ -188,6 +188,101 @@ final class CareSeverityEngineTests: XCTestCase {
         XCTAssertFalse(severity(junk(bytes: 10_000_000)).signals.contains(.magnitude))
     }
 
+    // MARK: - Regrowth
+
+    private let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    private func receipt(kind: CareFinding.Kind, itemsProcessed: Int, daysAgo: Double) -> CareReceipt {
+        CareReceipt(
+            date: now.addingTimeInterval(-daysAgo * 86_400),
+            lines: [CareReceiptLine(kind: kind, itemsProcessed: itemsProcessed, bytesFreed: 0, outcome: .success)]
+        )
+    }
+
+    private func history(_ receipts: [CareReceipt]) -> CareSeverityContext {
+        CareSeverityContext(health: nil, receipts: receipts, now: now)
+    }
+
+    private func installers(_ count: Int, bytes: Int64 = 0) -> CareFinding {
+        let files = (0..<count).map { index in
+            InstallationFile(
+                url: URL(fileURLWithPath: "/Downloads/app\(index).dmg"),
+                name: "app\(index).dmg",
+                sizeBytes: bytes,
+                kind: .diskImage
+            )
+        }
+        return CareFinding(kind: .installers, payload: .installers(files))
+    }
+
+    func test_regrowth_firesWithinTheWindow_atHalfTheClearedCount() {
+        let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 5)])
+        let result = severity(installers(5), ctx)
+        XCTAssertTrue(result.signals.contains { if case .regrowth = $0 { return true } else { return false } })
+    }
+
+    func test_regrowth_doesNotFire_belowHalfTheClearedCount() {
+        let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 5)])
+        XCTAssertFalse(severity(installers(4), ctx).signals.contains { if case .regrowth = $0 { return true } else { return false } })
+    }
+
+    func test_regrowth_doesNotFire_pastTheWindow() {
+        let stale = CareSeverityEngine.regrowthWindowDays + 1
+        let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: stale)])
+        XCTAssertNil(CareSeverityEngine.regrowth(for: installers(10), context: ctx))
+    }
+
+    func test_regrowth_reportsTheMostRecentClearingReceipt() {
+        let ctx = history([
+            receipt(kind: .installers, itemsProcessed: 10, daysAgo: 20),
+            receipt(kind: .installers, itemsProcessed: 10, daysAgo: 3),
+        ])
+        XCTAssertEqual(
+            CareSeverityEngine.regrowth(for: installers(10), context: ctx),
+            now.addingTimeInterval(-3 * 86_400)
+        )
+    }
+
+    func test_regrowth_ignoresReceiptLinesThatProcessedNothing() {
+        let ctx = history([receipt(kind: .installers, itemsProcessed: 0, daysAgo: 3)])
+        XCTAssertNil(CareSeverityEngine.regrowth(for: installers(10), context: ctx))
+    }
+
+    func test_regrowth_ignoresOtherKinds() {
+        let ctx = history([receipt(kind: .downloads, itemsProcessed: 10, daysAgo: 3)])
+        XCTAssertNil(CareSeverityEngine.regrowth(for: installers(10), context: ctx))
+    }
+
+    func test_regrowth_raisesScore_forAWhitelistedKind() {
+        let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 1)])
+        XCTAssertGreaterThan(severity(installers(10), ctx).score, severity(installers(10)).score)
+    }
+
+    func test_regrowth_scoreDecays_asTheReceiptAges() {
+        let fresh = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 1)])
+        let old = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 25)])
+        XCTAssertGreaterThan(severity(installers(10), fresh).score, severity(installers(10), old).score)
+    }
+
+    func test_regrowth_onJunk_reportsTheSignal_butScoresZero() {
+        // macOS rebuilding its own caches is the system working as designed —
+        // worth saying, never worth escalating.
+        let ctx = history([receipt(kind: .junkCleanup, itemsProcessed: 100, daysAgo: 1)])
+        let regrown = CareFinding(
+            kind: .junkCleanup,
+            payload: .junk(ScanResult(items: (0..<100).map { file("/cache/\($0)", size: 1_000) }))
+        )
+        XCTAssertTrue(severity(regrown, ctx).signals.contains { if case .regrowth = $0 { return true } else { return false } })
+        XCTAssertEqual(severity(regrown, ctx).score, severity(regrown).score, accuracy: 0.0001)
+    }
+
+    func test_regrowthScoringKinds_areAllTrashRecoverable() {
+        // Every kind that regrowth escalates must be one the user can undo.
+        for kind in CareSeverityEngine.regrowthScoringKinds {
+            XCTAssertTrue(kind.movesToTrash, "\(kind) escalates on regrowth but isn't recoverable")
+        }
+    }
+
     // MARK: - Determinism
 
     func test_severity_isDeterministic_forTheSameInputs() {

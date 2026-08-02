@@ -374,6 +374,33 @@ enum CareFindingCopy {
         )
     }
 
+    /// The tile's severity note: why this card is ranked where it is, when
+    /// something other than its plain size put it there. `nil` for the common
+    /// case of a finding with nothing special to say, so a quiet card stays
+    /// quiet. One signal speaks — the highest-priority one — because three
+    /// stacked reasons read as a paragraph, not a hint.
+    static func severityNote(for signals: [CareSignal]) -> String? {
+        if signals.contains(where: { if case .regrowth = $0 { return true } else { return false } }) {
+            return String(
+                localized: "Back since your last cleanup.",
+                comment: "Care tile severity note: this finding was cleared by a recent Run and has returned."
+            )
+        }
+        if signals.contains(.diskPressure) {
+            return String(
+                localized: "Worth doing now — your disk is filling up.",
+                comment: "Care tile severity note: free space is short, so reclaiming matters more."
+            )
+        }
+        if signals.contains(.magnitude) {
+            return String(
+                localized: "Bigger than usual for this kind of thing.",
+                comment: "Care tile severity note: the finding is large for its kind."
+            )
+        }
+        return nil
+    }
+
     /// One plain-language line for the run-confirmation sheet, describing what
     /// this finding's action will do to the chosen items. Junk names its size
     /// and says "permanently" — it is the only step the Trash can't undo;

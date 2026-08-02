@@ -154,12 +154,19 @@ For a finding of kind `K`, walk `receipts` newest-first for the first line with
 30 days of `now` **and** the current finding's `itemCount` is at least half what
 that line processed.
 
-**Whitelist — regrowth only escalates for `duplicates`, `appLeftovers`,
+Only the **newest** clearing receipt is consulted. An older one describes a
+cleanup a later pass already superseded, and walking past it would let ancient
+history revive a signal the recent record contradicts.
+
+**Whitelist — regrowth only scores for `duplicates`, `appLeftovers`,
 `installers`, and `downloads`.** For `junkCleanup` regrowth is the system
 working as designed (macOS rebuilds its caches; the copy already says so), and
-treating a rebuilt cache as an escalating problem would be alarming and wrong.
+treating a rebuilt cache as a growing problem would be alarming and wrong.
 Junk still reports the `.regrowth` signal for copy purposes — the note is
 useful — but its score contribution is zero.
+
+A test pins every whitelisted kind to `movesToTrash`, so nothing the app
+escalates on regrowth is something the user can't undo.
 
 ## Ranking
 
@@ -221,59 +228,18 @@ Each phase ships green and is useful alone.
 `CareSeverityContext` (health only — `receipts` and `now` arrive with the code
 that reads them), both disk rules, the score, the ranker context parameter,
 the verdict cap, and the `SmartScanViewModel` wiring. No persistence, no
-history reads. 18 `CareSeverityEngineTests`, 4 added `CarePlanRankerTests`,
-3 added `CareVerdictEngineTests`; full suite 2054 green, 0 lint errors, clean
-Swift 6 build with 0 warnings.
+history reads. 18 All pure-function tests — no fixtures on disk, no main actor. Shipped counts:
+**31 `CareSeverityEngineTests`**, **10 `CarePlanRankerTests`** (5 original,
+5 added), **17 `CareVerdictEngineTests`** (14 original, 3 added), **15
+`CareFindingCopyTests`** (10 original, 5 added).
 
-**Phase 2 — memory.** Regrowth detection against `CareHistoryStore.receipts`,
-the whitelist, the recency term, `severityNote`. Wire the context in
-`SmartScanViewModel` from the injected history store. This is the phase that
-makes the receipt log earn its keep.
-
-**Phase 3 — declined findings (optional, not scoped here).** "You have left
-Similar Photos unselected six scans running, so stop leading with it" needs
-persistence that does not exist yet — a per-kind declined counter. Worth doing,
-but it is a new store and a new privacy question (it is a record of what the
-user chose not to do), so it should be specced separately rather than smuggled
-in behind a scoring change.
-
-## Tests
-
-TDD order. Every one of these is a pure-function test — no fixtures on disk, no
-main actor.
-
-`CareSeverityEngineTests`
-- `test_baseTier_matchesTheKindsUrgency_withEmptyContext`
-- `test_lowDiskSpace_at99Percent_escalatesToCritical`
-- `test_lowDiskSpace_at91Percent_staysAttention`
-- `test_diskCriticalThreshold_isTheHealthMonitorConstant_notACopy`
-- `test_largePreApprovedFinding_underDiskPressure_escalatesToAttention`
-- `test_optInFinding_underDiskPressure_doesNotEscalate`
-- `test_smallFinding_underDiskPressure_doesNotEscalate`
-- `test_appUpdates_stayAttention_atEveryCount`
-- `test_score_isMonotonicInBytes_forSizedFindings`
-- `test_score_separates40GBFrom6GB_moreThan200MBFrom100MB`
-- `test_countFindings_scoreSaturatesAtNotableCount`
-- `test_regrowth_firesWithinThirtyDays_atHalfTheClearedCount`
-- `test_regrowth_doesNotFire_belowHalfTheClearedCount`
-- `test_regrowth_doesNotFire_pastThirtyDays`
-- `test_regrowth_onJunk_reportsSignal_butScoresZero`
-- `test_regrowth_onLeftovers_escalatesToAttention`
-- `test_severity_isDeterministic_forTheSameInputs`
-
-`CarePlanRankerTests` (additions)
-- `test_rankedWithoutContext_matchesTheLegacyOrder`
-- `test_regrownFinding_outranksALargerQuietOne`
-- `test_criticalDisk_leadsTheFeed_aboveLargerSpaceFindings`
-
-`CareVerdictEngineTests` (additions)
-- `test_criticalSeverityFinding_capsTheVerdictAtCritical`
-- `test_verdictCaps_stillOnlyLower_neverRaise`
-
-`CareFindingCopyTests` (additions)
-- `test_severityNote_isNilWhenNoSignalFired`
-- `test_severityNote_prefersRegrowthOverDiskPressure`
-- `test_severityNote_coversEverySignalCase`
+Two names in this spec's first draft did not survive contact with the code, for
+reasons recorded above: `test_regrowth_onLeftovers_escalatesToAttention` became
+`test_regrowth_raisesScore_forAWhitelistedKind` (regrowth scores, it does not
+escalate tiers), and `test_criticalSeverityFinding_capsTheVerdictAtCritical`
+became `test_criticallyFullDiskFinding_capsTheVerdictAtCritical` with a
+companion `test_threats_stillCapAtRequiresAttention_notCritical` guarding the
+distinction.
 
 ## Open questions
 

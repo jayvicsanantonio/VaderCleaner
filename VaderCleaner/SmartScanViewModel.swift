@@ -205,6 +205,10 @@ final class SmartScanViewModel {
     @ObservationIgnored private let recordScan: (Date) -> Void
     @ObservationIgnored private let recordReceipt: (CareReceipt) -> Void
 
+    /// Past Run receipts, read when a plan lands so severity can tell work that
+    /// has come back from work being seen for the first time.
+    @ObservationIgnored private let pastReceipts: () -> [CareReceipt]
+
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
 
@@ -222,10 +226,12 @@ final class SmartScanViewModel {
         enabledUnits: @escaping () -> Set<CareScanUnit> = { Set(CareScanUnit.allCases) },
         enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) },
         recordScan: @escaping (Date) -> Void = { _ in },
-        recordReceipt: @escaping (CareReceipt) -> Void = { _ in }
+        recordReceipt: @escaping (CareReceipt) -> Void = { _ in },
+        pastReceipts: @escaping () -> [CareReceipt] = { [] }
     ) {
         self.recordScan = recordScan
         self.recordReceipt = recordReceipt
+        self.pastReceipts = pastReceipts
         self.scanEngine = scanEngine
         self.junkCleaner = junkCleaner
         self.threatRemover = threatRemover
@@ -502,6 +508,22 @@ final class SmartScanViewModel {
     /// `invalidateResultsCaches()` drops both whenever a new plan lands.
     @ObservationIgnored private var rankedFindingsCache: [CareFinding]?
     @ObservationIgnored private var sizeTables: [CareFinding.Kind: [URL: Int64]] = [:]
+    @ObservationIgnored private var severityContextCache: CareSeverityContext?
+
+    /// The severity inputs for the plan on screen. Snapshotted on first read
+    /// rather than rebuilt per access: `now` anchors every receipt age, and a
+    /// clock that advances between reads would let the feed reorder itself
+    /// under the user mid-session.
+    var severityContext: CareSeverityContext {
+        if let cached = severityContextCache { return cached }
+        let context = CareSeverityContext(
+            health: currentPlan?.health,
+            receipts: pastReceipts(),
+            now: Date()
+        )
+        severityContextCache = context
+        return context
+    }
 
     /// The feed in display order: threats first, then space, then advisories.
     /// Memoized per plan: the feed reads this several times in one render (once
@@ -510,9 +532,21 @@ final class SmartScanViewModel {
     var rankedFindings: [CareFinding] {
         guard let plan = currentPlan else { return [] }
         if let cached = rankedFindingsCache { return cached }
-        let ranked = CarePlanRanker.ranked(plan.findings, context: CareSeverityContext(health: plan.health))
+        let ranked = CarePlanRanker.ranked(plan.findings, context: severityContext)
         rankedFindingsCache = ranked
         return ranked
+    }
+
+    @ObservationIgnored private var severityCache: [CareFinding.Kind: CareSeverity] = [:]
+
+    /// This finding's severity under the current plan's context. Memoized for
+    /// the same render-cost reason as `rankedFindings`: every tile reads it on
+    /// every pass through the feed.
+    func severity(for finding: CareFinding) -> CareSeverity {
+        if let cached = severityCache[finding.kind] { return cached }
+        let value = CareSeverityEngine.severity(for: finding, context: severityContext)
+        severityCache[finding.kind] = value
+        return value
     }
 
     /// Drops the per-plan memoizations so a stale sort or size table can never
@@ -520,6 +554,8 @@ final class SmartScanViewModel {
     private func invalidateResultsCaches() {
         rankedFindingsCache = nil
         sizeTables = [:]
+        severityContextCache = nil
+        severityCache = [:]
     }
 
     // MARK: - Card inclusion
@@ -1105,7 +1141,7 @@ final class SmartScanViewModel {
         planUnderRun = plan
         // Resolve the queue up front so the running screen can show honest
         // "step N of M" progress and the current action's label.
-        let queue = CarePlanRanker.ranked(plan.findings, context: CareSeverityContext(health: plan.health))
+        let queue = CarePlanRanker.ranked(plan.findings, context: severityContext)
             .filter { willExecuteDuringRun($0) }
         runProgress = RunProgress(
             completed: 0,
@@ -1576,7 +1612,8 @@ extension SmartScanViewModel {
             // Strong captures: the view model is the store's writer, and the
             // app hands the same instance to the environment for the views.
             recordScan: { history.recordScan(at: $0) },
-            recordReceipt: { history.recordReceipt($0) }
+            recordReceipt: { history.recordReceipt($0) },
+            pastReceipts: { history.receipts }
         )
     }
 

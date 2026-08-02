@@ -149,10 +149,13 @@ struct CarePlanFeedView: View {
             zoneHeader(title: title, subtitle: subtitle, subtitleColor: subtitleColor)
             LazyVGrid(columns: Self.gridColumns, spacing: 14) {
                 ForEach(findings) { finding in
+                    let severity = viewModel.severity(for: finding)
                     CareResultTile(
                         finding: finding,
                         metric: CareFindingCopy.metric(for: finding),
                         selectionNote: selectionNote(for: finding),
+                        severityNote: CareFindingCopy.severityNote(for: severity.signals),
+                        isCritical: severity.urgency == .critical,
                         isIncluded: viewModel.isFindingIncluded(finding.kind),
                         showsReview: reviewableKinds.contains(finding.kind),
                         onToggleInclusion: { toggleInclusion(of: finding) },
@@ -359,6 +362,13 @@ struct CareResultTile: View {
     /// The secondary line beneath it — how much is currently selected — so the
     /// tile shows both what's there and what Fix will take. `nil` hides it.
     let selectionNote: String?
+    /// Why this tile ranks where it does, when something other than its plain
+    /// size put it there. `nil` for a finding with nothing special to say.
+    let severityNote: String?
+    /// Whether severity resolved this finding to critical — the tier the red
+    /// edge marks. Not the same as the kind's own urgency: a disk card
+    /// escalates here when the volume is nearly full.
+    let isCritical: Bool
     let isIncluded: Bool
     let showsReview: Bool
     let onToggleInclusion: () -> Void
@@ -413,6 +423,14 @@ struct CareResultTile: View {
                             .lineLimit(1)
                             .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).selection")
                     }
+                    if let severityNote {
+                        Text(severityNote)
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(accent)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("smartScan.card.\(finding.kind.rawValue).severity")
+                    }
                 }
                 Spacer(minLength: 8)
                 if showsReview {
@@ -430,7 +448,7 @@ struct CareResultTile: View {
         .background(artCorner)
         .vaderTileGlass()
         .overlay(alignment: .leading) {
-            if finding.urgency == .critical {
+            if isCritical {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(.red)
                     .frame(width: 3)
