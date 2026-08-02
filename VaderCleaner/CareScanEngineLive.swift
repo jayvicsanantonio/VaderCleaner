@@ -91,8 +91,13 @@ extension CareScanEngine.UnitRunners {
             installedApps: {
                 try await DefaultAppDiscovery().installedApps(includingSystemApps: false)
             },
+            // The same list the Updater pane shows: Homebrew-owned casks are
+            // left to `brew` (a direct download would overwrite a
+            // Caskroom-tracked install) and versions the user skipped stay
+            // skipped. Smart Scan pre-checks its update card, so both
+            // matter more here than anywhere else.
             appUpdates: { apps, onProgress in
-                await UpdateProbe.live().availableUpdates(for: apps, onProgress: { checked, _ in
+                await UpdateProbe.liveDirectUpdates(for: apps, onProgress: { checked, _ in
                     onProgress(checked)
                 })
             },

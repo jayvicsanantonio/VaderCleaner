@@ -181,6 +181,25 @@ struct UpdateProbe: Sendable {
         Self.updates(in: await outcomes(for: apps, onProgress: onProgress))
     }
 
+    /// The updates a surface should offer directly: everything the probe
+    /// found, minus the versions the user declined in the Updater.
+    /// Homebrew-owned apps never reach here — the probe skips them before
+    /// any channel dispatch.
+    ///
+    /// This is what the Updater pane's own list is, so the surfaces that
+    /// only *render* updates (Smart Scan, the Applications dashboard) go
+    /// through it rather than calling `availableUpdates` raw. Both used to,
+    /// and both drifted: they offered cask-owned apps a direct download and
+    /// re-offered versions the user had already skipped.
+    func directUpdates(
+        for apps: [AppInfo],
+        declined: UpdateSuppressionSnapshot,
+        onProgress: @Sendable (_ checked: Int, _ total: Int) -> Void = { _, _ in }
+    ) async -> [UpdateInfo] {
+        await availableUpdates(for: apps, onProgress: onProgress)
+            .filter { !declined.suppresses($0) }
+    }
+
     /// Extracts the `.update` payloads, sorted case-insensitively by app
     /// name so the list order is deterministic between successive checks.
     static func updates(in results: [UpdateProbeResult]) -> [UpdateInfo] {
@@ -297,13 +316,34 @@ struct UpdateProbe: Sendable {
 extension UpdateProbe {
 
     /// Probe wired to the real `DefaultAppStoreUpdateChecker` and
-    /// `DefaultSparkleUpdateChecker`.
-    static func live() -> UpdateProbe {
-        UpdateProbe(
+    /// `DefaultSparkleUpdateChecker`, over a freshly-loaded Homebrew
+    /// ownership map.
+    ///
+    /// Loading the map is why this is `async`: it shells out to `brew`, and
+    /// it must be resolved *before* any dispatch, since a cask-owned app is
+    /// skipped rather than checked. A machine without Homebrew gets an empty
+    /// map from a failed `locate()` without running anything.
+    static func live(ownershipLoader: CaskOwnershipLoader = CaskOwnershipLoader()) async -> UpdateProbe {
+        let ownership = await ownershipLoader.load()
+        return UpdateProbe(
             checkAppStore: liveAppStoreCheck(),
             checkSparkle: liveSparkleCheck(),
-            classifyUnchecked: liveClassifyUnchecked()
+            classifyUnchecked: liveClassifyUnchecked(),
+            resolveHomebrewToken: { ownership.owner(of: $0)?.token }
         )
+    }
+
+    /// The live update list for a surface that renders updates but owns no
+    /// Updater state of its own: probed with Homebrew ownership resolved and
+    /// the user's skipped versions withheld, so its list matches the Updater
+    /// pane it links into.
+    static func liveDirectUpdates(
+        for apps: [AppInfo],
+        onProgress: @Sendable (_ checked: Int, _ total: Int) -> Void = { _, _ in }
+    ) async -> [UpdateInfo] {
+        let probe = await live()
+        let declined = await MainActor.run { UpdateSuppressionSnapshot.current() }
+        return await probe.directUpdates(for: apps, declined: declined, onProgress: onProgress)
     }
 
     /// Live skip classifier. An app the probe could not query either ships

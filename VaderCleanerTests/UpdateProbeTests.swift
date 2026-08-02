@@ -431,6 +431,72 @@ final class UpdateProbeTests: XCTestCase {
         XCTAssertEqual(Set(outcomes.map(\.app.bundleID)).count, 20)
     }
 
+    // MARK: - Direct updates
+
+    /// A version declined in the Updater must stay declined on every other
+    /// surface. Smart Scan seeds its update card pre-checked, so an update
+    /// the user skipped and that came back would be re-offered *and* acted
+    /// on by a one-tap Run.
+    func test_directUpdates_withholdsVersionsTheUserDeclined() async {
+        let helio = makeApp(name: "Helio", bundleID: "com.acme.helio", isAppStore: true)
+        let mango = makeApp(name: "Mango", bundleID: "com.acme.mango", isAppStore: true)
+        let probe = UpdateProbe(
+            checkAppStore: { bundleID in
+                .found(AppStoreLookup(
+                    version: "2.0.0",
+                    appStoreURL: URL(string: "https://apps.apple.com/app/\(bundleID)")!
+                ))
+            },
+            checkSparkle: { _ in .skipped }
+        )
+        let declined = UpdateSuppressionSnapshot(skippedVersions: ["com.acme.helio": "2.0.0"])
+
+        let updates = await probe.directUpdates(for: [helio, mango], declined: declined)
+
+        XCTAssertEqual(updates.map(\.bundleID), ["com.acme.mango"])
+    }
+
+    /// A cask-owned app is upgraded in place by `brew`. Offering it a direct
+    /// download would overwrite a Caskroom-tracked install, so it must not
+    /// reach the list any surface renders.
+    func test_directUpdates_leavesHomebrewOwnedAppsToBrew() async {
+        let cask = makeApp(name: "Mango", bundleID: "com.acme.mango", isAppStore: false)
+        let probe = UpdateProbe(
+            checkAppStore: { _ in .noResult },
+            checkSparkle: { _ in
+                .found(SparkleAppcastItem(
+                    shortVersion: "2.0.0",
+                    version: "200",
+                    downloadURL: URL(string: "https://acme.example/Mango.zip")!
+                ))
+            },
+            resolveHomebrewToken: { _ in "mango" }
+        )
+
+        let updates = await probe.directUpdates(for: [cask], declined: UpdateSuppressionSnapshot())
+
+        XCTAssertTrue(updates.isEmpty, "a cask-owned app is brew's to upgrade, never a direct download")
+    }
+
+    /// Nothing declined and no Homebrew: the list is exactly what the probe
+    /// found, so the filter can't quietly swallow ordinary updates.
+    func test_directUpdates_passesThroughWhenNothingIsWithheld() async {
+        let app = makeApp(name: "Helio", bundleID: "com.acme.helio", isAppStore: true)
+        let probe = UpdateProbe(
+            checkAppStore: { _ in
+                .found(AppStoreLookup(
+                    version: "2.0.0",
+                    appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
+                ))
+            },
+            checkSparkle: { _ in .skipped }
+        )
+
+        let updates = await probe.directUpdates(for: [app], declined: UpdateSuppressionSnapshot())
+
+        XCTAssertEqual(updates.map(\.bundleID), ["com.acme.helio"])
+    }
+
     // MARK: - Fixtures
 
     private func makeApp(

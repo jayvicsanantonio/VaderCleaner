@@ -87,6 +87,10 @@ final class SmartScanViewModel {
     typealias RecycleFiles = @Sendable ([URL]) async -> Set<URL>
     /// Runs one maintenance task by its `MaintenanceTask.Kind` raw value.
     typealias MaintenanceTaskRunner = (String) async throws -> Void
+    /// An app's on-disk support files, by bundle ID — the same lookup the
+    /// Uninstaller performs before it recycles a bundle, so uninstalling an
+    /// unused app here takes its preferences, caches, and containers too.
+    typealias FindAssociatedFiles = @Sendable (String) async -> [AssociatedFile]
     typealias PrivacyRemover = ([PrivacyRemovalRequest]) async throws -> Void
 
     // MARK: - Observable state
@@ -158,7 +162,11 @@ final class SmartScanViewModel {
     private(set) var selectedJunkBytesByCategory: [ScanCategory: Int64] = [:]
     private(set) var selectedJunkCountByCategory: [ScanCategory: Int] = [:]
     private(set) var threatSelection: Set<URL> = []
-    private(set) var updateSelection: Set<String> = []
+    /// Keyed by `UpdateInfo.id` — the installed bundle's path — never by
+    /// bundle ID. The same app can be installed in two locations, which is
+    /// two rows in Review; a bundle-ID key would collapse them into one
+    /// checkbox and open both downloads when the user chose one.
+    private(set) var updateSelection: Set<UpdateInfo.ID> = []
     private(set) var maintenanceSelection: Set<String> = []
     private(set) var duplicateSelection: Set<URL> = []
     private(set) var largeOldFileSelection: Set<URL> = []
@@ -189,6 +197,7 @@ final class SmartScanViewModel {
     @ObservationIgnored private let threatRemover: ThreatRemover
     @ObservationIgnored private let updateOpener: UpdateOpener
     @ObservationIgnored private let recycleFiles: RecycleFiles
+    @ObservationIgnored private let findAssociatedFiles: FindAssociatedFiles
     @ObservationIgnored private let maintenanceTaskRunner: MaintenanceTaskRunner
     @ObservationIgnored private let recordMaintenanceRun: (String) -> Void
     @ObservationIgnored private let privacyRemover: PrivacyRemover
@@ -214,6 +223,10 @@ final class SmartScanViewModel {
         threatRemover: @escaping ThreatRemover = { _ in [] },
         updateOpener: @escaping UpdateOpener = { _ in },
         recycleFiles: @escaping RecycleFiles = { _ in [] },
+        // Defaults to claiming nothing: a caller that supplies no finder
+        // recycles bundles alone, which is what every test that isn't about
+        // uninstalling an app wants.
+        findAssociatedFiles: @escaping FindAssociatedFiles = { _ in [] },
         maintenanceTaskRunner: @escaping MaintenanceTaskRunner = { _ in },
         recordMaintenanceRun: @escaping (String) -> Void = { _ in },
         privacyRemover: @escaping PrivacyRemover = { _ in },
@@ -231,6 +244,7 @@ final class SmartScanViewModel {
         self.threatRemover = threatRemover
         self.updateOpener = updateOpener
         self.recycleFiles = recycleFiles
+        self.findAssociatedFiles = findAssociatedFiles
         self.maintenanceTaskRunner = maintenanceTaskRunner
         self.recordMaintenanceRun = recordMaintenanceRun
         self.privacyRemover = privacyRemover
@@ -363,7 +377,7 @@ final class SmartScanViewModel {
             threatSelection = Set(threats.map(\.filePath))
         }
         if case .appUpdates(let updates)? = plan.finding(.appUpdates)?.payload {
-            updateSelection = Set(updates.map(\.bundleID))
+            updateSelection = Set(updates.map(\.id))
         }
         // Every due maintenance task starts selected — the tune-up tile is
         // pre-approved, so Run does the whole cocktail unless the user opts a
@@ -720,21 +734,21 @@ final class SmartScanViewModel {
     // MARK: - Update selection
 
     func isUpdateSelected(_ update: UpdateInfo) -> Bool {
-        updateSelection.contains(update.bundleID)
+        updateSelection.contains(update.id)
     }
 
     func toggleUpdate(_ update: UpdateInfo) {
-        if updateSelection.contains(update.bundleID) {
-            updateSelection.remove(update.bundleID)
+        if updateSelection.contains(update.id) {
+            updateSelection.remove(update.id)
         } else {
-            updateSelection.insert(update.bundleID)
+            updateSelection.insert(update.id)
         }
     }
 
     /// Check or uncheck every available update in one write.
     func setAllUpdates(selected: Bool) {
         guard case .appUpdates(let updates)? = currentPlan?.finding(.appUpdates)?.payload else { return }
-        updateSelection = selected ? Set(updates.map(\.bundleID)) : []
+        updateSelection = selected ? Set(updates.map(\.id)) : []
     }
 
     // MARK: - Maintenance selection
@@ -1195,12 +1209,7 @@ final class SmartScanViewModel {
             )
 
         case .unusedApps(let apps):
-            let selected = apps.filter { unusedAppSelection.contains($0.id) }
-            return await recycleLine(
-                kind: .unusedApps,
-                urls: selected.map(\.app.bundleURL),
-                sizeOf: Dictionary(selected.map { ($0.app.bundleURL, $0.sizeBytes) }, uniquingKeysWith: { size, _ in size })
-            )
+            return await executeUnusedAppRemoval(apps)
 
         case .unsupportedApps(let apps):
             // Incompatible apps carry no measured size (the value is removing a
@@ -1263,6 +1272,42 @@ final class SmartScanViewModel {
         )
     }
 
+    /// Uninstalls each chosen unused app the way the Applications Manager
+    /// does: the bundle **and** the support files that belong to it.
+    /// Recycling the bundle alone leaves preferences, caches, and containers
+    /// on disk, which the next scan then reports back as leftovers — the
+    /// same app cleaned twice, and less space freed than the card promised.
+    private func executeUnusedAppRemoval(_ apps: [UnusedApp]) async -> CareReceiptLine? {
+        let selected = apps.filter { unusedAppSelection.contains($0.id) }
+        guard !selected.isEmpty else { return nil }
+
+        var urls: [URL] = []
+        var sizeOf: [URL: Int64] = [:]
+        for app in selected {
+            urls.append(app.app.bundleURL)
+            sizeOf[app.app.bundleURL] = app.sizeBytes
+            for file in await findAssociatedFiles(app.app.bundleID) {
+                urls.append(file.url)
+                sizeOf[file.url] = file.sizeBytes
+            }
+        }
+
+        let recycled = await recycleFiles(urls)
+        // An app counts as uninstalled when its *bundle* reached the Trash.
+        // A support file left behind is a stray, not a failed uninstall —
+        // and a bundle that wouldn't move is a failure however many of its
+        // caches did.
+        let removed = selected.filter { recycled.contains($0.app.bundleURL) }
+        return CareReceiptLine(
+            kind: .unusedApps,
+            itemsProcessed: removed.count,
+            bytesFreed: recycled.reduce(Int64(0)) { $0 + (sizeOf[$1] ?? 0) },
+            outcome: removed.count == selected.count
+                ? .success
+                : .partial(failedCount: selected.count - removed.count)
+        )
+    }
+
     private func executeLeftoverRemoval(_ groups: [LeftoverGroup]) async -> CareReceiptLine? {
         let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
         guard !selected.isEmpty else { return nil }
@@ -1282,7 +1327,7 @@ final class SmartScanViewModel {
     }
 
     private func executeAppUpdates(_ updates: [UpdateInfo]) async -> CareReceiptLine? {
-        let selected = updates.filter { updateSelection.contains($0.bundleID) }
+        let selected = updates.filter { updateSelection.contains($0.id) }
         guard !selected.isEmpty else { return nil }
         for update in selected {
             // Homebrew-managed updates carry no URL — they are applied by
@@ -1549,6 +1594,14 @@ extension SmartScanViewModel {
                 await MainActor.run { _ = NSWorkspace.shared.open(url) }
             },
             recycleFiles: { urls in await UserFileRecycler.recycle(urls, context: "Smart Scan") },
+            // The Uninstaller's own lookup, exclusions read per app so a
+            // freshly-added Ignore List entry is honoured on the next run.
+            findAssociatedFiles: { [weak exclusions] bundleID in
+                let excluded = await MainActor.run {
+                    (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+                }
+                return await DefaultAssociatedFileFinder(excluding: excluded).find(forBundleID: bundleID)
+            },
             maintenanceTaskRunner: { taskID in
                 switch MaintenanceTask.Kind(rawValue: taskID) {
                 case .runMaintenanceScripts: _ = try await MaintenanceScriptRunner().run()
