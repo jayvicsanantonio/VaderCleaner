@@ -50,6 +50,13 @@ enum CareVerdictEngine {
         if safelyFreeableBytes(in: plan) > safeJunkCapBytes {
             status = min(status, .fair)
         }
+        // A disk this close to full is the one finding that speaks for the whole
+        // Mac: everything else degrades once it fills. The base tier already
+        // reads `requiresAttention` from the same telemetry, so this is what
+        // separates "nearly full" from "about to stop working".
+        if plan.findings.contains(where: CareSeverityEngine.reportsCriticallyFullDisk) {
+            status = min(status, .critical)
+        }
         return status
     }
 

@@ -9,14 +9,41 @@ import Foundation
 /// concurrent sub-scans happened to finish in.
 enum CarePlanRanker {
 
-    static func ranked(_ findings: [CareFinding]) -> [CareFinding] {
-        findings.sorted { lhs, rhs in
-            let lhsCritical = lhs.urgency == .critical
-            let rhsCritical = rhs.urgency == .critical
+    /// Findings in feed order. `context` supplies the telemetry severity reasons
+    /// over; the default reproduces the context-free order for callers that have
+    /// none.
+    ///
+    /// Sized findings stay ahead of count-only ones. The two measure different
+    /// things — bytes against a scale, items against what's routine for a kind —
+    /// and letting a one-item advisory outscore a real space win on a normalized
+    /// number would be comparing scales that don't meet.
+    static func ranked(
+        _ findings: [CareFinding],
+        context: CareSeverityContext = .none
+    ) -> [CareFinding] {
+        // Severity is derived once per finding rather than inside the
+        // comparator, which would recompute it O(n log n) times.
+        let severities = Dictionary(
+            findings.map { ($0.kind, CareSeverityEngine.severity(for: $0, context: context)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return findings.sorted { lhs, rhs in
+            let lhsSeverity = severities[lhs.kind]
+            let rhsSeverity = severities[rhs.kind]
+
+            let lhsCritical = lhsSeverity?.urgency == .critical
+            let rhsCritical = rhsSeverity?.urgency == .critical
             if lhsCritical != rhsCritical { return lhsCritical }
-            if lhs.reclaimableBytes != rhs.reclaimableBytes {
-                return lhs.reclaimableBytes > rhs.reclaimableBytes
-            }
+
+            let lhsSized = lhs.reclaimableBytes > 0
+            let rhsSized = rhs.reclaimableBytes > 0
+            if lhsSized != rhsSized { return lhsSized }
+
+            let lhsScore = lhsSeverity?.score ?? 0
+            let rhsScore = rhsSeverity?.score ?? 0
+            if lhsScore != rhsScore { return lhsScore > rhsScore }
+
             return kindIndex(lhs.kind) < kindIndex(rhs.kind)
         }
     }

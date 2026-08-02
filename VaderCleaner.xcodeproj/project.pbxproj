@@ -72,6 +72,7 @@
 		20A0A0A414E0D919060C99D2 /* MalwareThreatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB9EFA17ABC7865841D10F28 /* MalwareThreatTests.swift */; };
 		218D346DC005B993AFE18957 /* UpdateInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46943B264F72B3753075A8C /* UpdateInfoTests.swift */; };
 		22ABAB2520C6640036561DEC /* SmartScanSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDCDF1D60580818B27EFBB56 /* SmartScanSettingsStoreTests.swift */; };
+		246E09F53F8E0DBA64E1FED4 /* CareSeverityEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D4DC2242BE323CDFED47B0 /* CareSeverityEngineTests.swift */; };
 		2496AA7652731EB00265601A /* SmartScanReviewManagerSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662EC8345F95EEAFC030B422 /* SmartScanReviewManagerSelectionTests.swift */; };
 		24C59EBCD3B20FC5E103CBAC /* CareScanEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABC981324E0B3FA0AD765F5F /* CareScanEngineTests.swift */; };
 		25057052F5E478AD7B692B9F /* ClamAVOutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D100906EEB9D4F9BF793858C /* ClamAVOutputParser.swift */; };
@@ -440,6 +441,7 @@
 		D6C17A4A7EE7DABEBDE62F94 /* BrowserPrivacyRemoverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A4A9DC4B07D250A7F369C1 /* BrowserPrivacyRemoverTests.swift */; };
 		D6F3053273871EB277D1B523 /* DeviceBatteryMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A69F8127A8C664B222B5691 /* DeviceBatteryMonitorTests.swift */; };
 		D76D8B5378ECE0D7C9734135 /* HomebrewViewModelLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476BD46BB2D4B1B491D11FD1 /* HomebrewViewModelLiveTests.swift */; };
+		D848916A3F26EEE4D704864B /* CareSeverity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012FAA39872E516952D1E6EF /* CareSeverity.swift */; };
 		D9029A3DA664E384CA7FA8A7 /* ReleaseNotesSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A15177130FF76BB98109000 /* ReleaseNotesSummaryTests.swift */; };
 		D911FAA1B6067442C5D36F11 /* UpdateProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE71FA16E4B413D837F097E2 /* UpdateProbeTests.swift */; };
 		D96306C95D6F2DF780F02A5F /* AppUninstallerViewSubviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95F9F1598CDBA6E90EC82B4 /* AppUninstallerViewSubviews.swift */; };
@@ -566,6 +568,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		012FAA39872E516952D1E6EF /* CareSeverity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareSeverity.swift; sourceTree = "<group>"; };
 		01EA1ADE2572F4772B89B1B1 /* SectionTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionTheme.swift; sourceTree = "<group>"; };
 		02167EA31F576ABDAC69EF9D /* SystemStatsFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatsFormatters.swift; sourceTree = "<group>"; };
 		02734346BE66CC759A92FB83 /* HelperDeletionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperDeletionPolicy.swift; sourceTree = "<group>"; };
@@ -817,6 +820,7 @@
 		7839479824D4A88B31585252 /* BloomField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomField.swift; sourceTree = "<group>"; };
 		785EECE3C6B84ECB7D0A3384 /* spaceLens.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = spaceLens.usdz; sourceTree = "<group>"; };
 		78BB283D2312DE0FFBF3C04D /* RAMManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RAMManagerTests.swift; sourceTree = "<group>"; };
+		78D4DC2242BE323CDFED47B0 /* CareSeverityEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareSeverityEngineTests.swift; sourceTree = "<group>"; };
 		7DCFD0125CC1CBA6A4A9A307 /* BrewOutdatedParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewOutdatedParserTests.swift; sourceTree = "<group>"; };
 		7E800D4E6E10B7B99B2D1170 /* AppUninstallerViewModelMultiSelectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUninstallerViewModelMultiSelectTests.swift; sourceTree = "<group>"; };
 		7EB9080DB9E32168E1AA98AB /* MyClutterThumbnailStripItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterThumbnailStripItem.swift; sourceTree = "<group>"; };
@@ -1193,6 +1197,7 @@
 				E11B461971702470D7F3E488 /* CareScanEngine.swift */,
 				B0BD63D8AB148E0E1AEB1DF9 /* CareScanEngineLive.swift */,
 				A066CA0BACD6EEF77AACFDD3 /* CareScanUnit.swift */,
+				012FAA39872E516952D1E6EF /* CareSeverity.swift */,
 				C1ACA70E63A4981BF477C35B /* CareVerdict.swift */,
 				82000CDB228B8B288093AD81 /* CaskOwnership.swift */,
 				0DF949F3DA22FC5846016B70 /* CaskOwnershipLoader.swift */,
@@ -1519,6 +1524,7 @@
 				5B0C7DC7DD80063B229067ED /* CarePlanTests.swift */,
 				EF69D87EB6C33719A7EEBA57 /* CareScanEngineLiveTests.swift */,
 				ABC981324E0B3FA0AD765F5F /* CareScanEngineTests.swift */,
+				78D4DC2242BE323CDFED47B0 /* CareSeverityEngineTests.swift */,
 				84FCEFD71586FDF589B270C0 /* CareVerdictEngineTests.swift */,
 				50FC137E30468F028110C08F /* CaskOwnershipLoaderTests.swift */,
 				2A9368CD4FCCF32C5E5DF189 /* CaskOwnershipMapTests.swift */,
@@ -1944,6 +1950,7 @@
 				AEB27F2704486645CB60604A /* CarePlanTests.swift in Sources */,
 				C7B02B71412F20446D0DC92B /* CareScanEngineLiveTests.swift in Sources */,
 				24C59EBCD3B20FC5E103CBAC /* CareScanEngineTests.swift in Sources */,
+				246E09F53F8E0DBA64E1FED4 /* CareSeverityEngineTests.swift in Sources */,
 				D34D2F121B65800E172BF0B8 /* CareVerdictEngineTests.swift in Sources */,
 				1CA5CA35E3E0F2DF1608120A /* CaskOwnershipLoaderTests.swift in Sources */,
 				D9BEFEF9A5F1585AFB6CE31A /* CaskOwnershipMapTests.swift in Sources */,
@@ -2193,6 +2200,7 @@
 				DE4376779B356FF27B3ADBF4 /* CareScanEngine.swift in Sources */,
 				496D08346329760319893BF2 /* CareScanEngineLive.swift in Sources */,
 				0DC1BF28815026A359CEB744 /* CareScanUnit.swift in Sources */,
+				D848916A3F26EEE4D704864B /* CareSeverity.swift in Sources */,
 				C9D4512D372D8BD49B20521B /* CareVerdict.swift in Sources */,
 				BBF1352041C39666309777EE /* CaskOwnership.swift in Sources */,
 				571919283B7A29DD23219790 /* CaskOwnershipLoader.swift in Sources */,

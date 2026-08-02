@@ -510,7 +510,7 @@ final class SmartScanViewModel {
     var rankedFindings: [CareFinding] {
         guard let plan = currentPlan else { return [] }
         if let cached = rankedFindingsCache { return cached }
-        let ranked = CarePlanRanker.ranked(plan.findings)
+        let ranked = CarePlanRanker.ranked(plan.findings, context: CareSeverityContext(health: plan.health))
         rankedFindingsCache = ranked
         return ranked
     }
@@ -1105,7 +1105,8 @@ final class SmartScanViewModel {
         planUnderRun = plan
         // Resolve the queue up front so the running screen can show honest
         // "step N of M" progress and the current action's label.
-        let queue = CarePlanRanker.ranked(plan.findings).filter { willExecuteDuringRun($0) }
+        let queue = CarePlanRanker.ranked(plan.findings, context: CareSeverityContext(health: plan.health))
+            .filter { willExecuteDuringRun($0) }
         runProgress = RunProgress(
             completed: 0,
             total: queue.count,
