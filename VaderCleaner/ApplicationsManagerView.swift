@@ -165,6 +165,17 @@ struct ApplicationsManagerView: View {
         .task {
             if extensionsManagerViewModel.phase == .idle { await extensionsManagerViewModel.refresh() }
         }
+        // Feed Homebrew's outdated list into the Updater so cask-installed
+        // apps appear as ordinary rows. Pushed rather than pulled: the
+        // Homebrew view model is owned by ApplicationsView, and it has
+        // already run the networked `brew outdated` — the Updater must not
+        // run a second one. Keyed on the list so a later brew refresh (or
+        // a completed upgrade) re-merges.
+        .task(id: homebrewViewModel.outdated) {
+            await homebrewViewModel.loadIfNeeded()
+            await homebrewViewModel.checkUpdatesIfNeeded()
+            updaterViewModel.setHomebrewOutdated(homebrewViewModel.outdated)
+        }
         .task(id: uninstallerViewModel.apps.map(\.id)) { await uninstallerViewModel.loadListMetrics() }
         // Warm the shared icon cache for every roster this manager renders.
         // The cache never loads on a miss — `icon(for:)` returns the generic
@@ -228,15 +239,15 @@ struct ApplicationsManagerView: View {
             // The Homebrew facets order by name and don't honor the app sort
             // options (they have no size/last-opened), so hide the control there
             // rather than leave it silently ineffective.
-            if !isHomebrewFacetActive {
+            if !isHomebrewFacetActive, sortOptions.count > 1 {
                 Menu {
-                    ForEach(AppManagerSort.allCases) { option in
+                    ForEach(sortOptions) { option in
                         Button(option.label) { sort = option }
                     }
                 } label: {
                     HStack(spacing: 4) {
                         Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                        Text(sort.label).foregroundStyle(.tint)
+                        Text(effectiveSort.label).foregroundStyle(.tint)
                     }
                 }
                 .menuStyle(.borderlessButton)
@@ -246,6 +257,18 @@ struct ApplicationsManagerView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+    }
+
+    /// The sort options the visible pane can actually honour, and the one
+    /// in effect. A selection carried in from another pane falls back to
+    /// name rather than leaving the header naming an ordering that isn't
+    /// applied.
+    private var sortOptions: [AppManagerSort] {
+        ApplicationsManagerModel.sortOptions(for: pane)
+    }
+
+    private var effectiveSort: AppManagerSort {
+        ApplicationsManagerModel.resolvedSort(sort, for: pane)
     }
 
     /// `true` when the visible pane is showing its Homebrew facet, whose lists
@@ -296,7 +319,7 @@ struct ApplicationsManagerView: View {
                 result: result,
                 iconCache: iconCache,
                 search: search,
-                sort: sort,
+                sort: effectiveSort,
                 facet: $uninstallerFacet,
                 inspectingAppID: $inspectingAppID,
                 displayedApps: $displayedApps,
@@ -317,6 +340,7 @@ struct ApplicationsManagerView: View {
             ExtensionsPaneView(
                 extensionsManagerViewModel: extensionsManagerViewModel,
                 search: search,
+                sort: effectiveSort,
                 facet: $extensionsFacet,
                 selection: $extensionSelection,
                 displayed: $displayedExtensions
@@ -325,6 +349,8 @@ struct ApplicationsManagerView: View {
             LeftoversPaneView(
                 viewModel: viewModel,
                 result: result,
+                search: search,
+                sort: effectiveSort,
                 section: $leftoverSection
             )
         case .unsupported:
@@ -332,7 +358,8 @@ struct ApplicationsManagerView: View {
                 viewModel: viewModel,
                 result: result,
                 iconCache: iconCache,
-                search: search
+                search: search,
+                sort: effectiveSort
             )
         }
     }
@@ -431,10 +458,20 @@ struct ApplicationsManagerView: View {
         )
     }
 
-    /// Opens the update URL for every selected update.
+    /// Applies every selected update as one batch, routing each row to the
+    /// mechanism that can actually install it: Homebrew-managed apps are
+    /// upgraded in place, App Store entries collapse to a single Updates
+    /// page, and remaining downloads open once each.
     private func updateSelected() async {
-        for info in updaterViewModel.availableUpdates where updateSelection.contains(info.id) {
-            await updaterViewModel.update(info)
+        let selected = updaterViewModel.availableUpdates.filter { updateSelection.contains($0.id) }
+        let plan = updaterViewModel.updatePlan(for: selected)
+        if !plan.openable.isEmpty {
+            await updaterViewModel.update(plan.openable)
+        }
+        // Guarded because brew refuses to run two operations at once; the
+        // Homebrew facet's own footer shares the same view model.
+        if !plan.homebrewTokens.isEmpty, !homebrewViewModel.isBusy {
+            await homebrewViewModel.upgrade(.some(plan.homebrewTokens))
         }
     }
 

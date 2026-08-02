@@ -76,15 +76,6 @@ final class ApplicationsManagerModelTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [apps[1].id])
     }
 
-    /// `.suspicious` is a parity placeholder with no members, so it filters to
-    /// an empty list.
-    func test_filter_suspicious_isEmpty() {
-        let result = ApplicationsManagerModel.filter(
-            apps, facet: .suspicious, search: "", unusedIDs: [], selectedIDs: []
-        )
-        XCTAssertTrue(result.isEmpty)
-    }
-
     /// A store facet keeps only apps with the matching receipt state.
     func test_filter_store_keepsMatchingStore() {
         let result = ApplicationsManagerModel.filter(
@@ -146,5 +137,172 @@ final class ApplicationsManagerModelTests: XCTestCase {
             dated, by: .lastOpened, sizes: [:]
         )
         XCTAssertEqual(result.map(\.name), ["Pages", "Chrome", "Safari", "Firefox"])
+    }
+
+    // MARK: - listState
+
+    /// An empty list while work is still running is not an empty result.
+    /// The empty states in this manager assert facts — "Everything is in
+    /// order", "No extensions were found" — and saying them mid-scan is
+    /// simply untrue.
+    func test_listState_emptyWhileLoadingIsLoading() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: true, isEmpty: true), .loading)
+    }
+
+    /// An empty list once the work is done is a real result.
+    func test_listState_emptyAfterLoadingIsEmpty() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: false, isEmpty: true), .empty)
+    }
+
+    /// A pane that already has results keeps showing them through a
+    /// refresh. Blanking a populated list to a spinner loses the user's
+    /// place for no gain.
+    func test_listState_populatedListStaysContentWhileReloading() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: true, isEmpty: false), .content)
+    }
+
+    func test_listState_populatedAndIdleIsContent() {
+        XCTAssertEqual(ApplicationsManagerModel.listState(isLoading: false, isEmpty: false), .content)
+    }
+}
+
+/// Sort scoping and the shared search rule — the two behaviours that were
+/// previously restated (or silently skipped) per pane.
+final class ApplicationsManagerControlScopeTests: XCTestCase {
+
+    // MARK: - sortOptions
+
+    /// Every pane can order by name, so the fallback is always available.
+    func test_sortOptions_everyPaneSupportsName() {
+        for pane in [ApplicationsManagerView.Pane.uninstaller, .updater,
+                     .extensions, .leftovers, .unsupported] {
+            XCTAssertTrue(
+                ApplicationsManagerModel.sortOptions(for: pane).contains(.name),
+                "\(pane) must support name ordering"
+            )
+        }
+    }
+
+    /// Updates carry no size and no last-opened date, so the pane offers
+    /// one option and the header shows no menu.
+    func test_sortOptions_updaterOffersNameOnly() {
+        XCTAssertEqual(ApplicationsManagerModel.sortOptions(for: .updater), [.name])
+    }
+
+    /// Extensions have a size but were never opened as apps.
+    func test_sortOptions_extensionsOfferSizeButNotLastOpened() {
+        let options = ApplicationsManagerModel.sortOptions(for: .extensions)
+        XCTAssertTrue(options.contains(.size))
+        XCTAssertFalse(options.contains(.lastOpened))
+    }
+
+    /// Unsupported apps carry a last-opened date but no measured size.
+    func test_sortOptions_unsupportedOffersLastOpenedButNotSize() {
+        let options = ApplicationsManagerModel.sortOptions(for: .unsupported)
+        XCTAssertTrue(options.contains(.lastOpened))
+        XCTAssertFalse(options.contains(.size))
+    }
+
+    // MARK: - resolvedSort
+
+    /// A supported selection is honoured as-is.
+    func test_resolvedSort_keepsASupportedSelection() {
+        XCTAssertEqual(
+            ApplicationsManagerModel.resolvedSort(.size, for: .uninstaller),
+            .size
+        )
+    }
+
+    /// Carrying "Size" into a pane with no sizes falls back to name,
+    /// rather than leaving the header claiming an ordering that isn't in
+    /// effect.
+    func test_resolvedSort_fallsBackWhenTheSelectionIsUnsupported() {
+        XCTAssertEqual(ApplicationsManagerModel.resolvedSort(.size, for: .updater), .name)
+        XCTAssertEqual(ApplicationsManagerModel.resolvedSort(.lastOpened, for: .extensions), .name)
+        XCTAssertEqual(ApplicationsManagerModel.resolvedSort(.size, for: .unsupported), .name)
+    }
+
+    // MARK: - matchesSearch
+
+    /// An empty query matches everything, so an untouched field filters
+    /// nothing out.
+    func test_matchesSearch_emptyQueryMatchesEverything() {
+        XCTAssertTrue(ApplicationsManagerModel.matchesSearch("", name: "Helio"))
+        XCTAssertTrue(ApplicationsManagerModel.matchesSearch("   ", name: "Helio"))
+    }
+
+    func test_matchesSearch_matchesNameCaseInsensitively() {
+        XCTAssertTrue(ApplicationsManagerModel.matchesSearch("hel", name: "Helio"))
+        XCTAssertFalse(ApplicationsManagerModel.matchesSearch("zzz", name: "Helio"))
+    }
+
+    /// The inconsistency this replaces: a bundle ID found apps in some
+    /// panes and nothing in others.
+    func test_matchesSearch_matchesTheIdentifierToo() {
+        XCTAssertTrue(
+            ApplicationsManagerModel.matchesSearch("com.acme", name: "Helio", identifier: "com.acme.helio")
+        )
+    }
+
+    /// Without an identifier only the name is considered — nothing is
+    /// invented to match against.
+    func test_matchesSearch_withoutAnIdentifierOnlyTheNameCounts() {
+        XCTAssertFalse(ApplicationsManagerModel.matchesSearch("com.acme", name: "Helio"))
+    }
+}
+
+/// The store tally behind the Updater's facet column. The count this
+/// replaces was `total - appStore`, which quietly absorbed Homebrew rows
+/// into Web the day a third channel was added.
+final class UpdateStoreCountsTests: XCTestCase {
+
+    /// Every source gets an entry, so the facet column can be built by
+    /// iterating `UpdateSource.allCases` rather than listing rows by hand.
+    func test_updateStoreCounts_coversEverySource() {
+        let counts = ApplicationsManagerModel.updateStoreCounts([])
+        XCTAssertEqual(Set(counts.keys), Set(UpdateSource.allCases))
+        XCTAssertTrue(counts.values.allSatisfy { $0 == 0 })
+    }
+
+    /// The counts partition the list exactly — no update is missed and
+    /// none is counted twice, whatever mix of channels is present.
+    func test_updateStoreCounts_partitionTheList() {
+        let updates = [
+            update(bundleID: "a", source: .appStore),
+            update(bundleID: "b", source: .sparkle),
+            update(bundleID: "c", source: .homebrew),
+            update(bundleID: "d", source: .homebrew),
+        ]
+        let counts = ApplicationsManagerModel.updateStoreCounts(updates)
+        XCTAssertEqual(counts[.appStore], 1)
+        XCTAssertEqual(counts[.sparkle], 1)
+        XCTAssertEqual(counts[.homebrew], 2)
+        XCTAssertEqual(counts.values.reduce(0, +), updates.count)
+    }
+
+    /// The regression that prompted this: with Homebrew rows present, Web
+    /// must report only the Sparkle ones. The old subtraction reported
+    /// every non-App-Store row, so a list of one web update and six casks
+    /// showed "Web 7".
+    func test_updateStoreCounts_webExcludesHomebrewRows() {
+        let updates = [update(bundleID: "telegram", source: .sparkle)]
+            + (0..<6).map { update(bundleID: "cask\($0)", source: .homebrew) }
+
+        let counts = ApplicationsManagerModel.updateStoreCounts(updates)
+
+        XCTAssertEqual(counts[.sparkle], 1)
+        XCTAssertEqual(counts[.homebrew], 6)
+    }
+
+    private func update(bundleID: String, source: UpdateSource) -> UpdateInfo {
+        UpdateInfo(
+            appName: bundleID,
+            bundleID: bundleID,
+            bundleURL: URL(fileURLWithPath: "/Applications/\(bundleID).app"),
+            installedVersion: "1.0",
+            latestVersion: "2.0",
+            source: source,
+            updateURL: source == .homebrew ? nil : URL(string: "https://example.com/\(bundleID).zip")
+        )
     }
 }

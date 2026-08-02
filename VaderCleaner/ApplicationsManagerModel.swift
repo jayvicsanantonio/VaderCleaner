@@ -31,8 +31,6 @@ enum AppManagerSort: String, CaseIterable, Identifiable, Sendable {
 enum AppManagerFacet: Hashable, Sendable {
     case all
     case unused
-    /// Parity placeholder — no detector is wired, so this filters to nothing.
-    case suspicious
     case selected
     case store(isAppStore: Bool)
     case vendor(AppVendor)
@@ -42,10 +40,92 @@ enum AppManagerFacet: Hashable, Sendable {
     case homebrew
 }
 
+/// What a manager's item list should render.
+///
+/// `loading` applies only to an *empty* list: a pane that already has
+/// results must keep showing them through a refresh, because blanking a
+/// populated list to a spinner loses the user's place for no gain.
+enum ManagerListState: Equatable, Sendable {
+    case loading
+    case empty
+    case content
+}
+
 /// Stateless derivations over the installed-app list. Kept separate from the
 /// view so the facet counts, filtering, and ordering are unit-testable without
 /// SwiftUI — the same split as `MyClutterManagerModel`.
 enum ApplicationsManagerModel {
+
+    /// Updates tallied by channel, with an entry for **every** source.
+    ///
+    /// Complete rather than sparse so the facet column can be derived by
+    /// iterating `UpdateSource.allCases`. The count it replaces was
+    /// `total - appStore`, which silently absorbed a third channel the
+    /// day one was added: Homebrew-managed rows started counting as Web.
+    /// A subtraction cannot be made exhaustive; a tally can.
+    static func updateStoreCounts(_ updates: [UpdateInfo]) -> [UpdateSource: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: UpdateSource.allCases.map { ($0, 0) })
+        for update in updates { counts[update.source, default: 0] += 1 }
+        return counts
+    }
+
+    /// The sort options a pane can actually honour.
+    ///
+    /// Not every pane has every dimension: updates carry no size or
+    /// last-opened date, extensions have no last-opened, and unsupported
+    /// apps have no measured size. Offering an option a pane ignores is
+    /// the same defect as showing a control that does nothing — the
+    /// header already hides the menu for Homebrew facets on exactly this
+    /// reasoning, and this applies it everywhere.
+    ///
+    /// A pane with one option gets no menu at all: there is no choice to
+    /// present.
+    static func sortOptions(for pane: ApplicationsManagerView.Pane) -> [AppManagerSort] {
+        switch pane {
+        case .uninstaller:  return [.name, .lastOpened, .size]
+        case .extensions:   return [.name, .size]
+        case .leftovers:    return [.name, .size]
+        case .unsupported:  return [.name, .lastOpened]
+        case .updater:      return [.name]
+        }
+    }
+
+    /// The sort a pane will actually apply, falling back to `.name` when
+    /// the carried selection isn't one it supports. Switching from a pane
+    /// sorted by size to one that has no sizes must not silently leave
+    /// the header claiming an ordering that isn't in effect.
+    static func resolvedSort(
+        _ sort: AppManagerSort,
+        for pane: ApplicationsManagerView.Pane
+    ) -> AppManagerSort {
+        sortOptions(for: pane).contains(sort) ? sort : .name
+    }
+
+    /// Whether an item matches the manager's search field.
+    ///
+    /// `identifier` is the bundle ID or path, searched alongside the
+    /// display name. Panes previously disagreed about this — typing a
+    /// bundle ID found apps in the Uninstaller and nothing in the
+    /// Updater — so the rule lives here rather than being restated per
+    /// pane.
+    static func matchesSearch(_ search: String, name: String, identifier: String? = nil) -> Bool {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        if name.localizedCaseInsensitiveContains(trimmed) { return true }
+        guard let identifier else { return false }
+        return identifier.localizedCaseInsensitiveContains(trimmed)
+    }
+
+    /// Which state a manager list should render.
+    ///
+    /// An empty list while work is still running is not the same as an
+    /// empty result, and the empty states in this manager assert facts —
+    /// "Everything is in order", "No browser extensions were found". Said
+    /// before the scan finishes, those are simply untrue.
+    static func listState(isLoading: Bool, isEmpty: Bool) -> ManagerListState {
+        guard isEmpty else { return .content }
+        return isLoading ? .loading : .empty
+    }
 
     /// Count of App Store vs. non-App-Store apps, off `AppInfo.isAppStore`.
     static func storeCounts(apps: [AppInfo]) -> (appStore: Int, other: Int) {
@@ -81,7 +161,6 @@ enum ApplicationsManagerModel {
             switch facet {
             case .all:                      return true
             case .unused:                   return unusedIDs.contains(app.id)
-            case .suspicious:               return false
             case .selected:                 return selectedIDs.contains(app.id)
             case .store(let isAppStore):    return app.isAppStore == isAppStore
             case .vendor(let vendor):       return AppVendor.of(bundleID: app.bundleID) == vendor
@@ -91,11 +170,8 @@ enum ApplicationsManagerModel {
             case .homebrew:                 return false
             }
         }
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return faceted }
         return faceted.filter {
-            $0.name.localizedCaseInsensitiveContains(trimmed)
-                || $0.bundleID.localizedCaseInsensitiveContains(trimmed)
+            matchesSearch(search, name: $0.name, identifier: $0.bundleID)
         }
     }
 

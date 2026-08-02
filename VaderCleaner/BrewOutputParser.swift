@@ -95,6 +95,56 @@ enum BrewOutputParser {
         }
     }
 
+    // MARK: - info --json=v2 --installed
+
+    /// Decodes `brew info --json=v2 --installed` into cask→app ownership.
+    ///
+    /// Uses `JSONSerialization` rather than `Codable` because the
+    /// `artifacts` array is genuinely heterogeneous: its entries are
+    /// single-key objects (`app`, `binary`, `pkg`, `zap`, …) and an `app`
+    /// value mixes bundle-name strings with `{"target": …}` dictionaries.
+    /// Modelling that in `Decodable` costs far more code than it buys.
+    ///
+    /// Tolerance is deliberate and asymmetric. Malformed *entries* are
+    /// skipped, because one odd cask definition must not blank the whole
+    /// map — an empty map reads as "nothing is brew-managed", which is the
+    /// conclusion that permits overwriting a managed install. Malformed
+    /// *payloads* throw, so the caller reports a failure instead of
+    /// reaching that same conclusion silently.
+    static func parseInstalledCasks(_ data: Data) throws -> [CaskOwnership] {
+        let root = try JSONSerialization.jsonObject(with: data)
+        guard let payload = root as? [String: Any] else {
+            throw BrewCaskOwnershipParseError.unexpectedRootShape
+        }
+        // An absent `casks` key means no casks. Brew's payload shape has
+        // changed before, and a missing key is not a parse failure.
+        let casks = payload["casks"] as? [[String: Any]] ?? []
+        return casks.compactMap { cask -> CaskOwnership? in
+            // Without a token there is nothing to name or act on.
+            guard let token = cask["token"] as? String, !token.isEmpty else { return nil }
+            var appNames: [String] = []
+            var appTargets: [URL] = []
+            for artifact in cask["artifacts"] as? [Any] ?? [] {
+                guard let entry = artifact as? [String: Any],
+                      let apps = entry["app"] as? [Any] else { continue }
+                for app in apps {
+                    if let name = app as? String, !name.isEmpty {
+                        appNames.append(name)
+                    } else if let options = app as? [String: Any],
+                              let target = options["target"] as? String, !target.isEmpty {
+                        appTargets.append(URL(fileURLWithPath: target))
+                    }
+                }
+            }
+            return CaskOwnership(
+                token: token,
+                autoUpdates: cask["auto_updates"] as? Bool ?? false,
+                appNames: appNames,
+                appTargets: appTargets
+            )
+        }
+    }
+
     // MARK: - cleanup -n / autoremove
 
     /// Parses the reclaimable total from `brew cleanup -n` output, e.g.

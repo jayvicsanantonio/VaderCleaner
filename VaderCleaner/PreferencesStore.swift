@@ -139,6 +139,7 @@ final class PreferencesStore {
         static let offerUninstallOnTrash = "preferences.offerUninstallOnTrash"
         static let notifyHungApps = "preferences.notifyHungApps"
         static let notifyAppUpdates = "preferences.notifyAppUpdates"
+        static let installUpdatesAutomatically = "preferences.installUpdatesAutomatically"
         static let notifyDefinitionsStale = "preferences.notifyDefinitionsStale"
         static let notificationSoundsEnabled = "preferences.notificationSoundsEnabled"
         static let menuBarReading = "preferences.menuBarReading"
@@ -173,7 +174,19 @@ final class PreferencesStore {
     static let defaultNotifyOverfilledDrives = true
     static let defaultOfferUninstallOnTrash = true
     static let defaultNotifyHungApps = true
+    /// Reads a persisted Bool, falling back to its default when the key
+    /// has never been written. Collapses what was a repeated two-line
+    /// read for each of the many Bool preferences below.
+    static func bool(_ defaults: UserDefaults, _ key: String, default fallback: Bool) -> Bool {
+        (defaults.object(forKey: key) as? Bool) ?? fallback
+    }
+
     static let defaultNotifyAppUpdates = true
+    /// Off by default. Installing replaces an application in place, and a
+    /// default that quits the user's app and swaps its bundle is not one
+    /// to opt them into — especially before they have watched it work
+    /// once. Off means the Updater downloads exactly as it always did.
+    static let defaultInstallUpdatesAutomatically = false
     static let defaultNotifyDefinitionsStale = true
     /// On by default: every banner carried an unconditional `.default` sound
     /// before this preference existed, so silence is the new choice rather
@@ -287,6 +300,17 @@ final class PreferencesStore {
     /// probing happens at all.
     var notifyAppUpdates: Bool {
         didSet { defaults.set(notifyAppUpdates, forKey: Key.notifyAppUpdates) }
+    }
+
+    /// Apply web updates in place — download, verify, swap the bundle,
+    /// relaunch — rather than opening the download and leaving the user to
+    /// install it by hand.
+    ///
+    /// Gates the install only. Updates are still found and offered when
+    /// this is off; the button just opens the download, which is the
+    /// behaviour that predates auto-install.
+    var installUpdatesAutomatically: Bool {
+        didSet { defaults.set(installUpdatesAutomatically, forKey: Key.installUpdatesAutomatically) }
     }
 
     /// Notify when the malware signature database hasn't been refreshed
@@ -416,48 +440,31 @@ final class PreferencesStore {
         // the spec defaults are mostly `true`. Reading via `object(forKey:)
         // as? T` and falling back to the spec default keeps fresh installs
         // aligned with what the user expects.
-        self.notifyLowDisk = (defaults.object(forKey: Key.notifyLowDisk) as? Bool)
-            ?? Self.defaultNotifyLowDisk
-        self.notifyHighRAM = (defaults.object(forKey: Key.notifyHighRAM) as? Bool)
-            ?? Self.defaultNotifyHighRAM
-        self.notifyMalwareFound = (defaults.object(forKey: Key.notifyMalwareFound) as? Bool)
-            ?? Self.defaultNotifyMalwareFound
-        self.notifyLargeFilesFound = (defaults.object(forKey: Key.notifyLargeFilesFound) as? Bool)
-            ?? Self.defaultNotifyLargeFilesFound
+        self.notifyLowDisk = Self.bool(defaults, Key.notifyLowDisk, default: Self.defaultNotifyLowDisk)
+        self.notifyHighRAM = Self.bool(defaults, Key.notifyHighRAM, default: Self.defaultNotifyHighRAM)
+        self.notifyMalwareFound = Self.bool(defaults, Key.notifyMalwareFound, default: Self.defaultNotifyMalwareFound)
+        self.notifyLargeFilesFound = Self.bool(defaults, Key.notifyLargeFilesFound, default: Self.defaultNotifyLargeFilesFound)
         self.diskFreeThresholdGB = (defaults.object(forKey: Key.diskFreeThresholdGB) as? Int)
             ?? Self.defaultDiskFreeThresholdGB
-        self.remindSmartCare = (defaults.object(forKey: Key.remindSmartCare) as? Bool)
-            ?? Self.defaultRemindSmartCare
-        self.notifyScanFinished = (defaults.object(forKey: Key.notifyScanFinished) as? Bool)
-            ?? Self.defaultNotifyScanFinished
+        self.remindSmartCare = Self.bool(defaults, Key.remindSmartCare, default: Self.defaultRemindSmartCare)
+        self.notifyScanFinished = Self.bool(defaults, Key.notifyScanFinished, default: Self.defaultNotifyScanFinished)
         self.smartCareFrequency = (defaults.object(forKey: Key.smartCareFrequency) as? String)
             .flatMap(SmartCareFrequency.init(rawValue:)) ?? Self.defaultSmartCareFrequency
-        self.notifyTrashSize = (defaults.object(forKey: Key.notifyTrashSize) as? Bool)
-            ?? Self.defaultNotifyTrashSize
+        self.notifyTrashSize = Self.bool(defaults, Key.notifyTrashSize, default: Self.defaultNotifyTrashSize)
         self.trashSizeThresholdGB = (defaults.object(forKey: Key.trashSizeThresholdGB) as? Int)
             ?? Self.defaultTrashSizeThresholdGB
-        self.notifyDeviceBatteryLow = (defaults.object(forKey: Key.notifyDeviceBatteryLow) as? Bool)
-            ?? Self.defaultNotifyDeviceBatteryLow
-        self.notifyDriveConnected = (defaults.object(forKey: Key.notifyDriveConnected) as? Bool)
-            ?? Self.defaultNotifyDriveConnected
-        self.notifyOverfilledDrives = (defaults.object(forKey: Key.notifyOverfilledDrives) as? Bool)
-            ?? Self.defaultNotifyOverfilledDrives
-        self.offerUninstallOnTrash = (defaults.object(forKey: Key.offerUninstallOnTrash) as? Bool)
-            ?? Self.defaultOfferUninstallOnTrash
-        self.notifyHungApps = (defaults.object(forKey: Key.notifyHungApps) as? Bool)
-            ?? Self.defaultNotifyHungApps
-        self.notifyAppUpdates = (defaults.object(forKey: Key.notifyAppUpdates) as? Bool)
-            ?? Self.defaultNotifyAppUpdates
-        self.notifyDefinitionsStale = (defaults.object(forKey: Key.notifyDefinitionsStale) as? Bool)
-            ?? Self.defaultNotifyDefinitionsStale
-        self.notificationSoundsEnabled = (defaults.object(forKey: Key.notificationSoundsEnabled) as? Bool)
-            ?? Self.defaultNotificationSoundsEnabled
-        self.launchAtLogin = (defaults.object(forKey: Key.launchAtLogin) as? Bool)
-            ?? Self.defaultLaunchAtLogin
-        self.showMenuBar = (defaults.object(forKey: Key.showMenuBar) as? Bool)
-            ?? Self.defaultShowMenuBar
-        self.keepDockIcon = (defaults.object(forKey: Key.keepDockIcon) as? Bool)
-            ?? Self.defaultKeepDockIcon
+        self.notifyDeviceBatteryLow = Self.bool(defaults, Key.notifyDeviceBatteryLow, default: Self.defaultNotifyDeviceBatteryLow)
+        self.notifyDriveConnected = Self.bool(defaults, Key.notifyDriveConnected, default: Self.defaultNotifyDriveConnected)
+        self.notifyOverfilledDrives = Self.bool(defaults, Key.notifyOverfilledDrives, default: Self.defaultNotifyOverfilledDrives)
+        self.offerUninstallOnTrash = Self.bool(defaults, Key.offerUninstallOnTrash, default: Self.defaultOfferUninstallOnTrash)
+        self.notifyHungApps = Self.bool(defaults, Key.notifyHungApps, default: Self.defaultNotifyHungApps)
+        self.notifyAppUpdates = Self.bool(defaults, Key.notifyAppUpdates, default: Self.defaultNotifyAppUpdates)
+        self.installUpdatesAutomatically = Self.bool(defaults, Key.installUpdatesAutomatically, default: Self.defaultInstallUpdatesAutomatically)
+        self.notifyDefinitionsStale = Self.bool(defaults, Key.notifyDefinitionsStale, default: Self.defaultNotifyDefinitionsStale)
+        self.notificationSoundsEnabled = Self.bool(defaults, Key.notificationSoundsEnabled, default: Self.defaultNotificationSoundsEnabled)
+        self.launchAtLogin = Self.bool(defaults, Key.launchAtLogin, default: Self.defaultLaunchAtLogin)
+        self.showMenuBar = Self.bool(defaults, Key.showMenuBar, default: Self.defaultShowMenuBar)
+        self.keepDockIcon = Self.bool(defaults, Key.keepDockIcon, default: Self.defaultKeepDockIcon)
         self.statsUpdateInterval = (defaults.object(forKey: Key.statsUpdateInterval) as? Double)
             ?? Self.defaultStatsUpdateInterval
         self.panelRowStates = (defaults.dictionary(forKey: Key.panelRowStates) as? [String: Bool]) ?? [:]
@@ -471,8 +478,7 @@ final class PreferencesStore {
         } else {
             self.menuBarReading = Self.defaultMenuBarReading
         }
-        self.menuBarShowsReading = (defaults.object(forKey: Key.menuBarShowsReading) as? Bool)
-            ?? Self.defaultMenuBarShowsReading
+        self.menuBarShowsReading = Self.bool(defaults, Key.menuBarShowsReading, default: Self.defaultMenuBarShowsReading)
 
         // Reconcile the persisted preference with launchd's actual state once
         // the tracked properties are populated. The handler's presence is the
@@ -507,6 +513,7 @@ final class PreferencesStore {
         offerUninstallOnTrash = Self.defaultOfferUninstallOnTrash
         notifyHungApps = Self.defaultNotifyHungApps
         notifyAppUpdates = Self.defaultNotifyAppUpdates
+        installUpdatesAutomatically = Self.defaultInstallUpdatesAutomatically
         notifyDefinitionsStale = Self.defaultNotifyDefinitionsStale
         notificationSoundsEnabled = Self.defaultNotificationSoundsEnabled
         launchAtLogin = Self.defaultLaunchAtLogin

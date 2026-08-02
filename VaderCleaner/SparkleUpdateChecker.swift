@@ -12,6 +12,28 @@ struct SparkleAppcastItem: Hashable, Sendable {
     let shortVersion: String
     let version: String?
     let downloadURL: URL
+    /// One-line summary of the item's `<description>`, or nil when the
+    /// feed carries none. Many feeds put HTML here and some put plain
+    /// text, so it is normalised through `ReleaseNotesSummary`.
+    let releaseNotes: String?
+    /// Base64 Ed25519 signature of the enclosure (`sparkle:edSignature`),
+    /// or nil on feeds that don't publish one — including every Sparkle 1
+    /// feed, which signs with the legacy DSA attribute instead.
+    let edSignature: String?
+
+    init(
+        shortVersion: String,
+        version: String?,
+        downloadURL: URL,
+        releaseNotes: String? = nil,
+        edSignature: String? = nil
+    ) {
+        self.shortVersion = shortVersion
+        self.version = version
+        self.downloadURL = downloadURL
+        self.releaseNotes = releaseNotes
+        self.edSignature = edSignature
+    }
 }
 
 /// Production implementation. The Info.plist read happens synchronously
@@ -26,16 +48,41 @@ struct DefaultSparkleUpdateChecker: Sendable {
     }
 
     func feedURL(for app: AppInfo) -> URL? {
+        feedURL(forBundleAt: app.bundleURL)
+    }
+
+    /// Feed URL for a bundle path. The install path only has the bundle
+    /// URL from an `UpdateInfo`, not the original `AppInfo`.
+    func feedURL(forBundleAt bundleURL: URL) -> URL? {
         // `Bundle(url:)` + `object(forInfoDictionaryKey:)` transparently
         // handles binary vs. XML plists and leverages the system bundle
         // cache, rather than us re-reading and re-parsing Info.plist by
         // hand.
-        guard let bundle = Bundle(url: app.bundleURL),
+        guard let bundle = Bundle(url: bundleURL),
               let raw = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
               !raw.isEmpty else {
             return nil
         }
         return URL(string: raw)
+    }
+
+    /// The Ed25519 public key the installed app advertises
+    /// (`SUPublicEDKey`), which is what an enclosure signature must
+    /// verify against. Read from the bundle rather than the feed, so a
+    /// hijacked appcast cannot supply its own key.
+    func publicEDKey(for app: AppInfo) -> String? {
+        publicEDKey(forBundleAt: app.bundleURL)
+    }
+
+    /// `SUPublicEDKey` for a bundle path, for the same reason as
+    /// `feedURL(forBundleAt:)`.
+    func publicEDKey(forBundleAt bundleURL: URL) -> String? {
+        guard let bundle = Bundle(url: bundleURL),
+              let raw = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+              !raw.isEmpty else {
+            return nil
+        }
+        return raw
     }
 
     func fetchAppcast(feedURL: URL) async throws -> SparkleAppcastItem? {
@@ -92,6 +139,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
     private var currentShortVersion: String?
     private var currentVersion: String?
     private var currentMinimumSystemVersion: String?
+    private var currentDescription: String?
+    private var currentEdSignature: String?
     private var inItem = false
     /// True while inside a `<sparkle:deltas>` block. Delta enclosures are
     /// binary patches keyed to a specific installed build and are useless
@@ -143,6 +192,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
             inDeltas = false
             currentEnclosureURL = nil
             currentMinimumSystemVersion = nil
+            currentDescription = nil
+            currentEdSignature = nil
             // Seed from any version attributes carried on the `<item>`
             // itself — older feeds place `sparkle:shortVersionString` /
             // `sparkle:version` here rather than on the enclosure. The
@@ -162,7 +213,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
         if !inDeltas,
            local == "minimumSystemVersion"
             || local == "shortVersionString"
-            || local == "version" {
+            || local == "version"
+            || local == "description" {
             // These can appear as child elements carrying their value as
             // text (Sparkle's element form) rather than as enclosure
             // attributes — buffer the character data until the end tag.
@@ -204,6 +256,10 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 ?? attributeDict["version"] {
                 currentVersion = version
             }
+            if let signature = attributeDict["sparkle:edSignature"]
+                ?? attributeDict["edSignature"] {
+                currentEdSignature = signature
+            }
         }
     }
 
@@ -230,6 +286,8 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
                 if currentShortVersion == nil { currentShortVersion = value }
             case "version":
                 if currentVersion == nil { currentVersion = value }
+            case "description":
+                currentDescription = value
             default:
                 break
             }
@@ -251,18 +309,30 @@ private final class AppcastXMLParser: NSObject, XMLParserDelegate {
             item: SparkleAppcastItem(
                 shortVersion: shortVersion,
                 version: currentVersion,
-                downloadURL: downloadURL
+                downloadURL: downloadURL,
+                releaseNotes: ReleaseNotesSummary.summary(from: currentDescription),
+                edSignature: currentEdSignature
             ),
             minimumSystemVersion: currentMinimumSystemVersion
         ))
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        // Only accumulate while inside one of the buffered version
-        // elements — we don't care about any other text nodes.
+        // Only accumulate while inside one of the buffered elements — we
+        // don't care about any other text nodes.
         if bufferingElement != nil {
             textBuffer.append(string)
         }
+    }
+
+    /// Release notes are routinely wrapped in CDATA so HTML can be
+    /// embedded without escaping, and `XMLParser` reports those bytes
+    /// here rather than through `foundCharacters:`. Without this, every
+    /// HTML-notes feed would parse to nothing.
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        guard bufferingElement != nil,
+              let text = String(data: CDATABlock, encoding: .utf8) else { return }
+        textBuffer.append(text)
     }
 
     /// XMLParser delivers the qualified name ("sparkle:enclosure") rather

@@ -34,6 +34,94 @@ final class AppStoreUpdateCheckerTests: XCTestCase {
                        URL(string: "https://apps.apple.com/us/app/helio/id12345?mt=12"))
     }
 
+    // MARK: - OS compatibility
+
+    /// The iTunes response carries `minimumOsVersion`, and an app whose
+    /// latest release needs a newer macOS than the user is running is not
+    /// an available update — the App Store would refuse to install it.
+    /// Mirrors the `sparkle:minimumSystemVersion` filter the Sparkle
+    /// channel already applies.
+    func test_latestVersion_returnsNilWhenLatestRequiresNewerMacOS() async throws {
+        let checker = try await makeChecker(
+            minimumOsVersion: "27.0",
+            currentSystemVersion: "26.1.0"
+        )
+        let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
+        XCTAssertNil(lookup)
+    }
+
+    /// The running OS exactly meeting the minimum is supported — the
+    /// comparison is `current >= minimum`, not a strict inequality.
+    func test_latestVersion_allowsUpdateWhenSystemMeetsMinimumExactly() async throws {
+        let checker = try await makeChecker(
+            minimumOsVersion: "26.1",
+            currentSystemVersion: "26.1.0"
+        )
+        let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
+        XCTAssertEqual(lookup?.version, "5.4.1")
+    }
+
+    /// A newer OS than required is obviously fine.
+    func test_latestVersion_allowsUpdateWhenSystemExceedsMinimum() async throws {
+        let checker = try await makeChecker(
+            minimumOsVersion: "15.0",
+            currentSystemVersion: "26.1.0"
+        )
+        let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
+        XCTAssertEqual(lookup?.version, "5.4.1")
+    }
+
+    /// An absent `minimumOsVersion` places no constraint. Dropping the
+    /// update would suppress real ones, which is the worse error.
+    func test_latestVersion_allowsUpdateWhenMinimumOsVersionAbsent() async throws {
+        let checker = try await makeChecker(
+            minimumOsVersion: nil,
+            currentSystemVersion: "26.1.0"
+        )
+        let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
+        XCTAssertEqual(lookup?.version, "5.4.1")
+    }
+
+    /// An unparseable `minimumOsVersion` must not silently suppress a real
+    /// update; it is treated as no constraint.
+    func test_latestVersion_allowsUpdateWhenMinimumOsVersionIsUnparseable() async throws {
+        let checker = try await makeChecker(
+            minimumOsVersion: "",
+            currentSystemVersion: "26.1.0"
+        )
+        let lookup = try await checker.latestVersion(forBundleID: "com.acme.helio")
+        XCTAssertEqual(lookup?.version, "5.4.1")
+    }
+
+    // MARK: - Helpers
+
+    /// Checker wired to a single canned lookup response for
+    /// `com.acme.helio`, with the running macOS version injected so the
+    /// compatibility filter is deterministic.
+    private func makeChecker(
+        minimumOsVersion: String?,
+        currentSystemVersion: String
+    ) async throws -> DefaultAppStoreUpdateChecker {
+        let minimum = minimumOsVersion.map { "\"minimumOsVersion\":\"\($0)\"," } ?? ""
+        let payload = Data("""
+        {"resultCount":1,"results":[{
+          \(minimum)
+          "version":"5.4.1",
+          "trackViewUrl":"https://apps.apple.com/us/app/helio/id12345?mt=12",
+          "bundleId":"com.acme.helio"
+        }]}
+        """.utf8)
+        let fetcher = StubHTTPFetcher()
+        await fetcher.set(
+            response: payload,
+            for: URL(string: "https://itunes.apple.com/lookup?bundleId=com.acme.helio&entity=macSoftware")!
+        )
+        return DefaultAppStoreUpdateChecker(
+            httpFetcher: fetcher,
+            currentSystemVersion: currentSystemVersion
+        )
+    }
+
     /// An empty `results` array means the bundle ID isn't present in the
     /// store and the checker must return `nil` — not throw.
     func test_latestVersion_returnsNilForEmptyResults() async throws {

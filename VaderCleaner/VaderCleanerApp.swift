@@ -132,7 +132,7 @@ struct VaderCleanerApp: App {
         _appUninstallerViewModel = State(
             initialValue: AppUninstallerViewModel.live(exclusions: exclusions)
         )
-        _appUpdaterViewModel = State(initialValue: AppUpdaterViewModel.live())
+        _appUpdaterViewModel = State(initialValue: AppUpdaterViewModel.live(preferences: prefs))
         // The Applications dashboard's own scan (installed-app count + update
         // count). The uninstall / update side-effects stay owned by the two
         // view models above, which the dashboard reuses as detail screens.

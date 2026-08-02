@@ -59,7 +59,6 @@ struct UninstallerPaneView: View {
         return VStack(spacing: 4) {
             facetRow(.all, String(localized: "All Applications", comment: "Uninstaller facet."), apps.count)
             facetRow(.unused, String(localized: "Unused", comment: "Uninstaller facet."), unusedIDs.count)
-            facetRow(.suspicious, String(localized: "Suspicious", comment: "Uninstaller facet."), 0)
             facetRow(.selected, String(localized: "Selected", comment: "Uninstaller facet."), uninstallerViewModel.uninstallSelection.count)
 
             ApplicationsManagerFacetSectionHeader(title: String(localized: "Stores", comment: "Uninstaller facet group header."))
@@ -93,7 +92,6 @@ struct UninstallerPaneView: View {
         switch facet {
         case .all:              return String(localized: "All Applications", comment: "Uninstaller right pane title.")
         case .unused:           return String(localized: "Unused", comment: "Uninstaller right pane title.")
-        case .suspicious:       return String(localized: "Suspicious", comment: "Uninstaller right pane title.")
         case .selected:         return String(localized: "Selected", comment: "Uninstaller right pane title.")
         case .store(true):      return String(localized: "App Store", comment: "Uninstaller right pane title.")
         case .store(false):     return String(localized: "Other", comment: "Uninstaller right pane title.")
@@ -106,7 +104,6 @@ struct UninstallerPaneView: View {
         switch facet {
         case .all:              return String(localized: "Every app installed on this Mac.", comment: "Uninstaller right pane description.")
         case .unused:           return String(localized: "Apps you haven't opened recently.", comment: "Uninstaller right pane description.")
-        case .suspicious:       return String(localized: "Apps flagged as potentially unwanted.", comment: "Uninstaller right pane description.")
         case .selected:         return String(localized: "Apps you've marked for removal.", comment: "Uninstaller right pane description.")
         case .store(true):      return String(localized: "Apps installed from the Mac App Store.", comment: "Uninstaller right pane description.")
         case .store(false):     return String(localized: "Apps installed outside the Mac App Store.", comment: "Uninstaller right pane description.")
@@ -127,7 +124,10 @@ struct UninstallerPaneView: View {
             )
         } else if let id = inspectingAppID {
             appDetail(id)
-        } else if uninstallerViewModel.apps.isEmpty, uninstallerViewModel.phase == .loading {
+        } else if ApplicationsManagerModel.listState(
+            isLoading: uninstallerViewModel.phase == .loading,
+            isEmpty: uninstallerViewModel.apps.isEmpty
+        ) == .loading {
             ApplicationsManagerLoadingPane()
         } else {
             VStack(alignment: .leading, spacing: 0) {

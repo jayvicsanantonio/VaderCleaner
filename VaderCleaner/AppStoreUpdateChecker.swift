@@ -9,6 +9,15 @@ import Foundation
 struct AppStoreLookup: Hashable, Sendable {
     let version: String
     let appStoreURL: URL
+    /// One-line summary of the store's "What's New" text, or nil when the
+    /// entry carries none.
+    let releaseNotes: String?
+
+    init(version: String, appStoreURL: URL, releaseNotes: String? = nil) {
+        self.version = version
+        self.appStoreURL = appStoreURL
+        self.releaseNotes = releaseNotes
+    }
 }
 
 /// Production implementation. Returns `nil` on empty result sets rather
@@ -18,13 +27,19 @@ struct DefaultAppStoreUpdateChecker: Sendable {
 
     private let httpFetcher: HTTPFetching
     private let baseURL: URL
+    private let currentSystemVersion: String
 
+    /// - Parameter currentSystemVersion: the running macOS product
+    ///   version ("26.1.0"), used to drop releases this Mac cannot
+    ///   install. Injected by tests so the filter is deterministic.
     init(
         httpFetcher: HTTPFetching = URLSession.shared,
-        baseURL: URL = URL(string: "https://itunes.apple.com/lookup")!
+        baseURL: URL = URL(string: "https://itunes.apple.com/lookup")!,
+        currentSystemVersion: String = DefaultSparkleUpdateChecker.currentSystemVersionString()
     ) {
         self.httpFetcher = httpFetcher
         self.baseURL = baseURL
+        self.currentSystemVersion = currentSystemVersion
     }
 
     func latestVersion(forBundleID bundleID: String) async throws -> AppStoreLookup? {
@@ -56,7 +71,27 @@ struct DefaultAppStoreUpdateChecker: Sendable {
               let storeURL = URL(string: first.trackViewUrl) else {
             return nil
         }
-        return AppStoreLookup(version: first.version, appStoreURL: storeURL)
+        // The lookup reports the latest release worldwide, which may
+        // require a newer macOS than this Mac runs. Offering it would
+        // produce an update row the App Store then refuses to install.
+        // The Sparkle channel already filters on
+        // `sparkle:minimumSystemVersion`; this is the same rule.
+        guard supportsCurrentSystem(minimum: first.minimumOsVersion) else {
+            return nil
+        }
+        return AppStoreLookup(
+            version: first.version,
+            appStoreURL: storeURL,
+            releaseNotes: ReleaseNotesSummary.summary(from: first.releaseNotes)
+        )
+    }
+
+    /// Whether the running macOS satisfies `minimum`. An absent or
+    /// unparseable value places no constraint — suppressing a real update
+    /// on a value we failed to read is the worse error.
+    private func supportsCurrentSystem(minimum: String?) -> Bool {
+        guard let minimum, !minimum.isEmpty else { return true }
+        return VersionComparator.compare(currentSystemVersion, minimum) != .orderedAscending
     }
 
     private struct LookupResponse: Decodable {
@@ -64,6 +99,11 @@ struct DefaultAppStoreUpdateChecker: Sendable {
         struct Result: Decodable {
             let version: String
             let trackViewUrl: String
+            /// Absent on some entries, so optional rather than defaulted.
+            let minimumOsVersion: String?
+            /// The store's "What's New" text. Plain text, unlike the HTML
+            /// an appcast description often carries.
+            let releaseNotes: String?
         }
     }
 }

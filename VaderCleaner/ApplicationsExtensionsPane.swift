@@ -17,6 +17,7 @@ enum ExtensionsFacet: Hashable {
 struct ExtensionsPaneView: View {
     let extensionsManagerViewModel: ExtensionsManagerViewModel
     let search: String
+    let sort: AppManagerSort
     @Binding var facet: ExtensionsFacet
     @Binding var selection: Set<ExtensionItem.ID>
     @Binding var displayed: [ExtensionItem]
@@ -113,10 +114,20 @@ struct ExtensionsPaneView: View {
             case .type(let type):   matchesFacet = item.type == type
             }
             guard matchesFacet else { return false }
-            let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty || item.name.localizedCaseInsensitiveContains(trimmed)
+            return ApplicationsManagerModel.matchesSearch(
+                search, name: item.name, identifier: item.id.path
+            )
         }
-        displayed = items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Extensions have a size but no last-opened date, so the header
+        // never offers `.lastOpened` here — see `sortOptions(for:)`.
+        switch sort {
+        case .size:
+            displayed = items.sorted { $0.size > $1.size }
+        case .name, .lastOpened:
+            displayed = items.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        }
     }
 
     @ViewBuilder
@@ -125,7 +136,12 @@ struct ExtensionsPaneView: View {
         // both branches — otherwise an initially empty `displayed` would pin the
         // empty state and never recompute into the list.
         Group {
-            if displayed.isEmpty {
+            if ApplicationsManagerModel.listState(
+                isLoading: extensionsManagerViewModel.phase == .loading,
+                isEmpty: displayed.isEmpty
+            ) == .loading {
+                ApplicationsManagerLoadingPane()
+            } else if displayed.isEmpty {
                 ApplicationsManagerEmptyState(
                     icon: "puzzlepiece.extension",
                     title: String(localized: "Extensions", comment: "Extensions empty-state title."),
@@ -147,6 +163,7 @@ struct ExtensionsPaneView: View {
         .onAppear { recompute() }
         .onChange(of: facet) { _, _ in recompute() }
         .onChange(of: search) { _, _ in recompute() }
+        .onChange(of: sort) { _, _ in recompute() }
         .onChange(of: extensionsManagerViewModel.items.map(\.id)) { _, _ in recompute() }
         // The selection only changes the visible list under the Selected facet.
         .onChange(of: selection) { _, _ in

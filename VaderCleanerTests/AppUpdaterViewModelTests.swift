@@ -341,21 +341,24 @@ final class AppUpdaterViewModelTests: XCTestCase {
         XCTAssertEqual(urls, [URL(string: "https://apps.apple.com/app/id1")!])
     }
 
-    /// `updateAll()` opens every available update's URL.
-    func test_updateAll_opensEveryURL() async {
+    /// `updateAll()` opens the download for every available update. App
+    /// Store entries take the collapsed route instead, covered by the
+    /// bulk-routing tests below.
+    func test_updateAll_opensEveryDownloadURL() async {
         let opened = ActorBox<[URL]>([])
         let app = makeApp(
-            name: "Helio",
-            bundleID: "com.acme.helio",
+            name: "Mango",
+            bundleID: "com.acme.mango",
             version: "1.0.0",
-            isAppStore: true
+            isAppStore: false
         )
         let vm = makeViewModel(
             discover: { _ in [app] },
-            checkAppStore: { _ in
-                .found(AppStoreLookup(
-                    version: "2.0.0",
-                    appStoreURL: URL(string: "https://apps.apple.com/app/id1")!
+            checkSparkle: { _ in
+                .found(SparkleAppcastItem(
+                    shortVersion: "2.0.0",
+                    version: "2000",
+                    downloadURL: URL(string: "https://example.com/mango-2.dmg")!
                 ))
             },
             opener: { url in await opened.set(opened.value + [url]) }
@@ -363,7 +366,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
         await vm.checkForUpdates()
         await vm.updateAll()
         let urls = await opened.value
-        XCTAssertEqual(urls, [URL(string: "https://apps.apple.com/app/id1")!])
+        XCTAssertEqual(urls, [URL(string: "https://example.com/mango-2.dmg")!])
     }
 
     // MARK: - Helpers
@@ -378,6 +381,7 @@ final class AppUpdaterViewModelTests: XCTestCase {
             discover: discover,
             checkAppStore: checkAppStore,
             checkSparkle: checkSparkle,
+            classifyUnchecked: { _ in .unmonitored },
             opener: opener
         )
     }
