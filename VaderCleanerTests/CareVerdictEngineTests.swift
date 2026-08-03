@@ -67,6 +67,36 @@ final class CareVerdictEngineTests: XCTestCase {
         XCTAssertEqual(verdict.status, .fair)
     }
 
+    func test_heavySafeJunk_capsAtRequiresAttention() {
+        // 94 GB of clearable junk is not "a little care".
+        let verdict = CareVerdictEngine.verdict(
+            for: plan(findings: [junkFinding(bytes: CareVerdictEngine.heavyJunkCapBytes + 1)], health: healthyTelemetry)
+        )
+        XCTAssertEqual(verdict.status, .requiresAttention)
+    }
+
+    func test_junkBetweenTheTwoCaps_staysFair() {
+        let midpoint = (CareVerdictEngine.safeJunkCapBytes + CareVerdictEngine.heavyJunkCapBytes) / 2
+        let verdict = CareVerdictEngine.verdict(
+            for: plan(findings: [junkFinding(bytes: midpoint)], health: healthyTelemetry)
+        )
+        XCTAssertEqual(verdict.status, .fair)
+    }
+
+    func test_heavyJunkCap_sitsAboveTheFairCap() {
+        // The two thresholds must stay ordered, or the tiers invert.
+        XCTAssertGreaterThan(CareVerdictEngine.heavyJunkCapBytes, CareVerdictEngine.safeJunkCapBytes)
+    }
+
+    func test_junkAlone_neverReachesCritical_howeverMuchOfItThereIs() {
+        // Junk is all safely removable. Critical is reserved for a disk about
+        // to stop working, not for a big pile of caches.
+        let verdict = CareVerdictEngine.verdict(
+            for: plan(findings: [junkFinding(bytes: 900_000_000_000)], health: healthyTelemetry)
+        )
+        XCTAssertGreaterThan(verdict.status, .critical)
+    }
+
     func test_smallSafeJunk_doesNotCap() {
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: 1_000)], health: healthyTelemetry)
@@ -108,6 +138,31 @@ final class CareVerdictEngineTests: XCTestCase {
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [threatFinding], health: failingDisk))
         XCTAssertEqual(verdict.status, .critical, "a threat cap must not raise a critical hardware verdict")
+    }
+
+    func test_criticallyFullDiskFinding_capsTheVerdictAtCritical() {
+        let finding = CareFinding(
+            kind: .lowDiskSpace,
+            payload: .lowDiskSpace(DiskStats(usedBytes: 990, totalBytes: 1_000))
+        )
+        let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
+        XCTAssertEqual(verdict.status, .critical)
+    }
+
+    func test_fillingButNotCriticalDiskFinding_doesNotCapAtCritical() {
+        let finding = CareFinding(
+            kind: .lowDiskSpace,
+            payload: .lowDiskSpace(DiskStats(usedBytes: 850, totalBytes: 1_000))
+        )
+        let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
+        XCTAssertGreaterThan(verdict.status, .critical)
+    }
+
+    func test_threats_stillCapAtRequiresAttention_notCritical() {
+        // Threats carry a critical *finding* urgency; that must not be confused
+        // with a critical verdict for the whole Mac.
+        let verdict = CareVerdictEngine.verdict(for: plan(findings: [threatFinding], health: healthyTelemetry))
+        XCTAssertEqual(verdict.status, .requiresAttention)
     }
 
     // MARK: - Copy

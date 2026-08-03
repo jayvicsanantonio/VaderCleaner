@@ -103,4 +103,41 @@ final class CareFindingCopyTests: XCTestCase {
         XCTAssertTrue(note.contains("2"), note)
         XCTAssertTrue(note.contains("selected"))
     }
+
+    // MARK: - Severity note
+
+    func test_severityNote_isNilWhenNoSignalFired() {
+        XCTAssertNil(CareFindingCopy.severityNote(for: []))
+    }
+
+    func test_severityNote_coversEverySignal() {
+        let signals: [CareSignal] = [.diskPressure, .regrowth(since: Date()), .declined(times: 3)]
+        for signal in signals {
+            let note = CareFindingCopy.severityNote(for: [signal])
+            XCTAssertNotNil(note, "\(signal) needs a note")
+            XCTAssertFalse(note?.isEmpty ?? true)
+        }
+    }
+
+    func test_severityNote_prefersRegrowth_overTheOtherSignals() {
+        let note = CareFindingCopy.severityNote(for: [.declined(times: 4), .diskPressure, .regrowth(since: Date())])
+        XCTAssertEqual(note, CareFindingCopy.severityNote(for: [.regrowth(since: Date())]))
+    }
+
+    func test_severityNote_prefersDiskPressure_overDeclined() {
+        // A disk filling up is news; a standing preference is not.
+        let note = CareFindingCopy.severityNote(for: [.declined(times: 4), .diskPressure])
+        XCTAssertEqual(note, CareFindingCopy.severityNote(for: [.diskPressure]))
+    }
+
+    func test_severityNote_reportsDeclined_whenItIsTheOnlySignal() {
+        // A card that moved down because of the user's own choices must say so
+        // — silently reordering someone's feed is worse than not doing it.
+        XCTAssertNotNil(CareFindingCopy.severityNote(for: [.declined(times: 4)]))
+    }
+
+    func test_severityNote_statesOneThing_notAParagraph() {
+        let note = CareFindingCopy.severityNote(for: [.declined(times: 4), .diskPressure, .regrowth(since: Date())])
+        XCTAssertEqual(note?.filter { $0 == "." }.count, 1, "signals must not stack into a paragraph")
+    }
 }

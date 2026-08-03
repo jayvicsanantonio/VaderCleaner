@@ -14,6 +14,7 @@ struct GeneralTab: View {
     @Environment(WebDevScanScopeStore.self) private var webDevScanScope
     @Environment(MyClutterScanScopeStore.self) private var myClutterScanScope
     @Environment(CareHistoryStore.self) private var history
+    @Environment(CareDeclineStore.self) private var declines
     @Environment(AppState.self) private var appState
 
     @State private var isConfirmingRestore = false
@@ -144,10 +145,11 @@ struct GeneralTab: View {
         ) {
             Button("Clear History", role: .destructive) {
                 history.clear()
+                declines.clear()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("VaderCleaner will forget when it last checked your Mac and how much it has freed. Nothing on your Mac is removed, and your settings stay as they are.")
+            Text("VaderCleaner will forget when it last checked your Mac, how much it has freed, and which suggestions you've been passing on. Nothing on your Mac is removed, and your settings stay as they are.")
         }
         .confirmationDialog(
             "Restore all settings to their defaults?",
@@ -202,6 +204,7 @@ struct GeneralTab: View {
     /// disabled on a fresh install rather than offering a no-op.
     private var hasHistory: Bool {
         history.lastScanDate != nil || history.cumulativeBytesFreed > 0 || !history.receipts.isEmpty
+            || !declines.isEmpty
     }
 
     // MARK: Actions

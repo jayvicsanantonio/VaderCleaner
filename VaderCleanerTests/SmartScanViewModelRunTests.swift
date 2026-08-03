@@ -424,4 +424,88 @@ final class SmartScanViewModelRunTests: XCTestCase {
         vm.toggleBrowserPrivacy(BrowserPrivacyKey(browser: .safari, category: .savedPasswords))
         XCTAssertTrue(vm.browserPrivacySelection.isEmpty, "passwords are informational and can never be selected")
     }
+
+    // MARK: - Run choices
+
+    /// Captures the declined/accepted split one Run pass reports.
+    private final class ChoiceBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [(declined: Set<CareFinding.Kind>, accepted: Set<CareFinding.Kind>)] = []
+        func record(_ declined: Set<CareFinding.Kind>, _ accepted: Set<CareFinding.Kind>) {
+            lock.lock(); defer { lock.unlock() }
+            storage.append((declined, accepted))
+        }
+        var last: (declined: Set<CareFinding.Kind>, accepted: Set<CareFinding.Kind>)? {
+            lock.lock(); defer { lock.unlock() }
+            return storage.last
+        }
+        var callCount: Int { lock.lock(); defer { lock.unlock() }; return storage.count }
+    }
+
+    func test_run_reportsUntouchedActionableFindings_asDeclined() async {
+        let choices = ChoiceBox()
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in Self.richPlan },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            recycleFiles: { Set($0) },
+            recordRunChoices: { choices.record($0, $1) }
+        )
+        await vm.scan()
+        await vm.run()
+
+        let last = choices.last
+        XCTAssertEqual(
+            last?.declined,
+            [.largeOldFiles],
+            "the opt-in finding nobody selected is the only decline"
+        )
+        XCTAssertTrue(last?.accepted.contains(.junkCleanup) ?? false)
+        XCTAssertTrue(last?.accepted.contains(.threats) ?? false)
+    }
+
+    func test_run_reportsAnActedOnFinding_asAccepted() async {
+        let choices = ChoiceBox()
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in Self.richPlan },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            recycleFiles: { Set($0) },
+            recordRunChoices: { choices.record($0, $1) }
+        )
+        await vm.scan()
+        vm.setLargeOldFiles([URL(fileURLWithPath: "/Movies/huge.mov")], selected: true)
+        await vm.run()
+
+        XCTAssertTrue(choices.last?.accepted.contains(.largeOldFiles) ?? false)
+        XCTAssertFalse(choices.last?.declined.contains(.largeOldFiles) ?? true)
+    }
+
+    func test_run_neverReportsInformationalFindings_asDeclined() async {
+        let choices = ChoiceBox()
+        let plan = CarePlan(
+            findings: [
+                CareFinding(kind: .loginItems, payload: .loginItems([
+                    LoginItem(id: "a", name: "Agent", isEnabled: true)
+                ])),
+                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
+                    Self.file("/cache/safe", size: 1_000, category: .userCache)
+                ]))),
+            ],
+            health: nil,
+            unitOutcomes: [.loginItems: .completed, .systemJunk: .completed],
+            startedAt: Date(),
+            finishedAt: Date()
+        )
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in plan },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            recordRunChoices: { choices.record($0, $1) }
+        )
+        await vm.scan()
+        await vm.run()
+
+        XCTAssertFalse(
+            choices.last?.declined.contains(.loginItems) ?? true,
+            "an advisory has nothing to decline"
+        )
+    }
 }

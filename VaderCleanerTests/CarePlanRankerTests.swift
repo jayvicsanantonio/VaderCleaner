@@ -39,8 +39,15 @@ final class CarePlanRankerTests: XCTestCase {
         CareFinding(kind: .loginItems, payload: .loginItems([]))
     }
 
+    /// A disk past the critical threshold, which escalates the card to critical.
     private var lowDisk: CareFinding {
         CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(DiskStats(usedBytes: 95, totalBytes: 100)))
+    }
+
+    /// A disk that is filling but not critical — the fixture for tests about
+    /// ordering among ordinary advisories, where escalation would be noise.
+    private var mildLowDisk: CareFinding {
+        CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(DiskStats(usedBytes: 85, totalBytes: 100)))
     }
 
     func test_threatsLead_evenWithZeroBytes() {
@@ -54,7 +61,7 @@ final class CarePlanRankerTests: XCTestCase {
     }
 
     func test_advisoryFindings_followByteFindings_inKindOrder() {
-        let ranked = CarePlanRanker.ranked([loginItems, updates, junk(bytes: 1), lowDisk])
+        let ranked = CarePlanRanker.ranked([loginItems, updates, junk(bytes: 1), mildLowDisk])
         XCTAssertEqual(ranked.map(\.kind), [.junkCleanup, .lowDiskSpace, .appUpdates, .loginItems])
     }
 
@@ -68,6 +75,74 @@ final class CarePlanRankerTests: XCTestCase {
         XCTAssertEqual(
             CarePlanRanker.ranked(input).map(\.kind),
             CarePlanRanker.ranked(input.reversed()).map(\.kind)
+        )
+    }
+
+    // MARK: - Severity context
+
+    func test_sizedFindings_outrankCountOnlyFindings_whateverTheirScore() {
+        // A single tiny junk find still leads a maxed-out advisory: bytes and
+        // counts are different scales, and the space win is the actionable one.
+        let ranked = CarePlanRanker.ranked([mildLowDisk, junk(bytes: 1)])
+        XCTAssertEqual(ranked.map(\.kind), [.junkCleanup, .lowDiskSpace])
+    }
+
+    func test_criticallyFullDisk_leadsTheFeed_aboveLargerSpaceFindings() {
+        let ranked = CarePlanRanker.ranked([junk(bytes: 40_000_000_000), lowDisk])
+        XCTAssertEqual(ranked.map(\.kind), [.lowDiskSpace, .junkCleanup])
+    }
+
+    func test_diskPressure_liftsASafeWin_overAComparableOptInFinding() {
+        let pressured = CareSeverityContext(
+            health: CareHealthSnapshot(
+                disk: DiskStats(usedBytes: 850, totalBytes: 1_000),
+                memoryPressure: .nominal,
+                smart: .good,
+                battery: .absent
+            )
+        )
+        let findings = [largeOld(bytes: 8_000_000_000), junk(bytes: 8_000_000_000)]
+        XCTAssertEqual(
+            CarePlanRanker.ranked(findings, context: pressured).map(\.kind),
+            [.junkCleanup, .largeOldFiles]
+        )
+    }
+
+    func test_regrownFinding_outranksAQuietPeerOfTheSameSize() {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let cleared = CareReceipt(
+            date: now.addingTimeInterval(-86_400),
+            lines: [CareReceiptLine(kind: .installers, itemsProcessed: 4, bytesFreed: 0, outcome: .success)]
+        )
+        let regrown = CareFinding(kind: .installers, payload: .installers((0..<4).map {
+            InstallationFile(
+                url: URL(fileURLWithPath: "/Downloads/app\($0).dmg"),
+                name: "app\($0).dmg",
+                sizeBytes: 1_000_000_000,
+                kind: .diskImage
+            )
+        }))
+        let quiet = largeOld(bytes: 4_000_000_000)
+        let ranked = CarePlanRanker.ranked(
+            [quiet, regrown],
+            context: CareSeverityContext(health: nil, receipts: [cleared], now: now)
+        )
+        XCTAssertEqual(ranked.map(\.kind), [.installers, .largeOldFiles])
+    }
+
+    func test_rankingWithContext_isDeterministic() {
+        let ctx = CareSeverityContext(
+            health: CareHealthSnapshot(
+                disk: DiskStats(usedBytes: 900, totalBytes: 1_000),
+                memoryPressure: .nominal,
+                smart: .good,
+                battery: .absent
+            )
+        )
+        let input = [loginItems, junk(bytes: 2_000_000_000), threats, updates, largeOld(bytes: 5)]
+        XCTAssertEqual(
+            CarePlanRanker.ranked(input, context: ctx).map(\.kind),
+            CarePlanRanker.ranked(input.reversed(), context: ctx).map(\.kind)
         )
     }
 }

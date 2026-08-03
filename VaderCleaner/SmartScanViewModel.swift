@@ -214,6 +214,16 @@ final class SmartScanViewModel {
     @ObservationIgnored private let recordScan: (Date) -> Void
     @ObservationIgnored private let recordReceipt: (CareReceipt) -> Void
 
+    /// Past Run receipts, read when a plan lands so severity can tell work that
+    /// has come back from work being seen for the first time.
+    @ObservationIgnored private let pastReceipts: () -> [CareReceipt]
+
+    /// Consecutive Run passes the user has left each kind alone, and the sink
+    /// that folds one pass's choices back in. A finding acted on resets; one
+    /// left behind grows its streak.
+    @ObservationIgnored private let declineCounts: () -> [CareFinding.Kind: Int]
+    @ObservationIgnored private let recordRunChoices: (Set<CareFinding.Kind>, Set<CareFinding.Kind>) -> Void
+
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
 
@@ -235,10 +245,16 @@ final class SmartScanViewModel {
         enabledUnits: @escaping () -> Set<CareScanUnit> = { Set(CareScanUnit.allCases) },
         enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) },
         recordScan: @escaping (Date) -> Void = { _ in },
-        recordReceipt: @escaping (CareReceipt) -> Void = { _ in }
+        recordReceipt: @escaping (CareReceipt) -> Void = { _ in },
+        pastReceipts: @escaping () -> [CareReceipt] = { [] },
+        declineCounts: @escaping () -> [CareFinding.Kind: Int] = { [:] },
+        recordRunChoices: @escaping (Set<CareFinding.Kind>, Set<CareFinding.Kind>) -> Void = { _, _ in }
     ) {
         self.recordScan = recordScan
         self.recordReceipt = recordReceipt
+        self.pastReceipts = pastReceipts
+        self.declineCounts = declineCounts
+        self.recordRunChoices = recordRunChoices
         self.scanEngine = scanEngine
         self.junkCleaner = junkCleaner
         self.threatRemover = threatRemover
@@ -516,6 +532,23 @@ final class SmartScanViewModel {
     /// `invalidateResultsCaches()` drops both whenever a new plan lands.
     @ObservationIgnored private var rankedFindingsCache: [CareFinding]?
     @ObservationIgnored private var sizeTables: [CareFinding.Kind: [URL: Int64]] = [:]
+    @ObservationIgnored private var severityContextCache: CareSeverityContext?
+
+    /// The severity inputs for the plan on screen. Snapshotted on first read
+    /// rather than rebuilt per access: `now` anchors every receipt age, and a
+    /// clock that advances between reads would let the feed reorder itself
+    /// under the user mid-session.
+    var severityContext: CareSeverityContext {
+        if let cached = severityContextCache { return cached }
+        let context = CareSeverityContext(
+            health: currentPlan?.health,
+            receipts: pastReceipts(),
+            now: Date(),
+            declines: declineCounts()
+        )
+        severityContextCache = context
+        return context
+    }
 
     /// The feed in display order: threats first, then space, then advisories.
     /// Memoized per plan: the feed reads this several times in one render (once
@@ -524,9 +557,21 @@ final class SmartScanViewModel {
     var rankedFindings: [CareFinding] {
         guard let plan = currentPlan else { return [] }
         if let cached = rankedFindingsCache { return cached }
-        let ranked = CarePlanRanker.ranked(plan.findings)
+        let ranked = CarePlanRanker.ranked(plan.findings, context: severityContext)
         rankedFindingsCache = ranked
         return ranked
+    }
+
+    @ObservationIgnored private var severityCache: [CareFinding.Kind: CareSeverity] = [:]
+
+    /// This finding's severity under the current plan's context. Memoized for
+    /// the same render-cost reason as `rankedFindings`: every tile reads it on
+    /// every pass through the feed.
+    func severity(for finding: CareFinding) -> CareSeverity {
+        if let cached = severityCache[finding.kind] { return cached }
+        let value = CareSeverityEngine.severity(for: finding, context: severityContext)
+        severityCache[finding.kind] = value
+        return value
     }
 
     /// Drops the per-plan memoizations so a stale sort or size table can never
@@ -534,6 +579,8 @@ final class SmartScanViewModel {
     private func invalidateResultsCaches() {
         rankedFindingsCache = nil
         sizeTables = [:]
+        severityContextCache = nil
+        severityCache = [:]
     }
 
     // MARK: - Card inclusion
@@ -1119,7 +1166,8 @@ final class SmartScanViewModel {
         planUnderRun = plan
         // Resolve the queue up front so the running screen can show honest
         // "step N of M" progress and the current action's label.
-        let queue = CarePlanRanker.ranked(plan.findings).filter { willExecuteDuringRun($0) }
+        let queue = CarePlanRanker.ranked(plan.findings, context: severityContext)
+            .filter { willExecuteDuringRun($0) }
         runProgress = RunProgress(
             completed: 0,
             total: queue.count,
@@ -1144,8 +1192,27 @@ final class SmartScanViewModel {
         }
         let receipt = CareReceipt(date: Date(), lines: lines)
         recordReceipt(receipt)
+        recordRunChoices(declinedKinds(in: plan, queue: queue), Set(queue.map(\.kind)))
         runProgress = nil
         phase = .done(receipt: receipt)
+    }
+
+    /// Actionable findings the user was shown and this pass left behind.
+    ///
+    /// A completed Run is the one moment a decline is unambiguous: the plan was
+    /// on screen, the user chose to act, and this finding was not part of what
+    /// they chose. Closing the window or never running tells us nothing, so
+    /// neither is counted.
+    private func declinedKinds(
+        in plan: CarePlan,
+        queue: [CareFinding]
+    ) -> Set<CareFinding.Kind> {
+        let acted = Set(queue.map(\.kind))
+        return Set(
+            plan.findings
+                .filter { $0.actionability != .informational && !acted.contains($0.kind) }
+                .map(\.kind)
+        )
     }
 
     /// `willExecute` reads `phase == .results`; during the pass the phase is
@@ -1567,11 +1634,13 @@ extension SmartScanViewModel {
         webDevScanScope: WebDevScanScopeStore? = nil,
         statsService: SystemStatsService,
         history: CareHistoryStore? = nil,
+        declines: CareDeclineStore? = nil,
         protectionSettings: ProtectionSettingsStore? = nil
     ) -> SmartScanViewModel {
         // Default arguments evaluate outside the main actor, so the fallback
-        // store (previews, tests) is built here instead.
+        // stores (previews, tests) are built here instead.
         let history = history ?? CareHistoryStore()
+        let declines = declines ?? CareDeclineStore()
         let engine = CareScanEngine(
             runners: .live(
                 exclusions: exclusions,
@@ -1628,7 +1697,10 @@ extension SmartScanViewModel {
             // Strong captures: the view model is the store's writer, and the
             // app hands the same instance to the environment for the views.
             recordScan: { history.recordScan(at: $0) },
-            recordReceipt: { history.recordReceipt($0) }
+            recordReceipt: { history.recordReceipt($0) },
+            pastReceipts: { history.receipts },
+            declineCounts: { declines.counts },
+            recordRunChoices: { declines.record(declined: $0, accepted: $1) }
         )
     }
 
