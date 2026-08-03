@@ -67,6 +67,36 @@ final class CareVerdictEngineTests: XCTestCase {
         XCTAssertEqual(verdict.status, .fair)
     }
 
+    func test_heavySafeJunk_capsAtRequiresAttention() {
+        // 94 GB of clearable junk is not "a little care".
+        let verdict = CareVerdictEngine.verdict(
+            for: plan(findings: [junkFinding(bytes: CareVerdictEngine.heavyJunkCapBytes + 1)], health: healthyTelemetry)
+        )
+        XCTAssertEqual(verdict.status, .requiresAttention)
+    }
+
+    func test_junkBetweenTheTwoCaps_staysFair() {
+        let midpoint = (CareVerdictEngine.safeJunkCapBytes + CareVerdictEngine.heavyJunkCapBytes) / 2
+        let verdict = CareVerdictEngine.verdict(
+            for: plan(findings: [junkFinding(bytes: midpoint)], health: healthyTelemetry)
+        )
+        XCTAssertEqual(verdict.status, .fair)
+    }
+
+    func test_heavyJunkCap_sitsAboveTheFairCap() {
+        // The two thresholds must stay ordered, or the tiers invert.
+        XCTAssertGreaterThan(CareVerdictEngine.heavyJunkCapBytes, CareVerdictEngine.safeJunkCapBytes)
+    }
+
+    func test_junkAlone_neverReachesCritical_howeverMuchOfItThereIs() {
+        // Junk is all safely removable. Critical is reserved for a disk about
+        // to stop working, not for a big pile of caches.
+        let verdict = CareVerdictEngine.verdict(
+            for: plan(findings: [junkFinding(bytes: 900_000_000_000)], health: healthyTelemetry)
+        )
+        XCTAssertGreaterThan(verdict.status, .critical)
+    }
+
     func test_smallSafeJunk_doesNotCap() {
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: 1_000)], health: healthyTelemetry)

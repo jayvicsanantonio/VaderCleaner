@@ -21,6 +21,16 @@ enum CareVerdictEngine {
     /// a machine carrying this much removable junk deserves "Fair" at best.
     static let safeJunkCapBytes: Int64 = 5_000_000_000
 
+    /// Safe reclaimable bytes above which "could use a little care" understates
+    /// the situation. One threshold is not enough on its own: with only the cap
+    /// above, 6 GB of junk and 94 GB produced the same tier and the same
+    /// sentence. This is the second step, and the last — `MacHealthStatus` has
+    /// five tiers, and junk alone never earns the bottom two.
+    ///
+    /// Absolute rather than a fraction of the disk, which would let a very
+    /// large volume swallow any amount of junk. Judgement, not measurement.
+    static let heavyJunkCapBytes: Int64 = 50_000_000_000
+
     static func verdict(for plan: CarePlan) -> CareVerdict {
         let status = status(for: plan)
         return CareVerdict(
@@ -47,8 +57,12 @@ enum CareVerdictEngine {
         if let threats = plan.finding(.threats), !threats.isEmpty {
             status = min(status, .requiresAttention)
         }
-        if safelyFreeableBytes(in: plan) > safeJunkCapBytes {
+        let freeable = safelyFreeableBytes(in: plan)
+        if freeable > safeJunkCapBytes {
             status = min(status, .fair)
+        }
+        if freeable > heavyJunkCapBytes {
+            status = min(status, .requiresAttention)
         }
         // A disk this close to full is the one finding that speaks for the whole
         // Mac: everything else degrades once it fills. The base tier already

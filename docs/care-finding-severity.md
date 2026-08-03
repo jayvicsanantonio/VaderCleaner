@@ -332,6 +332,25 @@ companion `test_threats_stillCapAtRequiresAttention_notCritical` guarding the
 distinction; and the Phase 3 damping tests replaced the drafted escalation
 tests, since declines damp scores rather than moving tiers.
 
+## Verdict tiers and junk volume
+
+`CareVerdictEngine` had one junk threshold, `safeJunkCapBytes` (5 GB), and
+capped at `.fair`. Everything above it collapsed into the same answer: a Mac
+with 6 GB of clearable junk and one with 94 GB both read
+*"Your Mac could use a little care."* Same saturation shape as the magnitude
+note, spotted on the same screenshot.
+
+`heavyJunkCapBytes` (50 GB) adds the second step, capping at
+`.requiresAttention`. Two thresholds give three outcomes, which is the right
+granularity against a five-tier enum — junk alone never earns the bottom two,
+because all of it is safely removable and `.critical` is reserved for a disk
+about to stop working. `test_junkAlone_neverReachesCritical_howeverMuchOfItThereIs`
+pins that boundary.
+
+Absolute rather than a fraction of the disk: a proportional rule would let a
+very large volume swallow any amount of junk. The number is judgement, not
+measurement.
+
 ## Open questions
 
 1. **30-day regrowth window** — plausible, not measured. It is one constant in
