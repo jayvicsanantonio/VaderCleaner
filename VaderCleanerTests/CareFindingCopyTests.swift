@@ -111,7 +111,7 @@ final class CareFindingCopyTests: XCTestCase {
     }
 
     func test_severityNote_coversEverySignal() {
-        let signals: [CareSignal] = [.magnitude, .diskPressure, .regrowth(since: Date())]
+        let signals: [CareSignal] = [.magnitude, .diskPressure, .regrowth(since: Date()), .declined(times: 3)]
         for signal in signals {
             let note = CareFindingCopy.severityNote(for: [signal])
             XCTAssertNotNil(note, "\(signal) needs a note")
@@ -127,6 +127,13 @@ final class CareFindingCopyTests: XCTestCase {
     func test_severityNote_prefersDiskPressure_overMagnitude() {
         let note = CareFindingCopy.severityNote(for: [.magnitude, .diskPressure])
         XCTAssertEqual(note, CareFindingCopy.severityNote(for: [.diskPressure]))
+    }
+
+    func test_severityNote_prefersDeclined_overMagnitude() {
+        // A card that moved down because of the user's own choices should say
+        // so rather than reporting its size — silent reordering is worse.
+        let note = CareFindingCopy.severityNote(for: [.magnitude, .declined(times: 4)])
+        XCTAssertEqual(note, CareFindingCopy.severityNote(for: [.declined(times: 4)]))
     }
 
     func test_severityNote_statesOneThing_notAParagraph() {

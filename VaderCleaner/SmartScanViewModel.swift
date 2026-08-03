@@ -209,6 +209,12 @@ final class SmartScanViewModel {
     /// has come back from work being seen for the first time.
     @ObservationIgnored private let pastReceipts: () -> [CareReceipt]
 
+    /// Consecutive Run passes the user has left each kind alone, and the sink
+    /// that folds one pass's choices back in. A finding acted on resets; one
+    /// left behind grows its streak.
+    @ObservationIgnored private let declineCounts: () -> [CareFinding.Kind: Int]
+    @ObservationIgnored private let recordRunChoices: (Set<CareFinding.Kind>, Set<CareFinding.Kind>) -> Void
+
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "SmartScanViewModel")
 
@@ -227,11 +233,15 @@ final class SmartScanViewModel {
         enabledJunkCategories: @escaping () -> Set<ScanCategory> = { Set(SmartScanSettingsStore.junkCategories) },
         recordScan: @escaping (Date) -> Void = { _ in },
         recordReceipt: @escaping (CareReceipt) -> Void = { _ in },
-        pastReceipts: @escaping () -> [CareReceipt] = { [] }
+        pastReceipts: @escaping () -> [CareReceipt] = { [] },
+        declineCounts: @escaping () -> [CareFinding.Kind: Int] = { [:] },
+        recordRunChoices: @escaping (Set<CareFinding.Kind>, Set<CareFinding.Kind>) -> Void = { _, _ in }
     ) {
         self.recordScan = recordScan
         self.recordReceipt = recordReceipt
         self.pastReceipts = pastReceipts
+        self.declineCounts = declineCounts
+        self.recordRunChoices = recordRunChoices
         self.scanEngine = scanEngine
         self.junkCleaner = junkCleaner
         self.threatRemover = threatRemover
@@ -519,7 +529,8 @@ final class SmartScanViewModel {
         let context = CareSeverityContext(
             health: currentPlan?.health,
             receipts: pastReceipts(),
-            now: Date()
+            now: Date(),
+            declines: declineCounts()
         )
         severityContextCache = context
         return context
@@ -1167,8 +1178,27 @@ final class SmartScanViewModel {
         }
         let receipt = CareReceipt(date: Date(), lines: lines)
         recordReceipt(receipt)
+        recordRunChoices(declinedKinds(in: plan, queue: queue), Set(queue.map(\.kind)))
         runProgress = nil
         phase = .done(receipt: receipt)
+    }
+
+    /// Actionable findings the user was shown and this pass left behind.
+    ///
+    /// A completed Run is the one moment a decline is unambiguous: the plan was
+    /// on screen, the user chose to act, and this finding was not part of what
+    /// they chose. Closing the window or never running tells us nothing, so
+    /// neither is counted.
+    private func declinedKinds(
+        in plan: CarePlan,
+        queue: [CareFinding]
+    ) -> Set<CareFinding.Kind> {
+        let acted = Set(queue.map(\.kind))
+        return Set(
+            plan.findings
+                .filter { $0.actionability != .informational && !acted.contains($0.kind) }
+                .map(\.kind)
+        )
     }
 
     /// `willExecute` reads `phase == .results`; during the pass the phase is
@@ -1559,11 +1589,13 @@ extension SmartScanViewModel {
         webDevScanScope: WebDevScanScopeStore? = nil,
         statsService: SystemStatsService,
         history: CareHistoryStore? = nil,
+        declines: CareDeclineStore? = nil,
         protectionSettings: ProtectionSettingsStore? = nil
     ) -> SmartScanViewModel {
         // Default arguments evaluate outside the main actor, so the fallback
-        // store (previews, tests) is built here instead.
+        // stores (previews, tests) are built here instead.
         let history = history ?? CareHistoryStore()
+        let declines = declines ?? CareDeclineStore()
         let engine = CareScanEngine(
             runners: .live(
                 exclusions: exclusions,
@@ -1613,7 +1645,9 @@ extension SmartScanViewModel {
             // app hands the same instance to the environment for the views.
             recordScan: { history.recordScan(at: $0) },
             recordReceipt: { history.recordReceipt($0) },
-            pastReceipts: { history.receipts }
+            pastReceipts: { history.receipts },
+            declineCounts: { declines.counts },
+            recordRunChoices: { declines.record(declined: $0, accepted: $1) }
         )
     }
 

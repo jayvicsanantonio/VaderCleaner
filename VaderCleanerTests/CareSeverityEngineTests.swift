@@ -283,6 +283,100 @@ final class CareSeverityEngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Declines
+
+    private func declined(_ counts: [CareFinding.Kind: Int]) -> CareSeverityContext {
+        CareSeverityContext(health: nil, declines: counts)
+    }
+
+    private func similarImages(bytes: Int64) -> CareFinding {
+        let group = SimilarImageGroup(files: [
+            file("/Pictures/a.jpg", size: bytes, category: .largeFile),
+            file("/Pictures/b.jpg", size: bytes, category: .largeFile),
+        ])
+        return CareFinding(kind: .similarImages, payload: .similarImages([group]))
+    }
+
+    func test_decliningBelowTheThreshold_changesNothing() {
+        let finding = similarImages(bytes: 2_000_000_000)
+        let below = CareSeverityEngine.declineThreshold - 1
+        XCTAssertEqual(
+            severity(finding, declined([.similarImages: below])).score,
+            severity(finding).score,
+            accuracy: 0.0001
+        )
+    }
+
+    func test_decliningAtTheThreshold_dampensTheScore() {
+        let finding = similarImages(bytes: 2_000_000_000)
+        XCTAssertLessThan(
+            severity(finding, declined([.similarImages: CareSeverityEngine.declineThreshold])).score,
+            severity(finding).score
+        )
+    }
+
+    func test_dampeningDeepens_withMoreDeclines() {
+        let finding = similarImages(bytes: 2_000_000_000)
+        let three = severity(finding, declined([.similarImages: 3])).score
+        let five = severity(finding, declined([.similarImages: 5])).score
+        XCTAssertLessThan(five, three)
+    }
+
+    func test_dampening_neverFallsBelowTheFloor() {
+        let finding = similarImages(bytes: 2_000_000_000)
+        let quiet = severity(finding).score
+        let hammered = severity(finding, declined([.similarImages: 500])).score
+        XCTAssertGreaterThanOrEqual(hammered, quiet * CareSeverityEngine.declineDampingFloor - 0.0001)
+    }
+
+    func test_declines_neverDampenPreApprovedFindings() {
+        // Junk, duplicates, updates, maintenance — hygiene the app vouches for.
+        // Passing on it once is not a reason to stop mentioning it.
+        let finding = junk(bytes: 8_000_000_000)
+        XCTAssertEqual(
+            severity(finding, declined([.junkCleanup: 50])).score,
+            severity(finding).score,
+            accuracy: 0.0001
+        )
+    }
+
+    func test_declines_neverQuietThreats() {
+        let threat = CareFinding(
+            kind: .threats,
+            payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
+        )
+        let result = severity(threat, declined([.threats: 500]))
+        XCTAssertEqual(result.urgency, .critical)
+        XCTAssertEqual(result.score, severity(threat).score, accuracy: 0.0001)
+    }
+
+    func test_declines_neverChangeTheTier() {
+        let finding = similarImages(bytes: 2_000_000_000)
+        XCTAssertEqual(
+            severity(finding, declined([.similarImages: 500])).urgency,
+            finding.urgency
+        )
+    }
+
+    func test_decliningReportsTheSignal_onlyOnceDampeningStarts() {
+        let finding = similarImages(bytes: 2_000_000_000)
+        let below = CareSeverityEngine.declineThreshold - 1
+        XCTAssertFalse(hasDeclinedSignal(severity(finding, declined([.similarImages: below]))))
+        XCTAssertTrue(hasDeclinedSignal(severity(finding, declined([.similarImages: CareSeverityEngine.declineThreshold]))))
+    }
+
+    func test_declinedFinding_stillOutranksASmallerOne() {
+        // Dampening lowers a card; it must not bury a genuinely bigger finding
+        // beneath a trivial one.
+        let bigDeclined = severity(similarImages(bytes: 40_000_000_000), declined([.similarImages: 500])).score
+        let tinyQuiet = severity(similarImages(bytes: 1_000)).score
+        XCTAssertGreaterThan(bigDeclined, tinyQuiet)
+    }
+
+    private func hasDeclinedSignal(_ severity: CareSeverity) -> Bool {
+        severity.signals.contains { if case .declined = $0 { return true } else { return false } }
+    }
+
     // MARK: - Determinism
 
     func test_severity_isDeterministic_forTheSameInputs() {

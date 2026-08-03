@@ -392,6 +392,12 @@ enum CareFindingCopy {
                 comment: "Care tile severity note: free space is short, so reclaiming matters more."
             )
         }
+        if signals.contains(where: { if case .declined = $0 { return true } else { return false } }) {
+            return String(
+                localized: "Lower down — you've passed on this before.",
+                comment: "Care tile severity note: the user has repeatedly left this finding alone, so it no longer leads."
+            )
+        }
         if signals.contains(.magnitude) {
             return String(
                 localized: "Bigger than usual for this kind of thing.",

@@ -30,6 +30,7 @@ struct VaderCleanerApp: App {
     @State private var webDevScanScope: WebDevScanScopeStore
     @State private var smartScanSettings: SmartScanSettingsStore
     @State private var careHistory: CareHistoryStore
+    @State private var careDeclines: CareDeclineStore
     @State private var protectionSettings: ProtectionSettingsStore
     @State private var systemJunkViewModel: SystemJunkViewModel
     @State private var myClutterViewModel: MyClutterViewModel
@@ -114,6 +115,11 @@ struct VaderCleanerApp: App {
         // and the feed/receipt views read it from the environment.
         let careHistory = CareHistoryStore()
         _careHistory = State(initialValue: careHistory)
+        // Which findings the user keeps passing on, so the feed stops leading
+        // with them. Same lifetime and the same reader/writer split as the
+        // history above; Settings clears the two together.
+        let careDeclines = CareDeclineStore()
+        _careDeclines = State(initialValue: careDeclines)
         // Protection scan options and mode. Captured by `MalwareViewModel.live`
         // below, which reads it per scan so a Settings → Protection change
         // takes effect on the next scan.
@@ -196,6 +202,7 @@ struct VaderCleanerApp: App {
                 webDevScanScope: webDevScanScope,
                 statsService: stats,
                 history: careHistory,
+                declines: careDeclines,
                 protectionSettings: protectionSettings
             )
         )
@@ -357,6 +364,7 @@ struct VaderCleanerApp: App {
                 // Settings scene needs these two as well.
                 .environment(appState)
                 .environment(careHistory)
+                .environment(careDeclines)
                 .environment(notificationSettings)
                 // The Menu Bar tab applies a new refresh cadence live.
                 .environment(systemStats)

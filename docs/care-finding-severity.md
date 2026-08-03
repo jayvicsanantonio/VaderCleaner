@@ -66,6 +66,9 @@ enum CareSignal: Equatable, Sendable {
     case diskPressure
     /// This kind was cleaned in a recent Run and has come back.
     case regrowth(since: Date)
+    /// The user has passed on this kind enough times running that the app has
+    /// stopped leading with it. The only signal that quiets rather than raises.
+    case declined(times: Int)
 }
 
 /// How loudly a finding should lead, and why.
@@ -86,9 +89,11 @@ struct CareSeverityContext: Sendable {
     /// Newest last, as `CareHistoryStore` stores them.
     let receipts: [CareReceipt]
     let now: Date
+    /// Consecutive Run passes the user has left each kind alone.
+    let declines: [CareFinding.Kind: Int]
 
     /// The context for surfaces with no history to consult.
-    static let none = CareSeverityContext(health: nil, receipts: [], now: .distantPast)
+    static let none = CareSeverityContext(health: nil, receipts: [], now: .distantPast, declines: [:])
 }
 ```
 
@@ -126,7 +131,8 @@ inventing a proxy for it would be a guess dressed as a recommendation.
 ### Score
 
 ```
-score = clamp(magnitudeWeight * magnitude + pressureWeight * pressureBoost + recencyWeight * recency)
+raw   = clamp(magnitudeWeight * magnitude + pressureWeight * pressureBoost + recencyWeight * recency)
+score = raw * damping(forDeclines:)
 ```
 
 Weights sum to 1 within each phase, so no phase ships a constant it does not
@@ -224,22 +230,92 @@ Highest-priority signal wins; they never stack into a paragraph.
 
 Each phase ships green and is useful alone.
 
-**Phase 1 — magnitude. Shipped.** `CareSeverity`, `CareSeverityEngine`,
-`CareSeverityContext` (health only — `receipts` and `now` arrive with the code
-that reads them), both disk rules, the score, the ranker context parameter,
-the verdict cap, and the `SmartScanViewModel` wiring. No persistence, no
-history reads. 18 All pure-function tests — no fixtures on disk, no main actor. Shipped counts:
-**31 `CareSeverityEngineTests`**, **10 `CarePlanRankerTests`** (5 original,
-5 added), **17 `CareVerdictEngineTests`** (14 original, 3 added), **15
-`CareFindingCopyTests`** (10 original, 5 added).
+**Phase 1 — magnitude. Shipped** (`600613e`). `CareSeverity`,
+`CareSeverityEngine`, `CareSeverityContext`, both disk rules, the score, the
+ranker context parameter, the verdict cap, and the `SmartScanViewModel`
+wiring. No persistence, no history reads.
 
-Two names in this spec's first draft did not survive contact with the code, for
-reasons recorded above: `test_regrowth_onLeftovers_escalatesToAttention` became
-`test_regrowth_raisesScore_forAWhitelistedKind` (regrowth scores, it does not
-escalate tiers), and `test_criticalSeverityFinding_capsTheVerdictAtCritical`
+**Phase 2 — memory. Shipped** (`4f6acd9`). Regrowth detection against
+`CareHistoryStore.receipts`, injected as a `pastReceipts` closure to match how
+every other collaborator reaches the view model. The scoring whitelist, the
+recency decay, `CareFindingCopy.severityNote(for:)`, and the tile that renders
+it. Weights rebalanced to `magnitude 0.60 / pressure 0.15 / recency 0.25`.
+
+Two things fell out of building it:
+
+- The context is **snapshotted on first read** and dropped by
+  `invalidateResultsCaches()`, not rebuilt per access. `now` anchors every
+  receipt age, so a clock advancing between reads would let the feed quietly
+  reorder itself mid-session.
+- `CareResultTile`'s red critical edge was reading `finding.urgency` — the
+  kind's own tier — so the disk card Phase 1 escalates never got it. It now
+  reads severity.
+
+Before this phase the 24-receipt log existed only to enable a *Clear History*
+button.
+
+**Phase 3 — declined findings. Shipped.** `CareDeclineStore`, the
+`.declined(times:)` signal, multiplicative score damping, the note, and the
+Settings clear path.
+
+**What counts as a decline.** A completed Run pass is the one moment the choice
+is unambiguous: the plan was on screen, the user chose to act, and this finding
+was not part of what they chose. Closing the window or never running tells us
+nothing, so neither is counted. Informational findings are excluded — there is
+nothing there to decline.
+
+**Only opt-in findings damp.** Opt-in findings are the user's own files, and
+passing on them is a standing preference worth respecting. Pre-approved
+findings are hygiene the app vouches for — junk, duplicates, updates, and above
+all threats — and no amount of passing is a reason to stop raising them. Two
+tests pin this: `test_declines_neverDampenPreApprovedFindings` and
+`test_declines_neverQuietThreats`.
+
+**Damping is multiplicative, mild, and floored.** `damping(forDeclines:)`
+returns 1 below `declineThreshold` (3), then eases to `declineDampingFloor`
+(0.5). Multiplicative rather than subtractive so a large declined finding still
+outranks a trivial one — the app takes the hint without hiding the evidence.
+Declines move the score only: they never change a tier and never remove a card.
+
+**Privacy.** The record is a kind identifier and an integer. No paths, no
+filenames, no timestamps — it cannot describe a file the user owns, only which
+*categories* of housekeeping they keep skipping. Settings' Clear History wipes
+it alongside the receipt log so one action forgets everything the app has
+recorded, the confirmation copy says so, and the button enables when either
+record is non-empty. `test_countTable_exposesOnlyKindsAndCounts` pins the
+stored shape; unknown keys are dropped on load so a retired kind cannot linger
+as a count nothing can reset.
+
+**It always shows a note.** This is the only signal that quiets a finding, and
+the only one derived from the user's own behaviour rather than the machine's
+state. Silently reordering someone's feed based on what they did would be worse
+than not doing it, so `.declined` outranks `.magnitude` in note priority.
+
+## Tests
+
+All pure-function tests except the store and the run-choice cases — no fixtures
+on disk. Shipped counts:
+
+| Suite | Tests | Note |
+| --- | --- | --- |
+| `CareSeverityEngineTests` | 37 | new |
+| `CareDeclineStoreTests` | 10 | new |
+| `CareFindingCopyTests` | 16 | 10 original, 6 added |
+| `CareVerdictEngineTests` | 17 | 14 original, 3 added |
+| `CarePlanRankerTests` | 10 | 5 original, 5 added |
+| `SmartScanViewModelRunTests` | +3 | decline/accept reporting |
+
+Full suite: **2093 green**, up from 2038 at branch point. 0 lint errors, clean
+Swift 6 build with 0 warnings.
+
+Three names in this spec's first draft did not survive contact with the code,
+for reasons recorded above: `test_regrowth_onLeftovers_escalatesToAttention`
+became `test_regrowth_raisesScore_forAWhitelistedKind` (regrowth scores, it
+does not escalate tiers); `test_criticalSeverityFinding_capsTheVerdictAtCritical`
 became `test_criticallyFullDiskFinding_capsTheVerdictAtCritical` with a
 companion `test_threats_stillCapAtRequiresAttention_notCritical` guarding the
-distinction.
+distinction; and the Phase 3 damping tests replaced the drafted escalation
+tests, since declines damp scores rather than moving tiers.
 
 ## Open questions
 
@@ -252,3 +328,12 @@ distinction.
    before history is reachable. Keep it derived, memoized in the view model
    next to `rankedFindingsCache`, and invalidated by the same
    `invalidateResultsCaches()`.
+4. **A decline is inferred, not stated.** For opt-in findings, unselected is
+   also the *seeded* state, so running Fix without touching a card is counted
+   as passing on it even when the user never really considered it. The
+   threshold of 3 is what makes that acceptable: three passes running without a
+   single selection is a habit, not an accident. A truer signal would be "opened
+   Review and still chose nothing", which needs review-visit tracking this
+   phase deliberately does not add.
+5. **Damping constants** (threshold 3, step 0.15, floor 0.5) are judgement,
+   not measurement — one clause of `damping(forDeclines:)` to revise.

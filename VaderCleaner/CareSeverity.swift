@@ -13,6 +13,11 @@ enum CareSignal: Equatable, Sendable {
     /// A recent Run cleaned this kind and it has come back. Carries the date of
     /// the receipt that cleared it, so the copy can be specific.
     case regrowth(since: Date)
+    /// The user has passed on this kind enough times running that the app has
+    /// stopped leading with it. The only signal that quiets a finding rather
+    /// than raising it, and the only one that reports the user's own history
+    /// back to them — so it always shows a note, never a silent reorder.
+    case declined(times: Int)
 }
 
 /// How loudly a finding should lead, and why. `urgency` keeps the existing
@@ -38,16 +43,24 @@ struct CareSeverityContext: Sendable {
     /// Reference point for receipt ages. Snapshotted when a plan lands rather
     /// than read per render, so a feed's order never shifts under the user.
     let now: Date
+    /// Consecutive Run passes the user has left each kind alone.
+    let declines: [CareFinding.Kind: Int]
 
-    init(health: CareHealthSnapshot?, receipts: [CareReceipt] = [], now: Date = Date()) {
+    init(
+        health: CareHealthSnapshot?,
+        receipts: [CareReceipt] = [],
+        now: Date = Date(),
+        declines: [CareFinding.Kind: Int] = [:]
+    ) {
         self.health = health
         self.receipts = receipts
         self.now = now
+        self.declines = declines
     }
 
     /// The context for surfaces with no telemetry or history to consult.
     /// Findings resolve to their kind-derived tier and a pure magnitude score.
-    static let none = CareSeverityContext(health: nil, receipts: [], now: .distantPast)
+    static let none = CareSeverityContext(health: nil, receipts: [], now: .distantPast, declines: [:])
 }
 
 /// Deterministic severity rules, `PerformanceRecommendationEngine`-style: no
@@ -102,6 +115,18 @@ enum CareSeverityEngine {
     static let pressureWeight = 0.15
     static let recencyWeight = 0.25
 
+    /// Consecutive declines before the app takes the hint. Set high enough that
+    /// a couple of passes where the user was in a hurry don't read as an
+    /// answer — only a settled habit does.
+    static let declineThreshold = 3
+
+    /// How much each decline past the threshold quiets a finding, and the
+    /// floor it can never sink below. Dampening is deliberately mild and
+    /// bounded: the card must keep its place relative to smaller findings, and
+    /// a finding the user has passed on is still a finding worth listing.
+    static let declineStep = 0.15
+    static let declineDampingFloor = 0.5
+
     // MARK: - Derivation
 
     static func severity(for finding: CareFinding, context: CareSeverityContext) -> CareSeverity {
@@ -127,16 +152,23 @@ enum CareSeverityEngine {
         }
 
         // Escalation only raises: a finding never drops below the tier its kind
-        // guarantees, whatever the telemetry says.
+        // guarantees, whatever the telemetry says. Declines are the one thing
+        // that quiets a finding, and they move the score only — a card the user
+        // keeps passing on stops leading, but never changes what it is.
         let urgency = isCriticallyFull ? max(finding.urgency, .critical) : finding.urgency
-        let score = min(
+        let raw = min(
             1.0,
             magnitudeWeight * magnitude
                 + (isBoosted ? pressureWeight : 0)
                 + recencyWeight * recency
         )
 
-        return CareSeverity(urgency: urgency, score: score, signals: signals)
+        let declines = declineCount(for: finding, context: context)
+        if declines >= declineThreshold {
+            signals.append(.declined(times: declines))
+        }
+
+        return CareSeverity(urgency: urgency, score: raw * damping(forDeclines: declines), signals: signals)
     }
 
     /// How big this finding is on its own kind's scale, 0...1. Sized findings
@@ -224,6 +256,29 @@ enum CareSeverityEngine {
             return receipt.date
         }
         return nil
+    }
+
+    /// How many passes running the user has left this finding alone — counted
+    /// only for opt-in findings.
+    ///
+    /// Opt-in findings are the user's own files, and declining them is a
+    /// standing preference the app should respect. Pre-approved findings are
+    /// hygiene the app vouches for — junk, duplicates, updates, and above all
+    /// threats — and no amount of passing on those is a reason to stop raising
+    /// them. Informational findings have nothing to decline.
+    private static func declineCount(for finding: CareFinding, context: CareSeverityContext) -> Int {
+        guard finding.actionability == .optIn else { return 0 }
+        return context.declines[finding.kind] ?? 0
+    }
+
+    /// The multiplier a declined finding's score is scaled by: 1 until the
+    /// threshold, then easing down to `declineDampingFloor`. Multiplicative
+    /// rather than subtractive so a large declined finding still outranks a
+    /// trivial one — the app takes the hint without hiding the evidence.
+    static func damping(forDeclines times: Int) -> Double {
+        guard times >= declineThreshold else { return 1.0 }
+        let steps = Double(times - declineThreshold + 1)
+        return max(declineDampingFloor, 1.0 - declineStep * steps)
     }
 
     /// Full weight the day after a cleanup, fading to nothing across the
