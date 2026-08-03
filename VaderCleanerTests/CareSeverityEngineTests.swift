@@ -1,5 +1,5 @@
 // CareSeverityEngineTests.swift
-// Tests the pure severity derivation: kind-derived base tier, disk-pressure escalation and boost, and the magnitude score that orders findings within a tier.
+// Tests the pure severity derivation: kind-derived base tier, disk-pressure escalation and boost, regrowth and decline signals, and the score that orders findings within a tier.
 
 import XCTest
 @testable import VaderCleaner
@@ -183,9 +183,10 @@ final class CareSeverityEngineTests: XCTestCase {
 
     // MARK: - Signals
 
-    func test_magnitudeSignal_firesOnlyForLargeFindings() {
-        XCTAssertTrue(severity(junk(bytes: 90_000_000_000)).signals.contains(.magnitude))
-        XCTAssertFalse(severity(junk(bytes: 10_000_000)).signals.contains(.magnitude))
+    func test_size_neverRaisesASignal_howeverLargeTheFinding() {
+        // Magnitude orders the feed; it never speaks. The card already prints
+        // the size, so a note restating it would be noise on every big finding.
+        XCTAssertTrue(severity(junk(bytes: 90_000_000_000)).signals.isEmpty)
     }
 
     // MARK: - Regrowth
@@ -264,23 +265,43 @@ final class CareSeverityEngineTests: XCTestCase {
         XCTAssertGreaterThan(severity(installers(10), fresh).score, severity(installers(10), old).score)
     }
 
-    func test_regrowth_onJunk_reportsTheSignal_butScoresZero() {
-        // macOS rebuilding its own caches is the system working as designed —
-        // worth saying, never worth escalating.
+    func test_regrowth_onJunk_isNeitherReportedNorScored() {
+        // macOS rebuilding its own caches is the system working as designed.
+        // Reporting it as "back since your last cleanup" would frame correct
+        // behaviour as a complaint.
         let ctx = history([receipt(kind: .junkCleanup, itemsProcessed: 100, daysAgo: 1)])
         let regrown = CareFinding(
             kind: .junkCleanup,
             payload: .junk(ScanResult(items: (0..<100).map { file("/cache/\($0)", size: 1_000) }))
         )
-        XCTAssertTrue(severity(regrown, ctx).signals.contains { if case .regrowth = $0 { return true } else { return false } })
+        XCTAssertFalse(hasRegrowthSignal(severity(regrown, ctx)))
         XCTAssertEqual(severity(regrown, ctx).score, severity(regrown).score, accuracy: 0.0001)
     }
 
-    func test_regrowthScoringKinds_areAllTrashRecoverable() {
+    func test_regrowth_onRoutineMaintenance_isNeitherReportedNorScored() {
+        // A tune-up that never came due again would not be routine. Same
+        // category error as junk, and the same answer.
+        let ctx = history([receipt(kind: .maintenanceDue, itemsProcessed: 2, daysAgo: 1)])
+        let due = CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"]))
+        XCTAssertFalse(hasRegrowthSignal(severity(due, ctx)))
+        XCTAssertEqual(severity(due, ctx).score, severity(due).score, accuracy: 0.0001)
+    }
+
+    func test_recurringByDesignKinds_areExcludedFromRegrowth() {
+        // The carve-out is the rule, not an accident of the current list.
+        XCTAssertFalse(CareSeverityEngine.regrowthKinds.contains(.junkCleanup))
+        XCTAssertFalse(CareSeverityEngine.regrowthKinds.contains(.maintenanceDue))
+    }
+
+    func test_regrowthKinds_areAllTrashRecoverable() {
         // Every kind that regrowth escalates must be one the user can undo.
-        for kind in CareSeverityEngine.regrowthScoringKinds {
+        for kind in CareSeverityEngine.regrowthKinds {
             XCTAssertTrue(kind.movesToTrash, "\(kind) escalates on regrowth but isn't recoverable")
         }
+    }
+
+    private func hasRegrowthSignal(_ severity: CareSeverity) -> Bool {
+        severity.signals.contains { if case .regrowth = $0 { return true } else { return false } }
     }
 
     // MARK: - Declines

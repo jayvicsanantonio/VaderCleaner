@@ -60,8 +60,6 @@ deterministic, exhaustively-testable decision core.
 /// Why a finding scored the way it did. Drives both the score and the
 /// one-line note under a card's metric.
 enum CareSignal: Equatable, Sendable {
-    /// The finding is large relative to what this kind usually turns up.
-    case magnitude
     /// Free space is short enough that reclaimable findings matter more.
     case diskPressure
     /// This kind was cleaned in a recent Run and has come back.
@@ -146,6 +144,18 @@ so re-weighting between phases costs nothing.
   25 login items). Log scaling is deliberate: it keeps 40 GB clearly ahead of
   6 GB while stopping 200 MB and 100 MB from pretending to be a meaningful
   gap.
+
+  **Magnitude orders the feed and never speaks.** An earlier cut raised a
+  `.magnitude` signal above 0.9 and rendered it as "Bigger than usual for this
+  kind of thing." Two problems, both visible on the first real screenshot: the
+  threshold works out to **7.94 GB**, so it fired on four of eight sized cards
+  and read as wallpaper; and the copy promised a per-kind comparison the engine
+  never made — one global 100 GB ceiling cannot tell a photo library from an
+  installer folder, and count kinds saturate at trivially low counts (browsing
+  traces at 500 items, so 214,383 and 501 both score 1.0). It was removed
+  rather than given a baseline: the card already prints the size, so a badge
+  saying "this is big" beside "325.47 GB" adds nothing, and an honest baseline
+  would mean inventing per-kind constants with no evidence behind them.
 - **recency** — `1.0` when `.regrowth` fired, decaying linearly to `0` over
   30 days since the receipt that cleaned it. `0` when it did not.
 
@@ -164,12 +174,17 @@ Only the **newest** clearing receipt is consulted. An older one describes a
 cleanup a later pass already superseded, and walking past it would let ancient
 history revive a signal the recent record contradicts.
 
-**Whitelist — regrowth only scores for `duplicates`, `appLeftovers`,
-`installers`, and `downloads`.** For `junkCleanup` regrowth is the system
-working as designed (macOS rebuilds its caches; the copy already says so), and
-treating a rebuilt cache as a growing problem would be alarming and wrong.
-Junk still reports the `.regrowth` signal for copy purposes — the note is
-useful — but its score contribution is zero.
+**Whitelist — regrowth is only detected for `duplicates`, `appLeftovers`,
+`installers`, and `downloads`.** `junkCleanup` and `maintenanceDue` are
+excluded for the same reason: both are *designed* to recur. macOS rebuilds its
+caches, and a tune-up that never came due again would not be routine. Reporting
+either as "back since your last cleanup" frames the system working correctly as
+a complaint.
+
+The first cut of this got it half right — it excluded those kinds from
+*scoring* but still emitted the signal, on the theory that the note was worth
+saying. Shipped, that put "Back since your last cleanup." under *Routine
+tune-up due*, which is close to nonsense. The carve-out belongs at the signal.
 
 A test pins every whitelisted kind to `movesToTrash`, so nothing the app
 escalates on regrowth is something the user can't undo.

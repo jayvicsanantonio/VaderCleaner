@@ -398,12 +398,6 @@ enum CareFindingCopy {
                 comment: "Care tile severity note: the user has repeatedly left this finding alone, so it no longer leads."
             )
         }
-        if signals.contains(.magnitude) {
-            return String(
-                localized: "Bigger than usual for this kind of thing.",
-                comment: "Care tile severity note: the finding is large for its kind."
-            )
-        }
         return nil
     }
 

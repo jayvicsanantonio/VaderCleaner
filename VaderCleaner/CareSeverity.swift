@@ -6,8 +6,6 @@ import Foundation
 /// Why a finding scored the way it did. Signals are what let the feed explain
 /// itself — a card that outranks a larger one should be able to say why.
 enum CareSignal: Equatable, Sendable {
-    /// The finding is large relative to what its kind usually turns up.
-    case magnitude
     /// Free space is short enough that reclaiming it matters more than usual.
     case diskPressure
     /// A recent Run cleaned this kind and it has come back. Carries the date of
@@ -86,9 +84,6 @@ enum CareSeverityEngine {
     /// feed the user opened because their disk is full.
     static let diskPressureFloorBytes: Int64 = 1_000_000_000
 
-    /// Magnitude at or above which the `.magnitude` signal fires.
-    static let magnitudeSignalThreshold = 0.9
-
     /// How recently a Run must have cleaned a kind for its return to count as
     /// regrowth, and how far the signal's weight decays across that span.
     static let regrowthWindowDays = 30.0
@@ -97,12 +92,15 @@ enum CareSeverityEngine {
     /// last Run cleared. Below it, the finding is residue rather than a return.
     static let regrowthCountFraction = 0.5
 
-    /// Kinds whose return is worth escalating. `junkCleanup` is deliberately
-    /// absent: macOS rebuilding its own caches is the system working as
-    /// designed, and treating that as a growing problem would be alarming and
-    /// wrong. Junk still reports the signal — the note is useful — but scores
-    /// nothing for it.
-    static let regrowthScoringKinds: Set<CareFinding.Kind> = [
+    /// Kinds whose return is worth remarking on at all.
+    ///
+    /// `junkCleanup` and `maintenanceDue` are deliberately absent, and for the
+    /// same reason: both are *designed* to recur. macOS rebuilds its caches,
+    /// and a routine tune-up that never came due again would not be routine.
+    /// Reporting either as "back since your last cleanup" frames the system
+    /// working correctly as a complaint, so those kinds neither score for
+    /// regrowth nor mention it.
+    static let regrowthKinds: Set<CareFinding.Kind> = [
         .duplicates, .appLeftovers, .installers, .downloads,
     ]
 
@@ -133,9 +131,6 @@ enum CareSeverityEngine {
         var signals: [CareSignal] = []
 
         let magnitude = magnitude(of: finding)
-        if magnitude >= magnitudeSignalThreshold {
-            signals.append(.magnitude)
-        }
 
         let isCriticallyFull = reportsCriticallyFullDisk(finding)
         let isBoosted = qualifiesForPressureBoost(finding, context: context)
@@ -144,11 +139,10 @@ enum CareSeverityEngine {
         }
 
         var recency = 0.0
-        if let clearedAt = regrowth(for: finding, context: context) {
+        if regrowthKinds.contains(finding.kind),
+           let clearedAt = regrowth(for: finding, context: context) {
             signals.append(.regrowth(since: clearedAt))
-            if regrowthScoringKinds.contains(finding.kind) {
-                recency = recencyDecay(from: clearedAt, to: context.now)
-            }
+            recency = recencyDecay(from: clearedAt, to: context.now)
         }
 
         // Escalation only raises: a finding never drops below the tier its kind
@@ -171,7 +165,15 @@ enum CareSeverityEngine {
         return CareSeverity(urgency: urgency, score: raw * damping(forDeclines: declines), signals: signals)
     }
 
-    /// How big this finding is on its own kind's scale, 0...1. Sized findings
+    /// How big this finding is, 0...1 — an ordering weight, never a claim.
+    ///
+    /// Deliberately not surfaced as a note: the card already prints the size,
+    /// and a badge reading "bigger than usual" beside "325.47 GB" says nothing
+    /// the number didn't. Saying it honestly would need a per-kind baseline
+    /// there is no evidence for; a shared ceiling cannot tell a photo library
+    /// from an installer folder.
+    ///
+    /// Sized findings
     /// measure bytes on a log scale — 40 GB versus 6 GB is a difference worth
     /// ordering on, while 200 MB versus 100 MB is noise that a linear scale
     /// would let dominate. Count-only findings measure against the count at
