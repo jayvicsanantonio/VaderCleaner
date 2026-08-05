@@ -696,40 +696,10 @@ extension AppUninstallerViewModel {
     /// so the production wiring can run the walk on a detached task — it
     /// touches only `FileManager`, never view-model state.
     nonisolated static func sizes(for urls: [URL]) -> [String: Int64] {
-        var result: [String: Int64] = [:]
         let fileManager = FileManager.default
+        var result: [String: Int64] = [:]
         for url in urls {
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-                result[url.path] = 0
-                continue
-            }
-            if !isDirectory.boolValue {
-                if let attrs = try? fileManager.attributesOfItem(atPath: url.path),
-                   let size = attrs[.size] as? NSNumber {
-                    result[url.path] = size.int64Value
-                } else {
-                    result[url.path] = 0
-                }
-                continue
-            }
-            guard let enumerator = fileManager.enumerator(
-                at: url,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-                options: [.skipsHiddenFiles],
-                errorHandler: { _, _ in true }
-            ) else {
-                result[url.path] = 0
-                continue
-            }
-            var total: Int64 = 0
-            for case let item as URL in enumerator {
-                let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-                if values?.isRegularFile == true, let fileSize = values?.fileSize {
-                    total += Int64(fileSize)
-                }
-            }
-            result[url.path] = total
+            result[url.path] = PathSizer.size(at: url, fileManager: fileManager)
         }
         return result
     }

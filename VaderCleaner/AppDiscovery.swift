@@ -206,19 +206,6 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
     /// (e.g. a sandboxed `XPCService` we can't stat) must not zero out
     /// the whole row.
     static func bundleSize(at url: URL, fileManager: FileManager) -> Int64 {
-        guard let enumerator = fileManager.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles],
-            errorHandler: { _, _ in true }
-        ) else { return 0 }
-        var total: Int64 = 0
-        for case let item as URL in enumerator {
-            let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            if values?.isRegularFile == true, let fileSize = values?.fileSize {
-                total += Int64(fileSize)
-            }
-        }
-        return total
+        PathSizer.size(at: url, fileManager: fileManager)
     }
 }
