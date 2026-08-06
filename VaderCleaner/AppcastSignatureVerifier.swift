@@ -41,14 +41,24 @@ enum AppcastSignatureVerifier {
               let publicEDKey, !publicEDKey.isEmpty else {
             return .unverifiable
         }
-        guard let signatureBytes = Data(base64Encoded: edSignature),
-              let keyBytes = Data(base64Encoded: publicEDKey) else {
-            return .unverifiable
-        }
+        // The key is resolved first, and separately, because the two fields
+        // come from opposite sides of the trust boundary. The key is read
+        // from the *installed* bundle, so a malformed one leaves us with
+        // nothing to check against — that is genuinely "no evidence".
         // A wrong-length key throws rather than returning nil, and that
         // must not propagate out of a verification call.
-        guard let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyBytes) else {
+        guard let keyBytes = Data(base64Encoded: publicEDKey),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyBytes) else {
             return .unverifiable
+        }
+        // The signature comes from the feed, which is the thing this whole
+        // type exists to distrust. A signature that is present but will not
+        // decode is a claim that fails to hold up, not an absence of one —
+        // reporting it as `.unverifiable` would let a hostile feed downgrade
+        // its own hard refusal into the softer path by corrupting the base64
+        // it controls.
+        guard let signatureBytes = Data(base64Encoded: edSignature) else {
+            return .invalid
         }
         return key.isValidSignature(signatureBytes, for: data) ? .valid : .invalid
     }
