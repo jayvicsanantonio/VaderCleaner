@@ -176,25 +176,6 @@ struct DefaultAppLeftoverScanner: Sendable {
     /// Recursive byte size of a file or directory tree. Errors inside the walk
     /// are tolerated so a single unreadable child never zeros a group.
     static func size(at url: URL, fileManager: FileManager) -> Int64 {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return 0 }
-        if !isDirectory.boolValue {
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-            return Int64(values?.fileSize ?? 0)
-        }
-        guard let enumerator = fileManager.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [],
-            errorHandler: { _, _ in true }
-        ) else { return 0 }
-        var total: Int64 = 0
-        for case let item as URL in enumerator {
-            let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            if values?.isRegularFile == true, let size = values?.fileSize {
-                total += Int64(size)
-            }
-        }
-        return total
+        PathSizer.size(at: url, fileManager: fileManager)
     }
 }

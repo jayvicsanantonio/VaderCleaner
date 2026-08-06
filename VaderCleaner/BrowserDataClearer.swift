@@ -82,7 +82,13 @@ private actor BrowserDataWorker {
         let paths = pathProvider.dataPaths(for: browser, category: category)
         return try paths.reduce(into: Int64(0)) { acc, url in
             try Task.checkCancellation()
-            acc += try sizeOnDisk(at: url)
+            // The checkpoint keeps a large profile tree interruptible
+            // mid-directory rather than only between paths.
+            acc += try PathSizer.size(
+                at: url,
+                fileManager: fileManager,
+                checkpoint: Task.checkCancellation
+            )
         }
     }
 
@@ -92,48 +98,10 @@ private actor BrowserDataWorker {
         for url in paths {
             try Task.checkCancellation()
             guard fileManager.fileExists(atPath: url.path) else {
-                log.debug("Skipping missing path: \(url.path, privacy: .public)")
+                log.debug("Skipping missing path: \(url.path, privacy: .private)")
                 continue
             }
             try remover(url)
         }
-    }
-
-    // MARK: - Sizing
-
-    /// Recursive byte count for `url`. Returns 0 for missing paths or paths
-    /// the process can't read. Directories enumerate via
-    /// `FileManager.enumerator` with file-size + directory keys so the walk
-    /// runs in one pass without a separate stat for every entry.
-    private func sizeOnDisk(at url: URL) throws -> Int64 {
-        try Task.checkCancellation()
-        guard fileManager.fileExists(atPath: url.path) else { return 0 }
-
-        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .totalFileAllocatedSizeKey, .fileSizeKey]
-        let values = try? url.resourceValues(forKeys: resourceKeys)
-        let isDirectory = values?.isDirectory ?? false
-
-        if !isDirectory {
-            return Int64(values?.fileSize ?? 0)
-        }
-
-        guard let enumerator = fileManager.enumerator(
-            at: url,
-            includingPropertiesForKeys: Array(resourceKeys),
-            options: [.skipsHiddenFiles],
-            errorHandler: nil
-        ) else {
-            return 0
-        }
-
-        var total: Int64 = 0
-        for case let entry as URL in enumerator {
-            try Task.checkCancellation()
-            if let entryValues = try? entry.resourceValues(forKeys: resourceKeys),
-               entryValues.isDirectory == false {
-                total += Int64(entryValues.fileSize ?? 0)
-            }
-        }
-        return total
     }
 }

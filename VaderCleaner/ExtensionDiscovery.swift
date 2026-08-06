@@ -19,28 +19,7 @@ protocol ExtensionDiscovering: Sendable {
 /// tolerated — an unreadable nested resource must not zero the row.
 enum ExtensionArtifactSizer {
     static func size(at url: URL, fileManager: FileManager) -> Int64 {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return 0
-        }
-        if !isDirectory.boolValue {
-            let attrs = try? fileManager.attributesOfItem(atPath: url.path)
-            return (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-        }
-        guard let enumerator = fileManager.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles],
-            errorHandler: { _, _ in true }
-        ) else { return 0 }
-        var total: Int64 = 0
-        for case let item as URL in enumerator {
-            let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            if values?.isRegularFile == true, let fileSize = values?.fileSize {
-                total += Int64(fileSize)
-            }
-        }
-        return total
+        PathSizer.size(at: url, fileManager: fileManager)
     }
 
     /// `CFBundleIdentifier` from a bundle's `Contents/Info.plist`, or `nil`.
