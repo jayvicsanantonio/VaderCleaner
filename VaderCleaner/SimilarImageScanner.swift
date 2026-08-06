@@ -233,9 +233,17 @@ struct SimilarImageScanner {
     /// absent or too small to be worth a feature print, and going through
     /// the thumbnail API is what lets ImageIO downsample during the decode
     /// instead of after it.
+    ///
+    /// `…WithTransform` applies the file's EXIF orientation, so the feature
+    /// print describes the image as the user sees it rather than as the
+    /// sensor stored it. Without it, two copies of one photo that differ
+    /// only by an orientation tag — which is what most editors and phone
+    /// transfers produce — decode to visibly different pixels and never
+    /// cluster, the exact pair this card exists to find.
     static func visionFeaturePrint(for url: URL) -> VNFeaturePrintObservation? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: featurePrintMaxPixelSize
         ]
         guard
