@@ -409,6 +409,10 @@ struct UpdaterPaneView: View {
         switch reason {
         case .insecureFeed:
             return String(localized: "Downloaded — this app's update feed isn't secure.", comment: "Install fallback reason.")
+        case .insecureDownload:
+            return String(localized: "Downloaded — this app's update isn't served securely.", comment: "Install fallback reason.")
+        case .downloadTooLarge:
+            return String(localized: "Downloaded — the update is unexpectedly large.", comment: "Install fallback reason.")
         case .signatureInvalid:
             return String(localized: "Downloaded — the update's signature didn't match.", comment: "Install fallback reason.")
         case .bundleIdentifierMismatch:

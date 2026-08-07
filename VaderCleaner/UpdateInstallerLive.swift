@@ -75,14 +75,35 @@ struct UpdateInstallTools: Sendable {
 
     func download(_ url: URL) async throws -> URL {
         try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let (temporary, _) = try await URLSession.shared.download(from: url)
+        let (temporary, response) = try await URLSession.shared.download(from: url)
         // URLSession deletes its temporary file when the call returns, so
         // it has to be moved somewhere we own before anything else runs.
         let destination = workingDirectory
             .appendingPathComponent(Self.downloadFilename(for: url), isDirectory: false)
+
+        // Enforced on what actually landed, not on `Content-Length`: the
+        // header is advertised by the same host serving the bytes, so a
+        // hostile one can simply understate it. Checked before the move so
+        // an oversized download is dropped in URLSession's own scratch space
+        // rather than carried into the working directory.
+        let downloadedBytes = Self.fileSize(of: temporary)
+        guard let downloadedBytes, downloadedBytes <= UpdateInstaller.maximumDownloadBytes else {
+            try? fileManager.removeItem(at: temporary)
+            throw UpdateDownloadTooLarge(reportedBytes: downloadedBytes ?? response.expectedContentLength)
+        }
+
         try? fileManager.removeItem(at: destination)
         try fileManager.moveItem(at: temporary, to: destination)
         return destination
+    }
+
+    /// Byte count of a local file, or `nil` when it can't be read.
+    private static func fileSize(of url: URL) -> Int64? {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let size = values.fileSize else {
+            return nil
+        }
+        return Int64(size)
     }
 
     /// The local filename an enclosure is written to.
