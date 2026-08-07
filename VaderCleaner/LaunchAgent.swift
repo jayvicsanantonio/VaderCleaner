@@ -88,19 +88,33 @@ struct LaunchAgentManager: Sendable {
 
     /// Every `*.plist` under the user's `~/Library/LaunchAgents`.
     func userAgents() -> [LaunchAgent] {
-        agents(in: [userAgentsDirectory], domain: .user)
+        agents(in: [userAgentsDirectory], domain: .user, loaded: loadedLabels())
     }
 
     /// Every `*.plist` under the system `/Library/LaunchAgents` and
     /// `/Library/LaunchDaemons` roots.
     func systemAgents() -> [LaunchAgent] {
-        agents(in: systemAgentDirectories, domain: .system)
+        agents(in: systemAgentDirectories, domain: .system, loaded: loadedLabels())
     }
 
-    private func agents(in roots: [URL], domain: LaunchAgent.Domain) -> [LaunchAgent] {
-        // Snapshot the loaded set once per pass rather than shelling out to
-        // launchctl for every plist.
+    /// Both domains from a single `launchctl list`.
+    ///
+    /// `loadedLabels()` shells out to `launchctl`, so a caller that wants the
+    /// whole picture — Smart Scan's background-items unit, the Performance
+    /// section's reload — would otherwise pay for two subprocess spawns to
+    /// build one list. The snapshot is equally valid for both roots, so it is
+    /// taken once and threaded through.
+    func allAgents() -> [LaunchAgent] {
         let loaded = loadedLabels()
+        return agents(in: [userAgentsDirectory], domain: .user, loaded: loaded)
+            + agents(in: systemAgentDirectories, domain: .system, loaded: loaded)
+    }
+
+    private func agents(
+        in roots: [URL],
+        domain: LaunchAgent.Domain,
+        loaded: Set<String>
+    ) -> [LaunchAgent] {
         var seen = Set<String>()
         var result: [LaunchAgent] = []
 
