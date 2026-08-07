@@ -88,7 +88,11 @@ struct ClamAVDetector: Sendable {
             process.standardError = FileHandle.nullDevice
             do {
                 try process.run()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                // `readToEnd()` throws a catchable Swift error; the older
+                // `readDataToEndOfFile()` raises an uncatchable NSException
+                // that would crash the app if the pipe disconnects
+                // unexpectedly — see `DefaultBrewRunner.readToEnd`.
+                let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
                 process.waitUntilExit()
                 return String(data: data, encoding: .utf8)
             } catch {

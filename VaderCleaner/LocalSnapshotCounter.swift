@@ -41,8 +41,10 @@ struct LocalSnapshotCounter: Sendable {
         }
         // Drain the pipe before waiting: if `tmutil`'s output exceeded the pipe
         // buffer, waiting first would deadlock (the process blocks writing while
-        // we block waiting).
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        // we block waiting). `readToEnd()` throws a catchable Swift error where
+        // `readDataToEndOfFile()` would raise an uncatchable NSException on an
+        // unexpected disconnect.
+        let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     }

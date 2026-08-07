@@ -253,7 +253,10 @@ struct LaunchAgentManager: Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            // `readToEnd()` throws a catchable Swift error; the older
+            // `readDataToEndOfFile()` raises an uncatchable NSException that
+            // would crash the app if the pipe disconnects unexpectedly.
+            let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
             process.waitUntilExit()
             let output = String(data: data, encoding: .utf8) ?? ""
             return LaunchAgentManager.parseLoadedLabels(from: output)
@@ -275,7 +278,9 @@ struct LaunchAgentManager: Sendable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errorPipe
         try process.run()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        // See `defaultLoadedLabels` — `readToEnd()` fails catchably where
+        // `readDataToEndOfFile()` would raise an uncatchable NSException.
+        let errorData = (try? errorPipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
         if process.terminationStatus != 0 {
             let stderr = String(data: errorData, encoding: .utf8)?
