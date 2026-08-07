@@ -165,48 +165,15 @@ extension ExtensionsManagerViewModel {
         }
     }
 
-    /// Bridges a reply-block helper call to async/throwing. Installs both
-    /// the per-call XPC error handler and the reply block; whichever fires
-    /// first resumes the continuation (the other becomes a no-op via the
-    /// once-only guard) so a dropped connection can't freeze removal.
+    /// Bridges a reply-block helper call to async/throwing. See `HelperCall`
+    /// for the once-only resumption and watchdog this relies on.
     private nonisolated static func helperCall(
-        _ body: @escaping (VaderCleanerHelperProtocol, @escaping (Error?) -> Void) -> Void
+        _ body: HelperCall.Invoke
     ) async throws {
-        let error: Error? = await withCheckedContinuation { continuation in
-            let resumer = OnceResumer(continuation)
-            let helper = HelperConnectionManager.shared.helper { connectionError in
-                resumer.resume(with: connectionError)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            body(helper) { replyError in
-                resumer.resume(with: replyError)
-            }
-        }
+        let error = await HelperCall.perform(
+            helperProvider: SystemJunkDeleter.defaultHelperProvider,
+            body
+        )
         if let error { throw error }
-    }
-}
-
-/// Once-only continuation resume. The XPC reply block and the
-/// connection-level error handler may both fire; `CheckedContinuation`
-/// traps on a second resume, so the first wins and later attempts are
-/// dropped. A class because multiple closures reference it; `NSLock`
-/// covers the "two callbacks on different threads" race.
-private final class OnceResumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(_ continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let cont = continuation
-        continuation = nil
-        lock.unlock()
-        cont?.resume(returning: error)
     }
 }

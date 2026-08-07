@@ -186,10 +186,8 @@ struct SystemJunkDeleter: Sendable {
     /// `NSXPCConnection` may, in failure cases, fire the connection-level
     /// error handler **instead of** the per-call reply block — leaving an
     /// unresolved continuation forever and freezing the cleaning UI on the
-    /// spinner. To prevent that, we install both: the helper proxy is built
-    /// with a per-call error handler and the reply block is registered as
-    /// usual. Whichever path resumes first wins, the other becomes a no-op
-    /// thanks to `Resumer.resume(with:)`'s once-only guarantee.
+    /// spinner. `HelperCall.perform` installs both paths plus a watchdog and
+    /// guarantees exactly one of them resolves the await.
     ///
     /// On any error from either path we treat this batch as failed and return
     /// `0` — the helper has a best-effort contract (it deletes what it can and
@@ -200,18 +198,8 @@ struct SystemJunkDeleter: Sendable {
         let paths = files.map { $0.url.path }
         let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
 
-        let error: Error? = await withCheckedContinuation { continuation in
-            let resumer = Resumer(continuation: continuation)
-            let helper = helperProvider { connectionError in
-                resumer.resume(with: connectionError)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            helper.deleteFiles(paths) { replyError in
-                resumer.resume(with: replyError)
-            }
+        let error = await HelperCall.perform(helperProvider: helperProvider) { helper, reply in
+            helper.deleteFiles(paths, reply: reply)
         }
 
         if let error {
@@ -233,35 +221,6 @@ struct SystemJunkDeleter: Sendable {
             log.error("Helper connection error: \(error.localizedDescription, privacy: .private)")
             errorHandler(error)
         }
-    }
-}
-
-// MARK: - Once-only continuation resume
-
-/// Wraps a `CheckedContinuation` so that exactly one of the multiple paths
-/// that may complete it (XPC reply block, XPC error handler, "helper
-/// unavailable" early return) actually resumes — subsequent attempts are
-/// silently dropped. `CheckedContinuation` traps on a second resume, which
-/// would otherwise crash the app the first time the helper connection
-/// dropped mid-call.
-///
-/// A class because it must be referenced by multiple closures and mutated
-/// from whichever fires first. The `NSLock` covers the "two callbacks land
-/// on different threads at the same time" race.
-private final class Resumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: error)
     }
 }
 

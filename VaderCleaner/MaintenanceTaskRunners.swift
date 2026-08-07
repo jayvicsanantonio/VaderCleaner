@@ -31,49 +31,20 @@ struct PrivilegedTaskRunner: Sendable {
         self.successMessage = successMessage
     }
 
-    /// Invokes the configured selector. Installs both the per-call XPC error
-    /// handler and the reply block so a dropped connection can't freeze the UI.
-    /// Returns the success line on success; throws on any failure (including an
-    /// unreachable helper).
+    /// Invokes the configured selector. See `HelperCall` for the dual
+    /// reply/error paths and the watchdog that keep a dropped or wedged
+    /// connection from freezing the UI. Returns the success line on success;
+    /// throws on any failure (including an unreachable helper).
+    ///
+    /// The Spotlight reindex is the call most likely to need the watchdog:
+    /// `mdutil -E /` is the longest-running of the three.
     func run() async throws -> String {
-        let error: Error? = await withCheckedContinuation { continuation in
-            let resumer = TaskResumer(continuation: continuation)
-            let helper = helperProvider { connectionError in
-                resumer.resume(with: connectionError)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            invoke(helper) { replyError in
-                resumer.resume(with: replyError)
-            }
-        }
+        let error = await HelperCall.perform(helperProvider: helperProvider, invoke)
         if let error {
             log.error("Maintenance task failed: \(error.localizedDescription, privacy: .private)")
             throw error
         }
         return successMessage
-    }
-}
-
-/// Once-only continuation resume — the XPC reply block and the connection-level
-/// error handler may both fire and `CheckedContinuation` traps on a second
-/// resume, so the first wins and later attempts are dropped.
-private final class TaskResumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: error)
     }
 }
 

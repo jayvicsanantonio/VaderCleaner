@@ -198,23 +198,12 @@ struct LaunchAgentManager: Sendable {
         }
     }
 
-    /// Bridges the reply-block helper call to async/throwing. Installs both
-    /// the per-call XPC error handler and the reply block so a dropped
-    /// connection can't freeze removal — whichever fires first wins via the
-    /// once-only `Resumer`.
+    /// Bridges the reply-block helper call to async/throwing. See `HelperCall`
+    /// for the dual reply/error paths and the watchdog that keep a dropped or
+    /// wedged connection from freezing removal.
     private func removeViaHelper(path: String) async throws {
-        let error: Error? = await withCheckedContinuation { continuation in
-            let resumer = LaunchAgentResumer(continuation: continuation)
-            let helper = helperProvider { connectionError in
-                resumer.resume(with: connectionError)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            helper.removeLaunchAgent(path: path) { replyError in
-                resumer.resume(with: replyError)
-            }
+        let error = await HelperCall.perform(helperProvider: helperProvider) { helper, reply in
+            helper.removeLaunchAgent(path: path, reply: reply)
         }
         if let error {
             log.error("Helper launch-agent removal failed: \(error.localizedDescription, privacy: .private)")
@@ -308,26 +297,5 @@ struct LaunchAgentManager: Sendable {
                 userInfo: [NSLocalizedDescriptionKey: description]
             )
         }
-    }
-}
-
-/// Once-only continuation resume — the XPC reply block and the connection
-/// error handler may both fire; `CheckedContinuation` traps on a second
-/// resume, so the first wins and later attempts are dropped. Mirrors the same
-/// guard used by `SystemJunkDeleter`.
-private final class LaunchAgentResumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: error)
     }
 }
