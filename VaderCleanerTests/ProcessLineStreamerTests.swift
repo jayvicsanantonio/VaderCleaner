@@ -54,6 +54,25 @@ final class ProcessLineStreamerTests: XCTestCase {
         XCTAssertTrue(collector.snapshot().isEmpty)
     }
 
+    func test_run_deliversLinesContainingInvalidUTF8() async throws {
+        // \377 is a lone 0xFF — never valid UTF-8, and perfectly legal in a
+        // macOS filename. A strict decode drops the entire line, which in
+        // the ClamAV path means silently losing a FOUND verdict for an
+        // infected file. The byte may become U+FFFD; the verdict must not.
+        let collector = Collector()
+        let status = try await ProcessLineStreamer.run(
+            executable: sh,
+            arguments: ["-c", "printf 'bad\\377name.txt: Eicar-Test-Signature FOUND\\n'"],
+            onLine: collector.append
+        )
+
+        XCTAssertEqual(status, 0)
+        let lines = collector.snapshot()
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines.first?.hasSuffix("name.txt: Eicar-Test-Signature FOUND") == true,
+                      "lost the verdict: \(lines)")
+    }
+
     func test_run_mergesStandardErrorWhenRequested() async throws {
         // stderr lines must be delivered through onLine when merging is on.
         let collector = Collector()

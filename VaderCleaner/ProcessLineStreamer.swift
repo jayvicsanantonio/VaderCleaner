@@ -120,8 +120,14 @@ enum ProcessLineStreamer {
     }
 
     private static func emit(_ data: Data, to onLine: @Sendable (String) -> Void) {
-        guard !data.isEmpty,
-              let raw = String(data: data, encoding: .utf8) else { return }
+        guard !data.isEmpty else { return }
+        // Lossy, not strict. macOS filenames are arbitrary bytes, and a
+        // strict decode fails the *whole line* on one bad byte — so a
+        // `clamscan` line reporting an infected file whose name isn't valid
+        // UTF-8 would vanish silently, which is the one verdict this
+        // streamer exists to deliver. Substituting U+FFFD loses the byte
+        // and keeps the finding.
+        let raw = String(decoding: data, as: UTF8.self)
         let line = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
         guard !line.isEmpty else { return }
         onLine(line)

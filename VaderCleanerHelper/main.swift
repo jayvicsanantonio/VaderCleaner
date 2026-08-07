@@ -7,6 +7,37 @@ import Foundation
 /// and implements the privileged operations defined in VaderCleanerHelperProtocol.
 final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperProtocol {
     private let deletionPolicy = HelperDeletionPolicy.production
+    private let documentVersionsScan = DocumentVersionsStoreScan()
+
+    /// Where the actual work runs, off the queue XPC delivers calls on.
+    ///
+    /// Every operation here is slow by nature — `mdutil -E /` reindexes the
+    /// boot volume, a cache deletion walks a directory tree — and the app
+    /// talks to this helper over one shared connection, so doing the work on
+    /// the delivery queue makes every privileged call wait behind whichever
+    /// one happens to be slowest.
+    ///
+    /// Concurrent rather than serial: these are independent system commands,
+    /// and serialising them would just move the head-of-line blocking one
+    /// layer down instead of removing it.
+    private let workQueue = DispatchQueue(
+        label: "com.personal.VaderCleaner.helper.work",
+        attributes: .concurrent
+    )
+
+    /// Carries an XPC reply block onto `workQueue`.
+    ///
+    /// `@unchecked Sendable`, backed by NSXPCConnection's own contract: a
+    /// reply block is safe to invoke from any thread and is invoked exactly
+    /// once. Swift can't see that through an `@objc` protocol's block
+    /// parameter, and annotating the protocol's blocks instead is not an
+    /// option — it would change the generated selectors the helper, the app,
+    /// and every test spy agree on.
+    private struct XPCReply<Block>: @unchecked Sendable {
+        let send: Block
+
+        init(_ send: Block) { self.send = send }
+    }
 
     // MARK: - NSXPCListenerDelegate
 
@@ -28,11 +59,15 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     // MARK: - VaderCleanerHelperProtocol
 
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        do {
-            let firstError = try deletionPolicy.removeValidatedPaths(paths)
-            reply(firstError)
-        } catch {
-            reply(error)
+        let policy = deletionPolicy
+        let reply = XPCReply(reply)
+        workQueue.async {
+            do {
+                let firstError = try policy.removeValidatedPaths(paths)
+                reply.send(firstError)
+            } catch {
+                reply.send(error)
+            }
         }
     }
 
@@ -87,34 +122,19 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         // The path is fixed (not caller-supplied) so this can only ever read the
         // Document Versions store, never an arbitrary directory as root.
         let root = URL(fileURLWithPath: kDocumentVersionsStorePath, isDirectory: true)
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: keys,
-            options: [],
-            errorHandler: { _, _ in true }
-        ) else {
-            reply([], [], NSError(
-                domain: "com.personal.VaderCleaner.helper",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not open \(root.path)"]
-            ))
-            return
+        let scan = documentVersionsScan
+        let reply = XPCReply(reply)
+        workQueue.async {
+            guard let entries = scan.entries(at: root) else {
+                reply.send([], [], NSError(
+                    domain: "com.personal.VaderCleaner.helper",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Could not open \(root.path)"]
+                ))
+                return
+            }
+            reply.send(entries.paths, entries.sizes, nil)
         }
-
-        var paths: [String] = []
-        var sizes: [NSNumber] = []
-        let keySet = Set(keys)
-        while let url = enumerator.nextObject() as? URL {
-            let values = try? url.resourceValues(forKeys: keySet)
-            // Skip symlinks so a link inside the store can't pull in external
-            // content or double-count, mirroring the in-process FileScanner.
-            if values?.isSymbolicLink == true { continue }
-            guard values?.isRegularFile == true else { continue }
-            paths.append(url.path)
-            sizes.append(NSNumber(value: Int64(values?.fileSize ?? 0)))
-        }
-        reply(paths, sizes, nil)
     }
 
     // MARK: - Private
@@ -122,25 +142,25 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     /// Runs each command in order and replies with the first failure, or `nil`
     /// once all succeed. A non-zero exit or launch error short-circuits the rest.
     ///
-    /// `runProcess` is synchronous — it calls `waitUntilExit()` and then invokes
-    /// its reply *before returning* — so this loop runs the commands strictly
-    /// sequentially and `commandError` is always populated by the time it is
-    /// checked. (No recursion/continuation needed; the reply block is not async.)
+    /// The sequencing works because `execute` is synchronous: it returns only
+    /// once its command has exited, so the loop below really does run the
+    /// commands one after another. What moved off the XPC delivery queue is
+    /// the whole loop, not each command inside it.
     private func runProcesses(
         commands: [(executable: String, arguments: [String])],
         reply: @escaping (Error?) -> Void
     ) {
-        for command in commands {
-            var commandError: Error?
-            runProcess(executable: command.executable, arguments: command.arguments) { error in
-                commandError = error
+        let reply = XPCReply(reply)
+        workQueue.async {
+            for command in commands {
+                if let error = Self.execute(executable: command.executable,
+                                            arguments: command.arguments) {
+                    reply.send(error)
+                    return
+                }
             }
-            if let commandError {
-                reply(commandError)
-                return
-            }
+            reply.send(nil)
         }
-        reply(nil)
     }
 
     private func runProcess(
@@ -148,23 +168,34 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         arguments: [String],
         reply: @escaping (Error?) -> Void
     ) {
+        let reply = XPCReply(reply)
+        workQueue.async {
+            reply.send(Self.execute(executable: executable, arguments: arguments))
+        }
+    }
+
+    /// Runs one command to completion and returns its failure, if any.
+    ///
+    /// Synchronous on purpose: callers have already hopped onto `workQueue`,
+    /// and `runProcesses` depends on this returning only once the command is
+    /// actually done.
+    private static func execute(executable: String, arguments: [String]) -> Error? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         do {
             try process.run()
             process.waitUntilExit()
-            if process.terminationStatus != 0 {
-                reply(NSError(
+            guard process.terminationStatus == 0 else {
+                return NSError(
                     domain: "com.personal.VaderCleaner.helper",
                     code: Int(process.terminationStatus),
                     userInfo: [NSLocalizedDescriptionKey: "\(executable) exited with status \(process.terminationStatus)"]
-                ))
-                return
+                )
             }
-            reply(nil)
+            return nil
         } catch {
-            reply(error)
+            return error
         }
     }
 }

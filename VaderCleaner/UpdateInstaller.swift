@@ -134,8 +134,12 @@ struct UpdateInstaller: Sendable {
             // identity is in the bundle, which means extracting first.
             // The early exit covers what is knowable early; it never
             // claimed to cover everything.
+            // `.mappedIfSafe` so verifying a large download costs address
+            // space rather than resident memory — an app archive runs to
+            // hundreds of megabytes, and the bytes are read once, in order,
+            // by the verifier.
             let signature = AppcastSignatureVerifier.verify(
-                data: try Data(contentsOf: archive),
+                data: try Data(contentsOf: archive, options: .mappedIfSafe),
                 edSignature: edSignature,
                 publicEDKey: publicEDKey
             )

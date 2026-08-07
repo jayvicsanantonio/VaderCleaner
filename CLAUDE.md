@@ -25,7 +25,7 @@ Build:
 xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-Run the unit suite (1794 tests, ~25s):
+Run the unit suite (2137 tests, ~70s):
 
 ```bash
 xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' -only-testing:VaderCleanerTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal" 

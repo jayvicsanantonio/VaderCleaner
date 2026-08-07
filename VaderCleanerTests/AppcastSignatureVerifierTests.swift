@@ -96,20 +96,45 @@ final class AppcastSignatureVerifierTests: XCTestCase {
         )
     }
 
-    /// Malformed base64 in either field is unverifiable, not invalid —
-    /// we never got as far as checking anything.
-    func test_verify_reportsUnverifiableForMalformedInputs() throws {
+    /// A malformed *key* is unverifiable: the key comes from the installed
+    /// bundle, so a bad one means we have nothing to check against rather
+    /// than evidence against the download.
+    func test_verify_reportsUnverifiableForMalformedKey() throws {
         let key = Curve25519.Signing.PrivateKey()
         let signature = try key.signature(for: payload).base64EncodedString()
+
+        XCTAssertEqual(
+            AppcastSignatureVerifier.verify(data: payload, edSignature: signature, publicEDKey: "not base64!"),
+            .unverifiable
+        )
+    }
+
+    /// A malformed *signature* is invalid, not unverifiable. The signature
+    /// is the one field a hostile feed controls, so letting undecodable
+    /// base64 report "no evidence" would hand it a downgrade: corrupt your
+    /// own signature and the hard refusal becomes the softer path.
+    func test_verify_rejectsMalformedSignature() throws {
+        let key = Curve25519.Signing.PrivateKey()
         let goodKey = key.publicKey.rawRepresentation.base64EncodedString()
 
         XCTAssertEqual(
             AppcastSignatureVerifier.verify(data: payload, edSignature: "not base64!", publicEDKey: goodKey),
-            .unverifiable
+            .invalid
         )
+    }
+
+    /// A wrong-length signature decodes cleanly but cannot be a valid
+    /// Ed25519 signature, and must not be mistaken for an absent one.
+    func test_verify_rejectsWrongLengthSignature() throws {
+        let key = Curve25519.Signing.PrivateKey()
+
         XCTAssertEqual(
-            AppcastSignatureVerifier.verify(data: payload, edSignature: signature, publicEDKey: "not base64!"),
-            .unverifiable
+            AppcastSignatureVerifier.verify(
+                data: payload,
+                edSignature: Data("short".utf8).base64EncodedString(),
+                publicEDKey: key.publicKey.rawRepresentation.base64EncodedString()
+            ),
+            .invalid
         )
     }
 

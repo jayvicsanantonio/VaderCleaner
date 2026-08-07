@@ -78,10 +78,33 @@ struct UpdateInstallTools: Sendable {
         let (temporary, _) = try await URLSession.shared.download(from: url)
         // URLSession deletes its temporary file when the call returns, so
         // it has to be moved somewhere we own before anything else runs.
-        let destination = workingDirectory.appendingPathComponent(url.lastPathComponent)
+        let destination = workingDirectory
+            .appendingPathComponent(Self.downloadFilename(for: url), isDirectory: false)
         try? fileManager.removeItem(at: destination)
         try fileManager.moveItem(at: temporary, to: destination)
         return destination
+    }
+
+    /// The local filename an enclosure is written to.
+    ///
+    /// The feed does not get to choose where its download lands.
+    /// `URL.lastPathComponent` percent-decodes, so an enclosure URL ending
+    /// in `..%2F..%2Fevil.plist` hands back a *relative path* rather than a
+    /// name — and appending that to the working directory walks straight
+    /// out of it. That write happens before the signature check and before
+    /// `UpdateInstallGate` has said anything, so none of the verification
+    /// downstream is standing between a hostile appcast and the filesystem.
+    ///
+    /// Only the extension survives, because it is the sole part of the name
+    /// this code ever reads (`extractApplication(from:)` switches on it).
+    /// It is dropped unless it is alphanumeric, so the sanitising can't be
+    /// smuggled past with an extension that is itself a path.
+    static func downloadFilename(for url: URL) -> String {
+        let ext = url.pathExtension.lowercased()
+        guard !ext.isEmpty, ext.allSatisfy({ $0.isLetter || $0.isNumber }) else {
+            return "update"
+        }
+        return "update.\(ext)"
     }
 
     // MARK: - Extraction

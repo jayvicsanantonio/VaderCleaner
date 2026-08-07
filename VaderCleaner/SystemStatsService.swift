@@ -567,7 +567,10 @@ final class SystemStatsService {
             let used = total > free ? total - free : 0
             return DiskStats(usedBytes: used, totalBytes: total)
         } catch {
-            os_log("FileManager.attributesOfFileSystem failed: %{public}@",
+            // Private: Foundation embeds the offending path in the error's
+            // own text, so the message is user data even when the path we
+            // passed in was a constant.
+            os_log("FileManager.attributesOfFileSystem failed: %{private}@",
                    log: log, type: .error, error.localizedDescription)
             return diskSpace // keep last good
         }
@@ -839,8 +842,12 @@ final class SystemStatsService {
         process.arguments = ["info", "-plist", "/"]
         let pipe = Pipe()
         process.standardOutput = pipe
-        // Discard stderr so a noisy warning doesn't spam Console.app from us.
-        process.standardError = Pipe()
+        // `/dev/null`, not a `Pipe()`. An undrained pipe is not a discard:
+        // nothing reads it, so a child that writes past the 64 KB buffer
+        // blocks forever and `waitUntilExit()` below never returns. That
+        // would wedge `backgroundQueue` — a serial queue — and freeze every
+        // later device-health refresh at its last value.
+        process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -867,7 +874,7 @@ final class SystemStatsService {
                 return .unknown
             }
         } catch {
-            os_log("diskutil invocation failed: %{public}@",
+            os_log("diskutil invocation failed: %{private}@",
                    log: log, type: .error, error.localizedDescription)
             return nil
         }
@@ -896,7 +903,9 @@ final class SystemStatsService {
         process.arguments = ["status"]
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        // See `readSMARTStatus`: an undrained pipe deadlocks the serial
+        // queue this runs on.
+        process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -911,11 +920,13 @@ final class SystemStatsService {
             if output.contains("FileVault is Off") {
                 return false
             }
-            os_log("fdesetup output not recognized (exit=%d): %{public}@",
+            // The exit code is safe by construction; the output is not —
+            // `fdesetup` names enabled users on some paths.
+            os_log("fdesetup output not recognized (exit=%d): %{private}@",
                    log: log, type: .error, process.terminationStatus, output)
             return nil
         } catch {
-            os_log("fdesetup invocation failed: %{public}@",
+            os_log("fdesetup invocation failed: %{private}@",
                    log: log, type: .error, error.localizedDescription)
             return nil
         }

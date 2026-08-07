@@ -34,6 +34,28 @@ struct SimilarImageScanner {
     /// appeared" framing.
     static let defaultImageCap = 1500
 
+    /// Feature prints computed at once. The work here is decode-plus-Vision,
+    /// so unlike `DuplicateScanner`'s I/O-bound hashing this tracks core
+    /// count — capped so a very wide machine doesn't hold more of the
+    /// cooperative pool than the scan can usefully use.
+    static let maxConcurrentFeaturePrints = min(ProcessInfo.processInfo.activeProcessorCount, 8)
+
+    /// Longest edge, in pixels, the feature-print decode is allowed to
+    /// produce. Vision downsamples to its own small working size regardless,
+    /// so decoding a 48-megapixel photo at full resolution buys nothing and
+    /// costs both the time and the ~200 MB peak of the full decode.
+    static let featurePrintMaxPixelSize = 512
+
+    /// Ferries a Vision observation out of the concurrent feature-print pass.
+    ///
+    /// `@unchecked Sendable` because Vision is not Sendable-audited, though
+    /// its observations are immutable results. The invariant that backs it:
+    /// each observation is created inside a single task, is never mutated
+    /// after Vision returns it, and is handed to exactly one consumer.
+    private struct FeaturePrint: @unchecked Sendable {
+        let observation: VNFeaturePrintObservation
+    }
+
     private let fileScanner: FileScanning
     private let roots: [URL]
     private let threshold: Float
@@ -91,16 +113,44 @@ struct SimilarImageScanner {
             images = Array(images.prefix(imageCap))
         }
 
-        // Compute one feature print per image; drop unreadable images. iCloud
-        // placeholders are skipped so Vision never forces a slow on-demand
-        // download (which otherwise stalls and makes the decode fail).
+        // Compute one feature print per image; drop unreadable images. This
+        // is the expensive half of the scan — a decode and a Vision pass per
+        // image — so it runs with bounded concurrency rather than serially,
+        // which left every core but one idle. Results are slotted by index,
+        // so completion order doesn't affect the outcome: `kept` and `prints`
+        // stay in lockstep and `cluster` indexes into both.
+        let computed = try await withThrowingTaskGroup(
+            of: (Int, FeaturePrint?).self
+        ) { group -> [FeaturePrint?] in
+            var results = [FeaturePrint?](repeating: nil, count: images.count)
+            var nextIndex = 0
+            func addTaskIfNeeded() {
+                guard nextIndex < images.count else { return }
+                let index = nextIndex
+                let url = images[index].url
+                nextIndex += 1
+                group.addTask { [featurePrint] in
+                    // iCloud placeholders are skipped so Vision never forces
+                    // a slow on-demand download (which otherwise stalls and
+                    // makes the decode fail).
+                    guard CloudFileAvailability.isLocallyAvailable(url) else { return (index, nil) }
+                    return (index, featurePrint(url).map(FeaturePrint.init(observation:)))
+                }
+            }
+            for _ in 0..<Self.maxConcurrentFeaturePrints { addTaskIfNeeded() }
+            while let (index, computedPrint) = try await group.next() {
+                results[index] = computedPrint
+                try Task.checkCancellation()
+                addTaskIfNeeded()
+            }
+            return results
+        }
+
         var prints: [VNFeaturePrintObservation] = []
         var kept: [ScannedFile] = []
-        for file in images {
-            try Task.checkCancellation()
-            guard CloudFileAvailability.isLocallyAvailable(file.url) else { continue }
-            guard let print = featurePrint(file.url) else { continue }
-            prints.append(print)
+        for (file, computedPrint) in zip(images, computed) {
+            guard let computedPrint else { continue }
+            prints.append(computedPrint.observation)
             kept.append(file)
         }
 
@@ -177,10 +227,28 @@ struct SimilarImageScanner {
     /// The real feature-print extraction: decode the image and run Vision's
     /// feature-print request. Returns `nil` when the image can't be read or
     /// Vision produces no observation, so a bad image is simply skipped.
+    ///
+    /// The decode is bounded to `featurePrintMaxPixelSize` rather than full
+    /// resolution. `…FromImageAlways` because an embedded thumbnail may be
+    /// absent or too small to be worth a feature print, and going through
+    /// the thumbnail API is what lets ImageIO downsample during the decode
+    /// instead of after it.
+    ///
+    /// `…WithTransform` applies the file's EXIF orientation, so the feature
+    /// print describes the image as the user sees it rather than as the
+    /// sensor stored it. Without it, two copies of one photo that differ
+    /// only by an orientation tag — which is what most editors and phone
+    /// transfers produce — decode to visibly different pixels and never
+    /// cluster, the exact pair this card exists to find.
     static func visionFeaturePrint(for url: URL) -> VNFeaturePrintObservation? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: featurePrintMaxPixelSize
+        ]
         guard
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-            let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+            let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
         else { return nil }
         let request = VNGenerateImageFeaturePrintRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
