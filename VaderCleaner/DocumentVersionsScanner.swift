@@ -32,10 +32,12 @@ struct DocumentVersionsScanner {
     /// file the helper reported. Empty on any error.
     func scan() async -> [ScannedFile] {
         // Both the reply block and the connection-level error handler may fire;
-        // the once-only resumer guarantees the continuation resumes exactly once
-        // (a second `resume` would trap), mirroring `SystemJunkDeleter`.
+        // `OnceResumer` guarantees the continuation resumes exactly once (a
+        // second `resume` would trap). This selector replies with a payload
+        // rather than an error, so it uses the resumer directly instead of
+        // `HelperCall.perform` — the watchdog is armed the same way.
         let payload: ([String], [NSNumber])? = await withCheckedContinuation { continuation in
-            let resumer = OnceResumer(continuation: continuation)
+            let resumer = OnceResumer<([String], [NSNumber])?>(continuation: continuation)
             let helper = helperProvider { [log] connectionError in
                 log.error("Document Versions scan failed: \(connectionError.localizedDescription, privacy: .private)")
                 resumer.resume(returning: nil)
@@ -51,6 +53,12 @@ struct DocumentVersionsScanner {
                 } else {
                     resumer.resume(returning: (paths, sizes))
                 }
+            }
+            // A wedged helper would otherwise leave the Smart Scan spinner up
+            // forever; an empty result degrades to "nothing found" instead.
+            resumer.armTimeout(HelperCall.defaultTimeout) { [log] in
+                log.error("Document Versions scan timed out")
+                return nil
             }
         }
 
@@ -72,27 +80,5 @@ struct DocumentVersionsScanner {
     /// error handler, matching `SystemJunkDeleter.defaultHelperProvider`.
     static let defaultHelperProvider: HelperProvider = { errorHandler in
         HelperConnectionManager.shared.helper(errorHandler: errorHandler)
-    }
-}
-
-/// Resumes a `CheckedContinuation` exactly once across the multiple callbacks
-/// that may complete an XPC call (reply block, connection error handler, early
-/// "unavailable" return). A second `resume` traps, which would otherwise crash
-/// the app the first time the helper connection dropped mid-call. A class so the
-/// several closures share one mutable slot; the lock covers the cross-thread race.
-private final class OnceResumer<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Value, Never>?
-
-    init(continuation: CheckedContinuation<Value, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(returning value: Value) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: value)
     }
 }

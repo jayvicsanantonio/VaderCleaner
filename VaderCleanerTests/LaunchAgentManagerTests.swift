@@ -207,6 +207,60 @@ final class LaunchAgentManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: plistURL.path))
     }
 
+    // MARK: - allAgents
+
+    func test_allAgents_queriesLoadedLabelsOnce() throws {
+        let systemDir = tempDir.appendingPathComponent("system", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemDir, withIntermediateDirectories: true)
+        try writePlist(named: "com.example.user.plist", label: "com.example.user",
+                       program: "/opt/example/user")
+        let systemPlist = systemDir.appendingPathComponent("com.example.system.plist")
+        try PropertyListSerialization.data(
+            fromPropertyList: ["Label": "com.example.system", "Program": "/usr/sbin/sysd"],
+            format: .xml, options: 0
+        ).write(to: systemPlist)
+
+        // `launchctl list` is a subprocess spawn; both domains must share one
+        // snapshot rather than paying for it twice.
+        let queries = TestBox(0)
+        let manager = LaunchAgentManager(
+            userAgentsDirectory: tempDir,
+            systemAgentDirectories: [systemDir],
+            loadedLabels: {
+                queries.value += 1
+                return ["com.example.user"]
+            },
+            launchctl: { _ in },
+            helperProvider: { _ in nil }
+        )
+
+        let agents = manager.allAgents().sorted { $0.label < $1.label }
+
+        XCTAssertEqual(queries.value, 1)
+        XCTAssertEqual(agents.map(\.label), ["com.example.system", "com.example.user"])
+        XCTAssertEqual(agents.map(\.domain), [.system, .user])
+        // The shared snapshot must still drive per-agent loaded status.
+        XCTAssertFalse(agents[0].isEnabled)
+        XCTAssertTrue(agents[1].isEnabled)
+    }
+
+    func test_allAgents_matchesTheTwoSeparateDiscoveryCalls() throws {
+        let systemDir = tempDir.appendingPathComponent("system", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemDir, withIntermediateDirectories: true)
+        try writePlist(named: "com.example.user.plist", label: "com.example.user",
+                       program: "/opt/example/user")
+
+        let manager = LaunchAgentManager(
+            userAgentsDirectory: tempDir,
+            systemAgentDirectories: [systemDir],
+            loadedLabels: { [] },
+            launchctl: { _ in },
+            helperProvider: { _ in nil }
+        )
+
+        XCTAssertEqual(manager.allAgents(), manager.userAgents() + manager.systemAgents())
+    }
+
     // MARK: - Helpers
 
     private func makeManager(

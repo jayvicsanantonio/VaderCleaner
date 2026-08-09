@@ -81,13 +81,31 @@ struct DiskScanner: DiskScanning {
 
     private static let resourceKeySet = Set(resourceKeys)
 
+    /// How many nodes the walk visits between cooperative yields.
+    ///
+    /// `await Task.yield()` is not free: it round-trips through the global
+    /// executor, which measures at roughly 9µs per call. Paid once per node
+    /// it dominates a large scan — on a 1.15M-item tree that is ~10s of pure
+    /// scheduler overhead, none of it overlapping the filesystem work.
+    /// Yielding once per interval keeps the thread-hogging protection while
+    /// reducing that overhead by three orders of magnitude.
+    ///
+    /// Matches `FileScanner.cancellationCheckInterval`, which throttles the
+    /// same pair of calls in the flat walk.
+    static let yieldInterval = 512
+
     /// Reference-typed counter so the recursion can mutate a shared
     /// running total across `await` suspension points. Swift forbids
     /// `inout` parameters across `await`, and a class instance threads
     /// the same value through every recursive call without that
     /// restriction.
+    ///
+    /// `value` counts regular files (it drives the progress callback);
+    /// `visited` counts every node including directories, so the yield
+    /// throttle still fires in a tree made only of directories.
     private final class FileCounter {
         var value: Int = 0
+        var visited: Int = 0
     }
 
     func scan(
@@ -190,14 +208,18 @@ struct DiskScanner: DiskScanning {
     /// rethrown as `DiskScanError.rootInaccessible` for the VM to
     /// route to `.error`.
     ///
-    /// Iterative cancellation + cooperative yield at every directory
-    /// boundary: `Task.checkCancellation()` lets a freshly-started scan
-    /// abort an older one immediately, and `await Task.yield()`
-    /// surrenders the cooperative thread so a multi-million-file walk
-    /// doesn't hold one thread off the pool for the whole scan. The
-    /// yield runs *after* the cancellation check so a cancelled task
-    /// throws right away instead of giving the queue a chance to run
-    /// other ready work first.
+    /// Cancellation is checked at every node; the cooperative yield is
+    /// throttled to one node in `yieldInterval`.
+    ///
+    /// `Task.checkCancellation()` is a few nanoseconds, so paying it per
+    /// node costs nothing and lets a freshly-started scan abort an older one
+    /// immediately — a scan smaller than one interval still cancels
+    /// promptly. `await Task.yield()`, which surrenders the cooperative
+    /// thread so a multi-million-file walk doesn't hold one off the pool for
+    /// the whole scan, costs ~9µs and is the call worth rationing. The yield
+    /// runs *after* the cancellation check so a cancelled task throws right
+    /// away instead of giving the queue a chance to run other ready work
+    /// first.
     private static func buildNode(
         at url: URL,
         counter: FileCounter,
@@ -208,7 +230,10 @@ struct DiskScanner: DiskScanning {
         rootName: String? = nil
     ) async throws -> DiskNode {
         try Task.checkCancellation()
-        await Task.yield()
+        counter.visited += 1
+        if counter.visited.isMultiple(of: yieldInterval) {
+            await Task.yield()
+        }
 
         let resourceValues = try? url.resourceValues(forKeys: resourceKeySet)
         // The volume name wins for the scan root (see `volumeRootName`); every

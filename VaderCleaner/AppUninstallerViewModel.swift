@@ -661,23 +661,15 @@ extension AppUninstallerViewModel {
         }
     }
 
-    /// Sends `paths` to the privileged helper for permanent removal. Mirrors
-    /// `SystemJunkDeleter`'s dual-resume guard: `NSXPCConnection` may fire the
-    /// connection-level error handler *instead of* the reply block, so we arm
-    /// both and let whichever lands first resolve the call.
+    /// Sends `paths` to the privileged helper for permanent removal. See
+    /// `HelperCall` for the dual reply/error paths — `NSXPCConnection` may
+    /// fire the connection-level error handler *instead of* the reply block —
+    /// and the watchdog that bounds a helper which never answers.
     private static func escalateToHelper(_ paths: [String]) async -> Error? {
-        await withCheckedContinuation { continuation in
-            let resumer = HelperReplyResumer(continuation: continuation)
-            let helper = HelperConnectionManager.shared.helper { error in
-                resumer.resume(with: error)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            helper.deleteFiles(paths) { replyError in
-                resumer.resume(with: replyError)
-            }
+        await HelperCall.perform(
+            helperProvider: SystemJunkDeleter.defaultHelperProvider
+        ) { helper, reply in
+            helper.deleteFiles(paths, reply: reply)
         }
     }
 
@@ -702,29 +694,5 @@ extension AppUninstallerViewModel {
             result[url.path] = PathSizer.size(at: url, fileManager: fileManager)
         }
         return result
-    }
-}
-
-// MARK: - Once-only continuation resume
-
-/// Wraps a `CheckedContinuation` so exactly one of the paths that may complete
-/// a helper XPC call (reply block, connection error handler, "helper
-/// unavailable" early return) actually resumes it — `CheckedContinuation`
-/// traps on a second resume. Mirrors the `Resumer` used by `SystemJunkDeleter`
-/// for the same dual-callback race.
-private final class HelperReplyResumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: error)
     }
 }

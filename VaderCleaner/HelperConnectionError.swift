@@ -8,6 +8,12 @@ import Foundation
 /// used to build, so the user-facing copy lives in exactly one place.
 enum HelperConnectionError: LocalizedError {
     case unavailable
+    /// The connection was live and the call was accepted, but neither the
+    /// reply block nor an error arrived within `HelperCall.defaultTimeout`.
+    /// Distinct from `.unavailable`: the helper is reachable, one of its
+    /// operations is wedged. Same user-facing copy, because "restart the
+    /// app" is the same remedy.
+    case timedOut
 
     /// The exact copy Prompt 27 requires for a helper connection failure.
     static let message =
@@ -15,7 +21,7 @@ enum HelperConnectionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unavailable:
+        case .unavailable, .timedOut:
             return Self.message
         }
     }

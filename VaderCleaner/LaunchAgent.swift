@@ -88,19 +88,33 @@ struct LaunchAgentManager: Sendable {
 
     /// Every `*.plist` under the user's `~/Library/LaunchAgents`.
     func userAgents() -> [LaunchAgent] {
-        agents(in: [userAgentsDirectory], domain: .user)
+        agents(in: [userAgentsDirectory], domain: .user, loaded: loadedLabels())
     }
 
     /// Every `*.plist` under the system `/Library/LaunchAgents` and
     /// `/Library/LaunchDaemons` roots.
     func systemAgents() -> [LaunchAgent] {
-        agents(in: systemAgentDirectories, domain: .system)
+        agents(in: systemAgentDirectories, domain: .system, loaded: loadedLabels())
     }
 
-    private func agents(in roots: [URL], domain: LaunchAgent.Domain) -> [LaunchAgent] {
-        // Snapshot the loaded set once per pass rather than shelling out to
-        // launchctl for every plist.
+    /// Both domains from a single `launchctl list`.
+    ///
+    /// `loadedLabels()` shells out to `launchctl`, so a caller that wants the
+    /// whole picture — Smart Scan's background-items unit, the Performance
+    /// section's reload — would otherwise pay for two subprocess spawns to
+    /// build one list. The snapshot is equally valid for both roots, so it is
+    /// taken once and threaded through.
+    func allAgents() -> [LaunchAgent] {
         let loaded = loadedLabels()
+        return agents(in: [userAgentsDirectory], domain: .user, loaded: loaded)
+            + agents(in: systemAgentDirectories, domain: .system, loaded: loaded)
+    }
+
+    private func agents(
+        in roots: [URL],
+        domain: LaunchAgent.Domain,
+        loaded: Set<String>
+    ) -> [LaunchAgent] {
         var seen = Set<String>()
         var result: [LaunchAgent] = []
 
@@ -184,23 +198,12 @@ struct LaunchAgentManager: Sendable {
         }
     }
 
-    /// Bridges the reply-block helper call to async/throwing. Installs both
-    /// the per-call XPC error handler and the reply block so a dropped
-    /// connection can't freeze removal — whichever fires first wins via the
-    /// once-only `Resumer`.
+    /// Bridges the reply-block helper call to async/throwing. See `HelperCall`
+    /// for the dual reply/error paths and the watchdog that keep a dropped or
+    /// wedged connection from freezing removal.
     private func removeViaHelper(path: String) async throws {
-        let error: Error? = await withCheckedContinuation { continuation in
-            let resumer = LaunchAgentResumer(continuation: continuation)
-            let helper = helperProvider { connectionError in
-                resumer.resume(with: connectionError)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            helper.removeLaunchAgent(path: path) { replyError in
-                resumer.resume(with: replyError)
-            }
+        let error = await HelperCall.perform(helperProvider: helperProvider) { helper, reply in
+            helper.removeLaunchAgent(path: path, reply: reply)
         }
         if let error {
             log.error("Helper launch-agent removal failed: \(error.localizedDescription, privacy: .private)")
@@ -253,7 +256,10 @@ struct LaunchAgentManager: Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            // `readToEnd()` throws a catchable Swift error; the older
+            // `readDataToEndOfFile()` raises an uncatchable NSException that
+            // would crash the app if the pipe disconnects unexpectedly.
+            let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
             process.waitUntilExit()
             let output = String(data: data, encoding: .utf8) ?? ""
             return LaunchAgentManager.parseLoadedLabels(from: output)
@@ -275,7 +281,9 @@ struct LaunchAgentManager: Sendable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errorPipe
         try process.run()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        // See `defaultLoadedLabels` — `readToEnd()` fails catchably where
+        // `readDataToEndOfFile()` would raise an uncatchable NSException.
+        let errorData = (try? errorPipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
         if process.terminationStatus != 0 {
             let stderr = String(data: errorData, encoding: .utf8)?
@@ -289,26 +297,5 @@ struct LaunchAgentManager: Sendable {
                 userInfo: [NSLocalizedDescriptionKey: description]
             )
         }
-    }
-}
-
-/// Once-only continuation resume — the XPC reply block and the connection
-/// error handler may both fire; `CheckedContinuation` traps on a second
-/// resume, so the first wins and later attempts are dropped. Mirrors the same
-/// guard used by `SystemJunkDeleter`.
-private final class LaunchAgentResumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: error)
     }
 }

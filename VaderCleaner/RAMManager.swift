@@ -17,47 +17,17 @@ struct RAMManager {
         self.helperProvider = helperProvider
     }
 
-    /// Asks the helper to flush inactive memory. Installs both the per-call
-    /// XPC error handler and the reply block so a dropped connection can't
-    /// freeze the UI — whichever resolves first wins via the once-only
-    /// `Resumer`. Throws on any failure (including an unreachable helper).
+    /// Asks the helper to flush inactive memory. See `HelperCall` for the
+    /// dual reply/error paths and the watchdog that keep a dropped or wedged
+    /// connection from freezing the UI. Throws on any failure (including an
+    /// unreachable helper).
     func flush() async throws {
-        let error: Error? = await withCheckedContinuation { continuation in
-            let resumer = RAMResumer(continuation: continuation)
-            let helper = helperProvider { connectionError in
-                resumer.resume(with: connectionError)
-            }
-            guard let helper else {
-                resumer.resume(with: HelperConnectionError.unavailable)
-                return
-            }
-            helper.flushInactiveMemory { replyError in
-                resumer.resume(with: replyError)
-            }
+        let error = await HelperCall.perform(helperProvider: helperProvider) { helper, reply in
+            helper.flushInactiveMemory(reply: reply)
         }
         if let error {
             log.error("RAM flush failed: \(error.localizedDescription, privacy: .private)")
             throw error
         }
-    }
-}
-
-/// Once-only continuation resume — see `SystemJunkDeleter.Resumer` for the
-/// rationale; both the XPC reply block and the connection error handler may
-/// fire and `CheckedContinuation` traps on a second resume.
-private final class RAMResumer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Error?, Never>?
-
-    init(continuation: CheckedContinuation<Error?, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(with error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        lock.unlock()
-        pending?.resume(returning: error)
     }
 }

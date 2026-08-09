@@ -415,4 +415,89 @@ final class DiskScannerTests: XCTestCase {
         )
         XCTAssertEqual(root.size, 32)
     }
+
+    // MARK: - Cancellation
+
+    /// `await Task.yield()` costs roughly 9µs of scheduler round-trip, so it
+    /// is throttled to one in `yieldInterval` nodes rather than paid per file.
+    /// Cancellation itself is *not* throttled — `Task.checkCancellation()` is
+    /// nanoseconds and still runs at every node — so a cancelled scan must
+    /// still abort promptly even in a tree far smaller than one yield
+    /// interval. This is the regression that throttling could plausibly break.
+    func test_scan_honorsCancellationInTreeSmallerThanTheYieldInterval() async throws {
+        for index in 0..<8 {
+            try TestHelpers.createDummyFile(named: "f\(index).bin", size: 8, in: tempRoot)
+        }
+
+        let scanner = DiskScanner()
+        // Read before the Task so the closure captures the root, not `self`.
+        let root = tempRoot!
+        let progress: @Sendable (Int) -> Void = { _ in }
+        let task = Task {
+            // Spin until cancellation lands so the walk cannot race ahead and
+            // finish this tiny tree before it is observable.
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return try await scanner.scan(root: root, progress: progress)
+        }
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled scan must not return a tree")
+        } catch is CancellationError {
+            // Expected: eight files is far below one yield interval, and the
+            // per-node cancellation check must still catch it.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    /// Cancellation across a tree that spans several yield intervals, where
+    /// the throttled yield actually takes effect.
+    func test_scan_honorsCancellationAcrossManyNodes() async throws {
+        for index in 0..<(DiskScanner.yieldInterval * 3) {
+            try TestHelpers.createDummyFile(named: "f\(index).bin", size: 1, in: tempRoot)
+        }
+
+        let scanner = DiskScanner()
+        let root = tempRoot!
+        let progress: @Sendable (Int) -> Void = { _ in }
+        let task = Task {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return try await scanner.scan(root: root, progress: progress)
+        }
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("A scan of \(DiskScanner.yieldInterval * 3) files should observe cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    /// Throttling the yield must not change what the walk produces. A tree
+    /// spanning several yield intervals must still report every file and the
+    /// correct rollup.
+    func test_scan_isCompleteAcrossManyYieldIntervals() async throws {
+        let count = DiskScanner.yieldInterval * 2 + 5
+        for index in 0..<count {
+            try TestHelpers.createDummyFile(named: "f\(index).bin", size: 4, in: tempRoot)
+        }
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        XCTAssertEqual(root.children.count, count)
+        XCTAssertEqual(root.size, Int64(count * 4))
+        XCTAssertEqual(root.itemCount, count)
+    }
 }

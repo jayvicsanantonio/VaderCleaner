@@ -79,6 +79,80 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertFalse(events.contains("download"), "Nothing should be fetched from an http feed")
     }
 
+    /// An https feed authenticates what the feed *said*, not what its
+    /// enclosure URL points at. A plain-http enclosure hands the archive
+    /// bytes to any network attacker, and those bytes would otherwise reach
+    /// `ditto`/`hdiutil` before a single identity check runs.
+    func test_install_refusesInsecureDownloadURLEvenFromAnHTTPSFeed() async throws {
+        let recorder = Recorder()
+        let installer = makeInstaller(recorder: recorder, running: false)
+
+        let outcome = await installer.install(
+            update(updateURL: URL(string: "http://cdn.example.com/Helio-2.0.zip")!),
+            feedURL: httpsFeed,
+            edSignature: try validSignature(), publicEDKey: publicKey
+        )
+
+        XCTAssertEqual(outcome, .denied(.insecureDownload))
+        let events = await recorder.events
+        XCTAssertFalse(events.contains("download"),
+                       "An http enclosure must be refused before any bytes are fetched")
+    }
+
+    /// A feed naming a local path picks which bytes get installed. `file:`
+    /// is refused for the same reason `http:` is.
+    func test_install_refusesNonHTTPSDownloadSchemes() async throws {
+        let recorder = Recorder()
+        let installer = makeInstaller(recorder: recorder, running: false)
+
+        let outcome = await installer.install(
+            update(updateURL: URL(fileURLWithPath: "/tmp/planted.zip")),
+            feedURL: httpsFeed,
+            edSignature: try validSignature(), publicEDKey: publicKey
+        )
+
+        XCTAssertEqual(outcome, .denied(.insecureDownload))
+        let events = await recorder.events
+        XCTAssertFalse(events.contains("download"))
+    }
+
+    /// An https enclosure is still the normal path — the scheme check must
+    /// not refuse legitimate updates.
+    func test_install_allowsHTTPSDownloadURL() async throws {
+        let recorder = Recorder()
+        let installer = makeInstaller(recorder: recorder, running: false)
+
+        let outcome = await installer.install(
+            update(), feedURL: httpsFeed,
+            edSignature: try validSignature(), publicEDKey: publicKey
+        )
+
+        XCTAssertEqual(outcome, .installed)
+    }
+
+    /// An oversized enclosure is a refusal with its own reason, not a raw
+    /// error string — a compromised feed must not be able to make a
+    /// disk-cleaning app exhaust the volume it exists to free up.
+    func test_install_refusesDownloadOverTheSizeCeiling() async throws {
+        let recorder = Recorder()
+        let installer = makeInstaller(
+            recorder: recorder,
+            running: false,
+            downloadError: UpdateDownloadTooLarge(reportedBytes: UpdateInstaller.maximumDownloadBytes + 1)
+        )
+
+        let outcome = await installer.install(
+            update(), feedURL: httpsFeed,
+            edSignature: try validSignature(), publicEDKey: publicKey
+        )
+
+        XCTAssertEqual(outcome, .denied(.downloadTooLarge))
+        let events = await recorder.events
+        XCTAssertFalse(events.contains("extract"),
+                       "An oversized archive must never reach the extractor")
+        XCTAssertFalse(events.contains("replace"))
+    }
+
     /// The archive is verified as delivered, before extraction. An
     /// extractor is a parser and therefore attack surface; there is no
     /// reason to run one over bytes already known to be refused.
@@ -228,12 +302,14 @@ final class UpdateInstallerTests: XCTestCase {
         try signingKey.signature(for: payload).base64EncodedString()
     }
 
-    private func update() -> UpdateInfo {
+    private func update(
+        updateURL: URL = URL(string: "https://example.com/Helio-2.0.zip")!
+    ) -> UpdateInfo {
         UpdateInfo(
             appName: "Helio", bundleID: "com.acme.helio",
             bundleURL: URL(fileURLWithPath: "/Applications/Helio.app"),
             installedVersion: "1.0", latestVersion: "2.0",
-            source: .sparkle, updateURL: URL(string: "https://example.com/Helio-2.0.zip")!
+            source: .sparkle, updateURL: updateURL
         )
     }
 

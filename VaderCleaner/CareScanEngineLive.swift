@@ -121,8 +121,7 @@ extension CareScanEngine.UnitRunners {
                 return await safari + browser + mail + internet
             },
             backgroundItems: {
-                let manager = LaunchAgentManager()
-                return manager.userAgents() + manager.systemAgents()
+                LaunchAgentManager().allAgents()
             },
             loginItems: {
                 await MainActor.run { LoginItemsManager.live().items() }

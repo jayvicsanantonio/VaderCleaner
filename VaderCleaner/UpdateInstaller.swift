@@ -16,6 +16,13 @@ enum UpdateInstallOutcome: Equatable, Sendable {
     case failed(String)
 }
 
+/// Raised by `UpdateInstallTools.download` when an enclosure exceeds
+/// `UpdateInstaller.maximumDownloadBytes`, so the installer can map it to a
+/// `.downloadTooLarge` refusal rather than a generic failure string.
+struct UpdateDownloadTooLarge: Error {
+    let reportedBytes: Int64?
+}
+
 /// Installs a downloaded update over the app it replaces.
 ///
 /// Every collaborator is injected, so the whole flow — including every
@@ -27,6 +34,14 @@ enum UpdateInstallOutcome: Equatable, Sendable {
 /// it. The expensive and destructive steps happen last, after every
 /// cheap reason to stop has been considered.
 struct UpdateInstaller: Sendable {
+
+    /// Ceiling on an enclosure download.
+    ///
+    /// 4 GiB is far above any real Mac app archive and far below "fills the
+    /// disk". The point is that a compromised feed cannot make a
+    /// disk-cleaning app exhaust the volume it exists to free up; it is not
+    /// an assertion about how large updates ought to be.
+    static let maximumDownloadBytes: Int64 = 4 * 1024 * 1024 * 1024
 
     /// Downloads a URL and returns the local file. Implementations write
     /// into a caller-owned temporary directory.
@@ -103,6 +118,12 @@ struct UpdateInstaller: Sendable {
         // so nothing it says is worth acting on. Checked before the
         // working directory exists, so there is nothing to clean up.
         if let early = insecureFeedDenial(feedURL) { return early }
+        // Same reasoning one level down. An https feed authenticates what
+        // the feed *said*, not what the enclosure URL points at — a vendor
+        // whose appcast lists an http download hands a network attacker the
+        // archive bytes, and those bytes reach an extractor before the
+        // identity checks run.
+        if let early = insecureDownloadDenial(downloadURL) { return early }
 
         let outcome = await attempt(
             update, downloadURL: downloadURL,
@@ -164,6 +185,11 @@ struct UpdateInstaller: Sendable {
             }
 
             return await swap(replacement, into: update)
+        } catch is UpdateDownloadTooLarge {
+            // A deliberate refusal, not a breakage — it gets the denial path
+            // and its own copy rather than a raw error string.
+            log.error("Update download exceeded the size ceiling")
+            return .denied(.downloadTooLarge)
         } catch {
             // Privacy: error text embeds the offending path verbatim.
             log.error("Update install failed: \(String(describing: error), privacy: .private)")
@@ -197,6 +223,18 @@ struct UpdateInstaller: Sendable {
     private func insecureFeedDenial(_ feedURL: URL?) -> UpdateInstallOutcome? {
         guard let feedURL, feedURL.scheme?.lowercased() == "https" else {
             return .denied(.insecureFeed)
+        }
+        return nil
+    }
+
+    /// The enclosure must be https for the same reason the feed must be.
+    ///
+    /// `file:` is refused along with `http:` rather than treated as a
+    /// developer convenience — the URL comes from a remote document, and a
+    /// feed that can name a local path picks which bytes get installed.
+    private func insecureDownloadDenial(_ downloadURL: URL) -> UpdateInstallOutcome? {
+        guard downloadURL.scheme?.lowercased() == "https" else {
+            return .denied(.insecureDownload)
         }
         return nil
     }

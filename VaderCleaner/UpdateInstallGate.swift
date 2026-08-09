@@ -10,6 +10,16 @@ enum InstallDenial: Hashable, Sendable {
     /// The appcast was fetched over plain HTTP, so its contents — including
     /// the signature itself — could have been rewritten in transit.
     case insecureFeed
+    /// The feed was https but the enclosure it points at is not, so the
+    /// archive itself could be swapped in transit. The identity checks
+    /// downstream would still catch a swapped payload — but only after the
+    /// bytes have been handed to `ditto` or `hdiutil`, and an extractor is a
+    /// parser. Refusing here keeps unauthenticated bytes away from it.
+    case insecureDownload
+    /// The enclosure is larger than `UpdateInstaller.maximumDownloadBytes`.
+    /// A hostile or compromised feed pointing at an endless response would
+    /// otherwise fill the disk — a pointed failure for a disk-cleaning app.
+    case downloadTooLarge
     /// A signature was present and did not match. The strongest possible
     /// signal that something is wrong.
     case signatureInvalid
