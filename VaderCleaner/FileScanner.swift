@@ -11,6 +11,23 @@ import os.log
 struct ScanRoot: Equatable {
     let url: URL
     let category: ScanCategory
+
+    /// Whether a package under this root is one removable unit rather than
+    /// something to descend past.
+    ///
+    /// Off by default, which keeps the historical system-junk behaviour for
+    /// machine-written trees the user reviews per file. Roots where a bundle is
+    /// a thing the user would recognise and remove — the Trash, Xcode Archives,
+    /// Mail's saved attachments — turn it on: with it off, a package is neither
+    /// descended into nor emitted, so a trashed `.app` or an `.xcarchive`
+    /// contributed zero bytes and no row could select it.
+    let packagesAsFiles: Bool
+
+    init(url: URL, category: ScanCategory, packagesAsFiles: Bool = false) {
+        self.url = url
+        self.category = category
+        self.packagesAsFiles = packagesAsFiles
+    }
 }
 
 /// Protocol surface so feature scanners and tests can inject a fake.
@@ -426,6 +443,11 @@ struct FileScanner: FileScanning {
                 }
             }
 
+            // Package-as-file mode is either asked for by the caller for the
+            // whole scan (Large & Old Files) or opted into by this one root
+            // (the Trash, Xcode Archives — see `ScanRoot.packagesAsFiles`).
+            let packagesAsFiles = options.packagesAsFiles || root.packagesAsFiles
+
             // In default mode, `.skipsPackageDescendants` preserves the
             // historical system-junk behaviour: package internals are not
             // emitted. Package-as-file mode needs to see the package URL first
@@ -434,7 +456,7 @@ struct FileScanner: FileScanning {
             // directories on macOS routinely contain dot-prefixed files we
             // need to count.
             let enumerationOptions: FileManager.DirectoryEnumerationOptions =
-                options.packagesAsFiles ? [] : [.skipsPackageDescendants]
+                packagesAsFiles ? [] : [.skipsPackageDescendants]
             let enumerator = FileManager.default.enumerator(
                 at: root.url,
                 includingPropertiesForKeys: Self.resourceKeys,
@@ -496,7 +518,7 @@ struct FileScanner: FileScanning {
                     continue
                 }
 
-                if options.packagesAsFiles,
+                if packagesAsFiles,
                    isDirectory,
                    resourceValues?.isPackage == true {
                     if let canonicalPath,
