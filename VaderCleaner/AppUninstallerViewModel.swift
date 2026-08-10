@@ -239,10 +239,20 @@ final class AppUninstallerViewModel {
         guard !pending.isEmpty else { return }
         // Merge each chunk rather than replace so apps already measured keep
         // their sizes, and each row updates the moment its size streams in.
+        //
+        // An app is marked measured only once its size actually arrives. The
+        // stream is driven by a `.task(id:)` that is cancelled whenever the app
+        // list changes — an uninstall, say — and a cancelled walk ends the loop
+        // early. Marking the whole pending set here would record apps the walk
+        // never reached, and the guard above would then skip them for the rest
+        // of the session, leaving their rows permanently sizeless.
+        var landed = false
         for await chunk in measureListMetrics(pending) {
             listSizes.merge(chunk) { _, new in new }
+            measuredListMetricApps.formUnion(chunk.keys)
+            landed = true
         }
-        for app in pending { measuredListMetricApps.insert(app.id) }
+        guard landed else { return }
         listMetricsRevision &+= 1
     }
 

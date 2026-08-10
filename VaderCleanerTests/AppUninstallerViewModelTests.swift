@@ -755,6 +755,66 @@ final class AppUninstallerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.listMetricsRevision, before + 1)
     }
 
+    /// The walk is driven by a SwiftUI `.task(id:)` that is cancelled whenever
+    /// the app list changes — right after an uninstall, for instance. A stream
+    /// that ends early has measured only some of its apps, and the rest must
+    /// stay pending: marking them measured left their rows sizeless for the
+    /// whole session, because the pending-set guard then skipped them forever.
+    func test_loadListMetrics_retriesAppsAnEndedStreamNeverMeasured() async {
+        let appA = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        let appB = makeApp(name: "Bravo", bundleID: "com.acme.bravo")
+        let measuredApps = ActorBox<[[AppInfo.ID]]>([])
+        let yieldEverything = TestBox(false)
+        let vm = makeViewModel(
+            discover: { _ in [appA, appB] },
+            measureListMetrics: { apps in
+                let all = yieldEverything.value
+                return AsyncStream { continuation in
+                    Task {
+                        await measuredApps.mutate { $0.append(apps.map(\.id)) }
+                        // First pass: the stream ends after one app, as a
+                        // cancelled walk does.
+                        for app in all ? apps : Array(apps.prefix(1)) {
+                            continuation.yield([app.id: Int64(1)])
+                        }
+                        continuation.finish()
+                    }
+                }
+            }
+        )
+        await vm.loadApps()
+        await vm.loadListMetrics()
+
+        XCTAssertEqual(vm.listSizes[appA.id], 1)
+        XCTAssertNil(vm.listSizes[appB.id], "the interrupted walk never reached Bravo")
+
+        yieldEverything.value = true
+        await vm.loadListMetrics()
+
+        let calls = await measuredApps.value
+        XCTAssertEqual(
+            calls, [[appA.id, appB.id], [appB.id]],
+            "the app the interrupted walk never measured is retried, the measured one is not"
+        )
+        XCTAssertEqual(vm.listSizes[appB.id], 1)
+    }
+
+    /// A walk that ends before measuring anything leaves the revision alone —
+    /// there is nothing new for the manager's memoized list to re-sort.
+    func test_loadListMetrics_doesNotBumpTheRevisionWhenNothingLanded() async {
+        let app = makeApp(name: "Alpha", bundleID: "com.acme.alpha")
+        let vm = makeViewModel(
+            discover: { _ in [app] },
+            measureListMetrics: { _ in AsyncStream { $0.finish() } }
+        )
+        await vm.loadApps()
+        let before = vm.listMetricsRevision
+
+        await vm.loadListMetrics()
+
+        XCTAssertEqual(vm.listMetricsRevision, before)
+    }
+
     /// A size walk that arrives in several chunks merges every chunk, so rows
     /// fill in progressively as the background pass yields them rather than only
     /// when the whole walk finishes.
