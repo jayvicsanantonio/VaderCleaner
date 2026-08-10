@@ -74,17 +74,23 @@ struct SystemJunkDeleter: Sendable {
     /// See `DefaultAppDiscovery.fileManager` — `.default` is documented
     /// thread-safe and test fixtures are single-threaded.
     nonisolated(unsafe) private let fileManager: FileManager
+    /// The home whose `.Trash` counts as "already discarded". Injected so the
+    /// permanent-removal branch can be exercised against a temp directory
+    /// rather than the tester's real Trash.
+    private let homeDirectory: URL
     private let helperProvider: HelperProvider
     private let trashItem: TrashItem
     private let helperBatchSize: Int
 
     init(
         fileManager: FileManager = .default,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider,
         trashItem: TrashItem? = nil,
         helperBatchSize: Int = SystemJunkDeleter.defaultHelperBatchSize
     ) {
         self.fileManager = fileManager
+        self.homeDirectory = homeDirectory
         self.helperProvider = helperProvider
         self.helperBatchSize = max(1, helperBatchSize)
         // `FileManager.trashItem` always targets the system Trash regardless of
@@ -112,7 +118,7 @@ struct SystemJunkDeleter: Sendable {
         var bytesFreed: Int64 = 0
         for file in userFiles {
             do {
-                if Self.isInUserTrash(path: file.url.path) {
+                if Self.isInUserTrash(path: file.url.path, homeDirectory: homeDirectory) {
                     // Emptying the Trash is, by definition, permanent.
                     try fileManager.removeItem(at: file.url)
                 } else {
@@ -162,8 +168,26 @@ struct SystemJunkDeleter: Sendable {
     /// are deleted permanently rather than moved to the Trash, since the whole
     /// point of cleaning the Trash Bins is to empty it. (Mounted-volume trashes
     /// match `/.Trashes/` and are routed through the helper instead.)
-    static func isInUserTrash(path: String) -> Bool {
-        path.contains("/.Trash/")
+    ///
+    /// Anchored at `homeDirectory` rather than matched as a `/.Trash/`
+    /// substring: a folder the user happened to name `.Trash` — or another
+    /// account's Trash — is ordinary user data, and the substring test sent it
+    /// down the permanent-removal branch where nothing could be recovered.
+    /// `~/.Trash` itself is not "inside" the Trash, so the directory can never
+    /// be unlinked as a whole.
+    static func isInUserTrash(
+        path: String,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
+        // Both sides go through `standardizedFileURL` only — it folds `.`/`..`
+        // without the `/private` rewriting `NSString.standardizingPath` does,
+        // which would make the two spellings disagree under a temp home.
+        let trash = homeDirectory
+            .appendingPathComponent(".Trash", isDirectory: true)
+            .standardizedFileURL
+            .path
+        let prefix = trash.hasSuffix("/") ? trash : trash + "/"
+        return URL(fileURLWithPath: path).standardizedFileURL.path.hasPrefix(prefix)
     }
 
     /// Routes every helper-bound file through the privileged helper in bounded
