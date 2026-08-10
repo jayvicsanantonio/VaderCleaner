@@ -77,6 +77,29 @@ final class SpaceLensSelection {
         }
     }
 
+    /// Remove `nodes` **and anything selected beneath them** — what removal
+    /// needs, because trashing a folder takes its whole subtree with it.
+    ///
+    /// A file the user checked after drilling into a folder they had also
+    /// checked is a separate entry here. Dropping only the folder left that
+    /// entry behind, and with its ancestor gone `selectedNodes()` promoted the
+    /// orphan back to a top-level selection: the bottom bar kept counting bytes
+    /// for a file that no longer existed, and Remove could only no-op on it.
+    ///
+    /// Matched by path rather than by walking the tree, in keeping with the rest
+    /// of this type — the selection is small, the scanned tree is not.
+    func deselectSubtrees(of nodes: [DiskNode]) {
+        guard !nodes.isEmpty else { return }
+        let removedPaths = nodes.map { $0.url.standardizedFileURL.path }
+        for (id, node) in selected {
+            let path = node.url.standardizedFileURL.path
+            let isRemoved = removedPaths.contains { path == $0 || path.hasPrefix($0 + "/") }
+            guard isRemoved else { continue }
+            selectedIDs.remove(id)
+            selected[id] = nil
+        }
+    }
+
     func clear() {
         selectedIDs.removeAll()
         selected.removeAll()

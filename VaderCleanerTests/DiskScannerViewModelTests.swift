@@ -429,6 +429,64 @@ final class DiskScannerViewModelTests: XCTestCase {
         XCTAssertFalse(vm.reviewActive)
     }
 
+    /// Trashing a folder takes everything inside it, so anything the user had
+    /// separately selected beneath that folder is gone too and must leave the
+    /// selection with it. Left behind, the deduped totals promoted the orphan
+    /// back to a top-level selection and the bottom bar kept counting bytes for
+    /// a file that no longer exists — and Remove could only ever no-op on it.
+    func test_removeSelected_clearsSelectionsBeneathARemovedFolder() async {
+        let inner = DiskNode(url: URL(fileURLWithPath: "/tmp/root/docs/inner"), name: "inner",
+                             size: 200, isDirectory: false, children: [])
+        let docs = DiskNode(url: URL(fileURLWithPath: "/tmp/root/docs"), name: "docs",
+                            size: 200, isDirectory: true, children: [inner], itemCount: 1)
+        let keep = DiskNode(url: URL(fileURLWithPath: "/tmp/root/keep"), name: "keep",
+                            size: 100, isDirectory: false, children: [])
+        let root = DiskNode(url: URL(fileURLWithPath: "/tmp/root"), name: "root",
+                            size: 300, isDirectory: true, children: [docs, keep], itemCount: 3)
+
+        let trashed = Trashed()
+        let vm = DiskScannerViewModel(
+            scanner: { _, _ in root },
+            trash: { urls in await trashed.record(urls); return Set(urls) }
+        )
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        // The user checked the folder and, after drilling in, a file inside it.
+        vm.selection.select([docs, inner])
+
+        await vm.removeSelected()
+
+        let recorded = await trashed.urls
+        XCTAssertEqual(recorded, [docs.url], "only the top-level folder is handed to the Trash")
+        XCTAssertTrue(
+            vm.selection.isEmpty,
+            "a file inside a removed folder is gone too and must not stay selected"
+        )
+        XCTAssertEqual(vm.selection.totals.size, 0)
+    }
+
+    /// The subtree sweep is scoped to what actually moved: a sibling selection
+    /// the removal never touched stays checked.
+    func test_removeSelected_keepsSelectionsOutsideTheRemovedSubtree() async {
+        let docs = DiskNode(url: URL(fileURLWithPath: "/tmp/root/docs"), name: "docs",
+                            size: 200, isDirectory: true, children: [], itemCount: 0)
+        let keep = DiskNode(url: URL(fileURLWithPath: "/tmp/root/keep"), name: "keep",
+                            size: 100, isDirectory: false, children: [])
+        let root = DiskNode(url: URL(fileURLWithPath: "/tmp/root"), name: "root",
+                            size: 300, isDirectory: true, children: [docs, keep], itemCount: 2)
+
+        let vm = DiskScannerViewModel(
+            scanner: { _, _ in root },
+            trash: { _ in [docs.url] } // only the folder moved
+        )
+        await vm.startScan(root: URL(fileURLWithPath: "/tmp"), estimatedFileCount: 1)
+        vm.selection.select([docs, keep])
+
+        await vm.removeSelected()
+
+        XCTAssertFalse(vm.selection.isSelected(docs))
+        XCTAssertTrue(vm.selection.isSelected(keep), "an untouched sibling keeps its checkbox")
+    }
+
     /// A node the sink fails to move stays in the tree and selected, so the user
     /// can see it didn't go.
     func test_removeSelected_keepsNodesTheSinkDidNotMove() async {
