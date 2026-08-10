@@ -404,9 +404,17 @@ enum CleanupManagerModel {
         // delegates to its children (the store unions them on demand), so a
         // file's path isn't copied once per ancestor level — over hundreds of
         // thousands of files that per-level duplication dominated the manager's
-        // memory footprint. The children partition the folder's files exactly,
-        // so unioning them reconstructs the folder's full set.
-        let selectionPaths = children.isEmpty ? files.map { $0.url.path } : []
+        // memory footprint.
+        //
+        // The children partition everything *below* this node, which leaves one
+        // gap: a scanned file that is this node itself (a rolled-up bundle that
+        // also has scanned files inside it) belongs to no child. It keeps its
+        // path here, so unioning the node with its children still reconstructs
+        // the full set the node's size was summed from — otherwise its bytes
+        // counted toward the folder while no checkbox could select them.
+        let selectionPaths = children.isEmpty
+            ? files.map { $0.url.path }
+            : files.lazy.filter { $0.url.pathComponents.count == depth + 1 }.map { $0.url.path }
         return ManagerItem(
             id: nodePath,
             title: name,
