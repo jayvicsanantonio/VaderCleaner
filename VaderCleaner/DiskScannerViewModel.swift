@@ -228,7 +228,10 @@ final class DiskScannerViewModel {
 
         let prunedRoot = root.removing(movedIDs)
         navigationPath = Self.remap(navigationPath, onto: prunedRoot)
-        selection.deselect(targets.filter { movedIDs.contains($0.id) })
+        // Whole subtrees, not just the nodes handed to the sink: a folder that
+        // reached the Trash took everything under it, including anything the
+        // user had separately checked in there.
+        selection.deselectSubtrees(of: targets.filter { movedIDs.contains($0.id) })
         forwardStack.removeAll()
         phase = .ready(prunedRoot)
         volumeUsage = volumeUsageProvider(selectedVolumeURL)

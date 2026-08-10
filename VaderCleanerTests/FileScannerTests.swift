@@ -344,6 +344,45 @@ final class FileScannerTests: XCTestCase {
         XCTAssertEqual(files.first?.category, .largeFile)
     }
 
+    /// A root can opt into package-as-file mode on its own, so one scan can mix
+    /// roots where a bundle is a removable unit (the Trash, Xcode Archives) with
+    /// roots that keep the historical descend-and-skip behaviour.
+    func test_scan_perRootPackagesAsFilesAppliesOnlyToThatRoot() async throws {
+        let bundled = tempRoot.appendingPathComponent("bundled", isDirectory: true)
+        let plain = tempRoot.appendingPathComponent("plain", isDirectory: true)
+        for parent in [bundled, plain] {
+            let contents = parent
+                .appendingPathComponent("Demo.app", isDirectory: true)
+                .appendingPathComponent("Contents", isDirectory: true)
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            try TestHelpers.createDummyFile(named: "a.bin", size: 32, in: contents)
+        }
+
+        let scanner = FileScanner()
+        var files: [ScannedFile] = []
+        try await scanner.scan(
+            roots: [
+                ScanRoot(url: bundled, category: .trash, packagesAsFiles: true),
+                ScanRoot(url: plain, category: .userCache),
+            ],
+            excluding: [],
+            options: .default,
+            batchSize: FileScanner.defaultBatchSize
+        ) { batch in
+            files.append(contentsOf: batch)
+        }
+
+        XCTAssertEqual(
+            files.map(\.category), [.trash],
+            "only the opted-in root emits its bundle; the other keeps skipping package descendants"
+        )
+        XCTAssertEqual(files.first?.size, 32, "the bundle is rolled up to its contents' bytes")
+        XCTAssertEqual(
+            files.first?.url.resolvingSymlinksInPath().path,
+            bundled.appendingPathComponent("Demo.app").resolvingSymlinksInPath().path
+        )
+    }
+
     func test_scan_packagesAsFilesCountsPackageDescendantsInProgress() async throws {
         let package = tempRoot.appendingPathComponent("Demo.app", isDirectory: true)
         let contents = package.appendingPathComponent("Contents", isDirectory: true)

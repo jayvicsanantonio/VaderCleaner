@@ -83,6 +83,12 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         ]
     }
 
+    /// Whether `url` is the Xcode Archives directory — the one Xcode Junk root
+    /// whose contents are packages (`.xcarchive`) rather than loose build files.
+    static func isXcodeArchivesRoot(_ url: URL) -> Bool {
+        url.lastPathComponent == "Archives"
+    }
+
     /// Regenerable web-toolchain caches. All user-domain (in-process deletable),
     /// rebuilt on demand by the respective package manager — clearing them only
     /// costs a slower next install. Emitted whether or not each directory exists;
@@ -109,7 +115,13 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         let userLibrary = homeDirectory.appendingPathComponent("Library", isDirectory: true)
         roots.append(ScanRoot(url: userLibrary.appendingPathComponent("Caches", isDirectory: true), category: .userCache))
         roots.append(ScanRoot(url: userLibrary.appendingPathComponent("Logs", isDirectory: true), category: .userLogs))
-        roots.append(ScanRoot(url: userLibrary.appendingPathComponent("Mail Downloads", isDirectory: true), category: .mailAttachments))
+        // Mail saves attachments verbatim, so a `.pages` or `.rtfd` attachment
+        // is a package — one file as far as the user is concerned.
+        roots.append(ScanRoot(
+            url: userLibrary.appendingPathComponent("Mail Downloads", isDirectory: true),
+            category: .mailAttachments,
+            packagesAsFiles: true
+        ))
         roots.append(ScanRoot(
             url: userLibrary
                 .appendingPathComponent("Application Support", isDirectory: true)
@@ -126,12 +138,23 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         roots.append(ScanRoot(url: URL(fileURLWithPath: "/Library/Logs", isDirectory: true), category: .systemLogs))
 
         // Trash — home plus every mounted volume's per-user trash directory.
-        roots.append(ScanRoot(url: homeDirectory.appendingPathComponent(".Trash", isDirectory: true), category: .trash))
+        // Package-as-file: a trashed `.app`, `.pages`, or photo library is one
+        // thing the user threw away. Descending past them (the default) emitted
+        // nothing for them at all, so the biggest items in a Trash counted zero
+        // bytes and survived "empty the Trash".
+        roots.append(ScanRoot(
+            url: homeDirectory.appendingPathComponent(".Trash", isDirectory: true),
+            category: .trash,
+            packagesAsFiles: true
+        ))
         roots.append(contentsOf: volumeTrashRoots())
 
         // Xcode developer junk — user-domain, readable and removable in-process.
+        // Archives are `.xcarchive` packages and are rolled up for the same
+        // reason as the Trash; the rest are build intermediates the user reviews
+        // per file.
         roots.append(contentsOf: Self.xcodeJunkRoots(homeDirectory: homeDirectory).map {
-            ScanRoot(url: $0, category: .xcodeJunk)
+            ScanRoot(url: $0, category: .xcodeJunk, packagesAsFiles: Self.isXcodeArchivesRoot($0))
         })
 
         // Web-toolchain package-manager caches — user-domain, fold into the same
@@ -196,7 +219,7 @@ struct DefaultSystemPathProvider: SystemPathProviding {
                 .appendingPathComponent(".Trashes", isDirectory: true)
                 .appendingPathComponent(uid, isDirectory: true)
             if fileManager.fileExists(atPath: trash.path) {
-                roots.append(ScanRoot(url: trash, category: .trash))
+                roots.append(ScanRoot(url: trash, category: .trash, packagesAsFiles: true))
             }
         }
         return roots

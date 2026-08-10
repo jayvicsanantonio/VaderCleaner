@@ -342,9 +342,26 @@ final class SmartScanViewModel {
     /// `stampHistory` is false for a post-Run refresh: a targeted re-check of
     /// what the run changed is not a new scan, and dating the user's scan
     /// history from it would overstate what was looked at.
-    private func land(_ plan: CarePlan, stampHistory: Bool = true) async {
+    ///
+    /// `seeding` names the units whose selections this landing may re-seed;
+    /// `nil` (a fresh scan) seeds everything. A post-Run refresh passes the
+    /// units it re-scanned, because everything else on the plan is the same
+    /// finding the user was already looking at — and re-seeding those threw
+    /// their decisions away. Duplicates seed fully checked, so unchecking them
+    /// all is the only way to decline them; landing a merged plan put every
+    /// copy back and re-included the card, and the next Fix would have trashed
+    /// them.
+    private func land(
+        _ plan: CarePlan,
+        stampHistory: Bool = true,
+        seeding units: Set<CareScanUnit>? = nil
+    ) async {
         // A new plan is arriving: drop anything memoized from the last one.
         invalidateResultsCaches()
+        // A fresh scan re-seeds everything; a refresh only what it re-checked.
+        let shouldSeed: (CareFinding.Kind) -> Bool = { kind in
+            units?.contains(kind.unit) ?? true
+        }
         let attempted = CareScanUnit.allCases.filter { unit in
             switch plan.unitOutcomes[unit] {
             case .completed, .failed: return true
@@ -369,58 +386,76 @@ final class SmartScanViewModel {
             return
         }
 
-        let junkResult: ScanResult
-        if case .junk(let result)? = plan.finding(.junkCleanup)?.payload {
-            junkResult = result
-        } else {
-            junkResult = ScanResult(items: [])
+        if shouldSeed(.junkCleanup) {
+            let junkResult: ScanResult
+            if case .junk(let result)? = plan.finding(.junkCleanup)?.payload {
+                junkResult = result
+            } else {
+                junkResult = ScanResult(items: [])
+            }
+            // Warm the junk Review's manager model in the background right away,
+            // so its panes are instant by the time the user opens Review.
+            junkManagerStore.load(result: junkResult)
+
+            // Pre-check only the safe (regenerable / already-discarded) junk
+            // categories so a one-tap Run never removes user data. Built off the
+            // main actor — hashing a large result's URLs here froze the
+            // scan-complete transition for seconds.
+            let seed = await ScanSelectionSeed.safeDefaults(from: junkResult)
+            junkFileSelection = seed.urls
+            selectedJunkBytes = seed.totalBytes
+            selectedJunkBytesByCategory = seed.bytesByCategory
+            selectedJunkCountByCategory = seed.countByCategory
         }
-        // Warm the junk Review's manager model in the background right away,
-        // so its panes are instant by the time the user opens Review.
-        junkManagerStore.load(result: junkResult)
 
-        // Pre-check only the safe (regenerable / already-discarded) junk
-        // categories so a one-tap Run never removes user data. Built off the
-        // main actor — hashing a large result's URLs here froze the
-        // scan-complete transition for seconds.
-        let seed = await ScanSelectionSeed.safeDefaults(from: junkResult)
-        junkFileSelection = seed.urls
-        selectedJunkBytes = seed.totalBytes
-        selectedJunkBytesByCategory = seed.bytesByCategory
-        selectedJunkCountByCategory = seed.countByCategory
-
-        if case .threats(let threats)? = plan.finding(.threats)?.payload {
+        if shouldSeed(.threats), case .threats(let threats)? = plan.finding(.threats)?.payload {
             threatSelection = Set(threats.map(\.filePath))
         }
-        if case .appUpdates(let updates)? = plan.finding(.appUpdates)?.payload {
+        if shouldSeed(.appUpdates), case .appUpdates(let updates)? = plan.finding(.appUpdates)?.payload {
             updateSelection = Set(updates.map(\.id))
         }
         // Every due maintenance task starts selected — the tune-up tile is
         // pre-approved, so Run does the whole cocktail unless the user opts a
         // task out in Review.
-        if case .maintenanceDue(let taskIDs)? = plan.finding(.maintenanceDue)?.payload {
+        if shouldSeed(.maintenanceDue), case .maintenanceDue(let taskIDs)? = plan.finding(.maintenanceDue)?.payload {
             maintenanceSelection = Set(taskIDs)
         }
         // Every redundant copy (never the kept original) — a copy always
         // survives, so default-on is safe.
-        if case .duplicates(let groups)? = plan.finding(.duplicates)?.payload {
+        if shouldSeed(.duplicates), case .duplicates(let groups)? = plan.finding(.duplicates)?.payload {
             duplicateSelection = Set(groups.flatMap { $0.redundantCopies.map(\.url) })
         }
         // Opt-in tiers (large/old files, unused apps, leftovers, installers,
         // browser privacy) stay empty: these are the user's own files and
         // data, and nothing is removed unless they choose it.
 
-        includedFindings = Set(
-            plan.findings
-                .filter { $0.actionability == .preApproved && !$0.isEmpty }
-                .map(\.kind)
-        )
+        includedFindings = inclusion(for: plan, seeding: units)
 
         phase = .results(plan)
         if stampHistory {
             recordScan(plan.finishedAt)
         }
         onScanCompleted?(plan)
+    }
+
+    /// Which cards are in the Run pass once `plan` lands.
+    ///
+    /// A fresh scan starts from the pre-approved findings. A refresh keeps what
+    /// the user decided about every finding it did not re-scan — a card they
+    /// opted out of stays out, an opt-in card they checked stays in — and takes
+    /// the default only for the re-seeded ones. Carried inclusions are
+    /// intersected with the merged plan so a finding that has since gone empty
+    /// can't linger in the set.
+    private func inclusion(for plan: CarePlan, seeding units: Set<CareScanUnit>?) -> Set<CareFinding.Kind> {
+        let defaults = Set(
+            plan.findings
+                .filter { $0.actionability == .preApproved && !$0.isEmpty }
+                .map(\.kind)
+        )
+        guard let units else { return defaults }
+        let present = Set(plan.findings.map(\.kind))
+        let carried = includedFindings.filter { !units.contains($0.unit) }.intersection(present)
+        return carried.union(defaults.filter { units.contains($0.unit) })
     }
 
     /// Resets every per-scan accumulator ahead of a fresh scan.
@@ -1558,7 +1593,10 @@ final class SmartScanViewModel {
         // Merge only into the feed the user is still on — a fresh scan, Start
         // Over, or a reset supersedes this re-check.
         guard generation == scanGeneration, case .results = phase else { return }
-        await land(plan.merging(refreshed, for: units), stampHistory: false)
+        // Only the re-checked units may re-seed: everything else on the merged
+        // plan is the finding the user was already looking at, with whatever
+        // they decided about it still standing.
+        await land(plan.merging(refreshed, for: units), stampHistory: false, seeding: units)
     }
 
     /// Where each finding keyed by file URL keeps its selection, so clearing one

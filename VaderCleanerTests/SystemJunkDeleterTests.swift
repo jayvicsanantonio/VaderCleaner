@@ -88,9 +88,57 @@ final class SystemJunkDeleterTests: XCTestCase {
     /// goes to the Trash (recoverable). Mounted-volume trashes are helper-routed,
     /// not matched here.
     func test_isInUserTrash_matchesHomeTrashOnly() {
-        XCTAssertTrue(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/.Trash/old.dmg"))
-        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/Library/Caches/x"))
-        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Volumes/External/.Trashes/501/y"))
+        let home = URL(fileURLWithPath: "/Users/alice", isDirectory: true)
+        XCTAssertTrue(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/.Trash/old.dmg", homeDirectory: home))
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/Library/Caches/x", homeDirectory: home))
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Volumes/External/.Trashes/501/y", homeDirectory: home))
+    }
+
+    /// The check is anchored at the home directory, not a `/.Trash/` substring
+    /// search. A folder the user happened to name `.Trash` is ordinary user
+    /// data: it must be moved to the Trash like anything else, never emptied
+    /// permanently. The `.Trash` directory itself is not "in" the Trash either,
+    /// so it can't be permanently removed as a whole.
+    func test_isInUserTrash_ignoresALookalikeFolderElsewhereInTheHome() {
+        let home = URL(fileURLWithPath: "/Users/alice", isDirectory: true)
+        XCTAssertFalse(
+            SystemJunkDeleter.isInUserTrash(path: "/Users/alice/Documents/.Trash/notes.txt", homeDirectory: home),
+            "a user folder named .Trash is not the Trash and must stay recoverable"
+        )
+        XCTAssertFalse(
+            SystemJunkDeleter.isInUserTrash(path: "/Users/bob/.Trash/old.dmg", homeDirectory: home),
+            "another account's Trash is not this user's Trash"
+        )
+        XCTAssertFalse(SystemJunkDeleter.isInUserTrash(path: "/Users/alice/.Trash", homeDirectory: home))
+    }
+
+    /// End to end: a file inside a lookalike `.Trash` folder goes to the Trash
+    /// (the injected seam) instead of being unlinked, so a mis-scanned path can
+    /// still be recovered.
+    func test_delete_lookalikeTrashFolder_movesToTheTrashRatherThanUnlinking() async throws {
+        let home = tempRoot.appendingPathComponent("home", isDirectory: true)
+        let lookalike = home
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent(".Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: lookalike, withIntermediateDirectories: true)
+        let url = lookalike.appendingPathComponent("notes.txt")
+        try Data(count: 42).write(to: url)
+
+        let trashed = TestBox<[URL]>([])
+        let deleter = SystemJunkDeleter(
+            homeDirectory: home,
+            helperProvider: { _ in nil },
+            trashItem: { moved in
+                trashed.value.append(moved)
+                try FileManager.default.removeItem(at: moved)
+            }
+        )
+        let file = ScannedFile(url: url, size: 42, lastAccessDate: nil, lastModifiedDate: nil, category: .userCache)
+
+        let bytesFreed = try await deleter.delete([file])
+
+        XCTAssertEqual(bytesFreed, 42)
+        XCTAssertEqual(trashed.value, [url], "the file must be routed through the Trash seam, not unlinked")
     }
 
     // MARK: - User-domain deletion

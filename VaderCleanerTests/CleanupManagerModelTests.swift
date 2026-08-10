@@ -120,6 +120,41 @@ final class CleanupManagerModelTests: XCTestCase {
         )
     }
 
+    /// The invariant an expandable folder's empty `selectionPaths` rests on:
+    /// unioning its children reconstructs everything its size was summed from.
+    ///
+    /// The children only partition what lies *below* the node, so a scanned file
+    /// that *is* the node — an entry that is both a scanned item and an ancestor
+    /// of other scanned items — belongs to no child. It has to stay on the node
+    /// itself; otherwise its bytes count toward the folder's total while no
+    /// checkbox anywhere can select it, and checking the folder removes less
+    /// than the size it advertises.
+    func test_buildHierarchy_folderNodeKeepsThePathOfAFileThatIsTheFolderItself() {
+        let files = [
+            file("/Users/me/Library/Caches/Rollup", 100, .userCache),
+            file("/Users/me/Library/Caches/Rollup/inner", 50, .userCache),
+            // A sibling keeps the common ancestor at Caches, so Rollup stays an
+            // expandable node rather than becoming the root of the tree.
+            file("/Users/me/Library/Caches/Other/d", 1, .userCache),
+        ]
+
+        let rollup = CleanupManagerModel.buildHierarchy(files).first { $0.title == "Rollup" }!
+
+        XCTAssertTrue(rollup.isExpandable)
+        XCTAssertEqual(
+            rollup.selectionPaths,
+            ["/Users/me/Library/Caches/Rollup"],
+            "the node's own scanned path must stay selectable even though it discloses deeper files"
+        )
+        XCTAssertEqual(rollup.size, 150)
+        let covered = Set(rollup.selectionPaths + rollup.children.flatMap(\.selectionPaths))
+        XCTAssertEqual(
+            covered,
+            ["/Users/me/Library/Caches/Rollup", "/Users/me/Library/Caches/Rollup/inner"],
+            "every file rolled into the node's size must be reachable from its selection paths"
+        )
+    }
+
     /// A single file directly under the common ancestor is a leaf row with no
     /// chevron.
     func test_buildHierarchy_directFileIsLeaf() {

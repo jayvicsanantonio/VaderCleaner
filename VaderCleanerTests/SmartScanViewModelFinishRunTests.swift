@@ -282,6 +282,106 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
         XCTAssertEqual(plans.value.last?.finding(.largeOldFiles), Self.untouchedLargeFile)
     }
 
+    // MARK: - Carrying the user's choices through a refresh
+
+    /// A pre-approved finding the run never touched keeps the user's decision.
+    ///
+    /// Duplicates seed fully checked, so unchecking them all is the only way to
+    /// say "not these". Re-seeding them on the way back from Done threw that
+    /// away and re-included the card — the next Fix would have trashed copies
+    /// the user had explicitly declined.
+    func test_finishRun_keepsADeselectionOnAFindingTheRunNeverTouched() async {
+        let vm = viewModelWithDuplicates()
+
+        await vm.scan()
+        vm.clearDuplicateSelection()
+        vm.setFindingIncluded(.duplicates, false)
+        await vm.run()
+        await vm.rescanHandledFindings()
+
+        XCTAssertTrue(
+            vm.duplicateSelection.isEmpty,
+            "the copies the user unchecked must not come back checked"
+        )
+        XCTAssertFalse(
+            vm.isFindingIncluded(.duplicates),
+            "a card the user opted out of must not re-include itself"
+        )
+        XCTAssertFalse(vm.willExecute(.duplicates))
+    }
+
+    /// The mirror case: an opt-in card the user checked keeps both its selection
+    /// and its inclusion, so its items stay part of the next Fix.
+    func test_finishRun_keepsAnOptInSelectionOnAFindingTheRunNeverTouched() async {
+        let vm = viewModelWithDuplicates()
+
+        await vm.scan()
+        vm.setLargeOldFiles([URL(fileURLWithPath: "/Movies/huge.mov")], selected: true)
+        await vm.run()
+        await vm.rescanHandledFindings()
+
+        XCTAssertEqual(vm.largeOldFileSelection, [URL(fileURLWithPath: "/Movies/huge.mov")])
+        XCTAssertTrue(
+            vm.isFindingIncluded(.largeOldFiles),
+            "an opt-in card the user checked stays included across the re-check"
+        )
+    }
+
+    /// A finding the run *did* consume is re-seeded from the fresh scan, so a
+    /// re-check that still finds work arrives pre-approved as it does on a
+    /// first scan.
+    func test_finishRun_reseedsAFindingTheRunActuallyHandled() async {
+        let remainingJunk = CareFinding(
+            kind: .junkCleanup,
+            payload: .junk(ScanResult(items: [Self.file("/cache/more", size: 500)]))
+        )
+        let scanCount = TestBox(0)
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in
+                scanCount.value += 1
+                return scanCount.value == 1
+                    ? Self.scanned
+                    : Self.plan(findings: [remainingJunk], outcomes: [.systemJunk: .completed])
+            },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } }
+        )
+
+        await vm.scan()
+        await vm.run()
+        await vm.rescanHandledFindings()
+
+        XCTAssertEqual(vm.junkFileSelection, [URL(fileURLWithPath: "/cache/more")])
+        XCTAssertTrue(vm.isFindingIncluded(.junkCleanup))
+    }
+
+    /// Same engine shape as `viewModel()`, with a pre-approved duplicates
+    /// finding the Run pass leaves alone (its selection is cleared first) so the
+    /// refresh has an untouched pre-approved card to carry forward.
+    private func viewModelWithDuplicates() -> SmartScanViewModel {
+        let copy = Self.file("/Pictures/copy.jpg", size: 2_000, category: .largeFile)
+        let original = Self.file("/Pictures/original.jpg", size: 2_000, category: .largeFile)
+        let duplicates = CareFinding(
+            kind: .duplicates,
+            payload: .duplicates([DuplicateGroup(files: [original, copy])])
+        )
+        let first = Self.plan(
+            findings: [
+                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [Self.file("/cache/safe", size: 1_000)]))),
+                duplicates,
+                Self.untouchedLargeFile,
+            ],
+            outcomes: [.systemJunk: .completed, .duplicates: .completed, .largeOldFiles: .completed]
+        )
+        let scanCount = TestBox(0)
+        return SmartScanViewModel(
+            scanEngine: { _, _ in
+                scanCount.value += 1
+                return scanCount.value == 1 ? first : Self.rescanned
+            },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } }
+        )
+    }
+
     // MARK: - Fallback
 
     /// Called from any phase but `.done`, Done still has to leave a sane state

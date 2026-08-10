@@ -47,6 +47,77 @@ final class DefaultSystemPathProviderTests: XCTestCase {
         }
     }
 
+    // MARK: - Package-bearing roots
+
+    /// A provider whose language locator is inert, so `roots()` can be exercised
+    /// without walking the real `/Applications`.
+    private func provider(home: URL) -> DefaultSystemPathProvider {
+        DefaultSystemPathProvider(
+            homeDirectory: home,
+            languageFileLocator: LanguageFileLocator(scanRoots: [], activeLanguageCodes: [])
+        )
+    }
+
+    /// The Trash is where a user's `.app`, `.pages`, `.rtfd`, and photo-library
+    /// bundles land, and each is a single removable unit. Without package-as-file
+    /// mode the walk emitted nothing for them — a trashed app counted zero bytes
+    /// and no row could select it, so "empty the Trash" left the biggest items
+    /// behind and the reported size disagreed with `TrashSizeMonitor`.
+    func test_roots_trashOptsIntoPackageAsFileMode() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+
+        let trashRoots = provider(home: home).roots().filter { $0.category == .trash }
+
+        XCTAssertFalse(trashRoots.isEmpty)
+        for root in trashRoots {
+            XCTAssertTrue(root.packagesAsFiles, "\(root.url.path) must roll bundles up rather than skip them")
+        }
+    }
+
+    /// Xcode archives are `.xcarchive` packages, so the same skip made the whole
+    /// Archives directory read as zero bytes — the one Xcode Junk entry the
+    /// category description tells the user to review before removing.
+    func test_roots_xcodeArchivesOptIntoPackageAsFileMode() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+        let archives = home.appendingPathComponent("Library/Developer/Xcode/Archives", isDirectory: true)
+
+        let roots = provider(home: home).roots()
+        let archiveRoot = roots.first { $0.url.standardizedFileURL == archives.standardizedFileURL }
+
+        XCTAssertEqual(archiveRoot?.packagesAsFiles, true)
+        let derivedData = roots.first {
+            $0.url.lastPathComponent == "DerivedData"
+        }
+        XCTAssertEqual(
+            derivedData?.packagesAsFiles, false,
+            "Derived data is build intermediates, not bundles — it keeps the per-file listing"
+        )
+    }
+
+    /// Mail saves attachments verbatim, so a `.pages` or `.rtfd` attachment is a
+    /// package too.
+    func test_roots_mailAttachmentsOptIntoPackageAsFileMode() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+
+        let mail = provider(home: home).roots().first { $0.category == .mailAttachments }
+
+        XCTAssertEqual(mail?.packagesAsFiles, true)
+    }
+
+    /// Caches and logs keep the historical behaviour: they are machine-written
+    /// trees the user reviews per file, not bundles.
+    func test_roots_cachesAndLogsKeepPerFileListing() {
+        let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+
+        let roots = provider(home: home).roots()
+            .filter { [.userCache, .systemCache, .userLogs, .systemLogs].contains($0.category) }
+
+        XCTAssertFalse(roots.isEmpty)
+        for root in roots {
+            XCTAssertFalse(root.packagesAsFiles, "\(root.url.path) must keep its historical per-file listing")
+        }
+    }
+
     // MARK: - Language scan roots
 
     /// `~/Applications` must be in the default scan roots so per-user app
