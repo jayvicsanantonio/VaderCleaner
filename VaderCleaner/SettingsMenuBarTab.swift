@@ -9,7 +9,6 @@ import AppKit
 struct MenuBarTab: View {
 
     @Environment(PreferencesStore.self) private var preferences
-    @Environment(SystemStatsService.self) private var systemStats
 
     /// Cadences offered for the live readings, in seconds.
     private let intervalOptions: [Double] = [2, 5, 10]
@@ -88,11 +87,6 @@ struct MenuBarTab: View {
                         }
                     }
                     .accessibilityIdentifier("preferences.statsUpdateInterval")
-                    .onChange(of: preferences.statsUpdateInterval) { _, newValue in
-                        // Apply immediately; the stored value is re-read at the
-                        // next launch.
-                        systemStats.updateInterval = newValue
-                    }
                 } header: {
                     Text("Live readings")
                 } footer: {
@@ -122,6 +116,5 @@ struct MenuBarTab: View {
                 permissionRequester: {}
             )
         )
-        .environment(SystemStatsService(autostart: false))
         .environment(MyClutterScanScopeStore())
 }

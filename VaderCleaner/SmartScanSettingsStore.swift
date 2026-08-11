@@ -192,14 +192,6 @@ final class SmartScanSettingsStore {
         persistJunkCategories()
     }
 
-    /// Tri-state for the Cleanup parent: `.off` when the domain is disabled,
-    /// `.on` when it is enabled and every category is included, `.mixed`
-    /// otherwise.
-    var junkCategoryState: CheckState {
-        guard isDomainEnabled(.systemJunk) else { return .off }
-        return enabledJunkCategories.count == Self.junkCategories.count ? .on : .mixed
-    }
-
     // MARK: - Persistence
 
     private func persistDomains() {

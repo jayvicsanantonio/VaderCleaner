@@ -153,6 +153,46 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         )
     }
 
+    // MARK: - Scanning tree tri-state over the visible rows
+
+    /// Web Development Junk is hidden when there are no coding-project folders
+    /// on this Mac. A parent whose tri-state still counted the hidden category
+    /// showed a dash over a subtree in which every visible box was ticked —
+    /// an unexplainable mixed state the user has no row to resolve.
+    func test_junkGroupState_ignoresTheHiddenWebDevRow() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setJunkCategory(.webDevJunk, enabled: false)
+
+        XCTAssertEqual(
+            ScanningTab.systemJunkGroupState(settings: sut, webDevDormant: false), .mixed,
+            "while the row is visible the dash is earned — it points at a box the user can see"
+        )
+        XCTAssertEqual(
+            ScanningTab.systemJunkGroupState(settings: sut, webDevDormant: true), .on,
+            "hidden, it must not hold the group in a state no visible row explains"
+        )
+    }
+
+    func test_cleanupState_ignoresTheHiddenWebDevRow() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setJunkCategory(.webDevJunk, enabled: false)
+
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: false), .mixed)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: true), .on)
+    }
+
+    /// Hiding a row must not paper over a category the user actually unticked.
+    func test_visibleTriStates_stillReportRealMixedAndOffStates() {
+        let sut = SmartScanSettingsStore(defaults: defaults)
+        sut.setJunkCategory(.systemCache, enabled: false)
+
+        XCTAssertEqual(ScanningTab.systemJunkGroupState(settings: sut, webDevDormant: true), .mixed)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: true), .mixed)
+
+        sut.setDomain(.systemJunk, enabled: false)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: true), .off)
+    }
+
     // MARK: - Scan units (per-feature granularity)
 
     func test_freshInstall_everyUnitEnabled() {
@@ -199,7 +239,7 @@ final class SmartScanSettingsStoreTests: XCTestCase {
         XCTAssertEqual(sut.enabledDomains, Set(CareDomain.allCases))
         XCTAssertEqual(sut.enabledJunkCategories, Set(SmartScanSettingsStore.junkCategories))
         XCTAssertEqual(sut.enabledUnits, Set(CareScanUnit.allCases))
-        XCTAssertEqual(sut.junkCategoryState, .on)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: false), .on)
     }
 
     func test_restoreDefaults_persistsAcrossInstances() {
@@ -216,14 +256,14 @@ final class SmartScanSettingsStoreTests: XCTestCase {
 
     // MARK: - Cleanup tri-state
 
-    func test_junkCategoryState_triState() {
+    func test_cleanupState_triState() {
         let sut = SmartScanSettingsStore(defaults: defaults)
-        XCTAssertEqual(sut.junkCategoryState, .on)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: false), .on)
 
         sut.setJunkCategory(.userCache, enabled: false)
-        XCTAssertEqual(sut.junkCategoryState, .mixed)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: false), .mixed)
 
         sut.setDomain(.systemJunk, enabled: false)
-        XCTAssertEqual(sut.junkCategoryState, .off)
+        XCTAssertEqual(ScanningTab.cleanupState(settings: sut, webDevDormant: false), .off)
     }
 }

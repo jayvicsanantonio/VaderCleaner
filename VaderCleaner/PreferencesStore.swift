@@ -113,6 +113,13 @@ final class PreferencesStore {
     /// app layer surfaces this via `NSAlert`; the model stays UI-free.
     typealias LaunchAtLoginErrorReporter = @MainActor (Error) -> Void
 
+    /// Side-effect contract for the live-stats cadence. Production pushes the
+    /// new value into `SystemStatsService`, which re-arms its timer. Injected
+    /// rather than applied by the Menu Bar tab so *every* writer reaches the
+    /// service — Restore Defaults fires from the General tab, where that tab's
+    /// view (and its `onChange`) is not the one on screen.
+    typealias StatsUpdateIntervalHandler = @MainActor (Double) -> Void
+
     // MARK: - Storage keys
 
     /// Centralised key namespace so persisted values can be located by name (e.g.
@@ -203,7 +210,9 @@ final class PreferencesStore {
     /// follows the window and the menu bar rather than being pinned.
     nonisolated static let defaultKeepDockIcon = false
     /// Two seconds: live enough for the panel's memory and CPU rows.
-    static let defaultStatsUpdateInterval: Double = 2
+    /// `nonisolated` so `statsUpdateInterval(in:)` can read it before the app
+    /// has a store — the same treatment the two activation-policy flags get.
+    nonisolated static let defaultStatsUpdateInterval: Double = 2
 
     /// Reads the current `showMenuBar` value out of an arbitrary `UserDefaults`
     /// suite without instantiating the full store. Used by `VaderCleanerAppDelegate`
@@ -223,6 +232,13 @@ final class PreferencesStore {
     /// policy, read from the same non-isolated contexts.
     nonisolated static func isDockIconKept(in defaults: UserDefaults = .standard) -> Bool {
         (defaults.object(forKey: Key.keepDockIcon) as? Bool) ?? defaultKeepDockIcon
+    }
+
+    /// Reads the persisted stats cadence without building the store, so
+    /// `SystemStatsService` can be constructed first and then handed to the
+    /// store as the `statsUpdateIntervalHandler` target.
+    nonisolated static func statsUpdateInterval(in defaults: UserDefaults = .standard) -> Double {
+        (defaults.object(forKey: Key.statsUpdateInterval) as? Double) ?? defaultStatsUpdateInterval
     }
 
     // MARK: - Tracked state
@@ -337,7 +353,7 @@ final class PreferencesStore {
             // so it sets `isApplyingLaunchAtLogin` to skip this path and avoid a
             // duplicate SMAppService write (issue #65).
             guard !isApplyingLaunchAtLogin else { return }
-            applyLaunchAtLogin()
+            applyLaunchAtLogin(revertingTo: oldValue)
         }
     }
 
@@ -364,9 +380,14 @@ final class PreferencesStore {
         didSet { defaults.set(keepDockIcon, forKey: Key.keepDockIcon) }
     }
 
-    /// How often the live stats behind the panel and menu bar refresh.
+    /// How often the live stats behind the panel and menu bar refresh. Applied
+    /// through the handler as well as persisted, so a new cadence takes effect
+    /// immediately whichever surface changed it.
     var statsUpdateInterval: Double {
-        didSet { defaults.set(statsUpdateInterval, forKey: Key.statsUpdateInterval) }
+        didSet {
+            defaults.set(statsUpdateInterval, forKey: Key.statsUpdateInterval)
+            statsUpdateIntervalHandler?(statsUpdateInterval)
+        }
     }
 
     /// Which panel rows the user has switched off. Absent means visible, so a
@@ -416,18 +437,22 @@ final class PreferencesStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let launchAtLoginHandler: LaunchAtLoginHandler?
     @ObservationIgnored private let launchAtLoginErrorReporter: LaunchAtLoginErrorReporter?
-    /// Set while `setLaunchAtLogin(_:)` updates the tracked value, so the
-    /// property's `didSet` skips re-applying a side effect it has already run.
+    @ObservationIgnored private let statsUpdateIntervalHandler: StatsUpdateIntervalHandler?
+    /// Set while `setLaunchAtLogin(_:)` updates the tracked value — and while a
+    /// failed apply reverts it — so the property's `didSet` skips re-applying a
+    /// side effect it has already run.
     @ObservationIgnored private var isApplyingLaunchAtLogin = false
 
     init(
         defaults: UserDefaults = .standard,
         launchAtLoginHandler: LaunchAtLoginHandler? = nil,
-        launchAtLoginErrorReporter: LaunchAtLoginErrorReporter? = nil
+        launchAtLoginErrorReporter: LaunchAtLoginErrorReporter? = nil,
+        statsUpdateIntervalHandler: StatsUpdateIntervalHandler? = nil
     ) {
         self.defaults = defaults
         self.launchAtLoginHandler = launchAtLoginHandler
         self.launchAtLoginErrorReporter = launchAtLoginErrorReporter
+        self.statsUpdateIntervalHandler = statsUpdateIntervalHandler
 
         // Assign each property exactly once here so the `didSet` observers
         // above do *not* fire (Swift skips property observers for the first
@@ -479,6 +504,16 @@ final class PreferencesStore {
             self.menuBarReading = Self.defaultMenuBarReading
         }
         self.menuBarShowsReading = Self.bool(defaults, Key.menuBarShowsReading, default: Self.defaultMenuBarShowsReading)
+
+        // `menuBarPresence` models a three-way in which "neither" is
+        // unreachable, so the getter reports Dock-only when both flags are off.
+        // A hand-edited defaults file can still hold that pair, and because the
+        // picker's selection already *equals* Dock-only, choosing it is a no-op
+        // — the state can never be corrected from the UI. Collapse it once here
+        // so the model matches what the picker says about it.
+        if !showMenuBar && !keepDockIcon {
+            keepDockIcon = true
+        }
 
         // Reconcile the persisted preference with launchd's actual state once
         // the tracked properties are populated. The handler's presence is the
@@ -550,11 +585,28 @@ final class PreferencesStore {
     /// (in production, `LoginItemManager.setEnabled`). Errors are forwarded to
     /// the optional reporter so the App layer can surface an alert without
     /// coupling the model to AppKit.
-    private func applyLaunchAtLogin() {
+    ///
+    /// `previous` is the value the toggle was at before this change. On failure
+    /// the tracked value goes back to it, because launchd is still there: the
+    /// write is what failed. Without the revert the model — and `UserDefaults`
+    /// — would claim a state the login item never reached, and `init`'s
+    /// reconcile would re-attempt (and re-alert on) that same failing write at
+    /// every launch, with no way to clear it from the toggle.
+    ///
+    /// The reconcile itself passes no `previous`: the persisted preference is
+    /// the only candidate there, so inventing its opposite would be a guess.
+    private func applyLaunchAtLogin(revertingTo previous: Bool? = nil) {
         guard let handler = launchAtLoginHandler else { return }
         do {
             try handler(launchAtLogin)
         } catch {
+            if let previous, previous != launchAtLogin {
+                // The nested `didSet` persists the restored value; the flag
+                // stops it from applying a side effect that just failed.
+                isApplyingLaunchAtLogin = true
+                launchAtLogin = previous
+                isApplyingLaunchAtLogin = false
+            }
             launchAtLoginErrorReporter?(error)
         }
     }

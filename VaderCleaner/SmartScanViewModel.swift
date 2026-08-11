@@ -293,6 +293,19 @@ final class SmartScanViewModel {
         // A unit runs only when both its domain and the unit itself are on — the
         // per-feature checkboxes narrow within an enabled domain.
         var units = Set(domains.flatMap(\.units)).intersection(enabledUnits())
+        // Nothing left to look at. Health telemetry rides along below and would
+        // otherwise carry this to a completed plan with no findings, where the
+        // verdict hero reads "Nothing needs your attention right now." — a clean
+        // bill of health for a scan that checked nothing. Say what happened and
+        // where to fix it instead.
+        guard !units.isEmpty else {
+            log.error("Smart Scan refused: every scan area is disabled in Settings")
+            phase = .failed(message: String(
+                localized: "Every area is switched off in Settings → Scanning. Turn at least one back on and Smart Scan will have something to check.",
+                comment: "Smart Scan failure message when the user has disabled every scan area."
+            ))
+            return
+        }
         // Health telemetry is instant and non-destructive — it always rides
         // along so the verdict hero has a base tier.
         units.insert(.healthSnapshot)

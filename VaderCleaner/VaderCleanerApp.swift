@@ -77,6 +77,15 @@ struct VaderCleanerApp: App {
 
     init() {
         HelperRegistration.registerIfNeeded()
+        // Built before the preference store so the store can be handed a
+        // handler that pushes a new cadence straight into it. The persisted
+        // interval is read statically for the same reason — the service has to
+        // exist first.
+        // `autostart: false` — polling is claimed by whatever is actually
+        // displaying stats (the window, the panel, a live menu bar reading)
+        // via `beginUpdates()`, rather than running from launch to quit.
+        let stats = SystemStatsService(interval: PreferencesStore.statsUpdateInterval(), autostart: false)
+        _systemStats = State(initialValue: stats)
         // Construct the store with production side-effect handlers. The init
         // also reconciles the persisted preference with `SMAppService` so a
         // user who toggled "Login Items" in System Settings while VaderCleaner
@@ -84,7 +93,8 @@ struct VaderCleanerApp: App {
         // launch.
         let prefs = PreferencesStore(
             launchAtLoginHandler: { try LoginItemManager.setEnabled($0) },
-            launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:)
+            launchAtLoginErrorReporter: VaderCleanerApp.presentLaunchAtLoginAlert(_:),
+            statsUpdateIntervalHandler: { [stats] newValue in stats.updateInterval = newValue }
         )
         _preferences = State(initialValue: prefs)
         // Feature-session view models live at app scope so sidebar navigation
@@ -144,17 +154,12 @@ struct VaderCleanerApp: App {
         // view models above, which the dashboard reuses as detail screens.
         _applicationsViewModel = State(initialValue: ApplicationsViewModel.live(exclusions: exclusions))
         _extensionsManagerViewModel = State(initialValue: ExtensionsManagerViewModel.live())
-        // Construct the polling service and the menu bar view-model in the
-        // same init so both `@StateObject` wrappers reference the *same*
-        // service instance. Initializing `menuBarViewModel` at its property
-        // declaration would force a separate `SystemStatsService()` —
-        // doubling the polling timer and decoupling the menu bar from the
-        // service the Health Monitor consumes.
-        // `autostart: false` — polling is claimed by whatever is actually
-        // displaying stats (the window, the panel, a live menu bar reading)
-        // via `beginUpdates()`, rather than running from launch to quit.
-        let stats = SystemStatsService(interval: prefs.statsUpdateInterval, autostart: false)
-        _systemStats = State(initialValue: stats)
+        // `stats` is built at the top of this init, so both the menu bar
+        // view-model below and the Health Monitor reference the *same* service
+        // instance. Initializing `menuBarViewModel` at its property declaration
+        // would force a separate `SystemStatsService()` — doubling the polling
+        // timer and decoupling the menu bar from the service the Health Monitor
+        // consumes.
         // Wired after `stats` so the Performance RAM figures come from the
         // same polling service the Health Monitor and menu bar consume.
         _performanceViewModel = State(
@@ -366,8 +371,6 @@ struct VaderCleanerApp: App {
                 .environment(careHistory)
                 .environment(careDeclines)
                 .environment(notificationSettings)
-                // The Menu Bar tab applies a new refresh cadence live.
-                .environment(systemStats)
                 // Scanning hosts the My Clutter scan-folder picker.
                 .environment(myClutterScanScope)
         }

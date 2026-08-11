@@ -229,6 +229,63 @@ final class SmartScanViewModelScanTests: XCTestCase {
         }
     }
 
+    /// Health telemetry always rides along, so a scan with every area unticked
+    /// still had one unit complete — enough for the results feed to land and
+    /// the verdict hero to announce "Nothing needs your attention right now."
+    /// after checking nothing at all. The scan has to refuse instead.
+    func test_scan_failsWhenEveryAreaIsDisabled() async {
+        let engineRuns = Counter()
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in
+                engineRuns.increment()
+                return Self.plan()
+            },
+            enabledDomains: { [] },
+            enabledUnits: { [] }
+        )
+
+        await vm.scan()
+
+        guard case .failed(let message) = vm.phase else {
+            return XCTFail("expected .failed, got \(vm.phase)")
+        }
+        XCTAssertTrue(
+            message.contains("Scanning"),
+            "the message must point at the setting that caused it, got: \(message)"
+        )
+        XCTAssertEqual(engineRuns.count, 0, "there is nothing to scan, so the engine must not run")
+    }
+
+    /// The guard is about *domain* coverage, not a headcount: one area left on
+    /// is a legitimate scan and must still run.
+    func test_scan_runsWhenASingleAreaIsStillEnabled() async {
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in Self.plan() },
+            enabledDomains: { [.systemJunk] },
+            enabledUnits: { [.systemJunk] }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.phase, .results(Self.plan()))
+    }
+
+    /// A domain can be on while every one of its sub-scans is off, which leaves
+    /// the same nothing-to-do state by a different route.
+    func test_scan_failsWhenEveryUnitIsDisabledWithinEnabledAreas() async {
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in Self.plan() },
+            enabledDomains: { Set(CareDomain.allCases) },
+            enabledUnits: { [] }
+        )
+
+        await vm.scan()
+
+        guard case .failed = vm.phase else {
+            return XCTFail("expected .failed, got \(vm.phase)")
+        }
+    }
+
     // MARK: - Checklist statuses
 
     func test_events_driveUnitStatuses_andItemTotals() async {

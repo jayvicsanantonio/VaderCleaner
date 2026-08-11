@@ -22,7 +22,11 @@ enum SettingsTab: Hashable, CaseIterable {
 @MainActor
 @Observable
 final class SettingsRouter {
-    /// The tab the Settings window should display. Defaults to General so the
-    /// window opens on its first tab when nothing routed it.
+    /// The tab the Settings window should display. General on the first open;
+    /// after that it holds whatever was last selected, whether the user picked
+    /// it or a deep link did — so "Configure Scan" leaves Settings on Protection
+    /// and ⌘, reopens there for the rest of the session. That matches how
+    /// macOS's own Settings windows remember their pane, and it is deliberate:
+    /// resetting to General would make the deep link feel like it undid itself.
     var selectedTab: SettingsTab = .general
 }
