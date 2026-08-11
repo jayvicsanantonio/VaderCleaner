@@ -28,6 +28,13 @@ struct ScanningTab: View {
         "module.browserPrivacy", "module.performance", "module.applications",
         "module.myClutter",
     ]
+    /// Whether the Web Development Junk scan has anything to look at, cached
+    /// rather than read from `body`. `WebDevScanScopeStore.isDormant` stats
+    /// seven candidate directories, and the tree rebuilds on every checkbox —
+    /// the same reason the Ignore List caches its existence checks. Recomputed
+    /// when the pane appears and when the picked folder changes, which are the
+    /// only two moments it can turn over while Settings is open.
+    @State private var isWebDevDormant = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.headerGap) {
@@ -43,6 +50,8 @@ struct ScanningTab: View {
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.top, SettingsMetrics.topPadding)
         .padding(.bottom, SettingsMetrics.bottomPadding)
+        .onAppear { isWebDevDormant = webDevScope.isDormant }
+        .onChange(of: webDevScope.selectedFolderPath) { isWebDevDormant = webDevScope.isDormant }
     }
 
     // MARK: Detail
@@ -159,7 +168,7 @@ struct ScanningTab: View {
             icon: .tinted(symbol: Self.symbol(.systemJunk), tint: Self.cleanupTint),
             canMix: true,
             checkboxID: "scanning.module.systemJunk",
-            state: { self.settings.junkCategoryState },
+            state: { Self.cleanupState(settings: self.settings, webDevDormant: self.isWebDevDormant) },
             toggle: self.toggleCleanup,
             isEnabled: { true },
             children: [systemJunkGroupNode] + Self.cleanupLeafDisplays.map {
@@ -204,16 +213,16 @@ struct ScanningTab: View {
         (.webDevJunk, "Web Development Junk", "chevron.left.forwardslash.chevron.right"),
     ]
 
-    /// The "System Junk" sub-group: a tri-state over the named categories above.
+    /// The "System Junk" sub-group: a tri-state over the categories it shows.
     private var systemJunkGroupNode: ScanNode {
-        let categories = Self.systemJunkDisplays.map(\.category)
+        let categories = Self.visibleSystemJunkCategories(webDevDormant: isWebDevDormant)
         return ScanNode(
             id: "group.systemJunk",
             title: "System Junk",
             icon: .tinted(symbol: "xmark.bin.fill", tint: Self.cleanupTint),
             canMix: true,
             checkboxID: "scanning.junkGroup.systemJunk",
-            state: { self.groupState(categories) },
+            state: { Self.systemJunkGroupState(settings: self.settings, webDevDormant: self.isWebDevDormant) },
             toggle: { self.setCategories(categories, enabled: !self.allEnabled(categories)) },
             isEnabled: { self.settings.isDomainEnabled(.systemJunk) },
             children: visibleSystemJunkDisplays.map {
@@ -229,7 +238,46 @@ struct ScanningTab: View {
     /// `systemJunkDisplays` list still backs `toggleableJunkCategories`, so the
     /// category stays scannable and its completeness test unaffected.
     private var visibleSystemJunkDisplays: [(category: ScanCategory, title: String, symbol: String)] {
-        Self.systemJunkDisplays.filter { $0.category != .webDevJunk || !webDevScope.isDormant }
+        Self.systemJunkDisplays.filter { $0.category != .webDevJunk || !isWebDevDormant }
+    }
+
+    /// The categories the tree actually renders a row for. Both parent
+    /// tri-states are computed over this rather than the full list: a hidden
+    /// row that the user switched off before it went dormant would otherwise
+    /// hold its parents on a dash forever, with every visible box ticked and
+    /// nothing on screen to explain it.
+    static func visibleSystemJunkCategories(webDevDormant: Bool) -> [ScanCategory] {
+        systemJunkDisplays.map(\.category).filter { $0 != .webDevJunk || !webDevDormant }
+    }
+
+    /// Tri-state of the "System Junk" sub-group over its visible categories.
+    static func systemJunkGroupState(
+        settings: SmartScanSettingsStore,
+        webDevDormant: Bool
+    ) -> SmartScanSettingsStore.CheckState {
+        state(of: visibleSystemJunkCategories(webDevDormant: webDevDormant), in: settings)
+    }
+
+    /// Tri-state of the Cleanup parent: `.off` when the domain is excluded,
+    /// otherwise derived from every visible category beneath it — the System
+    /// Junk group's rows plus the Cleanup-level leaves.
+    static func cleanupState(
+        settings: SmartScanSettingsStore,
+        webDevDormant: Bool
+    ) -> SmartScanSettingsStore.CheckState {
+        guard settings.isDomainEnabled(.systemJunk) else { return .off }
+        return state(
+            of: visibleSystemJunkCategories(webDevDormant: webDevDormant)
+                + cleanupLeafDisplays.map(\.category),
+            in: settings
+        )
+    }
+
+    private static func state(of categories: [ScanCategory], in settings: SmartScanSettingsStore) -> ScanState {
+        let on = categories.filter { settings.isJunkCategoryEnabled($0) }.count
+        if on == 0 { return .off }
+        if on == categories.count { return .on }
+        return .mixed
     }
 
     private func categoryNode(_ category: ScanCategory, title: String, symbol: String) -> ScanNode {
@@ -299,13 +347,6 @@ struct ScanningTab: View {
         categories.allSatisfy { settings.isJunkCategoryEnabled($0) }
     }
 
-    private func groupState(_ categories: [ScanCategory]) -> ScanState {
-        let on = categories.filter { settings.isJunkCategoryEnabled($0) }.count
-        if on == 0 { return .off }
-        if on == categories.count { return .on }
-        return .mixed
-    }
-
     private func setCategories(_ categories: [ScanCategory], enabled: Bool) {
         for category in categories {
             settings.setJunkCategory(category, enabled: enabled)
@@ -314,18 +355,20 @@ struct ScanningTab: View {
 
     // MARK: Actions
 
-    /// The Cleanup checkbox primarily controls whether the module is included:
-    /// clicking it while included (checked or mixed) excludes the whole subtree;
-    /// clicking it while excluded includes the module and every category. The
-    /// mixed dash signals that some categories are individually deselected.
+    /// The Cleanup checkbox, driven by the visible tri-state exactly as
+    /// `toggleModule` is: clicking it while anything is on (checked or dashed)
+    /// excludes the whole subtree; clicking it while fully off — whether the
+    /// domain is off or every category was individually deselected — re-includes
+    /// the module and all its categories. The mixed dash signals that some
+    /// categories are individually deselected.
     private func toggleCleanup() {
-        if settings.isDomainEnabled(.systemJunk) {
-            settings.setDomain(.systemJunk, enabled: false)
-        } else {
+        if Self.cleanupState(settings: settings, webDevDormant: isWebDevDormant) == .off {
             settings.setDomain(.systemJunk, enabled: true)
             for category in SmartScanSettingsStore.junkCategories {
                 settings.setJunkCategory(category, enabled: true)
             }
+        } else {
+            settings.setDomain(.systemJunk, enabled: false)
         }
     }
 

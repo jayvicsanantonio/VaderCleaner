@@ -340,4 +340,127 @@ final class PreferencesStoreTests: XCTestCase {
 
         XCTAssertFalse(reporterCalled)
     }
+
+    /// A failed `SMAppService` write must not leave the model claiming a state
+    /// launchd never reached. Without the revert the wrong value is persisted
+    /// too, so `init`'s reconcile re-attempts it — and re-alerts — on every
+    /// launch, with no way to clear it from the Settings toggle.
+    func test_launchAtLoginToggle_revertsWhenTheHandlerFails() {
+        struct StubError: Error {}
+        // The handler is `@Sendable`, so its switch has to live in a box rather
+        // than a captured local.
+        let shouldThrow = TestBox(false)
+        var reportCount = 0
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { _ in if shouldThrow.value { throw StubError() } },
+            launchAtLoginErrorReporter: { _ in reportCount += 1 }
+        )
+        // Establish a known-good starting point through the succeeding handler.
+        sut.launchAtLogin = true
+        shouldThrow.value = true
+
+        sut.launchAtLogin = false
+
+        XCTAssertTrue(sut.launchAtLogin, "a failed apply must leave the previous value standing")
+        XCTAssertEqual(reportCount, 1, "the failure is reported exactly once, not once per revert")
+        XCTAssertTrue(
+            PreferencesStore(defaults: defaults).launchAtLogin,
+            "the reverted value is what persists, so the next launch reconciles the state that works"
+        )
+    }
+
+    /// The reconcile in `init` has no previous value to fall back to — the
+    /// persisted preference is the only candidate — so it reports and leaves
+    /// the stored choice alone rather than inventing the opposite.
+    func test_initReconcileFailure_leavesThePersistedValueAlone() {
+        struct StubError: Error {}
+        defaults.set(true, forKey: "preferences.launchAtLogin")
+
+        var reportCount = 0
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { _ in throw StubError() },
+            launchAtLoginErrorReporter: { _ in reportCount += 1 }
+        )
+
+        XCTAssertTrue(sut.launchAtLogin)
+        XCTAssertEqual(reportCount, 1)
+    }
+
+    // MARK: - Menu bar presence normalization
+
+    /// `showMenuBar` + `keepDockIcon` model a three-way picker in which
+    /// "neither" is unreachable. A hand-edited defaults file can still hold it,
+    /// and the getter reports `.dockOnly` for it — so picking Dock in the
+    /// picker is a no-op and the state can never be corrected from the UI.
+    /// Normalizing once at init makes the reported presence true.
+    func test_init_normalizesNeitherMenuBarNorDockIcon() {
+        defaults.set(false, forKey: "preferences.showMenuBar")
+        defaults.set(false, forKey: "preferences.keepDockIcon")
+
+        let sut = PreferencesStore(defaults: defaults)
+
+        XCTAssertEqual(sut.menuBarPresence, .dockOnly)
+        XCTAssertTrue(sut.keepDockIcon, "the reported presence must match the model it is derived from")
+        XCTAssertTrue(
+            PreferencesStore(defaults: defaults).keepDockIcon,
+            "the normalization persists, so the Dock icon survives the next launch"
+        )
+    }
+
+    func test_init_leavesEveryReachablePresenceAlone() {
+        for presence in MenuBarPresence.allCases {
+            let writer = PreferencesStore(defaults: defaults)
+            writer.menuBarPresence = presence
+
+            XCTAssertEqual(PreferencesStore(defaults: defaults).menuBarPresence, presence)
+        }
+    }
+
+    // MARK: - Live stats cadence
+
+    /// The refresh cadence has to reach `SystemStatsService` from wherever it
+    /// changes — the Menu Bar picker *and* Restore Defaults, which fires from
+    /// the General tab. Routing it through an injected handler is what makes
+    /// the second path work.
+    func test_statsUpdateInterval_appliesThroughHandler() {
+        var applied: [Double] = []
+        let sut = PreferencesStore(
+            defaults: defaults,
+            statsUpdateIntervalHandler: { applied.append($0) }
+        )
+
+        sut.statsUpdateInterval = 10
+
+        XCTAssertEqual(applied, [10])
+    }
+
+    func test_restoreDefaults_reappliesStatsIntervalThroughHandler() {
+        var applied: [Double] = []
+        let sut = PreferencesStore(
+            defaults: defaults,
+            statsUpdateIntervalHandler: { applied.append($0) }
+        )
+        sut.statsUpdateInterval = 10
+        applied.removeAll()
+
+        sut.restoreDefaults()
+
+        XCTAssertEqual(applied, [PreferencesStore.defaultStatsUpdateInterval])
+    }
+
+    /// Reads the persisted cadence without building the store, so
+    /// `SystemStatsService` can be constructed before the store that will
+    /// push later changes into it.
+    func test_statsUpdateInterval_readableWithoutAStore() {
+        XCTAssertEqual(
+            PreferencesStore.statsUpdateInterval(in: defaults),
+            PreferencesStore.defaultStatsUpdateInterval
+        )
+
+        PreferencesStore(defaults: defaults).statsUpdateInterval = 5
+
+        XCTAssertEqual(PreferencesStore.statsUpdateInterval(in: defaults), 5)
+    }
 }

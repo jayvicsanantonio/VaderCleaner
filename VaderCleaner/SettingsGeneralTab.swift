@@ -29,6 +29,10 @@ struct GeneralTab: View {
     @State private var isHelperReachable = true
     /// Set while a repair is in flight so the button can't be fired twice.
     @State private var isRepairingHelper = false
+    /// Bumped by every probe or repair. Each async result checks it before
+    /// writing back, so a slow probe that a later one has already superseded
+    /// can't land its stale answer on top of the fresh one.
+    @State private var accessGeneration = 0
 
     /// Marketing version and build from the running bundle, shown in the app
     /// identity header so the About-style info is always accurate.
@@ -215,12 +219,18 @@ struct GeneralTab: View {
     /// probe because they're already unusable.
     private func refreshAccess() {
         appState.refresh()
+        accessGeneration += 1
+        let generation = accessGeneration
         helperStatus = HelperRegistration.currentStatus
         guard helperStatus == .enabled else {
             isHelperReachable = false
             return
         }
-        Task { isHelperReachable = await HelperReachability().probe() }
+        Task {
+            let reachable = await HelperReachability().probe()
+            guard generation == accessGeneration else { return }
+            isHelperReachable = reachable
+        }
     }
 
     private func openFullDiskAccessSettings() {
@@ -234,12 +244,18 @@ struct GeneralTab: View {
     private func repairHelper() {
         guard !isRepairingHelper else { return }
         isRepairingHelper = true
+        accessGeneration += 1
+        let generation = accessGeneration
         Task {
             let status = await HelperRegistration.reregister()
-            helperStatus = status
-            isHelperReachable = status == .enabled ? await HelperReachability().probe() : false
+            let reachable = status == .enabled ? await HelperReachability().probe() : false
             isRepairingHelper = false
-            if !isHelperReachable {
+            // Returning from Login Items reactivates the app and re-probes, so
+            // a repair this slow has already been answered by a fresher read.
+            guard generation == accessGeneration else { return }
+            helperStatus = status
+            isHelperReachable = reachable
+            if !reachable {
                 HelperRegistration.openLoginItemsSettings()
             }
         }
