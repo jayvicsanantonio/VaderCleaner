@@ -4,8 +4,24 @@
 // so SMAppService can launch it locally. Then run `xcodegen generate` (or just
 // rebuild) and Build & Run from Xcode.
 //
-// Find your Team ID with:  security find-identity -v -p codesigning
-// (it's the 10-character code in the "Apple Development: …" certificate).
+// Your Team ID is the certificate's OU field — NOT the 10-character code in
+// parentheses after the certificate name. On an "Apple Development" certificate
+// those are different values, and so is the UID field; all three are 10
+// characters, so the wrong one looks entirely plausible. (They coincide only on
+// "Developer ID Application" / "Apple Distribution" certificates.) Setting the
+// parenthetical here is the silent version of the failure this file exists to
+// prevent: the build signs fine and the helper still won't register.
+//
+// Read it from an already-built app:
+//
+//   codesign -dvv /path/to/VaderCleaner.app     # the TeamIdentifier= line
+//
+// or straight from the certificate:
+//
+//   security find-certificate -c "Apple Development" -p \
+//     | openssl x509 -noout -subject -nameopt sep_multiline,utf8    # OU= line
+//
+// or from the Membership page at developer.apple.com.
 
 CODE_SIGN_IDENTITY = Apple Development
 CODE_SIGNING_REQUIRED = YES
