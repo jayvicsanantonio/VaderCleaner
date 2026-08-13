@@ -168,12 +168,41 @@ struct ContentView: View {
                 clamAVAvailable: plan.malwareScanPerformed,
                 scannedAt: Date()
             )
-            if case .idle = myClutterViewModel.phase { myClutterViewModel.beginScan() }
-            if case .idle = applicationsViewModel.phase { applicationsViewModel.beginScan() }
-            if case .idle = performanceViewModel.phase { performanceViewModel.beginScan() }
-            if case .idle = spaceLensViewModel.phase { spaceLensViewModel.beginScan() }
+            // Queued rather than started together: each of these fans its own
+            // work out concurrently (four scanners for Large & Old Files, five
+            // for Applications, a whole-volume walk for Space Lens), so
+            // kicking off all four at once puts a dozen filesystem walks in
+            // flight while the user is reading the results they just waited
+            // for. Cheapest first, so most sections are ready soonest and the
+            // heaviest one runs on its own.
+            Self.prewarmQueue.start([
+                SectionPrewarmQueue.Step(
+                    isPending: { if case .idle = performanceViewModel.phase { true } else { false } },
+                    run: { await performanceViewModel.refresh() }
+                ),
+                SectionPrewarmQueue.Step(
+                    isPending: { if case .idle = applicationsViewModel.phase { true } else { false } },
+                    run: { await applicationsViewModel.scan() }
+                ),
+                SectionPrewarmQueue.Step(
+                    isPending: { if case .idle = myClutterViewModel.phase { true } else { false } },
+                    run: { await myClutterViewModel.scan() }
+                ),
+                SectionPrewarmQueue.Step(
+                    isPending: { if case .idle = spaceLensViewModel.phase { true } else { false } },
+                    // Read at run time so a volume picked while the queue was
+                    // busy is the one that gets scanned.
+                    run: { await spaceLensViewModel.startScan(root: spaceLensViewModel.selectedVolumeURL) }
+                )
+            ])
         }
     }
+
+    /// Shared so the "one section prewarm at a time" guarantee survives the
+    /// scene body rebuilding `ContentView` — a per-instance queue would let a
+    /// rebuilt view start a sequence alongside one already running. There is
+    /// one main window, and the queue is main-actor isolated like its callers.
+    private static let prewarmQueue = SectionPrewarmQueue()
 
     /// Colour identity of the section currently on screen. Drives the window
     /// backdrop and the control tint; falls back to Smart Scan's theme before
