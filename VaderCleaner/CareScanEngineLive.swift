@@ -60,6 +60,15 @@ extension CareScanEngine.UnitRunners {
             // (weak capture) so a Settings → Protection change takes effect on
             // the next run, exactly like the exclusions above.
             malware: { [weak protectionSettings] onProgress in
+                // Refresh signatures the same way the standalone Protection
+                // scan does. Without this the only thing that ever ran
+                // freshclam was a hand-started Protection scan, so a user who
+                // lives in Smart Scan — the flow that also seeds Protection's
+                // tile — would scan against signatures that never aged out
+                // while the dashboard reported a clean, freshly-scanned Mac.
+                // Tolerates its own failure so a refresh that can't reach the
+                // network doesn't cost us the malware finding entirely.
+                await DatabaseUpdater().refreshIfStale()
                 let ignored = await excludedURLs()
                 let (scope, options) = await MainActor.run {
                     (
