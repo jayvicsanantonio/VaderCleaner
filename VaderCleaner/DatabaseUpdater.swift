@@ -109,8 +109,25 @@ struct DatabaseUpdater: Sendable {
     /// configured database directory, or `nil` when none are present
     /// (ClamAV not installed, or `freshclam` never run).
     func lastUpdateDate() -> Date? {
+        newestSignatureDate(in: databaseDirectories)
+    }
+
+    /// The date of the database a scan will actually read.
+    ///
+    /// `databaseDirectories` is ordered: the first entry is the directory the
+    /// bundled `freshclam` writes and `ClamAVScanner` passes as `--database`,
+    /// and the Homebrew prefixes after it are fallbacks for dev builds. Only
+    /// the first one may vote on freshness — a fresh Homebrew database next to
+    /// a stale bundled one would otherwise skip the refresh while the scan ran
+    /// against the stale copy.
+    private func scannedDatabaseLastUpdateDate() -> Date? {
+        guard let scanned = databaseDirectories.first else { return nil }
+        return newestSignatureDate(in: [scanned])
+    }
+
+    private func newestSignatureDate(in directories: [URL]) -> Date? {
         var newest: Date?
-        for directory in databaseDirectories {
+        for directory in directories {
             let entries = (try? fileManager.contentsOfDirectory(
                 at: directory,
                 includingPropertiesForKeys: [.contentModificationDateKey],
@@ -171,7 +188,7 @@ struct DatabaseUpdater: Sendable {
         now: Date = Date(),
         progress: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> Bool {
-        if let updated = lastUpdateDate(), now.timeIntervalSince(updated) <= Self.maxAge {
+        if let updated = scannedDatabaseLastUpdateDate(), now.timeIntervalSince(updated) <= Self.maxAge {
             return false
         }
         do {
