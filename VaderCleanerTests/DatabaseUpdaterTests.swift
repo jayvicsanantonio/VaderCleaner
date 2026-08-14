@@ -107,14 +107,104 @@ final class DatabaseUpdaterTests: XCTestCase {
         }
     }
 
+    // MARK: - refreshIfStale
+
+    func test_refreshIfStale_updatesWhenNoSignaturesArePresent() async {
+        // No signatures at all means the scan would run against nothing, so
+        // this is the case that most needs a refresh.
+        let ran = TestBox(false)
+        let updater = makeUpdater(runner: { _, _ in ran.value = true; return 0 })
+
+        let refreshed = await updater.refreshIfStale()
+
+        XCTAssertTrue(ran.value)
+        XCTAssertTrue(refreshed)
+    }
+
+    func test_refreshIfStale_updatesWhenSignaturesAreOlderThanMaxAge() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        try writeSignatureFile(named: "daily.cld", modified: now.addingTimeInterval(-DatabaseUpdater.maxAge - 60))
+        let ran = TestBox(false)
+        let updater = makeUpdater(runner: { _, _ in ran.value = true; return 0 })
+
+        let refreshed = await updater.refreshIfStale(now: now)
+
+        XCTAssertTrue(ran.value)
+        XCTAssertTrue(refreshed)
+    }
+
+    func test_refreshIfStale_leavesFreshSignaturesAlone() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        try writeSignatureFile(named: "daily.cld", modified: now.addingTimeInterval(-60))
+        let ran = TestBox(false)
+        let updater = makeUpdater(runner: { _, _ in ran.value = true; return 0 })
+
+        let refreshed = await updater.refreshIfStale(now: now)
+
+        XCTAssertFalse(ran.value, "a database inside maxAge must not pay for a freshclam run")
+        XCTAssertFalse(refreshed)
+    }
+
+    func test_refreshIfStale_ignoresFallbackDirectoriesTheScannerWillNotRead() async throws {
+        // clamscan is pointed at the first directory (the bundled runtime);
+        // a fresh Homebrew database in a fallback prefix says nothing about
+        // the one actually being scanned, so it must not mask staleness.
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let fallback = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(fallback) }
+        try Data([0x00]).write(to: fallback.appendingPathComponent("daily.cld"))
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-60)],
+            ofItemAtPath: fallback.appendingPathComponent("daily.cld").path
+        )
+        // The scanned directory itself is empty — nothing to scan against.
+        let ran = TestBox(false)
+        let updater = DatabaseUpdater(
+            databaseDirectories: [dbDir, fallback],
+            freshclamPaths: [URL(fileURLWithPath: "/opt/homebrew/bin/freshclam")],
+            isExecutable: { _ in true },
+            runner: { _, _ in ran.value = true; return 0 }
+        )
+
+        let refreshed = await updater.refreshIfStale(now: now)
+
+        XCTAssertTrue(ran.value, "a fresh fallback database must not veto the refresh")
+        XCTAssertTrue(refreshed)
+    }
+
+    func test_refreshIfStale_swallowsAFailedUpdateSoTheScanCanStillRun() async {
+        // Losing the whole malware result because freshclam couldn't reach the
+        // network is worse than scanning against the signatures already on disk.
+        let updater = makeUpdater(runner: { _, _ in 1 })
+
+        let refreshed = await updater.refreshIfStale()
+
+        XCTAssertFalse(refreshed)
+    }
+
+    func test_refreshIfStale_swallowsAMissingFreshclam() async {
+        let updater = DatabaseUpdater(
+            databaseDirectories: [dbDir],
+            freshclamPaths: [URL(fileURLWithPath: "/opt/homebrew/bin/freshclam")],
+            isExecutable: { _ in false },
+            runner: { _, _ in 0 }
+        )
+
+        let refreshed = await updater.refreshIfStale()
+
+        XCTAssertFalse(refreshed)
+    }
+
     // MARK: - Helpers
 
-    private func makeUpdater() -> DatabaseUpdater {
+    private func makeUpdater(
+        runner: @escaping DatabaseUpdater.FreshclamRunner = { _, _ in 0 }
+    ) -> DatabaseUpdater {
         DatabaseUpdater(
             databaseDirectories: [dbDir],
             freshclamPaths: [URL(fileURLWithPath: "/opt/homebrew/bin/freshclam")],
             isExecutable: { _ in true },
-            runner: { _, _ in 0 }
+            runner: runner
         )
     }
 

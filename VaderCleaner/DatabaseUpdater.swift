@@ -2,6 +2,7 @@
 // Reports the ClamAV signature database's last-update time and refreshes it by running freshclam.
 
 import Foundation
+import os
 
 /// Tracks and refreshes the ClamAV signature database.
 ///
@@ -27,6 +28,16 @@ struct DatabaseUpdater: Sendable {
     /// extension rather than against a fixed filename list — a hardcoded
     /// list would miss extra databases and report a stale last-update time.
     private static let signatureExtensions: Set<String> = ["cvd", "cld"]
+
+    /// A signature database older than this is refreshed before a scan, so a
+    /// stale install doesn't miss recent threats. Owned here rather than by a
+    /// caller because both scan surfaces — the standalone Protection scan and
+    /// Smart Scan's malware lane — have to agree on it; two copies of a
+    /// security policy is exactly the drift this codebase avoids elsewhere.
+    static let maxAge: TimeInterval = 24 * 60 * 60
+
+    private static let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                    category: "DatabaseUpdater")
 
     private let databaseDirectories: [URL]
     private let freshclamPaths: [URL]
@@ -98,8 +109,25 @@ struct DatabaseUpdater: Sendable {
     /// configured database directory, or `nil` when none are present
     /// (ClamAV not installed, or `freshclam` never run).
     func lastUpdateDate() -> Date? {
+        newestSignatureDate(in: databaseDirectories)
+    }
+
+    /// The date of the database a scan will actually read.
+    ///
+    /// `databaseDirectories` is ordered: the first entry is the directory the
+    /// bundled `freshclam` writes and `ClamAVScanner` passes as `--database`,
+    /// and the Homebrew prefixes after it are fallbacks for dev builds. Only
+    /// the first one may vote on freshness — a fresh Homebrew database next to
+    /// a stale bundled one would otherwise skip the refresh while the scan ran
+    /// against the stale copy.
+    private func scannedDatabaseLastUpdateDate() -> Date? {
+        guard let scanned = databaseDirectories.first else { return nil }
+        return newestSignatureDate(in: [scanned])
+    }
+
+    private func newestSignatureDate(in directories: [URL]) -> Date? {
         var newest: Date?
-        for directory in databaseDirectories {
+        for directory in directories {
             let entries = (try? fileManager.contentsOfDirectory(
                 at: directory,
                 includingPropertiesForKeys: [.contentModificationDateKey],
@@ -144,6 +172,33 @@ struct DatabaseUpdater: Sendable {
                 userInfo: [NSLocalizedDescriptionKey:
                     "freshclam exited with status \(status)"]
             )
+        }
+    }
+
+    /// Refreshes the database when it is missing or older than `maxAge`.
+    ///
+    /// Never throws, which is the point: a scan that can't refresh its
+    /// signatures is still worth running against the ones already on disk.
+    /// Losing the whole malware result because freshclam couldn't reach the
+    /// network would be a worse outcome than scanning slightly behind, so the
+    /// failure is logged and the caller carries on. Returns whether a refresh
+    /// actually ran and succeeded.
+    @discardableResult
+    func refreshIfStale(
+        now: Date = Date(),
+        progress: @escaping @Sendable (String) -> Void = { _ in }
+    ) async -> Bool {
+        if let updated = scannedDatabaseLastUpdateDate(), now.timeIntervalSince(updated) <= Self.maxAge {
+            return false
+        }
+        do {
+            try await update(progress: progress)
+            return true
+        } catch {
+            // The error text can name a path freshclam was writing, so it is
+            // private like every other error this app logs.
+            Self.log.error("Signature refresh failed: \(error.localizedDescription, privacy: .private)")
+            return false
         }
     }
 

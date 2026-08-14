@@ -75,6 +75,10 @@ struct ProtectionDashboardView: View {
         // the dashboard shows without this view's own beginScan.
         .task {
             if privacy.phase == .idle { privacy.beginScan() }
+            // The dashboard is often showing results seeded from a Smart Scan,
+            // which never reads the signature date — without this the
+            // definitions line has nothing to report.
+            malware.refreshDatabaseDate()
         }
         // Resolve each detected browser's bundle URL + warm the icon cache for
         // the manager's rows.
@@ -237,8 +241,67 @@ struct ProtectionDashboardView: View {
             .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
             .accessibilityIdentifier("protection.managePrivacy")
+
+            definitionsLine
         }
         .padding(.top, 4)
+    }
+
+    /// How old the signature database is, plus the only way in the app to
+    /// refresh it without starting a full scan.
+    ///
+    /// A scan refreshes signatures on its own, but the stale-definitions
+    /// notification asks the user to act and previously left them nowhere to
+    /// do it — `updateDatabaseManually()` existed with no caller. Hidden while
+    /// a scan or an update is in flight, since the dashboard is showing its
+    /// progress loader then.
+    @ViewBuilder
+    private var definitionsLine: some View {
+        if !malware.isScanningPhase {
+            HStack(spacing: 8) {
+                Text(definitionsSummary)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.7))
+                Button {
+                    Task { await malware.updateDatabaseManually() }
+                } label: {
+                    Text(String(
+                        localized: "Update",
+                        comment: "Protection dashboard button that refreshes the malware signature database."
+                    ))
+                    .padding(.horizontal, 4)
+                }
+                .buttonStyle(.vaderTileGlass)
+                .controlSize(.small)
+                .accessibilityIdentifier("protection.updateDefinitions")
+            }
+        }
+    }
+
+    private var definitionsSummary: String {
+        guard let days = malware.definitionsAgeInDays else {
+            return String(
+                localized: "Malware definitions have never been updated",
+                comment: "Protection dashboard definitions status when no signatures are present."
+            )
+        }
+        switch days {
+        case 0:
+            return String(
+                localized: "Malware definitions updated today",
+                comment: "Protection dashboard definitions status, refreshed today."
+            )
+        case 1:
+            return String(
+                localized: "Malware definitions updated yesterday",
+                comment: "Protection dashboard definitions status, refreshed yesterday."
+            )
+        default:
+            return String(
+                localized: "Malware definitions updated \(days) days ago",
+                comment: "Protection dashboard definitions status with the number of days since the last refresh."
+            )
+        }
     }
 
     /// "Looking for threats…" while the malware scan is in flight, otherwise a
