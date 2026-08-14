@@ -23,6 +23,10 @@ struct VaderCleanerApp: App {
     // be re-created per WindowGroup instance.
     @State private var appState = AppState()
     @State private var onboardingViewModel = PermissionOnboardingViewModel()
+    // The first-run flow covers the whole window, so it is owned here rather
+    // than by ContentView: closing and reopening the window mid-flow must not
+    // restart the tour from step one.
+    @State private var welcomeViewModel = WelcomeViewModel.live()
     @State private var menuBarViewModel: MenuBarViewModel
     @State private var preferences: PreferencesStore
     @State private var exclusions: ExclusionsStore
@@ -322,6 +326,7 @@ struct VaderCleanerApp: App {
             )
                 .environment(appState)
                 .environment(onboardingViewModel)
+                .environment(welcomeViewModel)
                 .environment(preferences)
                 .environment(exclusions)
                 .environment(myClutterScanScope)

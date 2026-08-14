@@ -7,6 +7,7 @@ import AppKit
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @Environment(PermissionOnboardingViewModel.self) private var onboarding
+    @Environment(WelcomeViewModel.self) private var welcome
     @Environment(SystemStatsService.self) private var systemStats
     @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
     @Environment(NotificationMonitors.self) private var notificationMonitors
@@ -276,6 +277,10 @@ struct ContentView: View {
         // Resolve the host window, then hand it to the controller.
         .background(
             WindowAccessor { window in
+                // Set before attaching: the disc panel is a child window that
+                // draws *above* the main window, so it would float over the
+                // first-run flow if it were allowed to order in first.
+                scanDiscController.isSuppressed = welcome.isPresented
                 scanDiscController.attach(
                     to: window,
                     railWidth: railWidth,
@@ -284,6 +289,9 @@ struct ContentView: View {
                 )
             }
         )
+        .onChange(of: welcome.isPresented) { _, presented in
+            scanDiscController.isSuppressed = presented
+        }
         // Mirror the sidebar selection onto the disc panel so it shows the
         // matching section's disc.
         .onChange(of: selectedSection) { _, newValue in
@@ -326,6 +334,22 @@ struct ContentView: View {
         }
         .vaderShell(accent: theme.accent)
         .toolbarBackground(.hidden, for: .windowToolbar)
+        // The first-run flow covers the whole window until the user hands
+        // themselves off into the app. `ignoresSafeArea` is applied to the
+        // container rather than inside the transition — a transition's content
+        // doesn't expand under the title bar until its animation settles, so
+        // the backdrop would visibly grow into place.
+        .overlay {
+            ZStack {
+                if welcome.isPresented {
+                    WelcomeView(viewModel: welcome)
+                        .transition(.opacity)
+                }
+            }
+            .ignoresSafeArea()
+            .animation(.smooth(duration: 0.45), value: welcome.isPresented)
+        }
+        .onAppear { installWelcomeHandoff() }
         .sheet(isPresented: shouldShowOnboarding) {
             PermissionOnboardingView()
                 .environment(appState)
@@ -395,6 +419,19 @@ struct ContentView: View {
         }
     }
 
+    /// Wires what happens when the first-run flow closes. Asking for the first
+    /// Smart Scan starts it through the same path the menu bar's "Run Smart
+    /// Scan" uses, so the completion banner is armed exactly once. Assigned on
+    /// appear rather than in `init` because the flow is owned at app scope and
+    /// outlives any single ContentView instance.
+    private func installWelcomeHandoff() {
+        welcome.onFinish = { [smartScanViewModel, scanCompletionNotifier] startScan in
+            guard startScan else { return }
+            scanCompletionNotifier.armScan(section: .smartScan, coordinator: smartScanViewModel)
+            smartScanViewModel.beginScan()
+        }
+    }
+
     /// Applies a pending deep-link from the menu bar panel: navigates to the
     /// requested section and, when asked, begins that section's scan. Clears the
     /// request so it fires exactly once. No-op when nothing is pending.
@@ -419,6 +456,10 @@ struct ContentView: View {
     /// terminal state (granted or explicitly dismissed).
     private func maybeRequestNotificationPermission() async {
         guard !didRequestNotificationPermission else { return }
+        // The first-run flow is asking for Full Disk Access in its own words;
+        // a system notification prompt over the top of it would split the
+        // user's attention across two consent decisions at once.
+        guard !welcome.isPresented else { return }
         guard appState.hasFullDiskAccess || onboarding.isDismissed else { return }
         didRequestNotificationPermission = true
         await notificationMonitor.requestPermission()
@@ -493,7 +534,10 @@ struct ContentView: View {
     /// which route through `viewModel.dismiss()` so the sheet stays suppressed.
     private var shouldShowOnboarding: Binding<Bool> {
         Binding(
-            get: { !appState.hasFullDiskAccess && !onboarding.isDismissed },
+            // Suppressed while the first-run flow is up: that flow covers the
+            // same ground in its own permission step, and stacking a sheet on
+            // top of it would ask twice.
+            get: { !appState.hasFullDiskAccess && !onboarding.isDismissed && !welcome.isPresented },
             set: { newValue in
                 if newValue == false { onboarding.dismiss() }
             }
@@ -572,6 +616,17 @@ private extension AnyTransition {
         .environment(AppState(checker: { true }))
         .environment(SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!))
         .environment(PermissionOnboardingViewModel())
+        // Marked complete so the preview shows the main window rather than the
+        // first-run flow, which has its own preview.
+        .environment({
+            let store = WelcomeStore(defaults: UserDefaults(suiteName: "preview")!)
+            store.markCompleted()
+            return WelcomeViewModel(
+                store: store,
+                fullDiskAccessChecker: { true },
+                openSystemSettings: {}
+            )
+        }())
         .environment(stats)
         .environment(NotificationThresholdMonitor(
             stats: stats,

@@ -1,0 +1,114 @@
+// WelcomeViewModel.swift
+// Drives the first-run welcome flow — step navigation, live Full Disk Access detection, and the hand-off into the user's first Smart Scan.
+
+import Foundation
+import AppKit
+import Observation
+
+/// The state machine behind `WelcomeView`.
+///
+/// Collaborators are injected as closures with a `live()` production factory,
+/// the same shape as the section view models, so the flow can be driven in
+/// tests without touching the host's TCC state or launching System Settings.
+@MainActor
+@Observable
+final class WelcomeViewModel {
+
+    /// The step currently on screen.
+    private(set) var step: WelcomeStep = .first
+
+    /// Whether the flow should be covering the window. Starts `false` for a
+    /// user who has already been through it, so the app opens straight into
+    /// the main window.
+    private(set) var isPresented: Bool
+
+    /// Latest Full Disk Access reading. The access step polls this so granting
+    /// the permission in System Settings is noticed without the user having to
+    /// come back and click anything.
+    private(set) var hasFullDiskAccess: Bool
+
+    /// Called once, when the flow closes. The flag says whether the user asked
+    /// for their first Smart Scan to start immediately.
+    var onFinish: ((_ startScan: Bool) -> Void)?
+
+    @ObservationIgnored private let store: WelcomeStore
+    @ObservationIgnored private let fullDiskAccessChecker: () -> Bool
+    @ObservationIgnored private let openSystemSettingsAction: () -> Void
+
+    init(
+        store: WelcomeStore,
+        fullDiskAccessChecker: @escaping () -> Bool,
+        openSystemSettings: @escaping () -> Void
+    ) {
+        self.store = store
+        self.fullDiskAccessChecker = fullDiskAccessChecker
+        self.openSystemSettingsAction = openSystemSettings
+        self.isPresented = !store.hasCompletedWelcome
+        self.hasFullDiskAccess = fullDiskAccessChecker()
+    }
+
+    /// Production wiring: the real TCC probe and the real System Settings
+    /// deep-link, which is the same URL the standalone FDA sheet uses.
+    static func live(store: WelcomeStore = WelcomeStore()) -> WelcomeViewModel {
+        WelcomeViewModel(
+            store: store,
+            fullDiskAccessChecker: { PrivacyPermissionChecker.hasFullDiskAccess() },
+            openSystemSettings: {
+                NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
+            }
+        )
+    }
+
+    // MARK: Navigation
+
+    /// Whether there is a step behind the current one.
+    var canGoBack: Bool { step.previous != nil }
+
+    /// Whether the tour is still ahead, and so still skippable.
+    var canSkipTour: Bool { step.rawValue < WelcomeStep.access.rawValue }
+
+    /// Moves to the next step. Holds on the last step rather than dismissing —
+    /// the flow closes only through `finish(startingScan:)`, so the user always
+    /// makes that choice explicitly.
+    func advance() {
+        guard let next = step.next else { return }
+        step = next
+    }
+
+    func back() {
+        guard let previous = step.previous else { return }
+        step = previous
+    }
+
+    /// Jumps past the three capability stops to the permission step. A no-op
+    /// once the tour is behind the user, so a stray keyboard shortcut can't
+    /// send them backwards.
+    func skipTour() {
+        guard canSkipTour else { return }
+        step = .access
+    }
+
+    // MARK: Full Disk Access
+
+    /// Re-probes Full Disk Access. Called on a slow poll while the access step
+    /// is showing, and whenever the app comes back to the foreground.
+    func refreshAccess() {
+        hasFullDiskAccess = fullDiskAccessChecker()
+    }
+
+    /// Opens System Settings on the Full Disk Access pane.
+    func requestFullDiskAccess() {
+        openSystemSettingsAction()
+    }
+
+    // MARK: Finishing
+
+    /// Closes the flow for good. Idempotent — a double-click on the finish
+    /// button must not start two scans.
+    func finish(startingScan: Bool) {
+        guard isPresented else { return }
+        isPresented = false
+        store.markCompleted()
+        onFinish?(startingScan)
+    }
+}

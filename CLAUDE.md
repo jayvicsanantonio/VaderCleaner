@@ -114,6 +114,17 @@ lint suggestions in this repo were unsound and would not have compiled.
   actor and stream progress back. They are `Sendable` values.
 - **Stores** (`VaderCleaner/*Store.swift`) own persisted preferences and scan
   scope, all `@Observable` and main-actor isolated.
+- **First run** — `WelcomeView` covers the whole window until the user hands
+  themselves off (optionally straight into a first Smart Scan). Each step
+  borrows a real `NavigationSection.theme`, so the window recolours through the
+  app's own gradients as the tour advances. It is owned at app scope
+  (`WelcomeViewModel.live()`) and gated by `WelcomeStore`, which is deliberately
+  *not* a `PreferencesStore` property — "Restore Defaults" must not put the user
+  back through onboarding. While it is up, ContentView suppresses the standalone
+  FDA sheet, the notification prompt, and the floating Scan disc; the disc lives
+  in a child panel that draws *above* the window, so any full-window surface has
+  to hold it out via `ScanDiscWindowController.isSuppressed`.
+  See **The `welcome.hasCompleted` flag** below.
 - **Smart Scan** runs through `CareScanEngine`, which executes scan units
   concurrently and produces a `CarePlan` of `CareFinding`s carrying safety
   tiers. `SmartScanViewModel` turns that into the checklist, the results feed,
@@ -186,6 +197,46 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   prefixes only as a developer fallback.
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
+
+### The `welcome.hasCompleted` flag
+
+`WelcomeStore` gates the first-run flow on a single `UserDefaults` bool,
+`welcome.hasCompleted`, in the standard suite. Three things follow from that:
+
+- **The flow ships as "unseen" everywhere the key is absent** — which includes
+  installs that predate it. An existing user gets the tour once on their next
+  launch, not just a genuinely fresh install. That is deliberate: the key is a
+  record of "has this been shown", not of install age, and there is no earlier
+  signal to distinguish the two after the fact.
+- **Override it at launch** rather than editing preferences. UserDefaults' own
+  argument domain takes precedence over the persisted value and writes nothing
+  back, so it is the clean way to see the flow again — or to skip it:
+
+  ```bash
+  open -n /path/to/VaderCleaner.app --args -welcome.hasCompleted NO
+  ```
+
+  `YES` suppresses it instead. `WelcomeUITests` drives both forms, which is why
+  those tests never touch a developer's real preferences.
+- **That argument reaches the unit suite too.** Xcode's Test action inherits the
+  Run action's arguments whenever `shouldUseLaunchSchemeArgsEnv` is on (the
+  default), and `NSArgumentDomain` is in the search list of *every*
+  `UserDefaults` instance — an isolated `UserDefaults(suiteName:)` included —
+  where it outranks the persistent domain. So a scheme carrying
+  `-welcome.hasCompleted NO` shadows what the store writes and fails
+  `WelcomeStoreTests` for a reason that has nothing to do with the store.
+  Both welcome suites call
+  `setVolatileDomain([:], forName: UserDefaults.argumentDomain)` in `setUp` to
+  cut that out. Any future test asserting a persisted value under a key a
+  scheme might also pass needs the same line — and note it has to be
+  `setVolatileDomain`, not the obvious-looking
+  `removeVolatileDomain(forName:)`, which is silently a no-op against the
+  argument domain because the volatile domains are re-derived lazily.
+- **`PreferencesStore.restoreDefaults()` must never clear it.** Restoring
+  defaults is about preferences; re-onboarding someone is not one. The flag
+  lives in its own store precisely so a future "reset everything" in Settings
+  can't sweep it up by accident. `WelcomeStore.reset()` is the deliberate way
+  back, and nothing in the UI calls it today.
 
 ## Docs
 

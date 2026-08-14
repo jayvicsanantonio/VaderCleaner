@@ -48,6 +48,9 @@ final class ScanDiscWindowController {
     @ObservationIgnored private var railWidth: CGFloat = 0
     @ObservationIgnored private var isFullScreen = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// The presence the panel's content last asked for, kept so lifting a
+    /// suppression restores whatever the disc was doing rather than guessing.
+    @ObservationIgnored private var contentWantsDisc = false
 
     init(
         smartScanViewModel: SmartScanViewModel,
@@ -105,12 +108,30 @@ final class ScanDiscWindowController {
         reposition()
     }
 
+    /// Holds the panel out regardless of what its content reports — the
+    /// first-run welcome flow covers the main window, but the disc lives in a
+    /// child panel *above* it and would otherwise float over the flow.
+    /// Clearing the flag restores the presence the content last asked for.
+    var isSuppressed: Bool = false {
+        didSet {
+            guard isSuppressed != oldValue else { return }
+            applyDiscVisibility()
+        }
+    }
+
     /// Shows or hides the panel. The panel is ordered in only while a scannable
     /// section's disc should be on screen, so its transparent margin never
     /// intercepts clicks meant for the main window behind it.
     func setDiscVisible(_ visible: Bool) {
+        contentWantsDisc = visible
+        applyDiscVisibility()
+    }
+
+    /// Orders the panel in or out from the content's request and the
+    /// suppression flag together — the single place either input is applied.
+    private func applyDiscVisibility() {
         guard let panel, let parentWindow else { return }
-        if visible {
+        if contentWantsDisc && !isSuppressed {
             if panel.parent == nil {
                 parentWindow.addChildWindow(panel, ordered: .above)
             }
