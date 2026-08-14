@@ -13,6 +13,7 @@ final class WelcomeUITests: XCTestCase {
     private var app: XCUIApplication!
 
     override func setUp() async throws {
+        try await super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
     }
@@ -20,6 +21,7 @@ final class WelcomeUITests: XCTestCase {
     override func tearDown() async throws {
         app.terminate()
         app = nil
+        try await super.tearDown()
     }
 
     /// Both first-run flags are forced, not just the flow's: the Scan-disc
@@ -83,12 +85,10 @@ final class WelcomeUITests: XCTestCase {
         app.launchArguments = [
             "-welcome.hasCompleted", "NO",
             "-welcome.hasSeenScanHint", "NO",
-            // The access step's raw value. A UI test runs out of process and
-            // can't import the enum, so this is a literal — but the order it
-            // depends on is pinned by
-            // `WelcomeStepTests.test_allCases_areInPresentationOrder`, which
-            // fails first and loudly if a step is ever inserted ahead of it.
-            "-welcome.resumeStep", "5",
+            // The step is stored by case name, so this literal survives any
+            // reordering of the flow. A UI test runs out of process and can't
+            // import the enum; `WelcomeStepTests` pins the name.
+            "-welcome.resumeStep", "access",
         ]
         app.launch()
 
@@ -158,5 +158,26 @@ final class WelcomeUITests: XCTestCase {
         app.buttons["welcome.explore"].click()
         XCTAssertTrue(app.otherElements["sidebar.smartScan"].waitForExistence(timeout: 10))
         XCTAssertFalse(step("welcome.step.ready").exists)
+    }
+
+    func test_finishing_doesNotHandTheUserBackToTheLegacyAccessSheet() {
+        // The flow's access step is the Full Disk Access conversation. Closing
+        // the flow without that permission must not immediately reopen the old
+        // sheet asking for it again — which would also cover the hand-off the
+        // user just chose.
+        launchAsFirstRun()
+        XCTAssertTrue(step("welcome.step.welcome").waitForExistence(timeout: 10))
+
+        app.buttons["welcome.skipTour"].click()
+        XCTAssertTrue(step("welcome.step.access").waitForExistence(timeout: 5))
+        app.buttons["welcome.continue"].click()
+        XCTAssertTrue(step("welcome.step.ready").waitForExistence(timeout: 5))
+
+        app.buttons["welcome.explore"].click()
+        XCTAssertTrue(app.otherElements["sidebar.smartScan"].waitForExistence(timeout: 10))
+        XCTAssertFalse(
+            app.groups["permissionOnboarding"].waitForExistence(timeout: 3),
+            "The legacy Full Disk Access sheet should stay closed for the rest of the session"
+        )
     }
 }

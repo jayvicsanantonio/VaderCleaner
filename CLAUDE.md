@@ -123,7 +123,11 @@ lint suggestions in this repo were unsound and would not have compiled.
   back through onboarding. While it is up, ContentView suppresses the standalone
   FDA sheet, the notification prompt, and the floating Scan disc; the disc lives
   in a child panel that draws *above* the window, so any full-window surface has
-  to hold it out via `ScanDiscWindowController.isSuppressed`.
+  to hold it out via `ScanDiscWindowController.isSuppressed`. Finishing the flow
+  calls `PermissionOnboardingViewModel.dismiss()` — the flow's access step *is*
+  that conversation, so the legacy sheet must not spring open the moment the
+  flow closes, and the notification prompt (which waits on the same flag) must
+  not be stranded for a user who declined Full Disk Access.
   See **The `welcome.hasCompleted` flag** below.
 - **Smart Scan** runs through `CareScanEngine`, which executes scan units
   concurrently and produces a `CarePlan` of `CareFinding`s carrying safety
@@ -208,12 +212,17 @@ and `WelcomeViewModel` starts from that rather than `.first`. Granting access
 now returns the user to the permission step with a green checkmark instead of
 dumping them back at the greeting with the whole tour to walk again.
 
-Two consequences worth keeping intact:
+Three consequences worth keeping intact:
 
 - **`markCompleted()` clears the resume point**, so `reset()` can't leave a
   stale step behind for a replay to land on.
-- **An unknown stored raw value degrades to starting over.** Reordering or
-  removing a step would otherwise resume into a case that no longer exists.
+- **The step is stored by case name, not `rawValue`.** The raw values encode
+  presentation order, so persisting one would mean inserting a step silently
+  repoints every stored marker at a different step. `WelcomeStep.persistenceKey`
+  is the storage format; renaming a case is therefore a breaking change, which
+  `WelcomeStepTests` pins.
+- **An unrecognised stored value degrades to starting over**, whether it is an
+  unknown name or the wrong type entirely.
 
 The access step's 1.5s poll is still there, but it is no longer the main path
 — it only catches a grant that applies without a restart. For the far more

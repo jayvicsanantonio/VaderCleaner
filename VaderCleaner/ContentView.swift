@@ -446,7 +446,15 @@ struct ContentView: View {
     /// appear rather than in `init` because the flow is owned at app scope and
     /// outlives any single ContentView instance.
     private func installWelcomeHandoff() {
-        welcome.onFinish = { [smartScanViewModel, scanCompletionNotifier] startScan in
+        welcome.onFinish = { [smartScanViewModel, scanCompletionNotifier, onboarding] startScan in
+            // The flow's own access step is the FDA conversation, so mark that
+            // conversation as had. Without this the legacy sheet springs up the
+            // instant the flow closes — asking again, in worse words, for the
+            // permission the user just declined, and covering the hand-off they
+            // chose. It also unblocks the notification prompt, which waits on
+            // the same flag.
+            onboarding.dismiss()
+
             guard startScan else { return }
             scanCompletionNotifier.armScan(section: .smartScan, coordinator: smartScanViewModel)
             smartScanViewModel.beginScan()

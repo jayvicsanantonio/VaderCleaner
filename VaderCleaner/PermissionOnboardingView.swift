@@ -58,6 +58,11 @@ struct PermissionOnboardingView: View {
         }
         .padding(28)
         .frame(width: 520)
+        // Named so automation can assert this sheet is *absent* — the
+        // first-run flow covers the same permission, and it reappearing after
+        // that flow closes is a regression worth catching.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("permissionOnboarding")
         // Suppress the macOS keyboard focus ring. On appear the first focusable
         // control ("Continue Without Access") would otherwise wear the system's
         // blue halo, matching the Scan-access popover. The buttons stay

@@ -74,11 +74,25 @@ final class WelcomeStoreTests: XCTestCase {
         XCTAssertEqual(WelcomeStore(defaults: defaults).resumeStep, .access)
     }
 
-    func test_resumeStep_ignoresAValueThatIsNoLongerAStep() {
-        // A build that removes or reorders steps must not resume into a case
+    func test_resumeStep_ignoresANameThatIsNoLongerAStep() {
+        // A build that removes or renames a step must not resume into a case
         // that no longer exists.
-        defaults.set(9_999, forKey: "welcome.resumeStep")
+        defaults.set("aStepThatWasRemoved", forKey: "welcome.resumeStep")
         XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+    }
+
+    func test_resumeStep_ignoresAStoredValueOfTheWrongType() {
+        // The marker used to be written as an ordinal. Anything that isn't a
+        // recognised name — including a leftover number — starts over.
+        defaults.set(5, forKey: "welcome.resumeStep")
+        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+    }
+
+    func test_resumeStep_isStoredByNameSoReorderingCannotRepointIt() {
+        // Presentation order lives in the raw values, so persisting those
+        // would make inserting a step silently move everyone's resume marker.
+        WelcomeStore(defaults: defaults).recordStep(.access)
+        XCTAssertEqual(defaults.string(forKey: "welcome.resumeStep"), "access")
     }
 
     func test_markCompleted_clearsTheResumePoint() {

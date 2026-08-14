@@ -130,18 +130,29 @@ struct WelcomeView: View {
         HStack(alignment: .center, spacing: 56) {
             WelcomeHero(content: content, isFinale: viewModel.step == .ready)
                 .id(viewModel.step)
-                .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                .transition(heroTransition)
 
             WelcomeStepColumn(viewModel: viewModel)
                 .id(viewModel.step)
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .offset(x: 26)),
-                        removal: .opacity
-                    )
-                )
+                .transition(columnTransition)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Reduce Motion strips the scale and the slide from the step exchange and
+    /// leaves a plain crossfade — the same collapse `VaderMotion` applies to
+    /// the manager surfaces. The step still changes visibly; it just stops
+    /// moving to do it.
+    private var heroTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94))
+    }
+
+    private var columnTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: 26)),
+            removal: .opacity
+        )
     }
 
     // MARK: Footer

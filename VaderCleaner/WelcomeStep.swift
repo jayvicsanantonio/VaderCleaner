@@ -117,7 +117,23 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
     /// Stable automation identifier for the step's container. Derived from the
     /// case name, not the localized title, so it is identical in every locale.
     var accessibilityIdentifier: String {
-        "welcome.step.\(String(describing: self))"
+        "welcome.step.\(persistenceKey)"
+    }
+
+    /// How this step is written to disk.
+    ///
+    /// The case name rather than `rawValue`, because the raw values encode
+    /// presentation order: inserting a step would renumber everything after
+    /// it and silently repoint a stored resume marker at a different step.
+    /// Names survive reordering, so ordering stays free to change.
+    var persistenceKey: String { String(describing: self) }
+
+    /// The step a stored `persistenceKey` refers to, or `nil` if the name no
+    /// longer matches a case — a step that has since been renamed or dropped.
+    init?(persistenceKey: String) {
+        guard let match = WelcomeStep.allCases.first(where: { $0.persistenceKey == persistenceKey })
+        else { return nil }
+        self = match
     }
 
     /// What this step renders.

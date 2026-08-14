@@ -68,6 +68,28 @@ final class WelcomeStepTests: XCTestCase {
         XCTAssertEqual(values, values.sorted())
     }
 
+    func test_persistenceKeys_areUniqueAndRoundTrip() {
+        // These names are a storage format: they are what a resume marker is
+        // written as, so they must be distinct and readable back.
+        let keys = WelcomeStep.allCases.map(\.persistenceKey)
+        XCTAssertEqual(Set(keys).count, keys.count)
+        for step in WelcomeStep.allCases {
+            XCTAssertEqual(WelcomeStep(persistenceKey: step.persistenceKey), step)
+        }
+    }
+
+    func test_persistenceKey_isTheCaseNameNotTheOrdinal() {
+        // Pinned so a rename is a deliberate, visible break rather than a
+        // silent one that strands everybody's stored resume point.
+        XCTAssertEqual(WelcomeStep.access.persistenceKey, "access")
+        XCTAssertEqual(WelcomeStep.howItWorks.persistenceKey, "howItWorks")
+    }
+
+    func test_unknownPersistenceKey_doesNotResolve() {
+        XCTAssertNil(WelcomeStep(persistenceKey: "aStepThatWasRemoved"))
+        XCTAssertNil(WelcomeStep(persistenceKey: ""))
+    }
+
     func test_accessibilityIdentifiers_areStableAndUnique() {
         let identifiers = WelcomeStep.allCases.map(\.accessibilityIdentifier)
         XCTAssertEqual(identifiers.first, "welcome.step.welcome")

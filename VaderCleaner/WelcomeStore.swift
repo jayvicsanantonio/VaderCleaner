@@ -59,11 +59,13 @@ final class WelcomeStore {
         self.defaults = defaults
         self.hasCompletedWelcome = defaults.bool(forKey: Key.hasCompleted)
         self.hasSeenScanHint = defaults.bool(forKey: Key.hasSeenScanHint)
-        // A stored raw value that no longer maps to a case — a build that
-        // reordered or dropped a step — degrades to starting over rather than
-        // resuming into nothing.
-        if let raw = defaults.object(forKey: Key.resumeStep) as? Int {
-            self.resumeStep = WelcomeStep(rawValue: raw)
+        // Stored by name, not by raw value: the raw values encode presentation
+        // order, so inserting a step would renumber the rest and silently
+        // repoint a stored marker at a different step. A name that no longer
+        // matches a case degrades to starting over rather than resuming into
+        // nothing.
+        if let key = defaults.string(forKey: Key.resumeStep) {
+            self.resumeStep = WelcomeStep(persistenceKey: key)
         } else {
             self.resumeStep = nil
         }
@@ -83,7 +85,7 @@ final class WelcomeStore {
     /// Remembers the step on screen so a relaunch returns to it.
     func recordStep(_ step: WelcomeStep) {
         resumeStep = step
-        defaults.set(step.rawValue, forKey: Key.resumeStep)
+        defaults.set(step.persistenceKey, forKey: Key.resumeStep)
     }
 
     private func clearResumeStep() {
