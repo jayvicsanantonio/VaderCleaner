@@ -32,6 +32,7 @@ final class WelcomeStore {
     private enum Key {
         static let hasCompleted = "welcome.hasCompleted"
         static let hasSeenScanHint = "welcome.hasSeenScanHint"
+        static let resumeStep = "welcome.resumeStep"
     }
 
     private(set) var hasCompletedWelcome: Bool
@@ -42,12 +43,30 @@ final class WelcomeStore {
     /// same event.
     private(set) var hasSeenScanHint: Bool
 
+    /// Where the flow was when the process last ended, or `nil` to start at
+    /// the beginning.
+    ///
+    /// This exists because of Full Disk Access specifically: macOS applies
+    /// that permission by quitting the app, so the one step that asks for it
+    /// is guaranteed to destroy the process showing it. Without a resume
+    /// point the user grants access, gets relaunched, and lands back at the
+    /// greeting with the whole tour to walk again.
+    private(set) var resumeStep: WelcomeStep?
+
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.hasCompletedWelcome = defaults.bool(forKey: Key.hasCompleted)
         self.hasSeenScanHint = defaults.bool(forKey: Key.hasSeenScanHint)
+        // A stored raw value that no longer maps to a case — a build that
+        // reordered or dropped a step — degrades to starting over rather than
+        // resuming into nothing.
+        if let raw = defaults.object(forKey: Key.resumeStep) as? Int {
+            self.resumeStep = WelcomeStep(rawValue: raw)
+        } else {
+            self.resumeStep = nil
+        }
     }
 
     /// Records that the user has reached the end of the flow — by finishing it
@@ -55,6 +74,21 @@ final class WelcomeStore {
     func markCompleted() {
         hasCompletedWelcome = true
         defaults.set(true, forKey: Key.hasCompleted)
+        // The flow is over, so the resume point is spent. Dropping it here
+        // keeps `reset()` honest: forgetting the flow shouldn't leave a stale
+        // step behind for the replay to land on.
+        clearResumeStep()
+    }
+
+    /// Remembers the step on screen so a relaunch returns to it.
+    func recordStep(_ step: WelcomeStep) {
+        resumeStep = step
+        defaults.set(step.rawValue, forKey: Key.resumeStep)
+    }
+
+    private func clearResumeStep() {
+        resumeStep = nil
+        defaults.removeObject(forKey: Key.resumeStep)
     }
 
     /// Forgets the flow, so the next launch opens on it again. Removes the key
@@ -76,5 +110,6 @@ final class WelcomeStore {
         hasSeenScanHint = false
         defaults.removeObject(forKey: Key.hasCompleted)
         defaults.removeObject(forKey: Key.hasSeenScanHint)
+        clearResumeStep()
     }
 }

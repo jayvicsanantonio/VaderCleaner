@@ -198,6 +198,31 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
 
+### The welcome flow survives the Full Disk Access restart
+
+macOS applies Full Disk Access only to a process that starts *after* the
+grant, and offers to quit the app to make that happen. The one step in the
+flow that asks for FDA is therefore guaranteed to destroy the process showing
+it — so the flow persists its position in `welcome.resumeStep` on every move,
+and `WelcomeViewModel` starts from that rather than `.first`. Granting access
+now returns the user to the permission step with a green checkmark instead of
+dumping them back at the greeting with the whole tour to walk again.
+
+Two consequences worth keeping intact:
+
+- **`markCompleted()` clears the resume point**, so `reset()` can't leave a
+  stale step behind for a replay to land on.
+- **An unknown stored raw value degrades to starting over.** Reordering or
+  removing a step would otherwise resume into a case that no longer exists.
+
+The access step's 1.5s poll is still there, but it is no longer the main path
+— it only catches a grant that applies without a restart. For the far more
+common case, the honest signal is the instruction copy ("Let macOS reopen
+VaderCleaner") plus the note that appears once the user has visited System
+Settings and the reading is still false. Without that note the step sits on
+"Waiting for access…" forever for anyone who declines the restart, which
+looks broken when they have in fact granted the permission.
+
 ### Adding screenshots to the welcome tour
 
 The three tour steps declare an optional screenshot slot. Dropping a capture

@@ -53,6 +53,49 @@ final class WelcomeViewModelTests: XCTestCase {
         XCTAssertFalse(makeSUT(store: store).isPresented)
     }
 
+    // MARK: Surviving the Full Disk Access restart
+
+    func test_flowResumesWhereTheRestartInterruptedIt() {
+        // macOS quits the app to apply Full Disk Access. Reopening must land
+        // back on the permission step, not at the top of the tour.
+        let store = WelcomeStore(defaults: defaults)
+        store.recordStep(.access)
+
+        let sut = makeSUT(store: store, hasFullDiskAccess: { true })
+        XCTAssertTrue(sut.isPresented)
+        XCTAssertEqual(sut.step, .access)
+        XCTAssertTrue(sut.hasFullDiskAccess, "The reopened process should see the access it was just granted")
+    }
+
+    func test_advancing_recordsTheResumePoint() {
+        let store = WelcomeStore(defaults: defaults)
+        let sut = makeSUT(store: store)
+        sut.advance()
+        XCTAssertEqual(store.resumeStep, .clean)
+    }
+
+    func test_goingBack_recordsTheResumePoint() {
+        let store = WelcomeStore(defaults: defaults)
+        let sut = makeSUT(store: store)
+        sut.advance()
+        sut.back()
+        XCTAssertEqual(store.resumeStep, .welcome)
+    }
+
+    func test_skippingTheTour_recordsTheResumePoint() {
+        let store = WelcomeStore(defaults: defaults)
+        let sut = makeSUT(store: store)
+        sut.skipTour()
+        XCTAssertEqual(store.resumeStep, .access)
+    }
+
+    func test_aCompletedFlowIgnoresAStaleResumePoint() {
+        let store = WelcomeStore(defaults: defaults)
+        store.recordStep(.access)
+        store.markCompleted()
+        XCTAssertFalse(makeSUT(store: store).isPresented)
+    }
+
     // MARK: Navigation
 
     func test_advance_walksTheStepsInOrder() {
@@ -134,6 +177,16 @@ final class WelcomeViewModelTests: XCTestCase {
         let sut = makeSUT(openSystemSettings: { opened.value += 1 })
         sut.requestFullDiskAccess()
         XCTAssertEqual(opened.value, 1)
+    }
+
+    func test_requestFullDiskAccess_remembersThatTheUserWentToSettings() {
+        // Drives the "granted it already?" note. Without it the step reads
+        // "Waiting for access…" forever for anyone who told macOS to apply the
+        // permission later rather than quitting the app there and then.
+        let sut = makeSUT()
+        XCTAssertFalse(sut.hasVisitedSystemSettings)
+        sut.requestFullDiskAccess()
+        XCTAssertTrue(sut.hasVisitedSystemSettings)
     }
 
     // MARK: Finishing

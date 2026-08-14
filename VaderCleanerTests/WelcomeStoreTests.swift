@@ -51,12 +51,42 @@ final class WelcomeStoreTests: XCTestCase {
         let sut = WelcomeStore(defaults: defaults)
         sut.markCompleted()
         sut.markScanHintSeen()
+        sut.recordStep(.access)
         sut.reset()
         XCTAssertFalse(sut.hasCompletedWelcome)
         XCTAssertFalse(sut.hasSeenScanHint)
+        XCTAssertNil(sut.resumeStep)
         let reloaded = WelcomeStore(defaults: defaults)
         XCTAssertFalse(reloaded.hasCompletedWelcome)
         XCTAssertFalse(reloaded.hasSeenScanHint)
+    }
+
+    // MARK: Resume point
+
+    func test_freshInstall_hasNoResumePoint() {
+        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+    }
+
+    func test_recordStep_persistsAcrossReload() {
+        // Granting Full Disk Access makes macOS quit the app, so the flow's
+        // place has to outlive the process that was showing it.
+        WelcomeStore(defaults: defaults).recordStep(.access)
+        XCTAssertEqual(WelcomeStore(defaults: defaults).resumeStep, .access)
+    }
+
+    func test_resumeStep_ignoresAValueThatIsNoLongerAStep() {
+        // A build that removes or reorders steps must not resume into a case
+        // that no longer exists.
+        defaults.set(9_999, forKey: "welcome.resumeStep")
+        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+    }
+
+    func test_markCompleted_clearsTheResumePoint() {
+        let sut = WelcomeStore(defaults: defaults)
+        sut.recordStep(.access)
+        sut.markCompleted()
+        XCTAssertNil(sut.resumeStep)
+        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
     }
 
     // MARK: Scan hint

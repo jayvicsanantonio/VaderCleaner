@@ -423,12 +423,34 @@ struct WelcomeAccessPanel: View {
             comment: "First-run flow: Full Disk Access instruction."
         ),
         String(localized: "Switch VaderCleaner on in the list", comment: "First-run flow: Full Disk Access instruction."),
-        String(localized: "Come back here — this page notices", comment: "First-run flow: Full Disk Access instruction."),
+        // macOS applies Full Disk Access only to a process started after the
+        // grant, and offers to quit the app to make that happen. Saying so
+        // turns an alarming interruption into an expected step.
+        String(
+            localized: "Let macOS reopen VaderCleaner — you'll come back here",
+            comment: "First-run flow: Full Disk Access instruction."
+        ),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             statusPill
+
+            // Shown once the user has been to System Settings and the reading
+            // is still false — the exact shape of "I already did that". Either
+            // they declined the restart macOS offered, or they haven't
+            // finished in Settings yet; both are answered by the same line.
+            if viewModel.hasVisitedSystemSettings, !viewModel.hasFullDiskAccess {
+                Text(
+                    "Already switched it on? macOS applies Full Disk Access when VaderCleaner next opens.",
+                    comment: "First-run flow: explains why access isn't detected yet."
+                )
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+                .transition(.opacity)
+                .accessibilityIdentifier("welcome.accessRestartNote")
+            }
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(Self.grantSteps.enumerated()), id: \.offset) { index, instruction in
@@ -452,6 +474,7 @@ struct WelcomeAccessPanel: View {
             .glassEffect(.vaderTile, in: .rect(cornerRadius: 16))
         }
         .animation(VaderMotion.surface, value: viewModel.hasFullDiskAccess)
+        .animation(VaderMotion.surface, value: viewModel.hasVisitedSystemSettings)
     }
 
     /// Reads "Waiting for access" until the grant lands, then springs into a

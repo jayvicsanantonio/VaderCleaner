@@ -14,18 +14,29 @@ import Observation
 @Observable
 final class WelcomeViewModel {
 
-    /// The step currently on screen.
-    private(set) var step: WelcomeStep = .first
+    /// The step currently on screen. Restored from the store rather than
+    /// pinned to `.first`, because granting Full Disk Access makes macOS quit
+    /// the app out from under this flow.
+    private(set) var step: WelcomeStep
 
     /// Whether the flow should be covering the window. Starts `false` for a
     /// user who has already been through it, so the app opens straight into
     /// the main window.
     private(set) var isPresented: Bool
 
-    /// Latest Full Disk Access reading. The access step polls this so granting
-    /// the permission in System Settings is noticed without the user having to
-    /// come back and click anything.
+    /// Latest Full Disk Access reading. The access step polls this so a grant
+    /// that takes effect without a restart is noticed on its own.
     private(set) var hasFullDiskAccess: Bool
+
+    /// Whether the user has been sent to System Settings at least once.
+    ///
+    /// macOS only applies Full Disk Access to a process that starts *after*
+    /// the grant, and offers to quit the app to make that happen. A user who
+    /// declines that offer has genuinely granted the permission while this
+    /// process still cannot see it — so the step would sit on "Waiting for
+    /// access…" indefinitely and look broken. This flag lets it say what is
+    /// actually going on instead.
+    private(set) var hasVisitedSystemSettings = false
 
     /// Whether the one-time pointer at the floating Scan disc should be on
     /// screen. Raised only for a user who closed the flow without starting a
@@ -52,6 +63,7 @@ final class WelcomeViewModel {
         self.openSystemSettingsAction = openSystemSettings
         self.isPresented = !store.hasCompletedWelcome
         self.hasFullDiskAccess = fullDiskAccessChecker()
+        self.step = store.resumeStep ?? .first
     }
 
     /// Production wiring: the real TCC probe and the real System Settings
@@ -79,12 +91,12 @@ final class WelcomeViewModel {
     /// makes that choice explicitly.
     func advance() {
         guard let next = step.next else { return }
-        step = next
+        moveTo(next)
     }
 
     func back() {
         guard let previous = step.previous else { return }
-        step = previous
+        moveTo(previous)
     }
 
     /// Jumps past the three capability stops to the permission step. A no-op
@@ -92,7 +104,14 @@ final class WelcomeViewModel {
     /// send them backwards.
     func skipTour() {
         guard canSkipTour else { return }
-        step = .access
+        moveTo(.access)
+    }
+
+    /// Every move goes through here so the resume point can never drift from
+    /// what is on screen.
+    private func moveTo(_ destination: WelcomeStep) {
+        step = destination
+        store.recordStep(destination)
     }
 
     // MARK: Full Disk Access
@@ -103,8 +122,10 @@ final class WelcomeViewModel {
         hasFullDiskAccess = fullDiskAccessChecker()
     }
 
-    /// Opens System Settings on the Full Disk Access pane.
+    /// Opens System Settings on the Full Disk Access pane, and records the
+    /// visit so the step can explain the restart if the reading stays false.
     func requestFullDiskAccess() {
+        hasVisitedSystemSettings = true
         openSystemSettingsAction()
     }
 

@@ -76,6 +76,29 @@ final class WelcomeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["welcome.openSystemSettings"].exists)
     }
 
+    func test_relaunchResumesWhereTheFlowLeftOff() {
+        // Granting Full Disk Access makes macOS quit the app; the resume point
+        // is what carries the user back rather than dropping them at the top
+        // of the tour. Forcing the stored step stands in for that restart.
+        app.launchArguments = [
+            "-welcome.hasCompleted", "NO",
+            "-welcome.hasSeenScanHint", "NO",
+            // The access step's raw value. A UI test runs out of process and
+            // can't import the enum, so this is a literal — but the order it
+            // depends on is pinned by
+            // `WelcomeStepTests.test_allCases_areInPresentationOrder`, which
+            // fails first and loudly if a step is ever inserted ahead of it.
+            "-welcome.resumeStep", "5",
+        ]
+        app.launch()
+
+        XCTAssertTrue(
+            step("welcome.step.access").waitForExistence(timeout: 10),
+            "A relaunch mid-flow should resume on the step it was interrupted at"
+        )
+        XCTAssertFalse(step("welcome.step.welcome").exists)
+    }
+
     func test_continue_reachesTheHowItWorksStepAfterTheTour() {
         launchAsFirstRun()
         XCTAssertTrue(step("welcome.step.welcome").waitForExistence(timeout: 10))
