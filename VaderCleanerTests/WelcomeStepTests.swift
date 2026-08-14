@@ -78,11 +78,15 @@ final class WelcomeStepTests: XCTestCase {
         }
     }
 
-    func test_persistenceKey_isTheCaseNameNotTheOrdinal() {
-        // Pinned so a rename is a deliberate, visible break rather than a
-        // silent one that strands everybody's stored resume point.
-        XCTAssertEqual(WelcomeStep.access.persistenceKey, "access")
-        XCTAssertEqual(WelcomeStep.howItWorks.persistenceKey, "howItWorks")
+    func test_persistenceKeys_areTheCaseNamesNotTheOrdinals() {
+        // The whole list, not a sample: these strings are the storage format
+        // for the resume marker, so a rename or an ordinal creeping into any
+        // one of them should be a deliberate, visible break rather than a
+        // silent one that strands stored resume points.
+        XCTAssertEqual(
+            WelcomeStep.allCases.map(\.persistenceKey),
+            ["welcome", "clean", "protect", "tune", "howItWorks", "access", "ready"]
+        )
     }
 
     func test_unknownPersistenceKey_doesNotResolve() {

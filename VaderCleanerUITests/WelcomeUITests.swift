@@ -24,13 +24,23 @@ final class WelcomeUITests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// Both first-run flags are forced, not just the flow's: the Scan-disc
-    /// hint has its own "already seen" record, so a second run of this suite
-    /// would otherwise never see it.
-    private func launchAsFirstRun() {
+    /// Launches into a first run with *every* piece of welcome state forced,
+    /// so these tests are independent of each other and of the developer's own
+    /// preferences.
+    ///
+    /// All three keys matter. The completion flag and the Scan-disc hint each
+    /// have their own "already seen" record, and the resume marker is written
+    /// on every step change — so a test that walks partway and stops leaves
+    /// one behind, and the next test would start mid-flow instead of at the
+    /// greeting. Pinning it to `welcome` makes the starting point explicit
+    /// rather than inherited.
+    ///
+    /// - Parameter step: the step to resume at, by case name.
+    private func launchAsFirstRun(resumingAt step: String = "welcome") {
         app.launchArguments = [
             "-welcome.hasCompleted", "NO",
             "-welcome.hasSeenScanHint", "NO",
+            "-welcome.resumeStep", step,
         ]
         app.launch()
     }
@@ -82,15 +92,11 @@ final class WelcomeUITests: XCTestCase {
         // Granting Full Disk Access makes macOS quit the app; the resume point
         // is what carries the user back rather than dropping them at the top
         // of the tour. Forcing the stored step stands in for that restart.
-        app.launchArguments = [
-            "-welcome.hasCompleted", "NO",
-            "-welcome.hasSeenScanHint", "NO",
-            // The step is stored by case name, so this literal survives any
-            // reordering of the flow. A UI test runs out of process and can't
-            // import the enum; `WelcomeStepTests` pins the name.
-            "-welcome.resumeStep", "access",
-        ]
-        app.launch()
+        //
+        // The step is stored by case name, so this literal survives any
+        // reordering of the flow. A UI test runs out of process and can't
+        // import the enum; `WelcomeStepTests` pins the name.
+        launchAsFirstRun(resumingAt: "access")
 
         XCTAssertTrue(
             step("welcome.step.access").waitForExistence(timeout: 10),
