@@ -22,8 +22,14 @@ final class WelcomeUITests: XCTestCase {
         app = nil
     }
 
+    /// Both first-run flags are forced, not just the flow's: the Scan-disc
+    /// hint has its own "already seen" record, so a second run of this suite
+    /// would otherwise never see it.
     private func launchAsFirstRun() {
-        app.launchArguments = ["-welcome.hasCompleted", "NO"]
+        app.launchArguments = [
+            "-welcome.hasCompleted", "NO",
+            "-welcome.hasSeenScanHint", "NO",
+        ]
         app.launch()
     }
 
@@ -68,6 +74,52 @@ final class WelcomeUITests: XCTestCase {
         app.buttons["welcome.skipTour"].click()
         XCTAssertTrue(step("welcome.step.access").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["welcome.openSystemSettings"].exists)
+    }
+
+    func test_continue_reachesTheHowItWorksStepAfterTheTour() {
+        launchAsFirstRun()
+        XCTAssertTrue(step("welcome.step.welcome").waitForExistence(timeout: 10))
+
+        for expected in ["clean", "protect", "tune", "howItWorks"] {
+            app.buttons["welcome.continue"].click()
+            XCTAssertTrue(
+                step("welcome.step.\(expected)").waitForExistence(timeout: 5),
+                "Expected to land on the \(expected) step"
+            )
+        }
+    }
+
+    func test_exploreOnMyOwn_pointsTheUserAtTheScanDisc() {
+        launchAsFirstRun()
+        XCTAssertTrue(step("welcome.step.welcome").waitForExistence(timeout: 10))
+
+        app.buttons["welcome.skipTour"].click()
+        XCTAssertTrue(step("welcome.step.access").waitForExistence(timeout: 5))
+        app.buttons["welcome.continue"].click()
+        XCTAssertTrue(step("welcome.step.ready").waitForExistence(timeout: 5))
+
+        app.buttons["welcome.explore"].click()
+        let hint = app.buttons["welcome.scanHint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 10), "Explore should leave the Scan hint behind")
+
+        hint.click()
+        XCTAssertFalse(hint.waitForExistence(timeout: 3), "Clicking the hint should put it away")
+    }
+
+    func test_runFirstSmartScan_skipsTheHint() {
+        // The scan is already running and the disc is visibly busy, so the
+        // pointer would be narrating something the user can see.
+        launchAsFirstRun()
+        XCTAssertTrue(step("welcome.step.welcome").waitForExistence(timeout: 10))
+
+        app.buttons["welcome.skipTour"].click()
+        XCTAssertTrue(step("welcome.step.access").waitForExistence(timeout: 5))
+        app.buttons["welcome.continue"].click()
+        XCTAssertTrue(step("welcome.step.ready").waitForExistence(timeout: 5))
+
+        app.buttons["welcome.runFirstScan"].click()
+        XCTAssertTrue(app.otherElements["sidebar.smartScan"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["welcome.scanHint"].exists)
     }
 
     func test_finishing_dismissesTheFlowAndRevealsTheApp() {

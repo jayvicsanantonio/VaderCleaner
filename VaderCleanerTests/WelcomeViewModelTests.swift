@@ -156,6 +156,48 @@ final class WelcomeViewModelTests: XCTestCase {
         XCTAssertEqual(requestedScan.value, true)
     }
 
+    // MARK: Scan hint
+
+    func test_finish_withoutAScan_pointsTheUserAtTheScanDisc() {
+        let sut = makeSUT()
+        XCTAssertFalse(sut.isShowingScanHint)
+        sut.finish(startingScan: false)
+        XCTAssertTrue(sut.isShowingScanHint)
+    }
+
+    func test_finish_startingAScan_skipsTheHint() {
+        // The scan is already running and the disc is already busy — pointing
+        // at it would be telling the user something they can see happening.
+        let sut = makeSUT()
+        sut.finish(startingScan: true)
+        XCTAssertFalse(sut.isShowingScanHint)
+    }
+
+    func test_finish_neverRepeatsAHintTheUserHasSeen() {
+        let store = WelcomeStore(defaults: defaults)
+        store.markScanHintSeen()
+        let sut = makeSUT(store: store)
+        sut.finish(startingScan: false)
+        XCTAssertFalse(sut.isShowingScanHint)
+    }
+
+    func test_dismissScanHint_hidesItAndRemembersThat() {
+        let store = WelcomeStore(defaults: defaults)
+        let sut = makeSUT(store: store)
+        sut.finish(startingScan: false)
+
+        sut.dismissScanHint()
+        XCTAssertFalse(sut.isShowingScanHint)
+        XCTAssertTrue(store.hasSeenScanHint)
+    }
+
+    func test_dismissScanHint_whenNothingIsShowing_doesNotBurnTheHint() {
+        let store = WelcomeStore(defaults: defaults)
+        let sut = makeSUT(store: store)
+        sut.dismissScanHint()
+        XCTAssertFalse(store.hasSeenScanHint, "A stray dismiss must not spend the one hint the user gets")
+    }
+
     func test_finish_isIdempotent() {
         let calls = TestBox(0)
         let sut = makeSUT()

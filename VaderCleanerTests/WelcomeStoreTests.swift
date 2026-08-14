@@ -50,8 +50,29 @@ final class WelcomeStoreTests: XCTestCase {
     func test_reset_returnsToTheFreshInstallState() {
         let sut = WelcomeStore(defaults: defaults)
         sut.markCompleted()
+        sut.markScanHintSeen()
         sut.reset()
         XCTAssertFalse(sut.hasCompletedWelcome)
-        XCTAssertFalse(WelcomeStore(defaults: defaults).hasCompletedWelcome)
+        XCTAssertFalse(sut.hasSeenScanHint)
+        let reloaded = WelcomeStore(defaults: defaults)
+        XCTAssertFalse(reloaded.hasCompletedWelcome)
+        XCTAssertFalse(reloaded.hasSeenScanHint)
+    }
+
+    // MARK: Scan hint
+
+    func test_freshInstall_hasNotSeenTheScanHint() {
+        XCTAssertFalse(WelcomeStore(defaults: defaults).hasSeenScanHint)
+    }
+
+    func test_markScanHintSeen_persistsAcrossReload() {
+        WelcomeStore(defaults: defaults).markScanHintSeen()
+        XCTAssertTrue(WelcomeStore(defaults: defaults).hasSeenScanHint)
+    }
+
+    func test_scanHintAndCompletion_areTrackedIndependently() {
+        let sut = WelcomeStore(defaults: defaults)
+        sut.markCompleted()
+        XCTAssertFalse(sut.hasSeenScanHint, "Finishing the flow is not the same as being pointed at the disc")
     }
 }

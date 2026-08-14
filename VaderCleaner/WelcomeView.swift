@@ -226,7 +226,7 @@ struct WelcomeView: View {
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("welcome.runFirstScan")
             }
-        case .welcome, .clean, .protect, .tune:
+        case .welcome, .clean, .protect, .tune, .howItWorks:
             Button {
                 viewModel.advance()
             } label: {

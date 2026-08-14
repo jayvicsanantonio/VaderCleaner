@@ -12,6 +12,15 @@ struct WelcomeStepContent: Equatable {
     let title: String
     /// One or two lines under the headline.
     let tagline: String
+    /// Asset-catalog name of a screenshot of the real section, preferred over
+    /// `heroAssetName` when the asset actually exists in the catalog.
+    ///
+    /// Declaring a slot does not require shipping one: `WelcomeHero` resolves
+    /// it through `NSImage(named:)` and falls back to the hero art when the
+    /// lookup comes back empty, because SwiftUI's `Image(_:)` would render a
+    /// silent blank instead. Capturing screenshots is optional work that can
+    /// land later without a code change.
+    let screenshotAssetName: String?
     /// Asset-catalog name for the step's hero art, or `nil` to render
     /// `heroSymbol` instead.
     let heroAssetName: String?
@@ -25,14 +34,24 @@ struct WelcomeStepContent: Equatable {
     let theme: SectionTheme
 }
 
+/// One beat of the Scan → Review → Clean loop taught by the `.howItWorks`
+/// step. A value type so the copy is assertable without rendering anything.
+struct WelcomeBeat: Equatable {
+    let symbol: String
+    let title: String
+    let detail: String
+}
+
 /// The steps of the first-run experience, in presentation order: a greeting,
-/// a three-stop tour of what the app does, the one permission it needs, and a
-/// hand-off into the first Smart Scan.
+/// a three-stop tour of what the app does, the loop the user will actually
+/// work in, the one permission it needs, and a hand-off into the first Smart
+/// Scan.
 enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
     case welcome
     case clean
     case protect
     case tune
+    case howItWorks
     case access
     case ready
 
@@ -51,9 +70,41 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
     /// flow a returning-feeling user can skip past.
     var isTour: Bool {
         switch self {
-        case .clean, .protect, .tune:  return true
-        case .welcome, .access, .ready: return false
+        case .clean, .protect, .tune:               return true
+        case .welcome, .howItWorks, .access, .ready: return false
         }
+    }
+
+    /// The three beats of the loop, on the one step that teaches it. Empty
+    /// everywhere else.
+    var beats: [WelcomeBeat] {
+        guard self == .howItWorks else { return [] }
+        return [
+            WelcomeBeat(
+                symbol: "magnifyingglass",
+                title: String(localized: "Scan", comment: "First-run flow: first beat of the loop."),
+                detail: String(
+                    localized: "One pass over caches, threats, and clutter. Nothing is changed while it looks.",
+                    comment: "First-run flow: what the scan beat does."
+                )
+            ),
+            WelcomeBeat(
+                symbol: "checklist",
+                title: String(localized: "Review", comment: "First-run flow: second beat of the loop."),
+                detail: String(
+                    localized: "Every finding is listed with its size and why it was flagged. You pick what goes.",
+                    comment: "First-run flow: what the review beat does."
+                )
+            ),
+            WelcomeBeat(
+                symbol: "sparkles",
+                title: String(localized: "Clean", comment: "First-run flow: third beat of the loop."),
+                detail: String(
+                    localized: "Your files move to the Trash, so a change of heart is always one restore away.",
+                    comment: "First-run flow: what the clean beat does."
+                )
+            ),
+        ]
     }
 
     /// How far through the flow this step sits, 0…1. Drives the progress rail.
@@ -85,6 +136,7 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     """,
                     comment: "First-run flow: greeting tagline."
                 ),
+                screenshotAssetName: nil,
                 heroAssetName: "smartScan",
                 heroSymbol: "sparkles",
                 features: [],
@@ -104,6 +156,7 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     """,
                     comment: "First-run flow: cleaning tour tagline."
                 ),
+                screenshotAssetName: "welcomeShotClean",
                 heroAssetName: "systemJunk",
                 heroSymbol: "trash",
                 features: [
@@ -136,6 +189,7 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     """,
                     comment: "First-run flow: protection tour tagline."
                 ),
+                screenshotAssetName: "welcomeShotProtect",
                 heroAssetName: "malwareRemoval",
                 heroSymbol: "shield.lefthalf.filled",
                 features: [
@@ -171,6 +225,7 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     """,
                     comment: "First-run flow: performance tour tagline."
                 ),
+                screenshotAssetName: "welcomeShotTune",
                 heroAssetName: "performance",
                 heroSymbol: "gauge.with.needle",
                 features: [
@@ -189,6 +244,28 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                 ],
                 theme: NavigationSection.performance.theme
             )
+        case .howItWorks:
+            return WelcomeStepContent(
+                title: String(
+                    localized: "How it works",
+                    comment: "First-run flow: usage headline."
+                ),
+                tagline: String(
+                    localized: """
+                    Every section works the same way, so learning one teaches \
+                    you all of them.
+                    """,
+                    comment: "First-run flow: usage tagline."
+                ),
+                screenshotAssetName: nil,
+                heroAssetName: nil,
+                // A cycle glyph for the loop. Deliberately a symbol rather
+                // than section art: this step describes the rhythm the whole
+                // app shares, not any one part of it.
+                heroSymbol: "arrow.triangle.2.circlepath",
+                features: [],
+                theme: NavigationSection.smartScan.theme
+            )
         case .access:
             return WelcomeStepContent(
                 title: String(
@@ -203,6 +280,7 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     """,
                     comment: "First-run flow: Full Disk Access tagline."
                 ),
+                screenshotAssetName: nil,
                 heroAssetName: nil,
                 heroSymbol: "lock.shield",
                 features: [],
@@ -222,6 +300,7 @@ enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     """,
                     comment: "First-run flow: finish tagline."
                 ),
+                screenshotAssetName: nil,
                 heroAssetName: nil,
                 heroSymbol: "checkmark.seal.fill",
                 features: [],

@@ -350,6 +350,27 @@ struct ContentView: View {
             .animation(.smooth(duration: 0.45), value: welcome.isPresented)
         }
         .onAppear { installWelcomeHandoff() }
+        // The one-time pointer at the floating Scan disc, for a user who left
+        // the first-run flow without starting a scan. The disc centers over
+        // the detail area and straddles the window's bottom edge, so the
+        // bubble is bottom-aligned, inset past the rail, and lifted clear of
+        // the disc's upper half.
+        .overlay(alignment: .bottom) {
+            if welcome.isShowingScanHint {
+                WelcomeScanHint { welcome.dismissScanHint() }
+                    .padding(.leading, railWidth)
+                    .padding(.bottom, FloatingScanButton.floatingDiameter / 2 + 22)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: welcome.isShowingScanHint)
+        // Take the hint away the moment the user does the thing it asks for,
+        // rather than leaving it hanging over a running scan.
+        .onChange(of: activeScanPresentation) { _, presentation in
+            if presentation != nil, presentation != .intro {
+                welcome.dismissScanHint()
+            }
+        }
         .sheet(isPresented: shouldShowOnboarding) {
             PermissionOnboardingView()
                 .environment(appState)

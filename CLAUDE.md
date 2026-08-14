@@ -198,10 +198,37 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
 
+### Adding screenshots to the welcome tour
+
+The three tour steps declare an optional screenshot slot. Dropping a capture
+into `Assets.xcassets` under the matching name is the whole job — no code
+change, and nothing breaks while the slots sit empty:
+
+| Step | Asset name | Capture |
+| --- | --- | --- |
+| Reclaim your space | `welcomeShotClean` | Cleanup, post-scan results |
+| Keep the bad stuff out | `welcomeShotProtect` | Protection dashboard |
+| Keep it running fast | `welcomeShotTune` | Performance dashboard |
+
+`WelcomeHero` resolves each through `NSImage(named:)` — **not** SwiftUI's
+`Image(_:)`, which renders a silent blank for a name that isn't in the
+catalog — and falls back to the existing hero art when the lookup is empty.
+A step with a screenshot switches from the square 360pt hero frame to a
+520×300 landscape one, so capture in the window's own proportions (the
+default 1320×680 is close) and supply @2x.
+
+Screenshots are the one part of this flow that goes stale: they are pictures
+of a UI that changes. Nothing warns you when they drift, so re-capture them
+when a section's look changes, or delete the asset and the step quietly
+returns to its illustrated hero.
+
 ### The `welcome.hasCompleted` flag
 
 `WelcomeStore` gates the first-run flow on a single `UserDefaults` bool,
-`welcome.hasCompleted`, in the standard suite. Three things follow from that:
+`welcome.hasCompleted`, in the standard suite. It keeps a second, independent
+one — `welcome.hasSeenScanHint` — for the one-time pointer at the floating
+Scan disc, because finishing the flow by starting a scan never shows that
+pointer and so must not spend it. Three things follow:
 
 - **The flow ships as "unseen" everywhere the key is absent** — which includes
   installs that predate it. An existing user gets the tour once on their next
@@ -216,8 +243,9 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   open -n /path/to/VaderCleaner.app --args -welcome.hasCompleted NO
   ```
 
-  `YES` suppresses it instead. `WelcomeUITests` drives both forms, which is why
-  those tests never touch a developer's real preferences.
+  `YES` suppresses it instead. Pass `-welcome.hasSeenScanHint NO` alongside it
+  to get the Scan-disc pointer back too — `WelcomeUITests` forces both, which
+  is why those tests never touch a developer's real preferences.
 - **That argument reaches the unit suite too.** Xcode's Test action inherits the
   Run action's arguments whenever `shouldUseLaunchSchemeArgsEnv` is on (the
   default), and `NSArgumentDomain` is in the search list of *every*

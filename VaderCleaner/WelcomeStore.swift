@@ -31,15 +31,23 @@ final class WelcomeStore {
 
     private enum Key {
         static let hasCompleted = "welcome.hasCompleted"
+        static let hasSeenScanHint = "welcome.hasSeenScanHint"
     }
 
     private(set) var hasCompletedWelcome: Bool
+
+    /// Whether the user has been shown the one-time pointer at the floating
+    /// Scan disc. Tracked separately from completion: someone who finished the
+    /// flow by starting a scan never needs the pointer, so the two are not the
+    /// same event.
+    private(set) var hasSeenScanHint: Bool
 
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.hasCompletedWelcome = defaults.bool(forKey: Key.hasCompleted)
+        self.hasSeenScanHint = defaults.bool(forKey: Key.hasSeenScanHint)
     }
 
     /// Records that the user has reached the end of the flow — by finishing it
@@ -56,8 +64,17 @@ final class WelcomeStore {
     /// Nothing in the UI calls this today — it is the deliberate way back for a
     /// future "replay the tour" affordance, and the seam the store tests use.
     /// `PreferencesStore.restoreDefaults()` must keep leaving it alone.
+    /// Records that the Scan-disc pointer has been shown and dismissed, so it
+    /// never returns.
+    func markScanHintSeen() {
+        hasSeenScanHint = true
+        defaults.set(true, forKey: Key.hasSeenScanHint)
+    }
+
     func reset() {
         hasCompletedWelcome = false
+        hasSeenScanHint = false
         defaults.removeObject(forKey: Key.hasCompleted)
+        defaults.removeObject(forKey: Key.hasSeenScanHint)
     }
 }

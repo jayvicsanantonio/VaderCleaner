@@ -17,6 +17,24 @@ struct WelcomeHero: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var settled = false
 
+    /// The step's screenshot, if one has actually been captured and added to
+    /// the asset catalog. Resolved through `NSImage(named:)` rather than
+    /// `Image(_:)` because SwiftUI's initializer renders a silent blank for a
+    /// name that isn't there — the slots are meant to be empty until someone
+    /// fills them, so a missing asset has to be detectable.
+    private var screenshot: NSImage? {
+        guard let name = content.screenshotAssetName, !name.isEmpty else { return nil }
+        return NSImage(named: name)
+    }
+
+    /// A screenshot is a window capture, so it gets a landscape frame; the
+    /// illustrated heroes keep their square one.
+    private var heroSize: CGSize {
+        screenshot == nil
+            ? CGSize(width: 360, height: 360)
+            : CGSize(width: 520, height: 300)
+    }
+
     var body: some View {
         ZStack {
             Circle()
@@ -26,7 +44,7 @@ struct WelcomeHero: View {
 
             artwork
         }
-        .frame(width: 360, height: 360)
+        .frame(width: heroSize.width, height: heroSize.height)
         .shadow(color: content.theme.accent.opacity(0.30), radius: 38)
         .scaleEffect(settled ? 1 : (isFinale ? 0.72 : 0.94))
         .opacity(settled ? 1 : 0)
@@ -52,7 +70,21 @@ struct WelcomeHero: View {
 
     @ViewBuilder
     private var artwork: some View {
-        if let asset = content.heroAssetName, !asset.isEmpty {
+        if let screenshot {
+            // Framed like a window rather than bled into the backdrop, so it
+            // reads as a picture of the app instead of more chrome.
+            Image(nsImage: screenshot)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.45), radius: 22, y: 10)
+                .padding(10)
+        } else if let asset = content.heroAssetName, !asset.isEmpty {
             // Designer art is pre-coloured; only the bloom carries the accent.
             Image(asset)
                 .resizable()
@@ -114,6 +146,8 @@ struct WelcomeStepColumn: View {
                         .welcomeEntrance(index: index + 2)
                 }
             }
+        case .howItWorks:
+            WelcomeLoop(beats: viewModel.step.beats, accent: content.theme.accent)
         case .access:
             WelcomeAccessPanel(viewModel: viewModel)
                 .welcomeEntrance(index: 2)
@@ -248,6 +282,129 @@ struct WelcomeCheckLine: View {
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - The loop
+
+/// Scan → Review → Clean as three numbered beats joined by a rail, so the
+/// order reads as a sequence rather than a list. Drawn entirely from shapes
+/// and symbols: there is nothing here to re-capture when the UI changes.
+struct WelcomeLoop: View {
+    let beats: [WelcomeBeat]
+    let accent: Color
+
+    private let badgeSize: CGFloat = 34
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(beats.enumerated()), id: \.offset) { index, beat in
+                beatRow(beat, index: index, isLast: index == beats.count - 1)
+                    .welcomeEntrance(index: index + 2)
+            }
+        }
+    }
+
+    private func beatRow(_ beat: WelcomeBeat, index: Int, isLast: Bool) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            // Badge over a connector that stops at the last beat, so the rail
+            // reads as "then, then" rather than trailing off into nothing.
+            VStack(spacing: 0) {
+                ZStack {
+                    Circle()
+                        .fill(accent.deepenedForWhite)
+                        .frame(width: badgeSize, height: badgeSize)
+                        .shadow(color: accent.deepenedForWhite.opacity(0.45), radius: 7, y: 3)
+
+                    Image(systemName: beat.symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+
+                if !isLast {
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [accent.opacity(0.55), accent.opacity(0.15)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+            .frame(width: badgeSize)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(beat.title)
+                    .font(.system(size: 15, weight: .semibold))
+
+                Text(beat.detail)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Breathing room under each beat, which also gives the connector
+            // above something to span.
+            .padding(.bottom, isLast ? 0 : 18)
+
+            Spacer(minLength: 0)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Scan disc hint
+
+/// The one-time pointer at the floating Scan disc, shown to a user who closed
+/// the first-run flow without starting a scan. A single tap puts it away.
+///
+/// It sits in the main window rather than the disc's own child panel: that
+/// panel is only a little larger than the disc itself, with no room for a
+/// bubble above it.
+struct WelcomeScanHint: View {
+    var onDismiss: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var arrived = false
+
+    var body: some View {
+        Button(action: onDismiss) {
+            VStack(spacing: 6) {
+                Text("Start here", comment: "First-run hint pointing at the floating Scan disc.")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Text(
+                    "Press the disc to scan. You'll see everything found before anything is cleaned.",
+                    comment: "First-run hint body."
+                )
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(.white.opacity(0.75))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 13)
+            .frame(maxWidth: 300)
+            .glassEffect(.vaderTile, in: .rect(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .opacity(arrived ? 1 : 0)
+        .offset(y: arrived ? 0 : -8)
+        .onAppear {
+            guard !reduceMotion else {
+                arrived = true
+                return
+            }
+            withAnimation(.snappy(duration: 0.45, extraBounce: 0.15).delay(0.35)) {
+                arrived = true
+            }
+        }
+        .help(Text("Dismiss", comment: "Tooltip on the first-run Scan hint."))
+        .accessibilityIdentifier("welcome.scanHint")
     }
 }
 

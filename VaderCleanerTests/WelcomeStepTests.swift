@@ -10,7 +10,7 @@ final class WelcomeStepTests: XCTestCase {
     func test_allCases_areInPresentationOrder() {
         XCTAssertEqual(
             WelcomeStep.allCases,
-            [.welcome, .clean, .protect, .tune, .access, .ready]
+            [.welcome, .clean, .protect, .tune, .howItWorks, .access, .ready]
         )
     }
 
@@ -24,7 +24,8 @@ final class WelcomeStepTests: XCTestCase {
 
     func test_next_walksForwardAndStopsAtTheEnd() {
         XCTAssertEqual(WelcomeStep.welcome.next, .clean)
-        XCTAssertEqual(WelcomeStep.tune.next, .access)
+        XCTAssertEqual(WelcomeStep.tune.next, .howItWorks)
+        XCTAssertEqual(WelcomeStep.howItWorks.next, .access)
         XCTAssertNil(WelcomeStep.ready.next)
     }
 
@@ -32,6 +33,24 @@ final class WelcomeStepTests: XCTestCase {
         XCTAssertEqual(WelcomeStep.ready.previous, .access)
         XCTAssertEqual(WelcomeStep.clean.previous, .welcome)
         XCTAssertNil(WelcomeStep.welcome.previous)
+    }
+
+    func test_howItWorks_spellsOutTheThreeBeatLoop() {
+        // The step exists to teach the loop the whole app runs on, so it must
+        // actually name all three beats rather than gesturing at them.
+        XCTAssertEqual(WelcomeStep.howItWorks.beats.count, 3)
+        for beat in WelcomeStep.howItWorks.beats {
+            XCTAssertFalse(beat.title.isEmpty)
+            XCTAssertFalse(beat.detail.isEmpty)
+            XCTAssertFalse(beat.symbol.isEmpty)
+        }
+    }
+
+    func test_howItWorks_isNotSoldAsATourStop() {
+        // It teaches rather than sells, so it carries no feature rows and
+        // doesn't count toward the skippable tour.
+        XCTAssertFalse(WelcomeStep.howItWorks.isTour)
+        XCTAssertTrue(WelcomeStep.howItWorks.content.features.isEmpty)
     }
 
     func test_isTour_marksOnlyTheThreeCapabilitySteps() {
@@ -75,6 +94,42 @@ final class WelcomeStepTests: XCTestCase {
             .filter(\.isTour)
             .map { $0.content.theme.accent }
         XCTAssertEqual(Set(accents).count, accents.count)
+    }
+
+    // MARK: Screenshot slots
+
+    func test_tourSteps_declareAScreenshotSlot() {
+        // The slots are what a captured screenshot drops into; only the tour
+        // stops show one, since the other steps have bespoke content.
+        for step in WelcomeStep.allCases where step.isTour {
+            XCTAssertNotNil(step.content.screenshotAssetName, "\(step) has no screenshot slot")
+        }
+    }
+
+    func test_nonTourSteps_declareNoScreenshotSlot() {
+        for step in WelcomeStep.allCases where !step.isTour {
+            XCTAssertNil(step.content.screenshotAssetName, "\(step) should not carry a screenshot")
+        }
+    }
+
+    func test_screenshotSlots_followTheDocumentedNamingConvention() {
+        // The convention is what a person capturing screenshots has to type as
+        // the asset name, so it is pinned rather than left to memory.
+        XCTAssertEqual(WelcomeStep.clean.content.screenshotAssetName, "welcomeShotClean")
+        XCTAssertEqual(WelcomeStep.protect.content.screenshotAssetName, "welcomeShotProtect")
+        XCTAssertEqual(WelcomeStep.tune.content.screenshotAssetName, "welcomeShotTune")
+    }
+
+    func test_everyStepKeepsHeroArtBehindTheScreenshotSlot() {
+        // A slot with no asset in the catalog must fall back to something, so
+        // the flow never renders an empty hero while screenshots are missing.
+        for step in WelcomeStep.allCases {
+            let content = step.content
+            XCTAssertTrue(
+                content.heroAssetName != nil || !content.heroSymbol.isEmpty,
+                "\(step) has nothing to fall back to"
+            )
+        }
     }
 
     func test_bookendSteps_wearTheSmartScanIdentity() {

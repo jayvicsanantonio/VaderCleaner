@@ -27,6 +27,13 @@ final class WelcomeViewModel {
     /// come back and click anything.
     private(set) var hasFullDiskAccess: Bool
 
+    /// Whether the one-time pointer at the floating Scan disc should be on
+    /// screen. Raised only for a user who closed the flow without starting a
+    /// scan — someone who chose "Run First Smart Scan" can already see the
+    /// disc working, and pointing at it would explain something they are
+    /// watching happen.
+    private(set) var isShowingScanHint = false
+
     /// Called once, when the flow closes. The flag says whether the user asked
     /// for their first Smart Scan to start immediately.
     var onFinish: ((_ startScan: Bool) -> Void)?
@@ -109,6 +116,19 @@ final class WelcomeViewModel {
         guard isPresented else { return }
         isPresented = false
         store.markCompleted()
+        if !startingScan, !store.hasSeenScanHint {
+            isShowingScanHint = true
+        }
         onFinish?(startingScan)
+    }
+
+    /// Puts the Scan-disc pointer away and remembers that it has been shown.
+    /// A no-op when nothing is showing, so a stray dismissal — a click that
+    /// lands elsewhere, a scan the user started on their own — cannot spend
+    /// the one hint they get before they have actually seen it.
+    func dismissScanHint() {
+        guard isShowingScanHint else { return }
+        isShowingScanHint = false
+        store.markScanHintSeen()
     }
 }
