@@ -125,8 +125,8 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, @unchecked Send
             // whenever the browser is — or recently was — running. The
             // `-journal` file is the rollback-journal counterpart used
             // when WAL is off. Including all three keeps the on-disk
-            // state coherent after a remove and avoids the orphaned-
-            // sidecar disk leak Codex / CodeRabbit flagged.
+            // state coherent after a remove: dropping the main database
+            // while leaving its sidecars behind strands them on disk.
             return layout.profilePath.map(historyPaths(in:)) ?? []
         case .downloads:
             return []

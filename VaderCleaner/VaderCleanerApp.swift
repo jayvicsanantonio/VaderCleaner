@@ -48,8 +48,8 @@ struct VaderCleanerApp: App {
     @State private var protectionDashboardViewModel: ProtectionDashboardViewModel
     @State private var smartScanViewModel: SmartScanViewModel
     // App-scope so the cheap-stats timer outlives any single window. The
-    // Health Monitor view (Prompt 9), the menu bar (Prompt 10), and the
-    // notification dispatcher (Prompt 11) all subscribe via
+    // Health Monitor view, the menu bar, and the
+    // notification dispatcher all subscribe via
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
     @State private var systemStats: SystemStatsService

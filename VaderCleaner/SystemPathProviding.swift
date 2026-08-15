@@ -44,9 +44,9 @@ struct DefaultSystemPathProvider: SystemPathProviding {
     /// read-only Signed System Volume and its `.lproj` files cannot be
     /// deleted, so reporting them as "junk" misleads the user. We restrict
     /// to user-installed locations: `/Applications` (system-wide installs)
-    /// and `~/Applications` (per-user installs — Codex review on PR #28
-    /// flagged that omitting this missed the entire language-files
-    /// category for non-admin app installs), plus `/Library/Application Support`
+    /// and `~/Applications` (per-user installs — omitting this one missed the
+    /// entire language-files category for apps installed without admin
+    /// rights), plus `/Library/Application Support`
     /// and `/Library/Frameworks` for third-party resources.
     static func defaultLanguageScanRoots(homeDirectory: URL) -> [URL] {
         [
@@ -131,9 +131,9 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         ))
 
         // System-domain paths — readable when Full Disk Access is granted.
-        // Privileged enumeration via the helper is deferred to Prompt 14
-        // where it pairs with helper-driven deletion; FileScanner's
-        // permission-error tolerance keeps the in-process walk safe.
+        // These are walked in-process rather than through the privileged
+        // helper: `FileScanner` tolerates permission errors per directory, so
+        // an unreadable one is skipped instead of failing the scan.
         roots.append(ScanRoot(url: URL(fileURLWithPath: "/Library/Caches", isDirectory: true), category: .systemCache))
         roots.append(ScanRoot(url: URL(fileURLWithPath: "/Library/Logs", isDirectory: true), category: .systemLogs))
 
@@ -180,11 +180,10 @@ struct DefaultSystemPathProvider: SystemPathProviding {
     /// Per-user Trash directories for every mounted, *local* volume except
     /// the boot volume. macOS stores them at `/Volumes/<name>/.Trashes/<uid>`.
     ///
-    /// Three filters apply, each pinned by review feedback on PR #28:
+    /// Three filters apply, each pinned by a test:
     /// - **Boot volume skip** — its trash is `~/.Trash`, already added above.
-    ///   Reported by CodeRabbit; the previous comment promised this skip but
-    ///   never implemented it, so a `/Volumes/Macintosh HD/.Trashes/<uid>`
-    ///   firmlink could double-count via path aliasing.
+    ///   Without this a `/Volumes/Macintosh HD/.Trashes/<uid>` firmlink
+    ///   double-counts the same files via path aliasing.
     /// - **Local-only** — network shares (SMB/AFP) can be wildly slow to
     ///   enumerate and shouldn't contribute to a *system* junk scan.
     ///   Reported by Gemini.
@@ -239,8 +238,7 @@ struct DefaultSystemPathProvider: SystemPathProviding {
     /// can leave apps with missing UI strings. Reading each bundle's
     /// development region for a per-bundle answer is more accurate but
     /// costly; defaulting to "always preserve English" matches what other
-    /// macOS cleaners do and is the safe default. Reported by Codex review
-    /// on PR #28.
+    /// macOS cleaners do and is the safe default.
     static func activePreferredLanguageCodes() -> Set<String> {
         var codes = Set(
             Locale.preferredLanguages.compactMap { tag in

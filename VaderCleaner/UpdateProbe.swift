@@ -3,10 +3,9 @@
 
 import Foundation
 
-/// Outcome of a single update-feed lookup. `.unreachable` is the
-/// signal Prompt 20's swallow contract was missing: it lets the
-/// view-model tell "this feed was down" apart from "this app has no
-/// update", so a genuinely offline check can surface the network copy
+/// Outcome of a single update-feed lookup. `.unreachable` is the case that
+/// makes the rest work: it lets the view-model tell "this feed was down"
+/// apart from "this app has no update", so a genuinely offline check can surface the network copy
 /// while a single dead feed still never blanks the whole list. Generic
 /// over the payload so the App Store and Sparkle channels share one
 /// shape instead of near-identical enums.
@@ -360,9 +359,7 @@ extension UpdateProbe {
 
     /// Live App Store checker. Re-surfaces only loss of connectivity.
     /// Every other failure (a decode error, a malformed response) stays
-    /// swallowed as `.noResult` so one bad app can never blank the list —
-    /// Prompt 20's partial-degradation contract is preserved, not
-    /// reversed.
+    /// swallowed as `.noResult` so one bad app can never blank the list.
     static func liveAppStoreCheck(
         appStore: DefaultAppStoreUpdateChecker = DefaultAppStoreUpdateChecker()
     ) -> CheckAppStore {

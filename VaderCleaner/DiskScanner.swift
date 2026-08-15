@@ -323,10 +323,9 @@ struct DiskScanner: DiskScanning {
                 options: []
             )
         } catch {
-            // Root listing failure: the chmod-000 / protected-folder
-            // case Codex flagged. `resourceValues` succeeds via stat
-            // through the parent, but the user can't enumerate the
-            // contents — so the scan can't actually run. Fail loudly
+            // Root listing failure — a chmod-000 or otherwise protected
+            // folder. `resourceValues` succeeds via stat through the
+            // parent, but the user can't enumerate the contents — so the scan can't actually run. Fail loudly
             // rather than emit a single inaccessible node that the VM
             // would surface as `.ready(emptyTree)`.
             if isRoot {

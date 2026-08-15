@@ -3,8 +3,21 @@
 
 import Foundation
 
-// Declaration order is the rail's top-to-bottom order (`allCases`), pinned by
-// NavigationSectionTests. Space Lens sits directly above Health Monitor.
+/// The app's top-level structure: one case per feature area in the sidebar.
+/// Each case is backed by a SwiftUI view and an `@Observable` view model, and
+/// carries its own `theme` so the window recolours as you navigate.
+///
+/// **Three case names differ from what the UI shows**, which matters when you
+/// are searching the codebase for a screen you saw on screen:
+///
+/// | case | sidebar title | files |
+/// | --- | --- | --- |
+/// | `.systemJunk` | "Cleanup" | `SystemJunk*` |
+/// | `.largeOldFiles` | "My Clutter" | `MyClutter*` |
+/// | `.malwareRemoval` | "Protection" | `Protection*`, `Malware*` |
+///
+/// Declaration order is the rail's top-to-bottom order (`allCases`), pinned by
+/// `NavigationSectionTests` so a reorder has to be deliberate.
 enum NavigationSection: CaseIterable, Hashable, Identifiable {
     case smartScan
     case systemJunk

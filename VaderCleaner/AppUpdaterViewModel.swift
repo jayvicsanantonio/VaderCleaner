@@ -180,8 +180,8 @@ final class AppUpdaterViewModel {
             // Offline only when *every* feed we contacted was
             // unreachable and not one came back with an answer. If even
             // one feed responded — or we found updates — the network is
-            // up and Prompt 20's partial degradation stands: show what
-            // we have rather than a network error.
+            // up and the partial-degradation rule stands: show what we
+            // have rather than a network error.
             if updates.isEmpty, !anyReachable, anyUnreachable {
                 self.phase = .failed(
                     message: AppUpdaterError.userFacingMessage(

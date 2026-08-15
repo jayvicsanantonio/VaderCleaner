@@ -773,8 +773,8 @@ final class MenuBarViewModel {
         let ramSegment = clampedGB(ram.usedBytes)
         // Disk segment shows free space in GB — that's the number the user
         // cares about at-a-glance ("how much room do I have left?"), and it
-        // matches the `0 GB free` placeholder convention from Prompt 5 so
-        // the label width doesn't jump on first real refresh.
+        // matches the `0 GB free` placeholder shown before the first
+        // reading, so the label width doesn't jump on first real refresh.
         let freeBytes = disk.totalBytes > disk.usedBytes
             ? disk.totalBytes - disk.usedBytes
             : 0

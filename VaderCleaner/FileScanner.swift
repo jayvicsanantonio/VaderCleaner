@@ -464,9 +464,9 @@ enum PackageDirectorySizer {
 /// scan.
 ///
 /// Non-isolated by design: the type holds no shared state and runs on
-/// whichever task it's awaited from. Prompt 26 will pass the resolved
-/// `ExclusionsStore.exclusions` snapshot through the `excluding` argument so
-/// this layer never touches a `@MainActor` store directly.
+/// whichever task it's awaited from. Callers resolve `ExclusionsStore`
+/// on the main actor and hand the snapshot in through `excluding`, so this
+/// layer never touches a `@MainActor` store itself.
 struct FileScanner: FileScanning {
 
     static let defaultBatchSize = 2_048

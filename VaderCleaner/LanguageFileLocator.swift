@@ -79,8 +79,8 @@ struct LanguageFileLocator {
     ///   - Versioned frameworks inside extensions → depth 9–10
     /// A cap of 10 lets the walker descend through the deepest realistic
     /// nesting (extension-inside-app or versioned framework) without
-    /// expanding into every nested `.bundle` of subassets. Reported by
-    /// Codex on PR #28: prior cap of 6 missed `.appex` extension lprojs.
+    /// expanding into every nested `.bundle` of subassets. A shallower cap of
+    /// 6 missed the `.lproj` folders inside `.appex` extensions.
     private static let maxLprojWalkDepth = 10
 
     /// Builds the `[ScanRoot]` for a single top-level directory. Pulled out
@@ -147,7 +147,7 @@ struct LanguageFileLocator {
     /// preserves `nl`/`eng` while rejecting `Portuguese`/`Norwegian`.
     /// Without this, `Portuguese.lproj` returned `"portuguese"` — never a
     /// match for active BCP-47 `pt`, so the user's *active* locale
-    /// resources got reported as junk. Reported by Codex review on PR #28.
+    /// resources got reported as junk.
     static func languageCode(fromLocaleName name: String) -> String? {
         let lowered = name.lowercased()
         if let mapped = legacyLanguageNames[lowered] {

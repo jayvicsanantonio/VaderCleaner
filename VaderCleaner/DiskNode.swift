@@ -46,9 +46,9 @@ final class DiskNode: Identifiable, Sendable {
         nextID.wrappingAdd(1, ordering: .relaxed).oldValue
     }
 
-    /// Absolute file URL this node represents. Kept so right-click "Show
-    /// in Finder" actions in the upcoming UI can hand the URL to
-    /// `NSWorkspace`.
+    /// Absolute file URL this node represents. The tree is built from paths,
+    /// so this is what any action on a node — revealing it in Finder, moving
+    /// it to the Trash — is ultimately handed.
     let url: URL
 
     /// `lastPathComponent`-style display name. Stored separately so the
