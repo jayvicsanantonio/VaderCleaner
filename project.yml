@@ -144,3 +144,32 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleanerUITests
         TEST_TARGET_NAME: VaderCleaner
         GENERATE_INFOPLIST_FILE: YES
+
+# The VaderCleaner scheme is declared here rather than left to Xcode's
+# implicit autocreation, so that `xcodegen generate` reproduces it. A scheme
+# that exists only as a hand-shared file in
+# `VaderCleaner.xcodeproj/xcshareddata/` does not survive regeneration, and
+# both CI and the documented test command address the project by scheme name.
+#
+# Deliberately carries no launch arguments: the Test action inherits the Run
+# action's arguments by default, and a `-welcome.hasCompleted` argument left
+# here would shadow what `WelcomeStore` writes and fail `WelcomeStoreTests`.
+# See "The `welcome.hasCompleted` flag" in CLAUDE.md.
+schemes:
+  VaderCleaner:
+    build:
+      targets:
+        VaderCleaner: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VaderCleanerTests
+        - VaderCleanerUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
