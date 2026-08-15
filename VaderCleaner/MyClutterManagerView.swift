@@ -740,15 +740,8 @@ struct MyClutterManagerView: View {
 
     private func dateText(_ date: Date?) -> String {
         guard let date else { return "—" }
-        return Self.dateFormatter.string(from: date)
+        return formattedDate(date)
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
 }
 
 /// Precomputed Large & Old facet data: each facet's files (sorted largest

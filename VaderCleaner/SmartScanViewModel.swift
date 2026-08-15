@@ -709,6 +709,24 @@ final class SmartScanViewModel {
         }
     }
 
+    /// Flip one id's membership in a selection set.
+    ///
+    /// The pre-approved findings — threats, updates, maintenance, duplicates —
+    /// have no opt-in inclusion to keep in step, since their cards are included
+    /// from the moment results land. That is why they don't route through
+    /// `applySelection`, and why each of them was restating the same
+    /// contains/remove/insert dance before this existed.
+    private func toggleMembership<ID: Hashable>(
+        of id: ID,
+        in storage: ReferenceWritableKeyPath<SmartScanViewModel, Set<ID>>
+    ) {
+        if self[keyPath: storage].contains(id) {
+            self[keyPath: storage].remove(id)
+        } else {
+            self[keyPath: storage].insert(id)
+        }
+    }
+
     // MARK: - Junk selection (shared contract with the Cleanup Manager)
 
     /// The junk scan on screen, or an empty result outside `.results`.
@@ -813,11 +831,7 @@ final class SmartScanViewModel {
     }
 
     func toggleThreat(_ threat: MalwareThreat) {
-        if threatSelection.contains(threat.filePath) {
-            threatSelection.remove(threat.filePath)
-        } else {
-            threatSelection.insert(threat.filePath)
-        }
+        toggleMembership(of: threat.filePath, in: \.threatSelection)
     }
 
     /// Check or uncheck every detected threat in one write.
@@ -833,11 +847,7 @@ final class SmartScanViewModel {
     }
 
     func toggleUpdate(_ update: UpdateInfo) {
-        if updateSelection.contains(update.id) {
-            updateSelection.remove(update.id)
-        } else {
-            updateSelection.insert(update.id)
-        }
+        toggleMembership(of: update.id, in: \.updateSelection)
     }
 
     /// Check or uncheck every available update in one write.
@@ -853,11 +863,7 @@ final class SmartScanViewModel {
     }
 
     func toggleMaintenanceTask(_ taskID: String) {
-        if maintenanceSelection.contains(taskID) {
-            maintenanceSelection.remove(taskID)
-        } else {
-            maintenanceSelection.insert(taskID)
-        }
+        toggleMembership(of: taskID, in: \.maintenanceSelection)
     }
 
     /// Check or uncheck every due maintenance task in one write.
@@ -873,11 +879,7 @@ final class SmartScanViewModel {
     }
 
     func toggleDuplicate(_ file: ScannedFile) {
-        if duplicateSelection.contains(file.url) {
-            duplicateSelection.remove(file.url)
-        } else {
-            duplicateSelection.insert(file.url)
-        }
+        toggleMembership(of: file.url, in: \.duplicateSelection)
     }
 
     /// Check or uncheck a specific set of duplicate copies in one write.
@@ -1000,11 +1002,7 @@ final class SmartScanViewModel {
     /// join the Run pass.
     func toggleBrowserPrivacy(_ key: BrowserPrivacyKey) {
         guard key.category.kind == .removable else { return }
-        if browserPrivacySelection.contains(key) {
-            browserPrivacySelection.remove(key)
-        } else {
-            browserPrivacySelection.insert(key)
-        }
+        toggleMembership(of: key, in: \.browserPrivacySelection)
         syncOptInInclusion(.browserPrivacy, hasSelection: !browserPrivacySelection.isEmpty)
     }
 

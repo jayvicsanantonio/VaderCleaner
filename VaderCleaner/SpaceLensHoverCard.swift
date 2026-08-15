@@ -63,15 +63,8 @@ struct SpaceLensHoverCard: View {
     /// reference card uses. Exposed for tests.
     static func formattedModified(_ date: Date?) -> String? {
         guard let date else { return nil }
-        return dateFormatter.string(from: date)
+        return formattedDateTime(date)
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
