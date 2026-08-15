@@ -839,7 +839,7 @@
 		6BEA8AC18E21DC97133583B1 /* SmartScanMaintenanceReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanMaintenanceReview.swift; sourceTree = "<group>"; };
 		6C27EE261148D623AC319C6D /* SpaceLensVolumeUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLensVolumeUsage.swift; sourceTree = "<group>"; };
 		6C425A233C540203282273D7 /* MalwareOnboardingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MalwareOnboardingViewModelTests.swift; sourceTree = "<group>"; };
-		6CBCA8999E04715E502AB892 /* VaderCleanerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = VaderCleanerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		6CBCA8999E04715E502AB892 /* VaderCleanerHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = VaderCleanerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		6CC2C4931BAD804306463545 /* ApplicationsDashboardSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationsDashboardSubviews.swift; sourceTree = "<group>"; };
 		6D6EEE9120EF768CED6CEF71 /* ReleaseNotesSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesSummary.swift; sourceTree = "<group>"; };
 		6E296C76388BE2D4141DBAC9 /* WelcomeStepTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeStepTests.swift; sourceTree = "<group>"; };
@@ -2674,7 +2674,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = XGQ94CMBTN;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -2741,7 +2740,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = XGQ94CMBTN;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

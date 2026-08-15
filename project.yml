@@ -162,6 +162,22 @@ schemes:
         VaderCleaner: all
     run:
       config: Debug
+      # Shipped unchecked, so a normal Run is unaffected. Tick it in the scheme
+      # editor (Product → Scheme → Edit Scheme → Run → Arguments) to replay the
+      # first-run welcome flow without editing your own preferences — the
+      # argument domain outranks the persisted value and writes nothing back.
+      #
+      # Leave it unchecked when you are done. The Test action inherits the Run
+      # action's arguments, and `NSArgumentDomain` outranks the persistent
+      # domain in *every* `UserDefaults` instance — an isolated
+      # `UserDefaults(suiteName:)` included — so a ticked argument here shadows
+      # what `WelcomeStore` writes. The welcome suites defend against exactly
+      # that with `setVolatileDomain([:], forName: .argumentDomain)`; a future
+      # test asserting a persisted value under a key a scheme might also pass
+      # needs the same line.
+      commandLineArguments:
+        "-welcome.hasCompleted NO": false
+        "-welcome.hasSeenScanHint NO": false
     test:
       config: Debug
       targets:
