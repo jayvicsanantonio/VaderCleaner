@@ -114,6 +114,21 @@ lint suggestions in this repo were unsound and would not have compiled.
   actor and stream progress back. They are `Sendable` values.
 - **Stores** (`VaderCleaner/*Store.swift`) own persisted preferences and scan
   scope, all `@Observable` and main-actor isolated.
+- **First run** — `WelcomeView` covers the whole window until the user hands
+  themselves off (optionally straight into a first Smart Scan). Each step
+  borrows a real `NavigationSection.theme`, so the window recolours through the
+  app's own gradients as the tour advances. It is owned at app scope
+  (`WelcomeViewModel.live()`) and gated by `WelcomeStore`, which is deliberately
+  *not* a `PreferencesStore` property — "Restore Defaults" must not put the user
+  back through onboarding. While it is up, ContentView suppresses the standalone
+  FDA sheet, the notification prompt, and the floating Scan disc; the disc lives
+  in a child panel that draws *above* the window, so any full-window surface has
+  to hold it out via `ScanDiscWindowController.isSuppressed`. Finishing the flow
+  calls `PermissionOnboardingViewModel.dismiss()` — the flow's access step *is*
+  that conversation, so the legacy sheet must not spring open the moment the
+  flow closes, and the notification prompt (which waits on the same flag) must
+  not be stranded for a user who declined Full Disk Access.
+  See **The `welcome.hasCompleted` flag** below.
 - **Smart Scan** runs through `CareScanEngine`, which executes scan units
   concurrently and produces a `CarePlan` of `CareFinding`s carrying safety
   tiers. `SmartScanViewModel` turns that into the checklist, the results feed,
@@ -186,6 +201,104 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   prefixes only as a developer fallback.
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
+
+### The welcome flow survives the Full Disk Access restart
+
+macOS applies Full Disk Access only to a process that starts *after* the
+grant, and offers to quit the app to make that happen. The one step in the
+flow that asks for FDA is therefore guaranteed to destroy the process showing
+it — so the flow persists its position in `welcome.resumeStep` on every move,
+and `WelcomeViewModel` starts from that rather than `.first`. Granting access
+now returns the user to the permission step with a green checkmark instead of
+dumping them back at the greeting with the whole tour to walk again.
+
+Three consequences worth keeping intact:
+
+- **`markCompleted()` clears the resume point**, so `reset()` can't leave a
+  stale step behind for a replay to land on.
+- **The step is stored by case name, not `rawValue`.** The raw values encode
+  presentation order, so persisting one would mean inserting a step silently
+  repoints every stored marker at a different step. `WelcomeStep.persistenceKey`
+  is the storage format; renaming a case is therefore a breaking change, which
+  `WelcomeStepTests` pins.
+- **An unrecognised stored value degrades to starting over**, whether it is an
+  unknown name or the wrong type entirely.
+
+The access step's 1.5s poll is still there, but it is no longer the main path
+— it only catches a grant that applies without a restart. For the far more
+common case, the honest signal is the instruction copy ("Let macOS reopen
+VaderCleaner") plus the note that appears once the user has visited System
+Settings and the reading is still false. Without that note the step sits on
+"Waiting for access…" forever for anyone who declines the restart, which
+looks broken when they have in fact granted the permission.
+
+### Adding screenshots to the welcome tour
+
+The three tour steps declare an optional screenshot slot. Dropping a capture
+into `Assets.xcassets` under the matching name is the whole job — no code
+change, and nothing breaks while the slots sit empty:
+
+| Step | Asset name | Capture |
+| --- | --- | --- |
+| Reclaim your space | `welcomeShotClean` | Cleanup, post-scan results |
+| Keep the bad stuff out | `welcomeShotProtect` | Protection dashboard |
+| Keep it running fast | `welcomeShotTune` | Performance dashboard |
+
+`WelcomeHero` resolves each through `NSImage(named:)` — **not** SwiftUI's
+`Image(_:)`, which renders a silent blank for a name that isn't in the
+catalog — and falls back to the existing hero art when the lookup is empty.
+A step with a screenshot switches from the square 360pt hero frame to a
+520×300 landscape one, so capture in the window's own proportions (the
+default 1320×680 is close) and supply @2x.
+
+Screenshots are the one part of this flow that goes stale: they are pictures
+of a UI that changes. Nothing warns you when they drift, so re-capture them
+when a section's look changes, or delete the asset and the step quietly
+returns to its illustrated hero.
+
+### The `welcome.hasCompleted` flag
+
+`WelcomeStore` gates the first-run flow on a single `UserDefaults` bool,
+`welcome.hasCompleted`, in the standard suite. It keeps a second, independent
+one — `welcome.hasSeenScanHint` — for the one-time pointer at the floating
+Scan disc, because finishing the flow by starting a scan never shows that
+pointer and so must not spend it. Three things follow:
+
+- **The flow ships as "unseen" everywhere the key is absent** — which includes
+  installs that predate it. An existing user gets the tour once on their next
+  launch, not just a genuinely fresh install. That is deliberate: the key is a
+  record of "has this been shown", not of install age, and there is no earlier
+  signal to distinguish the two after the fact.
+- **Override it at launch** rather than editing preferences. UserDefaults' own
+  argument domain takes precedence over the persisted value and writes nothing
+  back, so it is the clean way to see the flow again — or to skip it:
+
+  ```bash
+  open -n /path/to/VaderCleaner.app --args -welcome.hasCompleted NO
+  ```
+
+  `YES` suppresses it instead. Pass `-welcome.hasSeenScanHint NO` alongside it
+  to get the Scan-disc pointer back too — `WelcomeUITests` forces both, which
+  is why those tests never touch a developer's real preferences.
+- **That argument reaches the unit suite too.** Xcode's Test action inherits the
+  Run action's arguments whenever `shouldUseLaunchSchemeArgsEnv` is on (the
+  default), and `NSArgumentDomain` is in the search list of *every*
+  `UserDefaults` instance — an isolated `UserDefaults(suiteName:)` included —
+  where it outranks the persistent domain. So a scheme carrying
+  `-welcome.hasCompleted NO` shadows what the store writes and fails
+  `WelcomeStoreTests` for a reason that has nothing to do with the store.
+  Both welcome suites call
+  `setVolatileDomain([:], forName: UserDefaults.argumentDomain)` in `setUp` to
+  cut that out. Any future test asserting a persisted value under a key a
+  scheme might also pass needs the same line — and note it has to be
+  `setVolatileDomain`, not the obvious-looking
+  `removeVolatileDomain(forName:)`, which is silently a no-op against the
+  argument domain because the volatile domains are re-derived lazily.
+- **`PreferencesStore.restoreDefaults()` must never clear it.** Restoring
+  defaults is about preferences; re-onboarding someone is not one. The flag
+  lives in its own store precisely so a future "reset everything" in Settings
+  can't sweep it up by accident. `WelcomeStore.reset()` is the deliberate way
+  back, and nothing in the UI calls it today.
 
 ## Docs
 
