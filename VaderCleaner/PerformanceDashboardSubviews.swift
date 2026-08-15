@@ -545,7 +545,12 @@ struct PerformanceTaskCatalogView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 48)
                 } else {
-                    VStack(spacing: 10) {
+                    // Lazy because the background-items pane is as long as the
+                    // machine says: `launchctl list` runs to several hundred
+                    // entries on a developer's Mac, and an eagerly-built stack
+                    // of 500 rows costs ~100ms of layout on every pass — which
+                    // the search field and sort control both trigger.
+                    LazyVStack(spacing: 10) {
                         ForEach(displayed) { item in
                             PerformanceItemRow(
                                 item: item,

@@ -541,7 +541,10 @@ struct SmartScanReviewManager: View {
                     Text(text).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text("\(category.items.count) item\(category.items.count == 1 ? "" : "s")")
+                    // Grouped, because a junk category routinely holds tens of
+                    // thousands of files and "43871 items" is both harder to
+                    // read and wider than the same number with separators.
+                    Text("\(category.items.count.formatted(.number)) item\(category.items.count == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

@@ -558,8 +558,12 @@ struct MyClutterManagerView: View {
                     Spacer()
                 }
 
+                // Lazy so a large group only generates thumbnails for the
+                // copies actually on screen. Each strip item runs a
+                // `QLThumbnailGenerator` request on a cache miss, and an eager
+                // stack fires one per copy the moment the group is opened.
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
+                    LazyHStack(spacing: 10) {
                         ForEach(files, id: \.url) { file in
                             thumbnailStripItem(file, isOriginal: file.url == original.url, showsBestBadge: showsBestBadge)
                         }

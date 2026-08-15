@@ -358,13 +358,22 @@ private struct PrivacyPane: View {
                 // Each category (with its expanded per-item rows) sits on its
                 // own rounded glass card, matching the manager card rows used
                 // across the app's other sections.
+                //
+                // The expanded rows are a `LazyVStack` because their count is
+                // the browser's, not ours: cookies and history are grouped per
+                // host, and a well-used profile has thousands of them. Built
+                // eagerly, one expanded category cost 555ms of layout at 3,000
+                // hosts and 2.2s at 10,000 — and re-paid it on every keystroke
+                // in the search field, since the filter runs in `body`.
                 VStack(spacing: 10) {
                     ForEach(ProtectionPrivacyCategory.allCases) { category in
                         VStack(spacing: 0) {
                             categoryRow(category)
                             if isExpanded(category) {
-                                ForEach(sortedItems(category)) { item in
-                                    itemRow(category, item)
+                                LazyVStack(spacing: 0) {
+                                    ForEach(sortedItems(category)) { item in
+                                        itemRow(category, item)
+                                    }
                                 }
                             }
                         }
@@ -510,7 +519,10 @@ private struct MalwareResultsPane: View {
                         onAll: { selectedThreats = Set(threats.map(\.id)) },
                         onNone: { selectedThreats = [] }
                     )
-                    VStack(spacing: 10) {
+                    // Lazy for the same reason as the privacy rows: a full-disk
+                    // ClamAV scan decides how many threats land here, and the
+                    // list is uncapped.
+                    LazyVStack(spacing: 10) {
                         ForEach(sortedThreats) { threat in threatRow(threat) }
                     }
                 }
