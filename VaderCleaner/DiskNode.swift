@@ -2,6 +2,7 @@
 // Reference-typed tree node carrying URL, name, byte size, directory flag, accessibility, and children for the Space Lens disk visualization.
 
 import Foundation
+import Synchronization
 
 /// One node in the disk-tree built by `DiskScanner`. Reference type because
 /// the treemap UI navigates the same node graph from multiple places
@@ -24,7 +25,26 @@ final class DiskNode: Identifiable, Sendable {
     /// Stable identity for SwiftUI diffing. Generated per node so two
     /// scans of the same path produce different IDs — the UI treats them
     /// as fresh trees, which matches the user's mental model of a "rescan".
-    let id: UUID
+    ///
+    /// A counter rather than a `UUID`: a scan mints one of these per node,
+    /// and a large volume runs to millions of them, where drawing each from
+    /// the system CSPRNG costs real time and twice the storage. Nothing reads
+    /// meaning out of the value — it only has to be unique and stable across
+    /// `removing(_:)`.
+    ///
+    /// `Identifiable` picks `ID` up from this property's type, so `DiskNode.ID`
+    /// still names it without a typealias of its own.
+    let id: Int
+
+    /// Monotonic source for `id`. Atomic because a scan builds nodes from
+    /// several concurrent lanes; relaxed ordering is enough since the only
+    /// requirement is that no two calls return the same value, not that the
+    /// values order against other memory.
+    private static let nextID = Atomic<Int>(1)
+
+    static func makeID() -> Int {
+        nextID.wrappingAdd(1, ordering: .relaxed).oldValue
+    }
 
     /// Absolute file URL this node represents. Kept so right-click "Show
     /// in Finder" actions in the upcoming UI can hand the URL to
@@ -63,7 +83,7 @@ final class DiskNode: Identifiable, Sendable {
     let modificationDate: Date?
 
     init(
-        id: UUID = UUID(),
+        id: Int = DiskNode.makeID(),
         url: URL,
         name: String,
         size: Int64,
@@ -95,7 +115,7 @@ final class DiskNode: Identifiable, Sendable {
     /// recursing — so calling this on the root keeps the root and prunes only
     /// its descendants. Returns `self` unchanged when nothing in `ids` is
     /// present, so the no-op path allocates nothing.
-    func removing(_ ids: Set<UUID>) -> DiskNode {
+    func removing(_ ids: Set<ID>) -> DiskNode {
         guard !ids.isEmpty, isDirectory, !children.isEmpty else { return self }
 
         var newChildren: [DiskNode] = []
