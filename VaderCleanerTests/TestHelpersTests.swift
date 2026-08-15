@@ -2,7 +2,6 @@
 // Tests that verify the TestHelpers utilities behave correctly.
 
 import XCTest
-@testable import VaderCleaner
 
 final class TestHelpersTests: XCTestCase {
 

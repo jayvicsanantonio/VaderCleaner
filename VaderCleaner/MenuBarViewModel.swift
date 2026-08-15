@@ -42,11 +42,6 @@ final class MenuBarViewModel {
         self.flushMemoryAction = flushMemory
     }
 
-    /// Boot-volume display name ("Macintosh HD"), resolved once — it never
-    /// changes for the life of the view-model and the storage tile shows it on
-    /// every render.
-    let bootVolumeName: String = HealthMonitorViewModel.rootVolumeName()
-
     // MARK: - Live-bound display values
 
     var formattedRAMUsage: String { Self.formattedRAMUsage(service.ramUsage) }

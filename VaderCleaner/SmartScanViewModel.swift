@@ -743,10 +743,6 @@ final class SmartScanViewModel {
         })
     }
 
-    func isJunkFileSelected(_ file: ScannedFile) -> Bool {
-        junkFileSelection.contains(file.url)
-    }
-
     /// Selected junk bytes in one category — an O(1) read backing the
     /// Cleanup Manager's per-category selected-size badge.
     func selectedJunkBytes(in category: ScanCategory) -> Int64 {
