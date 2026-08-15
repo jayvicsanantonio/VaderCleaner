@@ -7,7 +7,11 @@ options:
   deploymentTarget:
     macOS: "26.0"
   defaultConfig: Debug
-  xcodeVersion: "16.0"
+  # Matches the installed Xcode so the IDE stops offering "update to
+  # recommended settings". This only stamps LastUpgradeCheck — build settings
+  # still come from this file, which is what keeps
+  # ENABLE_USER_SCRIPT_SANDBOXING pinned to NO below.
+  xcodeVersion: "26.6"
   generateEmptyDirectories: true
 
 settings:

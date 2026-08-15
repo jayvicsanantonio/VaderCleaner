@@ -56,6 +56,46 @@ struct SimilarImageScanner {
         let observation: VNFeaturePrintObservation
     }
 
+    /// Dedicated queue for the blocking decode-and-Vision work.
+    ///
+    /// `visionFeaturePrint` is synchronous to its core:
+    /// `CGImageSourceCreateThumbnailAtIndex` decodes on the calling thread, and
+    /// `VNImageRequestHandler.perform` blocks until Vision finishes. Running
+    /// those directly inside a task-group child blocks a cooperative-pool
+    /// thread rather than suspending it, and that pool is sized to the core
+    /// count — with `maxConcurrentFeaturePrints` up to 8, and `CareScanEngine`
+    /// running five scan lanes at once, that is a forward-progress hazard. A
+    /// `.concurrent` `DispatchQueue` grows its own threads instead, so blocking
+    /// here starves nothing. Same reasoning as `DefaultBrewRunner.blockingQueue`.
+    ///
+    /// `.utility` rather than the scan's inherited priority, which is
+    /// user-initiated because the scan starts from the main actor. ImageIO
+    /// dispatches internally to its own default-QoS workers, so a
+    /// user-initiated thread blocking on them is a priority inversion — the one
+    /// Xcode's Thread Performance Checker reports against
+    /// `CGImageSourceCreateThumbnailAtIndex`. Matching this work's real urgency
+    /// removes the inversion instead of asking the system to donate priority
+    /// across it, and keeps eight cores of image decoding from competing with
+    /// the UI that is drawing the scan's progress.
+    private static let featurePrintQueue = DispatchQueue(
+        label: "com.personal.VaderCleaner.similar-image-feature-prints",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
+    /// Runs `work` on `featurePrintQueue` and suspends the calling task until
+    /// it returns, so the await releases its cooperative-pool thread instead of
+    /// holding it for the duration of the decode.
+    private static func computeOffCooperativePool(
+        _ work: @escaping @Sendable () -> FeaturePrint?
+    ) async -> FeaturePrint? {
+        await withCheckedContinuation { continuation in
+            featurePrintQueue.async {
+                continuation.resume(returning: work())
+            }
+        }
+    }
+
     private let fileScanner: FileScanning
     private let roots: [URL]
     private let threshold: Float
@@ -113,38 +153,7 @@ struct SimilarImageScanner {
             images = Array(images.prefix(imageCap))
         }
 
-        // Compute one feature print per image; drop unreadable images. This
-        // is the expensive half of the scan — a decode and a Vision pass per
-        // image — so it runs with bounded concurrency rather than serially,
-        // which left every core but one idle. Results are slotted by index,
-        // so completion order doesn't affect the outcome: `kept` and `prints`
-        // stay in lockstep and `cluster` indexes into both.
-        let computed = try await withThrowingTaskGroup(
-            of: (Int, FeaturePrint?).self
-        ) { group -> [FeaturePrint?] in
-            var results = [FeaturePrint?](repeating: nil, count: images.count)
-            var nextIndex = 0
-            func addTaskIfNeeded() {
-                guard nextIndex < images.count else { return }
-                let index = nextIndex
-                let url = images[index].url
-                nextIndex += 1
-                group.addTask { [featurePrint] in
-                    // iCloud placeholders are skipped so Vision never forces
-                    // a slow on-demand download (which otherwise stalls and
-                    // makes the decode fail).
-                    guard CloudFileAvailability.isLocallyAvailable(url) else { return (index, nil) }
-                    return (index, featurePrint(url).map(FeaturePrint.init(observation:)))
-                }
-            }
-            for _ in 0..<Self.maxConcurrentFeaturePrints { addTaskIfNeeded() }
-            while let (index, computedPrint) = try await group.next() {
-                results[index] = computedPrint
-                try Task.checkCancellation()
-                addTaskIfNeeded()
-            }
-            return results
-        }
+        let computed = try await featurePrints(for: images)
 
         var prints: [VNFeaturePrintObservation] = []
         var kept: [ScannedFile] = []
@@ -258,6 +267,48 @@ struct SimilarImageScanner {
             return nil
         }
         return request.results?.first as? VNFeaturePrintObservation
+    }
+
+    /// One feature print per image, slotted by index so completion order
+    /// doesn't affect the outcome — `kept` and `prints` stay in lockstep back
+    /// in `scan`, and `cluster` indexes into both. `nil` marks an image that
+    /// couldn't be read.
+    ///
+    /// This is the expensive half of the scan — a decode and a Vision pass per
+    /// image — so it runs with bounded concurrency rather than serially, which
+    /// left every core but one idle. The work itself happens on
+    /// `featurePrintQueue`; see that property for why it must not run on the
+    /// cooperative pool.
+    private func featurePrints(for images: [ScannedFile]) async throws -> [FeaturePrint?] {
+        try await withThrowingTaskGroup(
+            of: (Int, FeaturePrint?).self
+        ) { group -> [FeaturePrint?] in
+            var results = [FeaturePrint?](repeating: nil, count: images.count)
+            var nextIndex = 0
+            func addTaskIfNeeded() {
+                guard nextIndex < images.count else { return }
+                let index = nextIndex
+                let url = images[index].url
+                nextIndex += 1
+                group.addTask { [featurePrint] in
+                    // iCloud placeholders are skipped so Vision never forces
+                    // a slow on-demand download (which otherwise stalls and
+                    // makes the decode fail).
+                    guard CloudFileAvailability.isLocallyAvailable(url) else { return (index, nil) }
+                    let print = await Self.computeOffCooperativePool {
+                        featurePrint(url).map(FeaturePrint.init(observation:))
+                    }
+                    return (index, print)
+                }
+            }
+            for _ in 0..<Self.maxConcurrentFeaturePrints { addTaskIfNeeded() }
+            while let (index, computedPrint) = try await group.next() {
+                results[index] = computedPrint
+                try Task.checkCancellation()
+                addTaskIfNeeded()
+            }
+            return results
+        }
     }
 
     /// Perceptual distance between two feature prints, or `nil` if Vision can't
