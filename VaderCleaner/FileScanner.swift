@@ -181,29 +181,133 @@ enum PathExclusionMatcher {
         )
     }
 
+    /// Exclusion paths with the per-comparison work done once.
+    ///
+    /// `isExcluded` runs for every enumerated file, so the two things each
+    /// comparison would otherwise rebuild per call — the `"/"`-terminated
+    /// prefix, and its bytes for the rejection scan below — are computed once
+    /// per scan instead. Build it where the canonical exclusion list is built
+    /// and hand the same value down the walk.
+    struct PreparedExclusions: Sendable {
+
+        /// The canonical exclusion paths, as given.
+        fileprivate let paths: [String]
+
+        /// Each path with a trailing `"/"`, which is what the descendant test
+        /// searches for.
+        fileprivate let prefixes: [String]
+
+        /// `prefixes` as ASCII-lowercased UTF-8, for the rejection scan.
+        fileprivate let prefixBytes: [[UInt8]]
+
+        /// Whether each exclusion is wholly ASCII. The rejection scan can only
+        /// reason about an exclusion it knows carries no case-folding or
+        /// canonical-equivalence subtleties, so a non-ASCII entry always defers
+        /// to Foundation.
+        fileprivate let isASCII: [Bool]
+
+        var isEmpty: Bool { paths.isEmpty }
+
+        init(_ canonicalPaths: [String]) {
+            paths = canonicalPaths
+            prefixes = canonicalPaths.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
+            prefixBytes = prefixes.map { prefix in prefix.utf8.map(PathExclusionMatcher.asciiLowercased) }
+            isASCII = prefixes.map { $0.utf8.allSatisfy { $0 < 128 } }
+        }
+    }
+
     /// True when `path` is exactly an excluded path or sits beneath one.
     /// Comparison is at path-component boundaries (not raw prefix) so
     /// excluding `/tmp/foo` does not also exclude `/tmp/foobar`. macOS's
     /// default APFS is case-insensitive, hence the case-insensitive compare.
     /// Uses `range(of:options:)` rather than `lowercased()` so we don't
     /// allocate a fresh lowercased copy of every enumerated path.
-    static func isExcluded(path: String, by exclusions: [String]) -> Bool {
-        for excluded in exclusions {
-            if path.caseInsensitiveCompare(excluded) == .orderedSame {
+    ///
+    /// Foundation decides every *match*. The byte scan in front of it only
+    /// ever skips a comparison it has proven cannot match, which is the
+    /// overwhelmingly common answer on a real walk — almost nothing the
+    /// enumerator hands us is excluded. That asymmetry is the whole point:
+    /// the fast path carries the "no", and the slow path keeps the "yes"
+    /// exactly as Foundation would have answered it.
+    static func isExcluded(path: String, by exclusions: PreparedExclusions) -> Bool {
+        for index in exclusions.paths.indices {
+            if certainlyOutside(path: path, exclusionIndex: index, in: exclusions) {
+                continue
+            }
+            if path.caseInsensitiveCompare(exclusions.paths[index]) == .orderedSame {
                 return true
             }
-            let prefix = excluded.hasSuffix("/") ? excluded : excluded + "/"
-            if path.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil {
+            if path.range(of: exclusions.prefixes[index], options: [.anchored, .caseInsensitive]) != nil {
                 return true
             }
         }
         return false
     }
 
+    /// Convenience for the callers that match a handful of paths rather than a
+    /// whole walk, and for tests. Preparing the list per call defeats the point
+    /// of `PreparedExclusions`, so anything running per enumerated file should
+    /// build one once and use the overload above.
+    static func isExcluded(path: String, by exclusions: [String]) -> Bool {
+        isExcluded(path: path, by: PreparedExclusions(exclusions))
+    }
+
+    /// True only when `path` provably neither equals the exclusion at
+    /// `exclusionIndex` nor sits beneath it. A `false` means "undecided" and
+    /// sends the pair to Foundation — never "matched".
+    ///
+    /// Sound because ASCII case folding is exact for ASCII: where both sides
+    /// are ASCII, a folded byte mismatch is a real mismatch under any
+    /// case-insensitive comparison. The moment either side leaves ASCII —
+    /// where case folding can change length and combining marks can attach to
+    /// the preceding character — the scan stops reasoning and defers.
+    private static func certainlyOutside(
+        path: String,
+        exclusionIndex index: Int,
+        in exclusions: PreparedExclusions
+    ) -> Bool {
+        guard exclusions.isASCII[index] else { return false }
+
+        let prefixBytes = exclusions.prefixBytes[index]
+        // The prefix is the exclusion plus one trailing "/", so this is the
+        // offset of that separator — and the length the path must have to be
+        // the excluded path itself rather than a descendant.
+        let exclusionByteCount = prefixBytes.count - 1
+        var pathBytes = path.utf8.makeIterator()
+
+        for offset in 0..<prefixBytes.count {
+            guard let byte = pathBytes.next() else {
+                // The path ran out inside the exclusion. It can still *be* the
+                // exclusion when it ran out exactly at the separator; shorter
+                // than that, an all-ASCII exclusion cannot equal it.
+                return offset < exclusionByteCount
+            }
+            // A non-ASCII byte in the path can case-fold or normalise in ways
+            // this scan doesn't model. Hand it over.
+            if byte > 127 { return false }
+            if asciiLowercased(byte) != prefixBytes[offset] { return true }
+        }
+
+        // The path carries the whole prefix, so it looks like a descendant.
+        // That is a "yes", and every yes is Foundation's to confirm.
+        return false
+    }
+
+    private static func asciiLowercased(_ byte: UInt8) -> UInt8 {
+        // 65...90 is A-Z; ASCII lowercase is exactly one bit away.
+        (byte >= 65 && byte <= 90) ? byte | 0x20 : byte
+    }
+
     /// True when one of the excluded paths sits inside `path`, but is not
     /// equal to `path` itself. Package-as-leaf scans use this to force descent
     /// when a user excluded something inside a package; otherwise selecting the
     /// package leaf for deletion would still remove excluded content.
+    /// Runs once per package rather than once per file, so it keeps the plain
+    /// Foundation comparison — there is nothing here worth prescreening.
+    static func containsExcludedDescendant(of path: String, in exclusions: PreparedExclusions) -> Bool {
+        containsExcludedDescendant(of: path, in: exclusions.paths)
+    }
+
     static func containsExcludedDescendant(of path: String, in exclusions: [String]) -> Bool {
         let prefix = path.hasSuffix("/") ? path : path + "/"
         return exclusions.contains { exclusion in
@@ -267,7 +371,7 @@ enum PackageDirectorySizer {
 
     static func recursiveSizeResult(
         of packageURL: URL,
-        excluding canonicalExclusions: [String] = [],
+        excluding canonicalExclusions: PathExclusionMatcher.PreparedExclusions = .init([]),
         progress: (() -> Void)? = nil
     ) async throws -> Result {
         let hasExclusions = !canonicalExclusions.isEmpty
@@ -418,7 +522,9 @@ struct FileScanner: FileScanning {
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws {
         let batchLimit = max(1, batchSize)
-        let canonicalExclusions = excluding.map(PathExclusionMatcher.canonicalize)
+        let canonicalExclusions = PathExclusionMatcher.PreparedExclusions(
+            excluding.map(PathExclusionMatcher.canonicalize)
+        )
         let hasExclusions = !canonicalExclusions.isEmpty
         var batch: [ScannedFile] = []
         batch.reserveCapacity(batchLimit)

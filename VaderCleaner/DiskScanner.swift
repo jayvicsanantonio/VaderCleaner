@@ -131,7 +131,9 @@ struct DiskScanner: DiskScanning {
         // semantics) without a per-entry symlink-resolution syscall.
         // `nil` when there are no exclusions so the common case pays
         // nothing.
-        let canonicalExclusions = excluding.map(PathExclusionMatcher.canonicalize)
+        let canonicalExclusions = PathExclusionMatcher.PreparedExclusions(
+            excluding.map(PathExclusionMatcher.canonicalize)
+        )
         let pathMapper = canonicalExclusions.isEmpty
             ? nil
             : PathExclusionMatcher.makeCanonicalPathMapper(for: resolvedRoot)
@@ -224,7 +226,7 @@ struct DiskScanner: DiskScanning {
         at url: URL,
         counter: FileCounter,
         progress: @escaping (Int) -> Void,
-        canonicalExclusions: [String],
+        canonicalExclusions: PathExclusionMatcher.PreparedExclusions,
         pathMapper: PathExclusionMatcher.CanonicalPathMapper?,
         isRoot: Bool = false,
         rootName: String? = nil
