@@ -64,8 +64,6 @@ struct UpdateInstallTools: Sendable {
     /// owned by one install attempt.
     nonisolated(unsafe) private let fileManager = FileManager.default
     private let workingDirectory: URL
-    private let log = Logger(subsystem: "com.personal.VaderCleaner",
-                             category: "UpdateInstallTools")
 
     init(workingDirectory: URL) {
         self.workingDirectory = workingDirectory

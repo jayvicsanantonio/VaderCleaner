@@ -285,13 +285,6 @@ struct UninstallerPaneView: View {
 
     private func dateText(_ date: Date?) -> String {
         guard let date else { return "—" }
-        return Self.dateFormatter.string(from: date)
+        return formattedDate(date)
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter
-    }()
 }

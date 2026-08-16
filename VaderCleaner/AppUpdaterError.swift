@@ -9,7 +9,8 @@ import Foundation
 enum AppUpdaterError: LocalizedError {
     case networkUnavailable
 
-    /// The exact copy Prompt 27 requires for an offline update check.
+    /// The one message an offline update check surfaces. Kept as a constant
+    /// so the wording can't drift between call sites.
     static let networkMessage =
         "Could not check for updates. Check your internet connection."
 

@@ -50,12 +50,6 @@ struct HealthMonitorView: View {
     /// `sectionAccent`.
     private let heroTint = NavigationSection.healthMonitor.iconAccent
 
-    /// The overall Mac Health verdict color (gray while measuring). Drives the
-    /// status dots and progress bars so they track the Mac's health at a glance.
-    private var verdictAccent: Color {
-        displayedHealth?.accentColor ?? Color(white: 0.55)
-    }
-
     /// Drives the one-shot staggered entrance of the metric tiles when the
     /// dashboard first appears, mirroring the Smart Scan results grid.
     @State private var appeared = false

@@ -172,10 +172,60 @@ final class DiskNodeTests: XCTestCase {
         XCTAssertEqual(pruned.children.first?.id, leafA.id)
     }
 
+    // MARK: - Identity
+
+    /// Identity is per-instance, not per-path: two scans of the same directory
+    /// must produce distinct ids so the UI treats the second as a fresh tree
+    /// rather than diffing it against the first.
+    func test_id_isDistinctForEveryNodeEvenAtTheSamePath() {
+        let url = URL(fileURLWithPath: "/tmp/a.bin")
+        let first = DiskNode(url: url, name: "a.bin", size: 32, isDirectory: false, children: [])
+        let second = DiskNode(url: url, name: "a.bin", size: 32, isDirectory: false, children: [])
+
+        XCTAssertNotEqual(first.id, second.id)
+    }
+
+    /// A scan builds nodes from several concurrent lanes, so whatever mints
+    /// the id has to stay unique under contention — a plain counter would
+    /// hand the same value to two lanes and collapse two tiles into one.
+    func test_id_isUniqueAcrossConcurrentCreation() async {
+        let perTask = 2_000
+        let taskCount = 8
+
+        let ids = await withTaskGroup(of: [DiskNode.ID].self) { group in
+            for _ in 0..<taskCount {
+                group.addTask {
+                    (0..<perTask).map { index in
+                        DiskNode(
+                            url: URL(fileURLWithPath: "/tmp/\(index).bin"),
+                            name: "\(index).bin",
+                            size: 1,
+                            isDirectory: false,
+                            children: []
+                        ).id
+                    }
+                }
+            }
+            var all: [DiskNode.ID] = []
+            for await batch in group { all.append(contentsOf: batch) }
+            return all
+        }
+
+        XCTAssertEqual(ids.count, perTask * taskCount)
+        XCTAssertEqual(Set(ids).count, ids.count, "Every node must get a distinct id")
+    }
+
     /// An id that isn't anywhere in the tree leaves it untouched.
     func test_removing_unknownId_isNoOp() {
         let tree = Self.sampleTree()
-        let pruned = tree.removing([UUID()])
+        let unusedID = DiskNode(
+            url: URL(fileURLWithPath: "/tmp/unrelated"),
+            name: "unrelated",
+            size: 0,
+            isDirectory: false,
+            children: []
+        ).id
+        let pruned = tree.removing([unusedID])
 
         XCTAssertEqual(pruned.children.map(\.name), tree.children.map(\.name))
         XCTAssertEqual(pruned.size, tree.size)

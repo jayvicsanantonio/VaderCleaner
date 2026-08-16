@@ -21,7 +21,7 @@ import Foundation
 /// `isAppStore` reflects the presence of `Contents/_MASReceipt/receipt`
 /// inside the bundle — the canonical Mac App Store install marker —
 /// and is reserved for future "show App Store apps separately" filters
-/// and for App Updater (Prompt 20).
+/// and for App Updater.
 struct AppInfo: Identifiable, Hashable, Sendable {
     let name: String
     let bundleID: String

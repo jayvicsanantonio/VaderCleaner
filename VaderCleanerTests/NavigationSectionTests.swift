@@ -139,10 +139,7 @@ final class NavigationSectionTests: XCTestCase {
         )
     }
 
-    func test_eachSection_hasValidSFSymbol() throws {
-        guard #available(macOS 14.0, *) else {
-            throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")
-        }
+    func test_eachSection_hasValidSFSymbol() {
         for section in NavigationSection.allCases {
             let image = NSImage(systemSymbolName: section.icon, accessibilityDescription: nil)
             XCTAssertNotNil(

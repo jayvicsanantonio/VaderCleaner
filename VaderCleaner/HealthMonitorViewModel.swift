@@ -228,7 +228,7 @@ final class HealthMonitorViewModel {
     /// Formats a unit-interval CPU usage to an integer percentage. Inputs
     /// outside `[0, 1]` clamp at the boundary — the service is expected to
     /// clamp first, but the formatter is the last line of defence and is
-    /// reused by the menu bar (Prompt 10) and Smart Scan (Prompt 25).
+    /// reused by the menu bar and Smart Scan.
     static func cpuPercentString(_ usage: Double) -> String {
         SystemStatsFormatters.cpuPercentString(usage)
     }

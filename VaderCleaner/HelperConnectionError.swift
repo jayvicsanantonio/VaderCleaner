@@ -15,7 +15,8 @@ enum HelperConnectionError: LocalizedError {
     /// app" is the same remedy.
     case timedOut
 
-    /// The exact copy Prompt 27 requires for a helper connection failure.
+    /// The one message every helper-connection failure surfaces. Kept as a
+    /// constant so the wording can't drift between call sites.
     static let message =
         "VaderCleaner Helper is not responding. Try restarting the app."
 

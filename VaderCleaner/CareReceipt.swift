@@ -31,14 +31,6 @@ struct CareReceipt: Equatable, Sendable, Codable {
         lines.reduce(0) { $0 + $1.bytesFreed }
     }
 
-    /// Lines that failed outright — the receipt calls these out in amber.
-    var failedLines: [CareReceiptLine] {
-        lines.filter {
-            if case .failed = $0.outcome { return true }
-            return false
-        }
-    }
-
     /// Whether this run moved anything to the Trash, so the receipt can offer a
     /// restore path. Junk (a permanent delete) and count-only actions never
     /// qualify — the note must not imply those are recoverable.

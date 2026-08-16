@@ -14,8 +14,8 @@ import os.log
 
 /// Three coarse buckets the Health Monitor binds color state to. Derived from
 /// `usedBytes / totalBytes`; the boundaries live on `MemoryPressureLevel`
-/// itself so any new caller (notifications in Prompt 11, the menu bar in
-/// Prompt 10) reads the same thresholds the UI does.
+/// itself, so every caller — notifications, the menu bar — reads the same
+/// thresholds the UI does.
 enum MemoryPressureLevel: Equatable {
     case nominal
     case fair
@@ -811,7 +811,7 @@ final class SystemStatsService {
             // overwriting. This matters most for FileVault: a transient
             // `fdesetup` failure must not flip the published security state
             // from "on" to "off" and trip a downstream "FileVault disabled"
-            // notification (Prompt 11). SMART gets the same treatment for
+            // notification. SMART gets the same treatment for
             // UI-flicker reasons.
             let smart = Self.readSMARTStatus()
             let fv = Self.readFileVaultEnabled()
@@ -889,8 +889,7 @@ final class SystemStatsService {
     /// expected "On" line on stdout. Treating that as a hard failure would
     /// preserve the previously published value (which defaults to `false`),
     /// so during a multi-hour encryption phase the app would report
-    /// FileVault as disabled and could trip the security-state notification
-    /// in Prompt 11.
+    /// FileVault as disabled and could trip the security-state notification.
     ///
     /// Returns `nil` only on a genuine read failure: the process couldn't
     /// be launched, stdout couldn't be decoded as UTF-8, or stdout

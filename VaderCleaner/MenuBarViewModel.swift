@@ -42,11 +42,6 @@ final class MenuBarViewModel {
         self.flushMemoryAction = flushMemory
     }
 
-    /// Boot-volume display name ("Macintosh HD"), resolved once — it never
-    /// changes for the life of the view-model and the storage tile shows it on
-    /// every render.
-    let bootVolumeName: String = HealthMonitorViewModel.rootVolumeName()
-
     // MARK: - Live-bound display values
 
     var formattedRAMUsage: String { Self.formattedRAMUsage(service.ramUsage) }
@@ -778,8 +773,8 @@ final class MenuBarViewModel {
         let ramSegment = clampedGB(ram.usedBytes)
         // Disk segment shows free space in GB — that's the number the user
         // cares about at-a-glance ("how much room do I have left?"), and it
-        // matches the `0 GB free` placeholder convention from Prompt 5 so
-        // the label width doesn't jump on first real refresh.
+        // matches the `0 GB free` placeholder shown before the first
+        // reading, so the label width doesn't jump on first real refresh.
         let freeBytes = disk.totalBytes > disk.usedBytes
             ? disk.totalBytes - disk.usedBytes
             : 0

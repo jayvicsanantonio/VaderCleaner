@@ -7,7 +7,11 @@ options:
   deploymentTarget:
     macOS: "26.0"
   defaultConfig: Debug
-  xcodeVersion: "16.0"
+  # Matches the installed Xcode so the IDE stops offering "update to
+  # recommended settings". This only stamps LastUpgradeCheck — build settings
+  # still come from this file, which is what keeps
+  # ENABLE_USER_SCRIPT_SANDBOXING pinned to NO below.
+  xcodeVersion: "26.6"
   generateEmptyDirectories: true
 
 settings:
@@ -144,3 +148,50 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.VaderCleanerUITests
         TEST_TARGET_NAME: VaderCleaner
         GENERATE_INFOPLIST_FILE: YES
+
+# The VaderCleaner scheme is declared here rather than left to Xcode's
+# implicit autocreation, so that `xcodegen generate` reproduces it. A scheme
+# that exists only as a hand-shared file in
+# `VaderCleaner.xcodeproj/xcshareddata/` does not survive regeneration, and
+# both CI and the documented test command address the project by scheme name.
+#
+# Deliberately carries no launch arguments: the Test action inherits the Run
+# action's arguments by default, and a `-welcome.hasCompleted` argument left
+# here would shadow what `WelcomeStore` writes and fail `WelcomeStoreTests`.
+# See "The `welcome.hasCompleted` flag" in CLAUDE.md.
+schemes:
+  VaderCleaner:
+    build:
+      targets:
+        VaderCleaner: all
+    run:
+      config: Debug
+      # Shipped unchecked, so a normal Run is unaffected. Tick it in the scheme
+      # editor (Product → Scheme → Edit Scheme → Run → Arguments) to replay the
+      # first-run welcome flow without editing your own preferences — the
+      # argument domain outranks the persisted value and writes nothing back.
+      #
+      # Leave it unchecked when you are done. The Test action inherits the Run
+      # action's arguments, and `NSArgumentDomain` outranks the persistent
+      # domain in *every* `UserDefaults` instance — an isolated
+      # `UserDefaults(suiteName:)` included — so a ticked argument here shadows
+      # what `WelcomeStore` writes. The welcome suites defend against exactly
+      # that with `setVolatileDomain([:], forName: .argumentDomain)`; a future
+      # test asserting a persisted value under a key a scheme might also pass
+      # needs the same line.
+      commandLineArguments:
+        "-welcome.hasCompleted NO": false
+        "-welcome.hasSeenScanHint NO": false
+    test:
+      config: Debug
+      targets:
+        - name: VaderCleanerTests
+          randomExecutionOrder: true
+        - name: VaderCleanerUITests
+          randomExecutionOrder: true
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

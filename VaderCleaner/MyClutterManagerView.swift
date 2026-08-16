@@ -558,8 +558,12 @@ struct MyClutterManagerView: View {
                     Spacer()
                 }
 
+                // Lazy so a large group only generates thumbnails for the
+                // copies actually on screen. Each strip item runs a
+                // `QLThumbnailGenerator` request on a cache miss, and an eager
+                // stack fires one per copy the moment the group is opened.
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
+                    LazyHStack(spacing: 10) {
                         ForEach(files, id: \.url) { file in
                             thumbnailStripItem(file, isOriginal: file.url == original.url, showsBestBadge: showsBestBadge)
                         }
@@ -740,15 +744,8 @@ struct MyClutterManagerView: View {
 
     private func dateText(_ date: Date?) -> String {
         guard let date else { return "—" }
-        return Self.dateFormatter.string(from: date)
+        return formattedDate(date)
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
 }
 
 /// Precomputed Large & Old facet data: each facet's files (sorted largest

@@ -209,7 +209,7 @@ final class NotificationThresholdMonitor {
 
     // MARK: - Trigger hooks for feature modules
 
-    /// Called by the malware scanner (Prompt 24) when a threat is detected.
+    /// Called by the malware scanner when a threat is detected.
     /// Stub-wired here so the cooldown + toggle gate is in place before the
     /// scanner module exists.
     func triggerMalwareDetected(threatName: String) {
@@ -221,7 +221,7 @@ final class NotificationThresholdMonitor {
         lastFired[.malware] = now()
     }
 
-    /// Called by the Large & Old Files feature (Prompt 15) once a scan
+    /// Called by the Large & Old Files feature once a scan
     /// completes. Stub-wired here so the cooldown + toggle gate is consistent
     /// with the other notification paths.
     func triggerLargeFilesFound(count: Int, totalSize: Int64) {

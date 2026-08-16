@@ -14,11 +14,11 @@ import Foundation
 /// directory and exercise every code path without touching real system
 /// locations.
 ///
-/// Privileged-helper-driven enumeration of `/Library/Caches` and
-/// `/Library/Logs` is deferred to Prompt 14 where it pairs with deletion.
-/// With Full Disk Access (granted via Prompt 4) the in-process walk reads
-/// these paths today; `FileScanner`'s permission-error tolerance handles
-/// any locked descendants.
+/// `/Library/Caches` and `/Library/Logs` are enumerated in-process rather
+/// than through the privileged helper: with Full Disk Access granted the walk
+/// reads them directly, and `FileScanner`'s permission-error tolerance skips
+/// any locked descendant instead of failing the scan. Deletion under those
+/// paths still goes through the helper.
 struct SystemJunkScanner: Sendable {
 
     /// Source of extra `ScannedFile`s that can't be read by the in-process

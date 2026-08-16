@@ -157,8 +157,8 @@ final class PreferencesStore {
 
     // MARK: - Defaults
 
-    /// Spec'd defaults from plan.md Prompt 6. Kept on the type so tests and any
-    /// future "reset to defaults" UI can reference the same constants.
+    /// The shipping defaults, kept on the type so tests and `restoreDefaults()`
+    /// reference the same constants rather than each restating a literal.
     static let defaultNotifyLowDisk = true
     static let defaultNotifyHighRAM = true
     static let defaultNotifyMalwareFound = true

@@ -4,9 +4,10 @@
 import Foundation
 import Observation
 
-/// Holds app-wide state that views need to observe. Today this is just the cached
-/// Full Disk Access flag; other always-needed flags (notification permission, helper
-/// availability, etc.) will land here as later prompts add them.
+/// Holds app-wide state that views need to observe — currently just the cached
+/// Full Disk Access flag. This is the home for a flag that more than one
+/// section needs; anything owned by a single screen belongs on that screen's
+/// view model instead.
 ///
 /// The FDA checker is injected as a closure so tests can stub the result without
 /// depending on the host machine's TCC state.

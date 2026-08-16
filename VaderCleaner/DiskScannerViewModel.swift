@@ -7,8 +7,8 @@ import AppKit
 import os.log
 
 /// Drives the Space Lens detail view. Holds the discrete `Phase` the view
-/// switches on, the breadcrumb stack the upcoming treemap UI (Prompt 17)
-/// will push/pop, and the running progress value bound to the in-flight
+/// switches on, the breadcrumb stack the treemap pushes and pops as the user
+/// drills into folders, and the running progress value bound to the in-flight
 /// scan's progress bar.
 ///
 /// All collaborators are injected — production wires
@@ -55,11 +55,9 @@ final class DiskScannerViewModel {
     /// Resets to 0 when a new scan starts, on `.error`, and on cancellation.
     private(set) var scannedItemCount: Int = 0
 
-    /// Breadcrumb stack the treemap (Prompt 17) will use to record the
-    /// user's drill-down path. Kept here because the navigation state
-    /// belongs with the scan it's navigating; the helper `drillDown(into:)`
-    /// / `navigateUp()` methods land in Prompt 17 alongside the UI that
-    /// invokes them.
+    /// Breadcrumb stack recording the user's drill-down path through the
+    /// tree. Kept here because the navigation state belongs with the scan it
+    /// is navigating; `drillDown(into:)` and `navigateUp()` push and pop it.
     var navigationPath: [DiskNode] = []
 
     /// Nodes popped by the back button, available to the forward button —
@@ -93,8 +91,8 @@ final class DiskScannerViewModel {
     var canGoBack: Bool { !navigationPath.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
 
-    /// Convenience accessor used by the upcoming view binding so the
-    /// treemap doesn't have to pattern-match on `phase` to find the root.
+    /// Convenience accessor so the treemap doesn't have to pattern-match on
+    /// `phase` every time it needs the tree's root.
     var root: DiskNode? {
         if case .ready(let node) = phase { return node }
         return nil

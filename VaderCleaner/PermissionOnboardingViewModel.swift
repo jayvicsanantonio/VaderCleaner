@@ -24,8 +24,8 @@ final class PermissionOnboardingViewModel {
     )!
 
     /// Set to `true` when the user chooses "Continue Without Access". Suppresses the
-    /// sheet for the remainder of the session — feature views still surface inline
-    /// FDA prompts where they need access (added in later prompts).
+    /// sheet for the remainder of the session — feature views still surface their
+    /// own inline Full Disk Access prompts where they need it.
     var isDismissed: Bool = false
 
     func dismiss() {

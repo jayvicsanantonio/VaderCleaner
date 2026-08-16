@@ -8,8 +8,8 @@ import Observation
 /// single `[String]` value in `UserDefaults` so the list survives relaunch.
 ///
 /// `add(path:)` is a no-op when the path is already present so the same path
-/// can never appear twice in the UI. Future prompts (notably Prompt 26) will
-/// inject this store into every scanner so exclusions take effect everywhere.
+/// can never appear twice in the UI. Every scanner takes the resolved list
+/// through its `excluding:` argument, so an exclusion applies everywhere.
 @MainActor
 @Observable
 final class ExclusionsStore {

@@ -107,25 +107,38 @@ enum TestHelpers {
         of task: Task<Success, Error>,
         within seconds: TimeInterval
     ) async throws -> Success {
-        do {
-            return try await withThrowingTaskGroup(of: Success.self) { group in
-                group.addTask { try await task.value }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                    throw TaskDeadlineExceeded(seconds: seconds)
-                }
-                defer { group.cancelAll() }
+        try await withThrowingTaskGroup(of: Success.self) { group in
+            group.addTask { try await task.value }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TaskDeadlineExceeded(seconds: seconds)
+            }
+            do {
                 guard let first = try await group.next() else {
                     throw TaskDeadlineExceeded(seconds: seconds)
                 }
+                group.cancelAll()
                 return first
+            } catch {
+                // `task.cancel()` has to happen here, *inside* the group, and
+                // before the scope exits. `group.cancelAll()` cancels our
+                // waiter child, but `await task.value` doesn't return early
+                // just because the task awaiting it was cancelled — it returns
+                // when `task` finishes. Since a task group cannot exit until
+                // every child has finished, cancelling the underlying task
+                // afterwards is too late: the group has already spent the
+                // task's full runtime waiting, and the deadline bounded
+                // nothing. Measured, with a 0.2s deadline against a 3s task:
+                // 3.20s before this ordering, 0.21s after.
+                //
+                // A task that ignores cooperative cancellation — one blocked
+                // in a synchronous read, say — still can't be hurried, and the
+                // group still waits for it. The deadline bounds tasks that
+                // respect cancellation, which is what the callers here are.
+                task.cancel()
+                group.cancelAll()
+                throw error
             }
-        } catch {
-            // Cancelling the group only unblocks *our* waiter; the task we
-            // were handed keeps running (and keeps its child process alive)
-            // unless we cancel it explicitly.
-            task.cancel()
-            throw error
         }
     }
 
