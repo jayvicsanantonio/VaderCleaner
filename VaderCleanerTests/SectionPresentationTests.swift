@@ -217,9 +217,6 @@ final class SectionPresentationTests: XCTestCase {
     }
 
     func test_everyPresentationSymbol_isAValidSFSymbol() throws {
-        guard #available(macOS 14.0, *) else {
-            throw XCTSkip("SF Symbol validation requires macOS 14.0 (the app's minimum deployment target)")
-        }
         for section in scannableSections {
             let presentation = try XCTUnwrap(SectionPresentation.for(section))
             let symbols = [presentation.heroSymbol] + presentation.features.map(\.symbol)
