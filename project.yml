@@ -185,8 +185,10 @@ schemes:
     test:
       config: Debug
       targets:
-        - VaderCleanerTests
-        - VaderCleanerUITests
+        - name: VaderCleanerTests
+          randomExecutionOrder: true
+        - name: VaderCleanerUITests
+          randomExecutionOrder: true
     profile:
       config: Release
     analyze:

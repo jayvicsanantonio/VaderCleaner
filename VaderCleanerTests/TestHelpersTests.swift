@@ -171,10 +171,11 @@ final class TestHelpersTests: XCTestCase {
     }
 
     func test_value_throwsDeadlineExceededWhenTaskOverruns() async {
-        // The overrun only needs to outlast the deadline comfortably. Kept
-        // short so this test costs ~0.2s even in the worst case where the
-        // sleep isn't interrupted — a 30s sleep here made the test itself
-        // take 30s, which is the sort of drag this helper exists to prevent.
+        // The overrun only needs to outlast the deadline comfortably. The
+        // helper cancels the task at the deadline, so this costs about the
+        // deadline (0.2s) rather than the sleep — before that cancellation was
+        // ordered correctly it cost the full 2s, which is the sort of drag
+        // this helper exists to prevent.
         let task = Task<Int, Error> {
             try await Task.sleep(nanoseconds: 2_000_000_000)
             return 1
