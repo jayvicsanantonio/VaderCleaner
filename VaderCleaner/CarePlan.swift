@@ -68,6 +68,28 @@ struct CarePlan: Equatable, Sendable {
         }
     }
 
+    /// Whether this scan produced nothing it can stand behind: every unit it
+    /// actually attempted failed — or, vacuously, it attempted none at all.
+    ///
+    /// The health snapshot is deliberately not an attempt. It rides along on
+    /// every scan and has no failure path, so counting it would leave a scan
+    /// whose every real check failed still holding one `.completed` unit —
+    /// enough to pass as a partial success and land on the results feed under
+    /// "Your Mac is in good shape".
+    var everyCheckFailed: Bool {
+        let attempted = CareScanUnit.allCases.filter { unit in
+            guard unit != .healthSnapshot else { return false }
+            switch unitOutcomes[unit] {
+            case .completed, .failed: return true
+            case .skipped, nil: return false
+            }
+        }
+        return attempted.allSatisfy { unit in
+            if case .failed = unitOutcomes[unit] { return true }
+            return false
+        }
+    }
+
     /// Units deliberately not run, in stable declaration order.
     var skippedUnits: [CareScanUnit] {
         CareScanUnit.allCases.filter {

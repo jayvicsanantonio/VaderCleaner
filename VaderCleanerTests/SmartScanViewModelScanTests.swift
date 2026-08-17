@@ -115,6 +115,26 @@ final class SmartScanViewModelScanTests: XCTestCase {
         XCTAssertFalse(message.isEmpty)
     }
 
+    /// Health telemetry rides along on every scan and has no failure path, so
+    /// it must not count as something that was checked. Counting it meant a
+    /// scan whose every real check failed still held one `.completed` unit —
+    /// and landed on the results feed under "Your Mac is in good shape" with an
+    /// all-clear card, instead of saying the scan couldn't run.
+    func test_scan_fails_whenEveryRealUnitFailed_thoughHealthCompleted() async {
+        let vm = SmartScanViewModel(scanEngine: { _, _ in
+            Self.plan(outcomes: [
+                .systemJunk: .failed(message: "no access"),
+                .malware: .failed(message: "broken"),
+                .healthSnapshot: .completed
+            ])
+        })
+        await vm.scan()
+        guard case .failed(let message) = vm.phase else {
+            return XCTFail("expected .failed, got \(vm.phase)")
+        }
+        XCTAssertEqual(message, "no access")
+    }
+
     func test_scan_partialFailure_stillLandsResults() async {
         let junk = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [Self.file("/c", size: 1)])))
         let expected = Self.plan(
@@ -303,6 +323,29 @@ final class SmartScanViewModelScanTests: XCTestCase {
         // The scan completed, but the statuses observed during it were
         // recorded; verify the terminal aggregate count survived to results.
         XCTAssertEqual(vm.scannedItemCount, 150)
+    }
+
+    /// A unit's last progress tick is emitted from the scanner's own thread
+    /// while its `unitFinished` comes from the lane, and each event takes its
+    /// own hop to the main actor — so a tick can land after the outcome. It
+    /// must not move the row back to running, or the tile sits on "Checking…"
+    /// for the rest of the scan. The count it carries still counts.
+    func test_lateProgressTick_doesNotReopenAFinishedUnit() async {
+        let vm = SmartScanViewModel(scanEngine: { _, onEvent in
+            onEvent(.unitStarted(.systemJunk))
+            onEvent(.unitProgress(.systemJunk, 120))
+            onEvent(.unitFinished(.systemJunk, .completed, nil))
+            onEvent(.unitProgress(.systemJunk, 121))
+            // Give the main-actor hops time to land before returning.
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            return Self.plan()
+        })
+        await vm.scan()
+
+        guard case .finished = vm.domainStatus(.systemJunk) else {
+            return XCTFail("Cleanup should have landed, got \(vm.domainStatus(.systemJunk))")
+        }
+        XCTAssertEqual(vm.scannedItemCount, 121, "the late tick's count still counts")
     }
 
     func test_domainStatus_rollsUpItsUnits() async {

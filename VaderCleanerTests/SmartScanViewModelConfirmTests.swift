@@ -112,6 +112,27 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         XCTAssertEqual(vm.preApprovedCount, 2, "junk and duplicates; the large-old file is opt-in")
     }
 
+    /// The hero reads `preApprovedCount` and `preApprovedFreeableBytes`, so
+    /// both have to move with the disc caption beside them. A card the user
+    /// excluded is not work Fix will do, and counting it made the hero promise
+    /// "2 things worth doing" over a disc offering one.
+    func test_excludingJunk_dropsItFromTheHeroTotalsToo() async {
+        let vm = await scannedViewModel()
+        vm.setFindingIncluded(.junkCleanup, false)
+        XCTAssertEqual(vm.preApprovedCount, 1, "only duplicates are still handled by Fix")
+        XCTAssertEqual(vm.preApprovedFreeableBytes, 40, "only the duplicate copy remains")
+    }
+
+    /// The same holds for a card left included with nothing checked: clearing a
+    /// pre-approved finding's selection in Review is how the user declines it,
+    /// and Fix skips it, so the hero must stop counting it.
+    func test_clearingAPreApprovedSelection_dropsItFromTheHeroCount() async {
+        let vm = await scannedViewModel()
+        vm.clearDuplicateSelection()
+        XCTAssertEqual(vm.preApprovedCount, 1, "duplicates with nothing checked is not work Fix will do")
+        XCTAssertEqual(vm.preApprovedFreeableBytes, 1_000, "the safe junk selection is all that is left")
+    }
+
     // MARK: - Permanent-delete detection
 
     func test_runIncludesPermanentDelete_trueWhenJunkIncluded() async {
