@@ -120,6 +120,24 @@ struct ProtectionDashboardView: View {
             .alert(item: $pendingPrivacyRemoval) { removal in
                 privacyRemovalAlert(removal)
             }
+            // The removal confirmation promises the data will be gone; when it
+            // isn't, say so rather than leaving the tile sitting there.
+            .alert(
+                String(localized: "Couldn't remove these items",
+                       comment: "Title of the alert shown when a privacy tile's removal fails."),
+                isPresented: Binding(
+                    get: { viewModel.removalFailureMessage != nil },
+                    set: { if !$0 { viewModel.dismissRemovalFailure() } }
+                )
+            ) {
+                Button(String(localized: "OK", comment: "Dismisses the privacy removal failure alert.")) {
+                    viewModel.dismissRemovalFailure()
+                }
+            } message: {
+                if let message = viewModel.removalFailureMessage {
+                    Text(message)
+                }
+            }
     }
 
     @ViewBuilder
@@ -598,17 +616,18 @@ struct ProtectionDashboardView: View {
 
     private func performPrivacyRemoval(_ removal: PrivacyRemoval) {
         Task {
-            do {
-                switch removal {
-                case .browser(let browser):
-                    try await privacy.clearData(for: browser)
-                case .recents:
-                    try await privacy.clearRecentItems()
-                }
-                _ = withAnimation { removedPrivacyTiles.insert(removal.tileID) }
-            } catch {
-                // Best-effort: leave the tile in place so the user can retry.
+            let cleared: Bool
+            switch removal {
+            case .browser(let browser):
+                cleared = await viewModel.clearPrivacyData(for: browser)
+            case .recents:
+                cleared = await viewModel.clearRecentItems()
             }
+            // A tile only retires once its data is actually gone; a failure keeps
+            // it (so the user can retry) and raises the alert below, rather than
+            // leaving a confirmed destructive action looking like a dead button.
+            guard cleared else { return }
+            _ = withAnimation { removedPrivacyTiles.insert(removal.tileID) }
         }
     }
 

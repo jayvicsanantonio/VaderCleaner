@@ -32,7 +32,7 @@ final class SmartScanViewModelUnusedAppsRunTests: XCTestCase {
 
     private nonisolated func plan(_ apps: [UnusedApp]) -> CarePlan {
         CarePlan(
-            findings: [CareFinding(kind: .unusedApps, payload: .unusedApps(apps))],
+            findings: [CareFinding(payload: .unusedApps(apps))],
             health: nil,
             unitOutcomes: [.unusedApps: .completed],
             startedAt: Date(),

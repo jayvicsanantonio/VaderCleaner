@@ -96,6 +96,46 @@ final class ExtensionsManagerViewModel {
     /// Removes a single item. On success the row is dropped and the VM
     /// returns to `.ready`; on failure the list is left intact so the user
     /// can retry.
+    /// Removes several extensions as one operation.
+    ///
+    /// Driving this from the view — `for item in targets { await remove(item) }`
+    /// — ran a *single-item* phase machine N times, so item N's `.failed` was
+    /// overwritten by item N+1's `.removing` and the failure was never rendered
+    /// anywhere. The batch's outcome is one value here instead of N overwrites,
+    /// and `.removing` is held for the whole pass so the footer can gate on it.
+    ///
+    /// Best-effort, matching `AppUninstallerViewModel.uninstallSelected()`: the
+    /// extensions that were removed are dropped from the list, and a failure is
+    /// surfaced only if something actually failed.
+    func removeSelected(_ ids: Set<ExtensionItem.ID>) async {
+        guard phase != .removing else { return }
+        let targets = items.filter { ids.contains($0.id) }
+        guard !targets.isEmpty else { return }
+
+        phase = .removing
+        var removedIDs: Set<ExtensionItem.ID> = []
+        var lastError: Error?
+        for item in targets {
+            do {
+                try await removal(item)
+                removedIDs.insert(item.id)
+            } catch {
+                // Privacy: removal errors may include user-specific paths.
+                log.error("Extension removal failed: \(String(describing: error), privacy: .private)")
+                lastError = error
+            }
+        }
+        items.removeAll { removedIDs.contains($0.id) }
+        if let lastError {
+            phase = .failed(
+                stage: .removing,
+                message: HelperConnectionError.userFacingMessage(for: lastError)
+            )
+        } else {
+            phase = .ready
+        }
+    }
+
     func remove(_ item: ExtensionItem) async {
         phase = .removing
         do {

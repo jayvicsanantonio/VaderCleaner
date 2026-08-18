@@ -23,13 +23,11 @@ final class CareVerdictEngineTests: XCTestCase {
             lastModifiedDate: nil,
             category: .userCache
         )
-        return CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file])))
+        return CareFinding(payload: .junk(ScanResult(items: [file])))
     }
 
     private var threatFinding: CareFinding {
-        CareFinding(
-            kind: .threats,
-            payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
+        CareFinding(payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
         )
     }
 
@@ -113,7 +111,7 @@ final class CareVerdictEngineTests: XCTestCase {
             lastModifiedDate: nil,
             category: .largeFile
         )
-        let finding = CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([big]))
+        let finding = CareFinding(payload: .largeOldFiles([big]))
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
         XCTAssertEqual(verdict.status, .excellent)
     }
@@ -141,18 +139,14 @@ final class CareVerdictEngineTests: XCTestCase {
     }
 
     func test_criticallyFullDiskFinding_capsTheVerdictAtCritical() {
-        let finding = CareFinding(
-            kind: .lowDiskSpace,
-            payload: .lowDiskSpace(DiskStats(usedBytes: 990, totalBytes: 1_000))
+        let finding = CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 990, totalBytes: 1_000))
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
         XCTAssertEqual(verdict.status, .critical)
     }
 
     func test_fillingButNotCriticalDiskFinding_doesNotCapAtCritical() {
-        let finding = CareFinding(
-            kind: .lowDiskSpace,
-            payload: .lowDiskSpace(DiskStats(usedBytes: 850, totalBytes: 1_000))
+        let finding = CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 850, totalBytes: 1_000))
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
         XCTAssertGreaterThan(verdict.status, .critical)
@@ -193,7 +187,7 @@ final class CareVerdictEngineTests: XCTestCase {
     }
 
     func test_detail_countsOnlyActionableFindings() {
-        let info = CareFinding(kind: .loginItems, payload: .loginItems([
+        let info = CareFinding(payload: .loginItems([
             LoginItem(id: "a", name: "Agent", isEnabled: true)
         ]))
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [info], health: healthyTelemetry))
@@ -223,7 +217,7 @@ final class CareVerdictEngineTests: XCTestCase {
     func test_detail_readyCountZero_pointsAtOptInWorkInstead() {
         // Actionable work exists but none of it is pre-approved: the hero must
         // not say "0 things worth doing" — it points at the zones below.
-        let optIn = CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([
+        let optIn = CareFinding(payload: .largeOldFiles([
             ScannedFile(url: URL(fileURLWithPath: "/big"), size: 9_000_000_000,
                         lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
         ]))

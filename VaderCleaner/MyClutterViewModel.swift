@@ -85,8 +85,20 @@ final class MyClutterViewModel {
     @ObservationIgnored private let deleter: Deleter
     @ObservationIgnored private let onLargeOldFilesFound: LargeOldFilesFoundHandler?
     @ObservationIgnored private var scanGeneration = 0
+
+    /// How many of this scan's sub-scans failed outright, and the last reason —
+    /// the evidence behind "nothing could be checked" as opposed to "nothing
+    /// was found". Reset at the start of every scan.
+    @ObservationIgnored private var failedSubScanCount = 0
+    @ObservationIgnored private var subScanFailureMessage: String?
+
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "MyClutterViewModel")
+
+    /// The sub-scans one `scan()` runs. All of them failing is the only case
+    /// that reports a failure, since any success means the dashboard has
+    /// something honest to show.
+    private static let subScanCount = 4
 
     init(
         duplicateScan: @escaping DuplicateScan,
@@ -176,7 +188,20 @@ final class MyClutterViewModel {
         }
     }
 
+    /// Only URLs the scan actually offers for review may be selected.
+    ///
+    /// The image strip wires a checkbox to *every* file in a group, including
+    /// the kept original — which is deliberately absent from the size/category
+    /// index. Selecting one used to render a checked box that contributed no
+    /// bytes, no category tally, and nothing to Remove, and then survived every
+    /// prune. Gating here makes that contradiction unrepresentable rather than
+    /// something four totals each have to shrug off.
+    private func isReviewable(_ url: URL) -> Bool {
+        categoriesByURL[url] != nil
+    }
+
     func toggleSelection(url: URL) {
+        guard isReviewable(url) else { return }
         if selectedURLs.contains(url) {
             selectedURLs.remove(url)
             totalSelectedSize -= sizeByURL[url] ?? 0
@@ -220,7 +245,7 @@ final class MyClutterViewModel {
 
     /// Bulk select/clear a set of URLs (the review manager's "Select" menu).
     func setSelection(_ urls: [URL], selected: Bool) {
-        for url in urls {
+        for url in urls where isReviewable(url) {
             let already = selectedURLs.contains(url)
             if selected, !already {
                 selectedURLs.insert(url)
@@ -244,6 +269,8 @@ final class MyClutterViewModel {
         let generation = scanGeneration
         phase = .scanning
         scannedItemCount = 0
+        failedSubScanCount = 0
+        subScanFailureMessage = nil
         resetResults()
 
         let progress = ProgressAggregator()
@@ -267,6 +294,14 @@ final class MyClutterViewModel {
 
         let (d, s, l, w) = await (dups, sims, larges, dls)
         guard scanGeneration == generation else { return }
+        // Nothing could be looked at. Falling through would land `.empty`, whose
+        // screen tells the user "Nothing to clean up" — an all-clear stated as
+        // fact about a scan that examined nothing.
+        if failedSubScanCount == Self.subScanCount, let message = subScanFailureMessage {
+            log.error("My Clutter scan failed: every sub-scan errored")
+            phase = .failed(message: message)
+            return
+        }
         // Build the selection + size/category read-model off the main actor —
         // hashing every URL of a large result on main froze the scan-complete
         // transition (see MyClutterSelectionSeed) — then re-check the
@@ -415,7 +450,10 @@ final class MyClutterViewModel {
         // `duplicateCopies` / `similarCopies`) and the phase check below.
         recomputeDerived()
         rebuildSizeMap()
-        selectedURLs.subtract(deleted)
+        // Intersected with the rebuilt index, not merely stripped of `deleted`:
+        // a URL that has left the reviewable set (its group collapsed) must not
+        // linger in the selection.
+        selectedURLs = selectedURLs.subtracting(deleted).filter { isReviewable($0) }
         totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
         recomputeSelectedCategoryTotals()
         resultsVersion &+= 1
@@ -425,6 +463,11 @@ final class MyClutterViewModel {
     /// Runs a throwing scan, logging and swallowing failures so one scanner
     /// can't sink the dashboard. Returns `nil` on failure (mapped to `[]` by
     /// the caller's `?? []`).
+    ///
+    /// A real error is also tallied, so `scan()` can tell a Mac with nothing to
+    /// sort through from one where nothing could be looked at. Cancellation is
+    /// deliberately not counted: the caller is going away, which is no evidence
+    /// that anything is broken.
     private func runCatching<T>(_ work: () async throws -> T) async -> T? {
         do {
             return try await work()
@@ -432,6 +475,8 @@ final class MyClutterViewModel {
             return nil
         } catch {
             log.error("My Clutter sub-scan failed: \(String(describing: error), privacy: .private(mask: .hash))")
+            failedSubScanCount += 1
+            subScanFailureMessage = error.localizedDescription
             return nil
         }
     }

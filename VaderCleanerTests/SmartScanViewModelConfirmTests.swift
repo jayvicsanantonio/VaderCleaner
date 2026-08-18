@@ -30,9 +30,9 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         let bigFile = Self.file("/Movies/huge.mov", size: 9_000, category: .largeFile)
         return CarePlan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(junk)),
-                CareFinding(kind: .duplicates, payload: .duplicates([dupGroup])),
-                CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([bigFile])),
+                CareFinding(payload: .junk(junk)),
+                CareFinding(payload: .duplicates([dupGroup])),
+                CareFinding(payload: .largeOldFiles([bigFile])),
             ],
             health: nil,
             unitOutcomes: [.systemJunk: .completed, .duplicates: .completed, .largeOldFiles: .completed],
@@ -85,7 +85,7 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
             Self.file("/mail/attachment", size: 5_000, category: .mailAttachments),
         ])
         let plan = CarePlan(
-            findings: [CareFinding(kind: .junkCleanup, payload: .junk(junk))],
+            findings: [CareFinding(payload: .junk(junk))],
             health: nil,
             unitOutcomes: [.systemJunk: .completed],
             startedAt: Date(),

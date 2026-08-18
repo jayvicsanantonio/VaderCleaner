@@ -42,18 +42,14 @@ final class CareFindingCopyTests: XCTestCase {
             lastModifiedDate: nil,
             category: .userCache
         )
-        let finding = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file])))
+        let finding = CareFinding(payload: .junk(ScanResult(items: [file])))
         XCTAssertEqual(CareFindingCopy.metric(for: finding), CareFindingCopy.formattedBytes(2_300_000_000))
     }
 
     func test_metric_countKinds_pluralize() {
-        let one = CareFinding(
-            kind: .threats,
-            payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/a"), threatName: "T")])
+        let one = CareFinding(payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/a"), threatName: "T")])
         )
-        let two = CareFinding(
-            kind: .threats,
-            payload: .threats([
+        let two = CareFinding(payload: .threats([
                 MalwareThreat(filePath: URL(fileURLWithPath: "/a"), threatName: "T"),
                 MalwareThreat(filePath: URL(fileURLWithPath: "/b"), threatName: "T")
             ])
@@ -69,7 +65,7 @@ final class CareFindingCopyTests: XCTestCase {
     }
 
     func test_metric_lowDiskSpace_showsPercentFull() {
-        let finding = CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(DiskStats(usedBytes: 91, totalBytes: 100)))
+        let finding = CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 91, totalBytes: 100)))
         XCTAssertTrue(CareFindingCopy.metric(for: finding).contains("91"))
     }
 

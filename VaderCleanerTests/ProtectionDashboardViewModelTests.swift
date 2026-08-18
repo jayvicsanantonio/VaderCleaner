@@ -77,6 +77,90 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(sut.malware.phase, .clean)
     }
 
+    /// A Smart Scan that never ran the malware unit — Protection switched off in
+    /// Smart Care, an unusable engine, or a failed scan — has nothing to seed.
+    /// Claiming the section was scanned swapped its intro for a dashboard whose
+    /// malware tile read "Scan Stopped" for a scan the user never started.
+    func test_prewarmFromSmartScan_withoutAMalwareResult_leavesTheIntroUp() {
+        let sut = makeSUT()
+
+        sut.prewarmFromSmartScan(threats: [], clamAVAvailable: false, scannedAt: Date())
+
+        XCTAssertFalse(sut.hasScanned)
+        XCTAssertEqual(sut.scanPresentation, .intro, "the section was never scanned")
+        XCTAssertEqual(sut.malware.phase, .idle)
+    }
+
+    /// And because it never latched, a later Smart Scan — with Protection turned
+    /// back on — still seeds. `hasScanned` is one-shot, so setting it on a
+    /// pre-warm that seeded nothing would have wasted the only chance.
+    func test_prewarmFromSmartScan_seedsOnALaterScan_afterOneWithoutAResult() {
+        let sut = makeSUT()
+        sut.prewarmFromSmartScan(threats: [], clamAVAvailable: false, scannedAt: Date())
+
+        sut.prewarmFromSmartScan(threats: [threat], clamAVAvailable: true, scannedAt: Date())
+
+        XCTAssertTrue(sut.hasScanned)
+        XCTAssertEqual(sut.malware.phase, .results([threat]))
+    }
+
+    // MARK: - Tile removal
+
+    /// The tile's Remove sits behind "This permanently deletes the selected
+    /// data. This cannot be undone." A failure that leaves the tile in place
+    /// with nothing said reads as a broken button, so the reason is captured for
+    /// the alert — and the tile stays, since its data is still there.
+    func test_clearPrivacyData_reportsTheFailure_andKeepsTheTile() async {
+        let sut = makeSUT(
+            privacyDetector: { [.safari] },
+            privacyClearer: { _, _ in throw PrivacyTileFailure.denied },
+            privacyPaths: { _, _ in [URL(fileURLWithPath: "/tmp/safari-data")] }
+        )
+        // A category is only actionable once the preview found paths for it, so
+        // the clear has to run against a real preview to reach the clearer.
+        sut.beginScan()
+        await waitUntil { sut.privacy.phase == .preview }
+
+        let cleared = await sut.clearPrivacyData(for: .safari)
+
+        XCTAssertFalse(cleared, "a failed clear must not retire the tile")
+        XCTAssertNotNil(sut.removalFailureMessage)
+    }
+
+    func test_clearPrivacyData_reportsSuccess_andRaisesNoFailure() async {
+        let sut = makeSUT(
+            privacyDetector: { [.safari] },
+            privacyPaths: { _, _ in [URL(fileURLWithPath: "/tmp/safari-data")] }
+        )
+        sut.beginScan()
+        await waitUntil { sut.privacy.phase == .preview }
+
+        let cleared = await sut.clearPrivacyData(for: .safari)
+
+        XCTAssertTrue(cleared)
+        XCTAssertNil(sut.removalFailureMessage)
+    }
+
+    func test_clearRecentItems_reportsTheFailure() async {
+        let sut = makeSUT(recentFilesClearer: { throw PrivacyTileFailure.denied })
+
+        let cleared = await sut.clearRecentItems()
+
+        XCTAssertFalse(cleared)
+        XCTAssertNotNil(sut.removalFailureMessage)
+    }
+
+    /// A retry after a failure starts from a clean slate, so a stale reason
+    /// can't sit behind a later success.
+    func test_dismissRemovalFailure_clearsTheMessage() async {
+        let sut = makeSUT(recentFilesClearer: { throw PrivacyTileFailure.denied })
+        _ = await sut.clearRecentItems()
+
+        sut.dismissRemovalFailure()
+
+        XCTAssertNil(sut.removalFailureMessage)
+    }
+
     // MARK: - Manager privacy pre-warm
 
     /// Starting a Protection scan also warms the manager's privacy model
@@ -173,7 +257,10 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
     private func makeSUT(
         malwareScan: @escaping MalwareViewModel.Scan = { _, _ in [] },
         privacyDetector: @escaping PrivacyViewModel.Detector = { [] },
-        managerBrowsers: [Browser] = []
+        managerBrowsers: [Browser] = [],
+        privacyClearer: @escaping PrivacyViewModel.Clearer = { _, _ in },
+        recentFilesClearer: @escaping PrivacyViewModel.RecentFilesClearer = { },
+        privacyPaths: @escaping PrivacyViewModel.PathsResolver = { _, _ in [] }
     ) -> ProtectionDashboardViewModel {
         let malware = MalwareViewModel(
             checkInstalled: { true },
@@ -187,13 +274,19 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         let privacy = PrivacyViewModel(
             detector: privacyDetector,
             sizer: { _, _ in 0 },
-            pathsFor: { _, _ in [] },
-            clearer: { _, _ in },
-            clearRecentFiles: { }
+            pathsFor: privacyPaths,
+            clearer: privacyClearer,
+            clearRecentFiles: recentFilesClearer
         )
         let protectionPrivacy = ProtectionPrivacyModel(
             detect: { managerBrowsers }, count: { _, _ in 0 }, items: { _, _ in [] }, remove: { _ in }
         )
         return ProtectionDashboardViewModel(malware: malware, privacy: privacy, protectionPrivacy: protectionPrivacy)
     }
+}
+
+/// Stand-in for what a real clear throws (a permission denial, a file that
+/// won't move), so the tile's failure reporting can be driven without one.
+private enum PrivacyTileFailure: Error {
+    case denied
 }

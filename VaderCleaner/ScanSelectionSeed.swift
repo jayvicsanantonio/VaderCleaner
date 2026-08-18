@@ -40,7 +40,17 @@ struct ScanSelectionSeed: Equatable, Sendable {
         from result: ScanResult,
         cacheRoots: [String] = WebDevArtifact.packageCacheRoots
     ) async -> ScanSelectionSeed {
-        build(from: result, cacheRoots: cacheRoots) { categories.contains($0) }
+        // Intersected with the auto-removal policy, not just the card's group.
+        // `CleanupGroup.systemJunk` contains `.mailAttachments` and `.iosBackups`
+        // — real user data that `isSafeToAutoRemove` refuses — so keying the seed
+        // on group membership alone opened the manager with every iOS backup and
+        // mail attachment pre-checked, seconds after the same scan's safe default
+        // had deliberately left them unchecked. A card's Review may pre-select
+        // less than the card's headline size; it must never pre-select more than
+        // the app is willing to remove unattended.
+        build(from: result, cacheRoots: cacheRoots) {
+            categories.contains($0) && $0.isSafeToAutoRemove
+        }
     }
 
     /// Whether a file in an otherwise-safe category may be checked without the

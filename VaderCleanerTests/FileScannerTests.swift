@@ -72,6 +72,72 @@ final class FileScannerTests: XCTestCase {
         XCTAssertEqual(files.filter { $0.category == .trash }.count, 1)
     }
 
+    /// Roots nest in production: `~/Library/Caches` is `.userCache` while
+    /// `~/Library/Caches/ms-playwright` is `.webDevJunk`. Walking each
+    /// independently emitted every nested file twice under two categories,
+    /// double-counting the scan's bytes. Deepest root wins.
+    func test_scan_nestedRoot_emitsEachFileOnceUnderTheDeeperCategory() async throws {
+        let cacheRoot = tempRoot.appendingPathComponent("Caches", isDirectory: true)
+        let nestedRoot = cacheRoot.appendingPathComponent("ms-playwright", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedRoot, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFiles(count: 2, size: 8, in: cacheRoot)
+        try TestHelpers.createDummyFiles(count: 3, size: 8, in: nestedRoot)
+
+        let scanner = FileScanner()
+        let files = try await scanner.scan(
+            roots: [
+                ScanRoot(url: cacheRoot, category: .userCache),
+                ScanRoot(url: nestedRoot, category: .webDevJunk)
+            ],
+            excluding: []
+        )
+
+        XCTAssertEqual(files.count, 5, "each file emitted exactly once")
+        XCTAssertEqual(Set(files.map(\.url)).count, 5, "no URL emitted twice")
+        XCTAssertEqual(files.filter { $0.category == .webDevJunk }.count, 3)
+        XCTAssertEqual(files.filter { $0.category == .userCache }.count, 2)
+    }
+
+    /// The result must not depend on how a path provider happens to order roots.
+    func test_scan_nestedRoot_isIndependentOfRootOrder() async throws {
+        let cacheRoot = tempRoot.appendingPathComponent("Caches", isDirectory: true)
+        let nestedRoot = cacheRoot.appendingPathComponent("ms-playwright", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedRoot, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFiles(count: 1, size: 8, in: cacheRoot)
+        try TestHelpers.createDummyFiles(count: 2, size: 8, in: nestedRoot)
+
+        let scanner = FileScanner()
+        let deepFirst = try await scanner.scan(
+            roots: [
+                ScanRoot(url: nestedRoot, category: .webDevJunk),
+                ScanRoot(url: cacheRoot, category: .userCache)
+            ],
+            excluding: []
+        )
+
+        XCTAssertEqual(deepFirst.count, 3)
+        XCTAssertEqual(deepFirst.filter { $0.category == .webDevJunk }.count, 2)
+    }
+
+    /// Boundary compare, not a prefix compare: a sibling whose name merely
+    /// starts with an existing root's name must keep its own files.
+    func test_nestedRootPaths_ignoresSiblingsSharingAPrefix() {
+        let caches = tempRoot.appendingPathComponent("Caches", isDirectory: true)
+        let caches2 = tempRoot.appendingPathComponent("Caches2", isDirectory: true)
+        let nested = caches.appendingPathComponent("ms-playwright", isDirectory: true)
+
+        let map = FileScanner.nestedRootPaths(of: [
+            ScanRoot(url: caches, category: .userCache),
+            ScanRoot(url: caches2, category: .userCache),
+            ScanRoot(url: nested, category: .webDevJunk)
+        ])
+
+        let cachesKey = PathExclusionMatcher.canonicalize(caches)
+        XCTAssertEqual(map[cachesKey]?.count, 1, "only the true descendant is held out")
+        XCTAssertNil(map[PathExclusionMatcher.canonicalize(caches2)])
+        XCTAssertNil(map[PathExclusionMatcher.canonicalize(nested)])
+    }
+
     func test_scan_emitsMultipleBatchesBeforeCompleting() async throws {
         try TestHelpers.createDummyFiles(count: 5, size: 8, in: tempRoot)
 

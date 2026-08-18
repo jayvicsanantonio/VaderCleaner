@@ -83,7 +83,7 @@ struct LeftoversPaneView: View {
                                toggle: { viewModel.toggleInstallationFile(file) })
                 },
                 onSelectNone: viewModel.clearInstallationFileSelection,
-                onSelectAll: viewModel.selectAllInstallationFiles,
+                onSelectAll: { viewModel.selectAllInstallationFiles(ids: $0) },
                 usesDiskIcon: true
             )
         case .leftoverFiles:
@@ -96,7 +96,7 @@ struct LeftoversPaneView: View {
                                toggle: { viewModel.toggleLeftover(group) })
                 },
                 onSelectNone: viewModel.clearLeftoverSelection,
-                onSelectAll: viewModel.selectAllLeftovers,
+                onSelectAll: { viewModel.selectAllLeftovers(ids: $0) },
                 usesDiskIcon: false
             )
         }
@@ -136,7 +136,7 @@ struct LeftoversPaneView: View {
         description: String,
         rows unpreparedRows: [DisplayRow],
         onSelectNone: @escaping () -> Void,
-        onSelectAll: @escaping () -> Void,
+        onSelectAll: @escaping (Set<String>) -> Void,
         usesDiskIcon: Bool
     ) -> some View {
         let rows = prepared(unpreparedRows)
@@ -148,7 +148,10 @@ struct LeftoversPaneView: View {
                 HStack(spacing: 6) {
                     Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
                     Menu {
-                        Button(String(localized: "All", comment: "Select all.")) { onSelectAll() }
+                        Button(String(localized: "All", comment: "Select all.")) {
+                            // The rows on screen, not the whole payload.
+                            onSelectAll(Set(prepared(rows).map(\.id)))
+                        }
                         Button(String(localized: "None", comment: "Deselect all.")) { onSelectNone() }
                     } label: {
                         Text(rows.contains(where: \.selected)

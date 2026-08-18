@@ -17,37 +17,35 @@ final class CarePlanRankerTests: XCTestCase {
     }
 
     private func junk(bytes: Int64) -> CareFinding {
-        CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file("/cache", size: bytes)])))
+        CareFinding(payload: .junk(ScanResult(items: [file("/cache", size: bytes)])))
     }
 
     private func largeOld(bytes: Int64) -> CareFinding {
-        CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([file("/big", size: bytes, category: .largeFile)]))
+        CareFinding(payload: .largeOldFiles([file("/big", size: bytes, category: .largeFile)]))
     }
 
     private var threats: CareFinding {
-        CareFinding(
-            kind: .threats,
-            payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
+        CareFinding(payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
         )
     }
 
     private var updates: CareFinding {
-        CareFinding(kind: .appUpdates, payload: .appUpdates([]))
+        CareFinding(payload: .appUpdates([]))
     }
 
     private var loginItems: CareFinding {
-        CareFinding(kind: .loginItems, payload: .loginItems([]))
+        CareFinding(payload: .loginItems([]))
     }
 
     /// A disk past the critical threshold, which escalates the card to critical.
     private var lowDisk: CareFinding {
-        CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(DiskStats(usedBytes: 95, totalBytes: 100)))
+        CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 95, totalBytes: 100)))
     }
 
     /// A disk that is filling but not critical — the fixture for tests about
     /// ordering among ordinary advisories, where escalation would be noise.
     private var mildLowDisk: CareFinding {
-        CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(DiskStats(usedBytes: 85, totalBytes: 100)))
+        CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 85, totalBytes: 100)))
     }
 
     func test_threatsLead_evenWithZeroBytes() {
@@ -114,7 +112,7 @@ final class CarePlanRankerTests: XCTestCase {
             date: now.addingTimeInterval(-86_400),
             lines: [CareReceiptLine(kind: .installers, itemsProcessed: 4, bytesFreed: 0, outcome: .success)]
         )
-        let regrown = CareFinding(kind: .installers, payload: .installers((0..<4).map {
+        let regrown = CareFinding(payload: .installers((0..<4).map {
             InstallationFile(
                 url: URL(fileURLWithPath: "/Downloads/app\($0).dmg"),
                 name: "app\($0).dmg",

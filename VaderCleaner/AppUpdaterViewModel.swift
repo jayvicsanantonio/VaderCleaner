@@ -246,12 +246,7 @@ final class AppUpdaterViewModel {
     func skip(_ info: UpdateInfo) {
         guard let suppression else { return }
         suppression.skip(info)
-        availableUpdates.removeAll { $0.id == info.id }
-        guard !skippedUpdates.contains(where: { $0.id == info.id }) else { return }
-        skippedUpdates.append(info)
-        skippedUpdates.sort {
-            $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-        }
+        rebuildAvailableUpdates()
     }
 
     /// Undoes a skip, so the app's pending update is offered again on the
@@ -259,14 +254,9 @@ final class AppUpdaterViewModel {
     func clearSkip(forBundleID bundleID: String) {
         guard let suppression else { return }
         suppression.clearSkip(forBundleID: bundleID)
-        // Move it straight back into the offered list rather than making
-        // the user re-run a whole check to see the effect.
-        let restored = skippedUpdates.filter { $0.bundleID == bundleID }
-        skippedUpdates.removeAll { $0.bundleID == bundleID }
-        availableUpdates.append(contentsOf: restored)
-        availableUpdates.sort {
-            $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-        }
+        // Re-derived rather than moved by hand: appending to the offered list
+        // duplicated a row whose id was still in `directUpdates`.
+        rebuildAvailableUpdates()
     }
 
     /// Applies a batch of updates.
@@ -312,7 +302,10 @@ final class AppUpdaterViewModel {
         let inputs = readSigningInputs(info.bundleURL)
         switch await install(info, inputs.feedURL, inputs.publicEDKey) {
         case .installed:
-            availableUpdates.removeAll { $0.id == info.id }
+            // Remove from the source, or the next rebuild resurrects an update
+            // that has already been applied.
+            directUpdates.removeAll { $0.id == info.id }
+            rebuildAvailableUpdates()
             installFallbacks[info.id] = nil
             return true
         case .denied(let reason):
@@ -344,21 +337,16 @@ final class AppUpdaterViewModel {
         from updates: [UpdateInfo],
         installedIn apps: [AppInfo]
     ) -> [UpdateInfo] {
-        guard let suppression else {
-            skippedUpdates = []
-            return updates
-        }
+        guard let suppression else { return updates }
         suppression.pruneSkips(
             installedVersionsByBundleID: Dictionary(
                 apps.map { ($0.bundleID, $0.version ?? "0") },
                 uniquingKeysWith: { first, _ in first }
             )
         )
-        let declined = suppression.snapshot()
-        skippedUpdates = updates
-            .filter { declined.suppresses($0) }
-            .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
-        return updates.filter { !declined.suppresses($0) }
+        // Returns every update the probe found; `rebuildAvailableUpdates()`
+        // splits offered from skipped, so the split exists in exactly one place.
+        return updates
     }
 
     /// Recombines the probe's updates with the Homebrew-managed ones into
@@ -386,8 +374,18 @@ final class AppUpdaterViewModel {
                 homebrewToken: managed.token
             )
         }
+        // The one place either list is written. `declined` applies to both
+        // sources: filtering only the brew rows meant a skipped *direct* update
+        // was re-offered by the next rebuild, landing it in the available list
+        // and the skipped facet at the same time.
         let declined = suppression?.snapshot() ?? UpdateSuppressionSnapshot()
-        availableUpdates = (directUpdates + brewRows.filter { !declined.suppresses($0) })
+        let offered = (directUpdates + brewRows).filter { !declined.suppresses($0) }
+        availableUpdates = offered
+            .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+        // Skipped stays scoped to the direct updates, as before: a suppressed
+        // brew row is withheld from the offer but is brew's to re-surface.
+        skippedUpdates = directUpdates
+            .filter { declined.suppresses($0) }
             .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
     }
 

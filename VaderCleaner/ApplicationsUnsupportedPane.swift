@@ -85,7 +85,11 @@ struct UnsupportedPaneView: View {
                 HStack(spacing: 6) {
                     Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
                     Menu {
-                        Button(String(localized: "All", comment: "Select all.")) { viewModel.selectAllUnsupportedApps() }
+                        Button(String(localized: "All", comment: "Select all.")) {
+                            viewModel.selectAllUnsupportedApps(
+                                ids: Set(displayedApps.map(\.app.bundleURL.path))
+                            )
+                        }
                         Button(String(localized: "None", comment: "Deselect all.")) { viewModel.clearUnsupportedAppSelection() }
                     } label: {
                         Text(result.unsupportedApps.contains(where: viewModel.isUnsupportedAppSelected)

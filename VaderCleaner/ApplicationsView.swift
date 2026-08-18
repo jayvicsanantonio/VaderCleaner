@@ -158,7 +158,9 @@ struct ApplicationsView: View {
                 onOpenUpdates: { openManager(.updater) },
                 onOpenLeftovers: { openManager(.leftovers) },
                 onRemoveLeftovers: {
-                    viewModel.selectAllLeftovers()
+                    // The card's action is deliberately whole-payload; now
+                    // that select-all is scoped, that has to be stated.
+                    viewModel.selectAllLeftovers(ids: Set(result.leftovers.map(\.bundleID)))
                     Task { await viewModel.deleteSelectedLeftovers() }
                 }
             )

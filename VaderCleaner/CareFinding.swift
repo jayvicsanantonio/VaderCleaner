@@ -127,8 +127,33 @@ struct CareFinding: Identifiable, Equatable, Sendable {
         case maintenanceDue(taskIDs: [String])
         case browserPrivacy([BrowserPrivacySummary])
         case lowDiskSpace(DiskStats)
+        /// The `Kind` this payload is. The single place the two enums are
+        /// related; `CareFinding.init` reads it so the pair can never disagree.
+        var kind: Kind {
+            switch self {
+            case .junk: return .junkCleanup
+            case .threats: return .threats
+            case .duplicates: return .duplicates
+            case .similarImages: return .similarImages
+            case .downloads: return .downloads
+            case .unsupportedApps: return .unsupportedApps
+            case .extensions: return .extensions
+            case .backgroundItems: return .backgroundItems
+            case .largeOldFiles: return .largeOldFiles
+            case .unusedApps: return .unusedApps
+            case .appLeftovers: return .appLeftovers
+            case .installers: return .installers
+            case .appUpdates: return .appUpdates
+            case .loginItems: return .loginItems
+            case .maintenanceDue: return .maintenanceDue
+            case .browserPrivacy: return .browserPrivacy
+            case .lowDiskSpace: return .lowDiskSpace
+            }
+        }
     }
 
+    /// Derived from `payload` — see `Payload.kind`. Stored rather than computed
+    /// because the feed reads it on every render.
     let kind: Kind
     let payload: Payload
 
@@ -146,8 +171,13 @@ struct CareFinding: Identifiable, Equatable, Sendable {
 
     var id: String { kind.rawValue }
 
-    init(kind: Kind, payload: Payload) {
-        self.kind = kind
+    /// The payload *is* the discriminant, so it is the only thing a caller
+    /// supplies. Passing both let a finding be built whose kind and payload
+    /// disagreed — 272 such combinations were representable, and every one
+    /// failed silently (the card's title came from `kind`, its metric from
+    /// `payload`, and the Run pass read `payload` and quietly did nothing).
+    init(payload: Payload) {
+        self.kind = payload.kind
         self.payload = payload
         self.itemCount = Self.itemCount(of: payload)
         self.reclaimableBytes = Self.reclaimableBytes(of: payload)

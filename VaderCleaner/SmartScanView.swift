@@ -378,7 +378,7 @@ struct SmartScanView: View {
 #Preview("Results") {
     let plan = CarePlan(
         findings: [
-            CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
+            CareFinding(payload: .junk(ScanResult(items: [
                 ScannedFile(
                     url: URL(fileURLWithPath: "/Users/me/Library/Caches/big"),
                     size: 1_500_000_000,
@@ -387,13 +387,13 @@ struct SmartScanView: View {
                     category: .userCache
                 )
             ]))),
-            CareFinding(kind: .threats, payload: .threats([
+            CareFinding(payload: .threats([
                 MalwareThreat(
                     filePath: URL(fileURLWithPath: "/Users/me/Downloads/evil.bin"),
                     threatName: "Eicar-Test-Signature"
                 )
             ])),
-            CareFinding(kind: .loginItems, payload: .loginItems([
+            CareFinding(payload: .loginItems([
                 LoginItem(id: "com.example.helper", name: "Example Helper", isEnabled: true)
             ])),
         ],

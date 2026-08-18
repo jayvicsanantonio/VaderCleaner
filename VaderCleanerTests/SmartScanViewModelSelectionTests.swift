@@ -48,12 +48,12 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
         ])
         return CarePlan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: junkFiles))),
-                CareFinding(kind: .threats, payload: .threats(threats)),
-                CareFinding(kind: .appUpdates, payload: .appUpdates(updates)),
-                CareFinding(kind: .duplicates, payload: .duplicates([group])),
-                CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
-                CareFinding(kind: .loginItems, payload: .loginItems([
+                CareFinding(payload: .junk(ScanResult(items: junkFiles))),
+                CareFinding(payload: .threats(threats)),
+                CareFinding(payload: .appUpdates(updates)),
+                CareFinding(payload: .duplicates([group])),
+                CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
+                CareFinding(payload: .loginItems([
                     LoginItem(id: "x", name: "Agent", isEnabled: true)
                 ]))
             ],
@@ -156,7 +156,7 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
             source: .sparkle, updateURL: URL(string: "https://example.com/direct")!
         )
         let plan = CarePlan(
-            findings: [CareFinding(kind: .appUpdates, payload: .appUpdates([fromAppStore, fromSparkle]))],
+            findings: [CareFinding(payload: .appUpdates([fromAppStore, fromSparkle]))],
             health: nil,
             unitOutcomes: [.appUpdates: .completed],
             startedAt: Date(),
@@ -194,7 +194,7 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
             source: .appStore, updateURL: URL(string: "https://example.com")!
         )
         let plan = CarePlan(
-            findings: [CareFinding(kind: .appUpdates, payload: .appUpdates([inApplications, inHome]))],
+            findings: [CareFinding(payload: .appUpdates([inApplications, inHome]))],
             health: nil,
             unitOutcomes: [.appUpdates: .completed],
             startedAt: Date(),

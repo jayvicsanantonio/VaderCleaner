@@ -513,6 +513,29 @@ struct FileScanner: FileScanning {
         )
     }
 
+    /// Canonical paths of the roots strictly nested beneath each root, keyed by
+    /// the ancestor's canonical path.
+    ///
+    /// Strict descendant only, compared on a path boundary: `~/Library/Caches`
+    /// must claim `~/Library/Caches/ms-playwright` but not a sibling
+    /// `~/Library/Caches2`, and a root never claims itself. Order-independent,
+    /// so the result does not depend on how a path provider happens to list
+    /// its roots.
+    static func nestedRootPaths(of roots: [ScanRoot]) -> [String: [String]] {
+        let paths = roots.map { PathExclusionMatcher.canonicalize($0.url) }
+        guard paths.count > 1 else { return [:] }
+        var nested: [String: [String]] = [:]
+        for (outerIndex, outer) in paths.enumerated() {
+            let prefix = outer.hasSuffix("/") ? outer : outer + "/"
+            for (innerIndex, inner) in paths.enumerated() where innerIndex != outerIndex {
+                if inner.hasPrefix(prefix) {
+                    nested[outer, default: []].append(inner)
+                }
+            }
+        }
+        return nested
+    }
+
     func scan(
         roots: [ScanRoot],
         excluding: [URL],
@@ -522,9 +545,23 @@ struct FileScanner: FileScanning {
         onBatch: ([ScannedFile]) async throws -> Void
     ) async throws {
         let batchLimit = max(1, batchSize)
-        let canonicalExclusions = PathExclusionMatcher.PreparedExclusions(
-            excluding.map(PathExclusionMatcher.canonicalize)
-        )
+        let userExclusions = excluding.map(PathExclusionMatcher.canonicalize)
+        // Roots may nest: `~/Library/Caches` is a `.userCache` root while
+        // `~/Library/Caches/ms-playwright` is a `.webDevJunk` root. Walking each
+        // independently emitted every nested file *twice*, under two different
+        // categories — double-counting `ScanResult.totalSize` and leaving the
+        // per-category tallies unable to agree with a URL-keyed selection. The
+        // same aliasing hazard was already patched by hand once, for the boot
+        // volume's `.Trashes` firmlink (see `DefaultSystemPathProvider.roots`).
+        //
+        // Deepest root wins: a nested root's subtree is held out of its
+        // ancestor's walk, so those files are emitted once, under the most
+        // specific category. Folding the held-out paths into the ancestor's own
+        // exclusion list means the existing per-item check does the work and
+        // `skipDescendants()` prunes the subtree — so this is strictly faster
+        // than walking it twice, not an extra pass.
+        let nestedByRoot = Self.nestedRootPaths(of: roots)
+        let canonicalExclusions = PathExclusionMatcher.PreparedExclusions(userExclusions)
         let hasExclusions = !canonicalExclusions.isEmpty
         var batch: [ScannedFile] = []
         batch.reserveCapacity(batchLimit)
@@ -542,9 +579,17 @@ struct FileScanner: FileScanning {
         for root in roots {
             try Task.checkCancellation()
 
-            let pathMapper = hasExclusions ? PathExclusionMatcher.makeCanonicalPathMapper(for: root.url) : nil
+            let nested = nestedByRoot[PathExclusionMatcher.canonicalize(root.url)] ?? []
+            // Prepared per root now, because the held-out descendants differ per
+            // root. The list is empty for every root that contains no other, so
+            // the common case allocates nothing extra.
+            let rootExclusions = nested.isEmpty
+                ? canonicalExclusions
+                : PathExclusionMatcher.PreparedExclusions(userExclusions + nested)
+            let needsMapper = hasExclusions || !nested.isEmpty
+            let pathMapper = needsMapper ? PathExclusionMatcher.makeCanonicalPathMapper(for: root.url) : nil
             if let pathMapper {
-                if PathExclusionMatcher.isExcluded(path: pathMapper.canonicalRootPath, by: canonicalExclusions) {
+                if PathExclusionMatcher.isExcluded(path: pathMapper.canonicalRootPath, by: rootExclusions) {
                     continue
                 }
             }
@@ -604,7 +649,7 @@ struct FileScanner: FileScanning {
                 // symlink-resolution I/O for every item.
                 let canonicalPath = pathMapper?.canonicalPath(for: url)
                 if let canonicalPath,
-                   PathExclusionMatcher.isExcluded(path: canonicalPath, by: canonicalExclusions) {
+                   PathExclusionMatcher.isExcluded(path: canonicalPath, by: rootExclusions) {
                     if resourceValues?.isDirectory == true {
                         enumerator.skipDescendants()
                     }
@@ -630,7 +675,7 @@ struct FileScanner: FileScanning {
                     if let canonicalPath,
                        PathExclusionMatcher.containsExcludedDescendant(
                         of: canonicalPath,
-                        in: canonicalExclusions
+                        in: rootExclusions
                     ) {
                         continue
                     }

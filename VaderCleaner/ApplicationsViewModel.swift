@@ -340,9 +340,15 @@ final class ApplicationsViewModel {
 
     /// Opt every found installer in for removal in one write to the selection
     /// set, so SwiftUI observes a single publish instead of N.
-    func selectAllInstallationFiles() {
+    /// `ids` are row ids (`url.path`) — the rows the caller can actually see.
+    /// Reading the whole payload instead meant "Select: All" under an active
+    /// search opted in every installer in the scan, and Remove then trashed
+    /// them: a destructive action silently wider than the list on screen.
+    func selectAllInstallationFiles(ids: Set<String>) {
         guard case .results(let result) = phase else { return }
-        installationFileSelection = Set(result.installationFiles.map(\.url))
+        installationFileSelection = Set(
+            result.installationFiles.filter { ids.contains($0.url.path) }.map(\.url)
+        )
     }
 
     /// Opt every installer back out — single-write counterpart to
@@ -396,9 +402,13 @@ final class ApplicationsViewModel {
         }
     }
 
-    func selectAllUnsupportedApps() {
+    /// `ids` are row ids (`app.bundleURL.path`) — see
+    /// `selectAllInstallationFiles(ids:)` for why this is scoped.
+    func selectAllUnsupportedApps(ids: Set<String>) {
         guard case .results(let result) = phase else { return }
-        unsupportedAppSelection = Set(result.unsupportedApps.map(\.app.bundleURL))
+        unsupportedAppSelection = Set(
+            result.unsupportedApps.filter { ids.contains($0.app.bundleURL.path) }.map(\.app.bundleURL)
+        )
     }
 
     func clearUnsupportedAppSelection() {
@@ -455,9 +465,11 @@ final class ApplicationsViewModel {
         }
     }
 
-    func selectAllLeftovers() {
+    /// `ids` are row ids (`bundleID`) — see `selectAllInstallationFiles(ids:)`
+    /// for why this is scoped.
+    func selectAllLeftovers(ids: Set<String>) {
         guard case .results(let result) = phase else { return }
-        leftoverSelection = Set(result.leftovers.map(\.bundleID))
+        leftoverSelection = Set(result.leftovers.map(\.bundleID)).intersection(ids)
     }
 
     func clearLeftoverSelection() {

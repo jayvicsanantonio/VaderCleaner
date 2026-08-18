@@ -32,17 +32,15 @@ final class CareSeverityEngineTests: XCTestCase {
     }
 
     private func junk(bytes: Int64) -> CareFinding {
-        CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file("/cache", size: bytes)])))
+        CareFinding(payload: .junk(ScanResult(items: [file("/cache", size: bytes)])))
     }
 
     private func largeOld(bytes: Int64) -> CareFinding {
-        CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([file("/big", size: bytes, category: .largeFile)]))
+        CareFinding(payload: .largeOldFiles([file("/big", size: bytes, category: .largeFile)]))
     }
 
     private func lowDisk(usedRatio: Double) -> CareFinding {
-        CareFinding(
-            kind: .lowDiskSpace,
-            payload: .lowDiskSpace(DiskStats(usedBytes: UInt64(usedRatio * 1_000), totalBytes: 1_000))
+        CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: UInt64(usedRatio * 1_000), totalBytes: 1_000))
         )
     }
 
@@ -58,7 +56,7 @@ final class CareSeverityEngineTests: XCTestCase {
                 updateURL: URL(string: "https://example.com")!
             )
         }
-        return CareFinding(kind: .appUpdates, payload: .appUpdates(list))
+        return CareFinding(payload: .appUpdates(list))
     }
 
     private func severity(_ finding: CareFinding, _ context: CareSeverityContext = .none) -> CareSeverity {
@@ -213,7 +211,7 @@ final class CareSeverityEngineTests: XCTestCase {
                 kind: .diskImage
             )
         }
-        return CareFinding(kind: .installers, payload: .installers(files))
+        return CareFinding(payload: .installers(files))
     }
 
     func test_regrowth_firesWithinTheWindow_atHalfTheClearedCount() {
@@ -270,9 +268,7 @@ final class CareSeverityEngineTests: XCTestCase {
         // Reporting it as "back since your last cleanup" would frame correct
         // behaviour as a complaint.
         let ctx = history([receipt(kind: .junkCleanup, itemsProcessed: 100, daysAgo: 1)])
-        let regrown = CareFinding(
-            kind: .junkCleanup,
-            payload: .junk(ScanResult(items: (0..<100).map { file("/cache/\($0)", size: 1_000) }))
+        let regrown = CareFinding(payload: .junk(ScanResult(items: (0..<100).map { file("/cache/\($0)", size: 1_000) }))
         )
         XCTAssertFalse(hasRegrowthSignal(severity(regrown, ctx)))
         XCTAssertEqual(severity(regrown, ctx).score, severity(regrown).score, accuracy: 0.0001)
@@ -282,7 +278,7 @@ final class CareSeverityEngineTests: XCTestCase {
         // A tune-up that never came due again would not be routine. Same
         // category error as junk, and the same answer.
         let ctx = history([receipt(kind: .maintenanceDue, itemsProcessed: 2, daysAgo: 1)])
-        let due = CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"]))
+        let due = CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"]))
         XCTAssertFalse(hasRegrowthSignal(severity(due, ctx)))
         XCTAssertEqual(severity(due, ctx).score, severity(due).score, accuracy: 0.0001)
     }
@@ -315,7 +311,7 @@ final class CareSeverityEngineTests: XCTestCase {
             file("/Pictures/a.jpg", size: bytes, category: .largeFile),
             file("/Pictures/b.jpg", size: bytes, category: .largeFile),
         ])
-        return CareFinding(kind: .similarImages, payload: .similarImages([group]))
+        return CareFinding(payload: .similarImages([group]))
     }
 
     func test_decliningBelowTheThreshold_changesNothing() {
@@ -362,9 +358,7 @@ final class CareSeverityEngineTests: XCTestCase {
     }
 
     func test_declines_neverQuietThreats() {
-        let threat = CareFinding(
-            kind: .threats,
-            payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
+        let threat = CareFinding(payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
         )
         let result = severity(threat, declined([.threats: 500]))
         XCTAssertEqual(result.urgency, .critical)
