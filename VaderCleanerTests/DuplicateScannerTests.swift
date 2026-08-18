@@ -124,4 +124,41 @@ final class DuplicateScannerTests: XCTestCase {
 
         XCTAssertTrue(groups.isEmpty, "Files sharing only a prefix must not be reported as duplicates")
     }
+
+    // MARK: - Shared storage
+
+    /// A hard link is a second name for one inode, so it is byte-identical to
+    /// its twin by construction and survives every tier of the hash. Trashing it
+    /// frees nothing — the bytes live on under the other name — so reporting it
+    /// as a redundant copy promises space no cleanup can return.
+    func test_hardLinkIsNotAReclaimableCopy() async throws {
+        let original = try write("original.bin", "content shared by one inode")
+        try FileManager.default.linkItem(
+            at: original,
+            to: root.appendingPathComponent("hardlink.bin")
+        )
+
+        let groups = try await scan()
+
+        XCTAssertTrue(groups.isEmpty, "One inode under two names is not a duplicate to reclaim")
+    }
+
+    /// And a hard link alongside a genuine copy must not inflate that group: the
+    /// real copy is still reclaimable, the extra name is not.
+    func test_hardLinkDoesNotInflateAGenuineDuplicateGroup() async throws {
+        let original = try write("original.bin", "same bytes in three names")
+        try write("realcopy.bin", "same bytes in three names")
+        try FileManager.default.linkItem(
+            at: original,
+            to: root.appendingPathComponent("hardlink.bin")
+        )
+
+        let groups = try await scan()
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(
+            groups[0].redundantCopies.count, 1,
+            "Only the real copy is reclaimable; the hard link shares the original's bytes"
+        )
+    }
 }
