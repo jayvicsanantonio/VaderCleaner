@@ -3,13 +3,20 @@
 
 import XCTest
 
-/// We never wait for a Smart Scan to *finish* here — it walks the entire home
-/// directory and runs `clamscan` for tens of seconds, which would make the
-/// test slow and flaky, and there is no mock mode. The scan / aggregation /
-/// run contracts are covered exhaustively by `SmartScanViewModelScanTests` /
-/// `SmartScanViewModelRunTests` against injected fakes. The Scan tap below
-/// only asserts the section reaches its checklist (working) state and
-/// returns immediately — `tearDown` terminates the app, killing the walk.
+/// The fast tests here never wait for a Smart Scan to *finish* — it walks the
+/// entire home directory and runs `clamscan` for tens of seconds, and there is
+/// no mock mode. The scan / aggregation / run contracts are covered
+/// exhaustively by `SmartScanViewModelScanTests` / `SmartScanViewModelRunTests`
+/// against injected fakes. The Scan tap below only asserts the section reaches
+/// its checklist (working) state and returns immediately — `tearDown`
+/// terminates the app, killing the walk.
+///
+/// The one exception is `test_returningToSmartScan_afterLeavingAReviewOpen_...`,
+/// which needs a real results feed and so pays for a whole scan. It is the only
+/// automated proof that the Fix disc survives a section switch, because the
+/// defect it guards lives in SwiftUI view lifetime and has no unit-testable
+/// seam. Budget minutes for it, and expect it to be meaningful only on a Mac
+/// with something to clean.
 @MainActor
 final class SmartScanUITests: XCTestCase {
 
@@ -77,6 +84,71 @@ final class SmartScanUITests: XCTestCase {
                 "Expected a checklist tile for the \(domain) domain"
             )
         }
+    }
+
+    /// Regression: leaving a Review open and switching sections used to strand
+    /// the results feed. `SmartScanView` mirrors its local `review` state onto
+    /// the view model so the Fix disc — hosted in a separate panel — can hide
+    /// behind an open Review, and that mirror was written only by an `onChange`.
+    /// ContentView scopes the view's lifetime with `.id(selectedSection)`, so
+    /// switching away destroyed `review` without firing the change, leaving the
+    /// mirror stuck. The disc stayed hidden, and its tap is the app's only route
+    /// into `requestRun()`, so the scan could not be run at all until the user
+    /// reopened and closed a Review or pressed Start Over.
+    ///
+    /// Slow by necessity: the disc only exists on a finished scan with work to
+    /// do, and there is no way to seed that state without a mock mode.
+    func test_returningToSmartScan_afterLeavingAReviewOpen_restoresTheFixDisc() throws {
+        dismissOnboardingIfNeeded()
+
+        let scanButton = app.buttons["section.smartScan.scan"]
+        XCTAssertTrue(scanButton.waitForExistence(timeout: 10), "Expected the floating Scan button")
+        scanButton.click()
+        proceedPastScanAccessPopoverIfNeeded()
+
+        // A full walk plus clamscan. Generous, because the point of the test is
+        // what happens after the feed lands, not how fast it lands.
+        let feed = app.descendants(matching: .any)["smartScan.resultsFeed"]
+        XCTAssertTrue(
+            feed.waitForExistence(timeout: 600),
+            "Expected the results feed once the scan finishes"
+        )
+
+        let disc = app.buttons["smartScan.run"]
+        try XCTSkipUnless(
+            disc.waitForExistence(timeout: 15),
+            "This Mac's scan found no executable work, so there is no Fix disc to strand"
+        )
+
+        // Open whichever Review this machine's plan actually offers.
+        let review = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "smartScan.card.", ".review")
+        ).firstMatch
+        XCTAssertTrue(review.waitForExistence(timeout: 10), "Expected at least one card with a Review affordance")
+        review.click()
+        // Wait for the disc to *go*, rather than sampling `exists` straight
+        // after the click and reading the pre-click state as a pass.
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: disc)
+        waitForExpectations(timeout: 10)
+
+        // Leave the section with the Review still open, then come back. The
+        // Performance intro's own floating Scan button is the cheapest proof
+        // the switch actually landed.
+        app.buttons["sidebar.performance"].firstMatch.click()
+        XCTAssertTrue(
+            app.buttons["section.performance.scan"].waitForExistence(timeout: 10),
+            "Expected the Performance section after switching"
+        )
+        app.buttons["sidebar.smartScan"].firstMatch.click()
+
+        XCTAssertTrue(
+            feed.waitForExistence(timeout: 10),
+            "Expected the results feed again on return — the scan is still finished"
+        )
+        XCTAssertTrue(
+            disc.waitForExistence(timeout: 10),
+            "The Fix disc must come back on return; without it the scan cannot be run at all"
+        )
     }
 
     /// Dismisses the Full Disk Access onboarding sheet when the test machine

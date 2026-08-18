@@ -93,6 +93,18 @@ struct SmartScanView: View {
             .onChange(of: review) { _, newReview in
                 viewModel.setReviewing(newReview != nil)
             }
+            // `onChange` fires only on an edge, and this view's lifetime is
+            // scoped by `.id(selectedSection)` in ContentView: switching
+            // sections while a Review is open destroys `review` without firing
+            // it, so the mirror stays true with nothing left to clear it. The
+            // Fix disc reads that mirror, and its tap is the app's only call to
+            // `requestRun()` — a stale `true` leaves the results feed unable to
+            // run at all. Re-establish the mirror from the view's own state on
+            // every mount, so a returning section always agrees with what is
+            // actually on screen.
+            .onAppear {
+                viewModel.setReviewing(review != nil)
+            }
     }
 
     /// Stable per-phase token so moving between scan phases crossfades
