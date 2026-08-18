@@ -509,3 +509,144 @@ steps are non-throwing. **Both were coordinator leads; both refuted.** Recorded 
 Reviewed + coordinator-validated: 20 of 27 (all 5 final-batch lanes landed; S17+S03 validated).
 Findings: 36 accepted / 12 implemented + verified / 24 open.
 STILL NOT DONE: the audit-the-audit passes, and a validated dependency ranking across all 36.
+
+---
+
+# AUDIT-THE-AUDIT (the five passes the report above says were never run)
+
+**Baseline:** branch `audit/validate-and-f28` @ `607f42f`, clean tree, 2292 unit
+tests / 0 failures re-measured before any change. Every line number, count and
+status below was re-derived from the tree at that commit, not copied from above.
+
+**Headline:** the audit's *evidence* holds up well — every file:line anchor I
+re-checked resolves to what it claims, and the two structural contracts
+(partition arithmetic, subsystem file counts) are exact. Its *accounting* does
+not: two findings do not exist, and the remedy attached to one finding is out
+of proportion to it. Nothing was rejected on the facts; four items are demoted.
+
+## Pass 1 — Coverage
+
+**Holds.** The 285/285 partition is real and arithmetically sound: the Files
+column sums to exactly 285 across S01–S23, with no double-count and no gap, and
+`VaderCleaner/**` contains exactly 285 `.swift` files today. S15's "5+4" matches
+`Shared/` (3) + `VaderCleanerHelper/` (1). S25's 11 matches `VaderCleanerUITests/`.
+
+**One real gap, and it is load-bearing.** S24 is scoped to
+`VaderCleanerTests/Helpers`, which is **2 files** (`TestBox.swift`,
+`TestHelpers.swift`). The test target has **218**. So 216 test files sit in no
+subsystem — and that is where the audit's own test-code findings live:
+
+- All 16 helper-protocol spies F31 is about are in the 216 (`HelperReachabilityTests`,
+  `SystemJunkDeleterTests`, `MaintenanceTaskRunnersTests`, `RAMManagerTests`,
+  `LaunchAgentManagerTests`, `MaintenanceScriptRunnerTests`, `HelperCallTests`,
+  `MalwareThreatRemoverTests`). Count re-verified: exactly 16 conformers.
+- `BrewTestDoubles.swift` — the stub-fidelity half of F33, the audit's sharpest
+  test-code finding — is at `VaderCleanerTests/BrewTestDoubles.swift`, also outside S24.
+
+Both findings were reached by lanes working *outside* their stated boundary. So
+"ALL 27 SUBSYSTEMS HAVE REPORTS" is true as written, and "everything has been
+looked at" is not. **S24's boundary should read `VaderCleanerTests/` (218 files).**
+
+Also unpartitioned: 3 tracked `.swift` files outside all five roots
+(`Scripts/generate-*.swift`). They fall inside S26's hand-added scope, but were
+never in the mechanical partition.
+
+## Pass 2 — Schema completeness
+
+**Fails.** **F17 and F18 do not exist.** 33 numbered findings are defined
+(F1–F16, F19–F35); the ID space has a two-slot hole, and nothing in the document
+acknowledges it.
+
+Total writeups: 33 numbered + 1 unnumbered (the Homebrew `:231` post-upgrade
+`try?`, ranked #15 but never given an ID) = **34**.
+
+The two missing findings were *fixed* in `f4fd3b6` but never written up —
+`grep everyCheckFailed docs/simplification-audit.md` returns nothing:
+
+- `MyClutterViewModel.scan()` documented a `.failed` phase it never assigned, so
+  a scan whose every sub-scan failed landed in `.empty`.
+- `CarePlan.everyCheckFailed` counted the health snapshot, which always
+  completes, making the "every check failed" screen unreachable.
+
+They exist only in a commit message. **The headline "36 accepted / 24 open" is
+therefore not reproducible from the document.** Correct figures: **34 documented,
+22 numbered findings open.** Anyone working the list from the file will hunt
+F17/F18 and find nothing — which is exactly the failure the file was written to
+prevent.
+
+## Pass 3 — Duplication / ownership
+
+No two findings assert the same fact. Four pairs should nonetheless be worked as
+single items, because fixing one without the other leaves the defect reachable:
+
+| Merge | Why |
+| --- | --- |
+| **F28 ⊂ F7** | F28 says so itself. F7 is "four lifecycle flags beside `Phase`"; F28 is the `isReviewing` flag with the live defect. F28 is F7's first slice; F7's remainder has no known reachable defect. |
+| **F19 + F20** | Both are `MalwareViewModel`: nothing owns `.removing`. F19 snapshots and restores `phase` across it; F20 resets out of it. One owner fixes both; either alone leaves the phase unowned. |
+| **F15 + F16** | Both are `PerformanceViewModel`, and both are the same shape: a task's result represented outside the case that owns it (`failureNeedsFullDiskAccess`; `ramResult`/`maintenanceOutput`). One pass. |
+| **F26 ⊂ F25** | F25's thesis is "have-I-shown-this-recently is re-derived in six monitors". `AppUpdatesMonitor.lastAnnouncedCount` *is* one of the six, and F26 is its specific bug. F25's shared limiter subsumes F26; two point fixes do not. |
+
+F33 + F34 share a boundary (`ProcessLineStreamer` ↔ `DefaultBrewRunner`) but are
+genuinely different facts — kept separate. F21/F22 (both S04) are distinct.
+
+## Pass 4 — Materiality / over-abstraction
+
+Nothing was rejected on its facts. Four are demoted:
+
+- **F14 — demoted, not actionable.** The audit itself says the magnitude "must be
+  measured before selling as a perf fix" and the lane explicitly did not profile
+  the split between `PreparedExclusions.init` and the scan. Nothing has measured
+  it since. It cannot be ranked against real defects until someone does.
+- **F30 — finding kept, remedy rejected.** "Untrack `VaderCleaner.xcodeproj`"
+  breaks every checkout without xcodegen installed, to solve a drift problem that
+  has not actually drifted (the lane verified the artifacts are in sync). The
+  proportionate fix is the missing `git diff --exit-code`, which `ci.yml` is one
+  line from having — it already runs `xcodegen generate` at `:67`.
+- **F24 — accept the one-line minimum only.** The lane could not construct a
+  reachable divergence and said so. `forwardStack.removeAll()` is worth it;
+  "move the cursor into the phase that owns the tree" is over-abstraction for a
+  defect nobody can reach.
+- **F7 (remainder, after F28) — demoted to the bottom.** Once F28 lands, what is
+  left is invalid-state elimination with no known reachable defect, and the audit
+  rates it MEDIUM because "the flags are individually well-commented".
+
+**F31 survives but is a tidy, not a defect** — 16 spies confirmed, 7 of them
+unconditional copy-paste. Consolidating those 7 reduces the protocol-change cost
+`CLAUDE.md:136-139` already names.
+
+## Pass 5 — Dependency-aware ranking (all open findings)
+
+Ranked across the whole set, not per-batch. F8 is **already fixed**, which
+unblocks F3 — the previous ranking's only stated prerequisite.
+
+**Tier 1 — live, user-facing, reachable today**
+
+| # | Finding | Consequence | Verified |
+| --- | --- | --- | --- |
+| 1 | **F28** | Blocks the app's primary action. Fix disc never returns; `FloatingRunOverlay:47` is the only caller of `requestRun()`. Two blind lanes converged. | anchors exact |
+| 2 | **F19+F20** | Malware tile pins to "Removing Threats…" forever; Start Over during a removal shows the intro while the helper *permanently* deletes files. | anchors exact |
+| 3 | **F21** | Footer renders "N Items Selected · 0 bytes" for the whole loading window. `footer` is outside the `sections == nil` branch (`:335-336`), `selectionSummary?()` unconditional at `:708`. | re-confirmed |
+| 4 | **F26** | A notification denied once stays suppressed across relaunches *after* the user grants permission. Persisted. | anchor exact |
+| 5 | **F25** | `VolumeMountMonitor` has zero rate-limiting, and its "connected" branch lacks the `isExternal` gate the branch two lines below applies — so mounting a `.dmg` fires a drive banner. Shipped copy promises a global limit. | re-confirmed at `:57-66` |
+
+**Tier 2 — real defects, narrower reach**
+
+6. **F33** — Cancel on `brew upgrade` surfaces "exited with status 15" as an error; the `catch is CancellationError` branch is unreachable in production and kept alive only by a double with the opposite cancellation contract.
+7. **F15+F16** — Performance: a stale "Open Full Disk Access Settings" button under a failure it cannot fix.
+8. **F29** — privacy state in three places; clearing on one surface leaves the others stale.
+9. **F35** — `attach()` orders the disc panel in regardless of `isSuppressed`/`contentWantsDisc`. Same user-visible surface as F28, different owner (panel vs model) — verify them together.
+10. **F23** — `ancestryChain` exhaustive identity DFS on the main actor, per drill-in, on million-node trees.
+
+**Tier 3 — representation and hygiene, no known live defect**
+
+11. **F3** (unblocked by F8) · 12. **F27** (0 production readers, re-verified) ·
+13. **F32** (`CLAUDE.md` stale: "2137 tests" → 2292 executed; "1687 lines" → **613**) ·
+14. **F30** (CI diff check only) · 15. **F22** · 16. **F24** (one line) ·
+17. **F31** (7 spies) · 18. **F34** · 19. **F7 remainder**
+
+**Unranked pending measurement:** **F14**.
+
+**Best first slice — unchanged in kind, changed in target.** The previous
+ranking's #1 (F8) is done. The new #1 is **F28**: it is the only open finding
+that blocks the app's primary action, it was found twice independently, and its
+smallest credible fix is one line in one view.
