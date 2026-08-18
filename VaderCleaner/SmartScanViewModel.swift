@@ -35,6 +35,13 @@ final class SmartScanViewModel {
         case pending
         case running(itemsScanned: Int)
         case finished(CareUnitOutcome)
+
+        /// Whether this unit has landed its outcome — the state a late progress
+        /// tick must not move it out of.
+        var hasFinished: Bool {
+            if case .finished = self { return true }
+            return false
+        }
     }
 
     /// One checklist row's derived state — the per-domain rollup of its
@@ -337,7 +344,14 @@ final class SmartScanViewModel {
         case .unitStarted(let unit):
             unitStatuses[unit] = .running(itemsScanned: 0)
         case .unitProgress(let unit, let count):
-            unitStatuses[unit] = .running(itemsScanned: count)
+            // A unit's last tick comes from the scanner's own thread while its
+            // outcome comes from the lane, and each event takes its own hop to
+            // the main actor — so a tick can arrive after the row has landed.
+            // Reviving it would leave the tile on "Checking…" for the rest of
+            // the scan; the count it carries still counts.
+            if unitStatuses[unit]?.hasFinished != true {
+                unitStatuses[unit] = .running(itemsScanned: count)
+            }
             unitProgressCounts[unit] = count
             scannedItemCount = unitProgressCounts.values.reduce(0, +)
         case .unitFinished(let unit, let outcome, let finding):
@@ -375,17 +389,7 @@ final class SmartScanViewModel {
         let shouldSeed: (CareFinding.Kind) -> Bool = { kind in
             units?.contains(kind.unit) ?? true
         }
-        let attempted = CareScanUnit.allCases.filter { unit in
-            switch plan.unitOutcomes[unit] {
-            case .completed, .failed: return true
-            case .skipped, nil: return false
-            }
-        }
-        let allFailed = attempted.allSatisfy { unit in
-            if case .failed = plan.unitOutcomes[unit] { return true }
-            return false
-        }
-        if attempted.isEmpty || allFailed {
+        if plan.everyCheckFailed {
             let message = plan.failedUnits.compactMap { unit -> String? in
                 if case .failed(let message)? = plan.unitOutcomes[unit] { return message }
                 return nil
@@ -846,6 +850,14 @@ final class SmartScanViewModel {
         toggleMembership(of: update.id, in: \.updateSelection)
     }
 
+    /// Check or uncheck a specific set of updates in one write. The Review
+    /// groups updates by channel (App Store, Other Apps), and its per-category
+    /// bulk-select must reach only the rows in the category the user opened —
+    /// hence ids rather than "all".
+    func setUpdates(_ ids: [UpdateInfo.ID], selected: Bool) {
+        applySelection(ids, selected: selected, to: \.updateSelection, optInKind: nil)
+    }
+
     /// Check or uncheck every available update in one write.
     func setAllUpdates(selected: Bool) {
         guard case .appUpdates(let updates)? = currentPlan?.finding(.appUpdates)?.payload else { return }
@@ -1059,9 +1071,7 @@ final class SmartScanViewModel {
     /// hero's "can be freed safely" line reflects, so it agrees with the tiles
     /// and the disc caption instead of promising the gross total found.
     var preApprovedFreeableBytes: Int64 {
-        (currentPlan?.findings ?? [])
-            .filter { $0.actionability == .preApproved }
-            .reduce(0) { $0 + selectedBytes(for: $1.kind) }
+        preApprovedRunnableFindings.reduce(0) { $0 + selectedBytes(for: $1.kind) }
     }
 
     /// How many pre-approved findings Fix will handle — the count the hero
@@ -1069,9 +1079,17 @@ final class SmartScanViewModel {
     /// hero can't say "11 things" while the caption says "4 items"; the opt-in
     /// findings have their own "Worth a look" zone.
     var preApprovedCount: Int {
+        preApprovedRunnableFindings.count
+    }
+
+    /// The pre-approved findings a Run pass would actually act on. Both hero
+    /// numbers derive from this one list, so they agree with each other and
+    /// with the disc caption beside them: a card the user excluded, or one left
+    /// included with nothing checked, is not work Fix will do and must not be
+    /// counted or costed as though it were.
+    private var preApprovedRunnableFindings: [CareFinding] {
         (currentPlan?.findings ?? [])
-            .filter { $0.actionability == .preApproved }
-            .count
+            .filter { $0.actionability == .preApproved && willExecute($0.kind) }
     }
 
     /// Selected bytes for one finding, mirroring the size sources `execute`

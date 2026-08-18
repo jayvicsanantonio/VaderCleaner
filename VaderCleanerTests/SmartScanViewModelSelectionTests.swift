@@ -136,6 +136,45 @@ final class SmartScanViewModelSelectionTests: XCTestCase {
         XCTAssertTrue(vm.isUpdateSelected(update))
     }
 
+    /// The Applications Review shows one category per update channel (App
+    /// Store, Other Apps), and its bulk-select must reach only the category the
+    /// user opened. A "Deselect All" that swept the whole list would clear the
+    /// other channel's rows too — and since the updates card is pre-approved
+    /// and stays included, that leaves Fix with nothing to open and no sign of
+    /// why.
+    func test_setUpdates_onlyTouchesTheGivenIDs() async {
+        let fromAppStore = UpdateInfo(
+            appName: "Store", bundleID: "com.example.store",
+            bundleURL: URL(fileURLWithPath: "/Applications/Store.app"),
+            installedVersion: "1", latestVersion: "2",
+            source: .appStore, updateURL: URL(string: "https://example.com/store")!
+        )
+        let fromSparkle = UpdateInfo(
+            appName: "Direct", bundleID: "com.example.direct",
+            bundleURL: URL(fileURLWithPath: "/Applications/Direct.app"),
+            installedVersion: "1", latestVersion: "2",
+            source: .sparkle, updateURL: URL(string: "https://example.com/direct")!
+        )
+        let plan = CarePlan(
+            findings: [CareFinding(kind: .appUpdates, payload: .appUpdates([fromAppStore, fromSparkle]))],
+            health: nil,
+            unitOutcomes: [.appUpdates: .completed],
+            startedAt: Date(),
+            finishedAt: Date()
+        )
+        let vm = SmartScanViewModel(scanEngine: { _, _ in plan })
+        await vm.scan()
+        XCTAssertEqual(vm.selectionCount(for: .appUpdates), 2, "both channels seed selected")
+
+        vm.setUpdates([fromSparkle.id], selected: false)
+
+        XCTAssertTrue(vm.isUpdateSelected(fromAppStore), "the other category's rows must be left alone")
+        XCTAssertFalse(vm.isUpdateSelected(fromSparkle))
+
+        vm.setUpdates([fromSparkle.id], selected: true)
+        XCTAssertEqual(vm.selectionCount(for: .appUpdates), 2)
+    }
+
     /// The same app installed in two locations is two rows, and the review
     /// keys them by `UpdateInfo.id` (the bundle path) for exactly that
     /// reason. A selection keyed on the bundle ID instead would collapse

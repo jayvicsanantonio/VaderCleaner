@@ -52,6 +52,24 @@ final class CarePlanTests: XCTestCase {
         XCTAssertEqual(sut.skippedUnits, [.malware, .browserPrivacy])
     }
 
+    func test_everyCheckFailed_ignoresTheHealthSnapshot() {
+        // The snapshot always completes, so a scan whose real checks all failed
+        // would otherwise read as a partial success.
+        XCTAssertTrue(plan(outcomes: [
+            .systemJunk: .failed(message: "no access"),
+            .healthSnapshot: .completed
+        ]).everyCheckFailed)
+        XCTAssertTrue(plan(outcomes: [.healthSnapshot: .completed]).everyCheckFailed, "nothing was checked")
+    }
+
+    func test_everyCheckFailed_falseWhenAnyRealUnitCompleted() {
+        XCTAssertFalse(plan(outcomes: [
+            .systemJunk: .completed,
+            .malware: .failed(message: "broken"),
+            .healthSnapshot: .completed
+        ]).everyCheckFailed)
+    }
+
     // MARK: - Merging a targeted re-scan
 
     private func file(_ path: String, size: Int64) -> ScannedFile {

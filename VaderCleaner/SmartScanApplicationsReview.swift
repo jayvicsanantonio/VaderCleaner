@@ -44,8 +44,11 @@ struct SmartScanApplicationsReview: View {
                 guard let update = lookups.updatesByID[id] else { return }
                 viewModel.toggleUpdate(update)
             },
-            onSetCategory: { _, selected in
-                viewModel.setAllUpdates(selected: selected)
+            onSetCategory: { category, selected in
+                // Scoped to the opened category's rows: the two channels are
+                // separate categories, and a bulk-select that swept every
+                // update would silently undo the user's choice in the other one.
+                viewModel.setUpdates(category.items.map(\.id), selected: selected)
             },
             onBack: onBack,
             accessibilityPrefix: "smartScan.review.applications",
