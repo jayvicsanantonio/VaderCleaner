@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import os
 
 /// Coordinates the Protection section's dashboard, which shows a live
 /// malware-scan tile alongside privacy result tiles. It owns no scan logic of
@@ -30,6 +31,9 @@ final class ProtectionDashboardViewModel {
     /// Drives `scanPresentation` so the grid stays up across the malware
     /// flow's own idle transitions (Stop, clean, etc.).
     private(set) var hasScanned = false
+
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "ProtectionDashboardViewModel")
 
     init(
         malware: MalwareViewModel,
@@ -59,10 +63,58 @@ final class ProtectionDashboardViewModel {
     /// never disrupts a scan they started themselves.
     func prewarmFromSmartScan(threats: [MalwareThreat], clamAVAvailable: Bool, scannedAt date: Date) {
         guard !hasScanned else { return }
-        hasScanned = true
-        malware.seed(threats: threats, clamAVAvailable: clamAVAvailable, scannedAt: date)
+        // The privacy preview doesn't depend on the malware engine, so it is
+        // warmed either way — its tiles and the manager are ready whenever the
+        // user arrives.
         if case .idle = privacy.phase { privacy.beginScan() }
         prewarmManagerPrivacy()
+        // Only a seed that can actually land counts as "this section has been
+        // scanned". A Smart Scan that never ran the malware unit — Protection
+        // switched off in Smart Care, an unusable engine, a failed scan — has no
+        // result to show, and claiming otherwise replaced the section's intro
+        // with a dashboard whose malware tile read "Scan Stopped" for a scan the
+        // user never started. `hasScanned` is one-shot, so setting it here would
+        // also spend the one chance a later Smart Scan has to seed properly.
+        guard clamAVAvailable else { return }
+        hasScanned = true
+        malware.seed(threats: threats, clamAVAvailable: clamAVAvailable, scannedAt: date)
+    }
+
+    // MARK: - Tile removal
+
+    /// Why the last tile removal failed, or `nil` when nothing has. The tile's
+    /// Remove sits behind a "this cannot be undone" confirmation, so a failure
+    /// that left the tile in place and said nothing read as a broken button.
+    private(set) var removalFailureMessage: String?
+
+    /// Clears one browser's privacy data for its dashboard tile. Returns whether
+    /// the data is gone, so the caller can retire the tile — a tile whose data
+    /// is still there must stay, and the reason surfaces instead.
+    func clearPrivacyData(for browser: Browser) async -> Bool {
+        await removing { try await privacy.clearData(for: browser) }
+    }
+
+    /// The same for the Recent Items tile.
+    func clearRecentItems() async -> Bool {
+        await removing { try await privacy.clearRecentItems() }
+    }
+
+    /// Dismisses the failure alert, so a retry starts from a clean slate rather
+    /// than leaving a stale reason behind a later success.
+    func dismissRemovalFailure() {
+        removalFailureMessage = nil
+    }
+
+    private func removing(_ work: () async throws -> Void) async -> Bool {
+        removalFailureMessage = nil
+        do {
+            try await work()
+            return true
+        } catch {
+            log.error("Protection tile removal failed: \(String(describing: error), privacy: .private)")
+            removalFailureMessage = error.localizedDescription
+            return false
+        }
     }
 
     /// Warms the Protection Manager's privacy model alongside the dashboard scan

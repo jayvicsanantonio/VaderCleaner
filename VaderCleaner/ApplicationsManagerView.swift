@@ -411,7 +411,7 @@ struct ApplicationsManagerView: View {
             actionFooter(
                 summary: extensionsSummary,
                 actionLabel: String(localized: "Remove", comment: "Footer action removing the selected extensions."),
-                enabled: !extensionSelection.isEmpty,
+                enabled: !extensionSelection.isEmpty && extensionsManagerViewModel.phase != .removing,
                 identifier: "applications.manager.extensions.remove"
             ) { Task { await removeSelectedExtensions() } }
         case .unsupported:
@@ -477,10 +477,7 @@ struct ApplicationsManagerView: View {
 
     /// Removes every selected extension, dropping each from the selection.
     private func removeSelectedExtensions() async {
-        let targets = extensionsManagerViewModel.items.filter { extensionSelection.contains($0.id) }
-        for item in targets {
-            await extensionsManagerViewModel.remove(item)
-        }
+        await extensionsManagerViewModel.removeSelected(extensionSelection)
         extensionSelection = extensionSelection.intersection(Set(extensionsManagerViewModel.items.map(\.id)))
     }
 

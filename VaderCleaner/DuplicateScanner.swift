@@ -86,18 +86,50 @@ struct DuplicateScanner {
                 // it — the prefix hash *is* the content hash, so these files
                 // are already confirmed identical without a second read.
                 if size <= Int64(Self.prefixHashByteLimit) {
-                    groups.append(DuplicateGroup(files: Self.sortedKeepingOriginalFirst(prefixMatches)))
+                    if let group = Self.group(from: prefixMatches) { groups.append(group) }
                     continue
                 }
                 let byHash = try await Self.groupedByContentHash(prefixMatches, readingUpTo: nil)
                 for (_, identical) in byHash where identical.count > 1 {
-                    groups.append(DuplicateGroup(files: Self.sortedKeepingOriginalFirst(identical)))
+                    if let group = Self.group(from: identical) { groups.append(group) }
                 }
             }
         }
 
         // Largest payoff first.
         return groups.sorted { $0.reclaimableBytes > $1.reclaimableBytes }
+    }
+
+    /// Builds a group from confirmed-identical files, or `nil` when what is left
+    /// after dropping extra names for one inode is a single file.
+    ///
+    /// Hard links reach this point by construction: a second name for the same
+    /// inode reads back the same bytes, so it survives the size bucket and every
+    /// hash tier. It is not reclaimable, though — Trashing one name leaves the
+    /// bytes under the other — so counting it would promise space no cleanup can
+    /// return, on the card, in the verdict, and in the receipt.
+    ///
+    /// This does not catch APFS *clones*, which share storage without sharing an
+    /// inode; there is no public API that reports shared extents, so a clone is
+    /// still reported as a full-sized copy.
+    private static func group(from files: [ScannedFile]) -> DuplicateGroup? {
+        let distinct = deduplicatedByInode(files)
+        guard distinct.count > 1 else { return nil }
+        return DuplicateGroup(files: sortedKeepingOriginalFirst(distinct))
+    }
+
+    /// Keeps one file per distinct inode, preserving order. Files whose
+    /// identifier can't be read (the volume doesn't report one, or the file has
+    /// gone since the walk) are kept rather than dropped — an unknown identity
+    /// must never silently remove a real copy from the group.
+    static func deduplicatedByInode(_ files: [ScannedFile]) -> [ScannedFile] {
+        var seen: Set<NSObject> = []
+        return files.filter { file in
+            let identifier = try? file.url.resourceValues(forKeys: [.fileResourceIdentifierKey])
+                .fileResourceIdentifier as? NSObject
+            guard let identifier else { return true }
+            return seen.insert(identifier).inserted
+        }
     }
 
     /// Orders identical files so the most canonical one (shortest path, then

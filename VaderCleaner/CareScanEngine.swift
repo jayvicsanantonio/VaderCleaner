@@ -112,10 +112,11 @@ struct CareScanEngine: Sendable {
         }
 
         let lanes = Self.lanes(for: runnableUnits)
+        let discovery = SharedAppDiscovery(load: runners.installedApps)
         let results = await withTaskGroup(of: [UnitResult].self) { group in
             for lane in lanes {
                 group.addTask { [self] in
-                    await run(lane: lane, configuration: configuration, onEvent: onEvent)
+                    await run(lane: lane, configuration: configuration, discovery: discovery, onEvent: onEvent)
                 }
             }
             var collected: [UnitResult] = []
@@ -170,36 +171,16 @@ struct CareScanEngine: Sendable {
     private func run(
         lane: [CareScanUnit],
         configuration: Configuration,
+        discovery: SharedAppDiscovery,
         onEvent: @escaping @Sendable (Event) -> Void
     ) async -> [UnitResult] {
-        // The app-metadata lane shares one discovery pass across its units.
-        let needsDiscovery = !Set(lane).isDisjoint(with: [.appUpdates, .unusedApps, .appLeftovers, .unsupportedApps])
-        var discoveredApps: [AppInfo] = []
-        if needsDiscovery {
-            onEvent(.unitStarted(lane[0]))
-            do {
-                discoveredApps = try await runners.installedApps()
-            } catch {
-                // Discovery is the lane's foundation — without it every app
-                // unit fails, each with its own honest outcome.
-                return lane.map { unit in
-                    let outcome = CareUnitOutcome.failed(message: error.localizedDescription)
-                    onEvent(.unitFinished(unit, outcome, nil))
-                    return UnitResult(unit: unit, outcome: outcome, finding: nil)
-                }
-            }
-        }
-
         var results: [UnitResult] = []
-        for (index, unit) in lane.enumerated() {
-            // The first unit of a discovery lane already announced itself.
-            if !(needsDiscovery && index == 0) {
-                onEvent(.unitStarted(unit))
-            }
+        for unit in lane {
+            onEvent(.unitStarted(unit))
             let result = await run(
                 unit: unit,
                 configuration: configuration,
-                apps: discoveredApps,
+                discovery: discovery,
                 onEvent: onEvent
             )
             onEvent(.unitFinished(unit, result.outcome, result.finding))
@@ -211,7 +192,7 @@ struct CareScanEngine: Sendable {
     private func run(
         unit: CareScanUnit,
         configuration: Configuration,
-        apps: [AppInfo],
+        discovery: SharedAppDiscovery,
         onEvent: @escaping @Sendable (Event) -> Void
     ) async -> UnitResult {
         let clamp = MonotonicProgress()
@@ -230,53 +211,53 @@ struct CareScanEngine: Sendable {
                 return UnitResult(
                     unit: unit,
                     outcome: .completed,
-                    finding: CareFinding(kind: .junkCleanup, payload: .junk(filtered))
+                    finding: CareFinding(payload: .junk(filtered))
                 )
             case .duplicates:
                 let groups = try await runners.duplicates(progress)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .duplicates, payload: .duplicates(groups)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .duplicates(groups)))
             case .similarImages:
                 let groups = try await runners.similarImages(progress)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .similarImages, payload: .similarImages(groups)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .similarImages(groups)))
             case .downloads:
                 let items = try await runners.downloads(progress)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .downloads, payload: .downloads(items)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .downloads(items)))
             case .largeOldFiles:
                 let files = try await runners.largeOldFiles(progress)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .largeOldFiles, payload: .largeOldFiles(files)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .largeOldFiles(files)))
             case .malware:
                 let threats = try await runners.malware(progress)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .threats, payload: .threats(threats)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .threats(threats)))
             case .installers:
                 let files = try await runners.installers()
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .installers, payload: .installers(files)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .installers(files)))
             case .appUpdates:
-                let updates = try await runners.appUpdates(apps, progress)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .appUpdates, payload: .appUpdates(updates)))
+                let updates = try await runners.appUpdates(discovery.apps(), progress)
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .appUpdates(updates)))
             case .unusedApps:
-                let unused = try await runners.unusedApps(apps)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .unusedApps, payload: .unusedApps(unused)))
+                let unused = try await runners.unusedApps(discovery.apps())
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .unusedApps(unused)))
             case .unsupportedApps:
-                let unsupported = try await runners.unsupportedApps(apps)
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .unsupportedApps, payload: .unsupportedApps(unsupported)))
+                let unsupported = try await runners.unsupportedApps(discovery.apps())
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .unsupportedApps(unsupported)))
             case .extensions:
                 let items = try await runners.extensions()
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .extensions, payload: .extensions(items)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .extensions(items)))
             case .backgroundItems:
                 let agents = try await runners.backgroundItems()
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .backgroundItems, payload: .backgroundItems(agents)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .backgroundItems(agents)))
             case .appLeftovers:
-                let groups = try await runners.appLeftovers(Set(apps.map(\.bundleID)))
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .appLeftovers, payload: .appLeftovers(groups)))
+                let groups = try await runners.appLeftovers(Set(try await discovery.apps().map(\.bundleID)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .appLeftovers(groups)))
             case .loginItems:
                 let items = try await runners.loginItems()
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .loginItems, payload: .loginItems(items)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .loginItems(items)))
             case .maintenanceDue:
                 let taskIDs = try await runners.dueMaintenanceTaskIDs()
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: taskIDs)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .maintenanceDue(taskIDs: taskIDs)))
             case .browserPrivacy:
                 let summaries = try await runners.browserPrivacy()
-                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(kind: .browserPrivacy, payload: .browserPrivacy(summaries)))
+                return UnitResult(unit: unit, outcome: .completed, finding: CareFinding(payload: .browserPrivacy(summaries)))
             case .healthSnapshot:
                 let snapshot = await runners.healthSnapshot()
                 return UnitResult(
@@ -295,7 +276,32 @@ struct CareScanEngine: Sendable {
     /// the shared Fair boundary (≥ 90% used).
     private static func lowDiskFinding(from snapshot: CareHealthSnapshot) -> CareFinding? {
         guard HealthMonitorViewModel.diskSpaceTier(for: snapshot.disk) <= lowDiskTier else { return nil }
-        return CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(snapshot.disk))
+        return CareFinding(payload: .lowDiskSpace(snapshot.disk))
+    }
+}
+
+/// One app-discovery pass per scan, shared by the units that need it.
+///
+/// Which units get the app list used to be implied by the lane table: only the
+/// lane that happened to run discovery had it, so moving `.unusedApps` to
+/// another lane would have handed it an empty array — an empty result, a
+/// `.completed` outcome, and a finding dropped as empty. A silent wrong answer
+/// with no failure path. Stating the dependency at the point of use makes the
+/// lane layout purely a scheduling concern again.
+private actor SharedAppDiscovery {
+    private let load: @Sendable () async throws -> [AppInfo]
+    private var inFlight: Task<[AppInfo], Error>?
+
+    init(load: @escaping @Sendable () async throws -> [AppInfo]) {
+        self.load = load
+    }
+
+    /// Runs discovery at most once per scan, whichever unit asks first.
+    func apps() async throws -> [AppInfo] {
+        if let inFlight { return try await inFlight.value }
+        let task = Task { [load] in try await load() }
+        inFlight = task
+        return try await task.value
     }
 }
 

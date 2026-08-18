@@ -282,7 +282,7 @@ final class ApplicationsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isInstallationFileSelected(b))
         XCTAssertTrue(vm.canRemoveInstallationFiles)
 
-        vm.selectAllInstallationFiles()
+        vm.selectAllInstallationFiles(ids: [a.url.path, b.url.path])
         XCTAssertTrue(vm.isInstallationFileSelected(a))
         XCTAssertTrue(vm.isInstallationFileSelected(b))
 
@@ -327,7 +327,7 @@ final class ApplicationsViewModelTests: XCTestCase {
             recycle: { _ in [a.url] }
         )
         await vm.scan()
-        vm.selectAllInstallationFiles()
+        vm.selectAllInstallationFiles(ids: [a.url.path, b.url.path])
 
         await vm.deleteSelectedInstallationFiles()
 
@@ -430,7 +430,7 @@ final class ApplicationsViewModelTests: XCTestCase {
             recycle: { _ in [a.app.bundleURL] }
         )
         await vm.scan()
-        vm.selectAllUnsupportedApps()
+        vm.selectAllUnsupportedApps(ids: [a.app.bundleURL.path, b.app.bundleURL.path])
 
         await vm.deleteSelectedUnsupportedApps()
 
@@ -581,7 +581,7 @@ final class ApplicationsViewModelTests: XCTestCase {
             recycle: { _ in [gone] }
         )
         await vm.scan()
-        vm.selectAllLeftovers()
+        vm.selectAllLeftovers(ids: [a.bundleID])
 
         await vm.deleteSelectedLeftovers()
 
@@ -601,6 +601,23 @@ final class ApplicationsViewModelTests: XCTestCase {
     /// non-empty value to prove the full app list never influences the cleanup
     /// recommendations; available updates default to empty (they are now a
     /// recommendation category, so tests opt them in explicitly).
+    /// "Select: All" is scoped to the rows the user can actually see. Passing
+    /// only the visible id must leave the filtered-out installer opted out —
+    /// otherwise a Remove issued after a search trashes files that were never
+    /// on screen.
+    func test_selectAllInstallationFiles_onlySelectsTheSuppliedRows() async {
+        let a = Self.makeInstaller(name: "A.dmg", size: 5_000)
+        let b = Self.makeInstaller(name: "B.pkg", size: 100, kind: .package)
+        let vm = makeViewModel(discover: { [] }, installers: { [a, b] })
+        await vm.scan()
+
+        vm.selectAllInstallationFiles(ids: [a.url.path])
+
+        XCTAssertTrue(vm.isInstallationFileSelected(a))
+        XCTAssertFalse(vm.isInstallationFileSelected(b), "a filtered-out row must stay opted out")
+        XCTAssertEqual(vm.installationFileSelection.count, 1)
+    }
+
     private func makeResult(
         installers: [InstallationFile] = [],
         unsupported: [UnsupportedApp] = [],

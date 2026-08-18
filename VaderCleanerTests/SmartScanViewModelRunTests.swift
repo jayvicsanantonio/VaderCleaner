@@ -35,11 +35,11 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let bigFile = Self.file("/Movies/huge.mov", size: 9_000, category: .largeFile)
         return CarePlan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(junk)),
-                CareFinding(kind: .threats, payload: .threats(threats)),
-                CareFinding(kind: .duplicates, payload: .duplicates([dupGroup])),
-                CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([bigFile])),
-                CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
+                CareFinding(payload: .junk(junk)),
+                CareFinding(payload: .threats(threats)),
+                CareFinding(payload: .duplicates([dupGroup])),
+                CareFinding(payload: .largeOldFiles([bigFile])),
+                CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
             ],
             health: nil,
             unitOutcomes: [
@@ -103,8 +103,8 @@ final class SmartScanViewModelRunTests: XCTestCase {
         )
         let plan = CarePlan(
             findings: [
-                CareFinding(kind: .similarImages, payload: .similarImages([simGroup])),
-                CareFinding(kind: .downloads, payload: .downloads([download])),
+                CareFinding(payload: .similarImages([simGroup])),
+                CareFinding(payload: .downloads([download])),
             ],
             health: nil,
             unitOutcomes: [.similarImages: .completed, .downloads: .completed],
@@ -331,10 +331,10 @@ final class SmartScanViewModelRunTests: XCTestCase {
         // sees the junk bytes already credited — a clean accumulation check.
         let plan = CarePlan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
+                CareFinding(payload: .junk(ScanResult(items: [
                     Self.file("/cache/safe", size: 1_000, category: .userCache)
                 ]))),
-                CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
+                CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"])),
             ],
             health: nil,
             unitOutcomes: [.systemJunk: .completed, .maintenanceDue: .completed],
@@ -381,7 +381,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_browserRunning_surfacesPlainReceiptLine() async {
         let plan = CarePlan(
             findings: [
-                CareFinding(kind: .browserPrivacy, payload: .browserPrivacy([
+                CareFinding(payload: .browserPrivacy([
                     BrowserPrivacySummary(browser: .safari, counts: [.cookies: 12])
                 ]))
             ],
@@ -410,7 +410,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_toggleBrowserPrivacy_refusesInformationalCategories() async {
         let plan = CarePlan(
             findings: [
-                CareFinding(kind: .browserPrivacy, payload: .browserPrivacy([
+                CareFinding(payload: .browserPrivacy([
                     BrowserPrivacySummary(browser: .safari, counts: [.savedPasswords: 3])
                 ]))
             ],
@@ -483,10 +483,10 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let choices = ChoiceBox()
         let plan = CarePlan(
             findings: [
-                CareFinding(kind: .loginItems, payload: .loginItems([
+                CareFinding(payload: .loginItems([
                     LoginItem(id: "a", name: "Agent", isEnabled: true)
                 ])),
-                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [
+                CareFinding(payload: .junk(ScanResult(items: [
                     Self.file("/cache/safe", size: 1_000, category: .userCache)
                 ]))),
             ],

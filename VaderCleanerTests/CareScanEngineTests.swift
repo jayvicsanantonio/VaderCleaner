@@ -450,6 +450,33 @@ final class CareScanEngineTests: XCTestCase {
         XCTAssertNil(plan.finding(.lowDiskSpace))
     }
 
+    /// The lane table is a scheduling concern, not a dependency declaration.
+    /// An app unit running on its own — no other app unit to trigger the lane's
+    /// discovery pass — must still receive the discovered apps, or it returns an
+    /// empty result and reports itself `.completed`: a silent wrong answer.
+    func test_appUnitAlone_stillReceivesDiscoveredApps() async {
+        var runners = emptyRunners()
+        let app = AppInfo(
+            name: "Solo", bundleID: "com.example.solo", version: "1.0",
+            bundleURL: URL(fileURLWithPath: "/Applications/Solo.app"), isAppStore: false
+        )
+        runners.installedApps = { [app] }
+        let seen = AppsBox()
+        runners.unusedApps = { apps in
+            await seen.record(apps)
+            return apps.map { UnusedApp(app: $0, lastUsedDate: .distantPast, sizeBytes: 10) }
+        }
+
+        let engine = CareScanEngine(runners: runners)
+        let plan = await engine.scan(configuration: configuration(units: [.unusedApps])) { _ in }
+
+        let received = await seen.value
+        XCTAssertEqual(received.map(\.bundleID), ["com.example.solo"],
+                       "a lone app unit must still get the app list")
+        XCTAssertEqual(plan.unitOutcomes[.unusedApps], .completed)
+        XCTAssertEqual(plan.finding(.unusedApps)?.itemCount, 1)
+    }
+
     // MARK: - Cancellation
 
     func test_cancellation_returnsPromptly() async {
@@ -473,4 +500,10 @@ final class CareScanEngineTests: XCTestCase {
         _ = await task.value
         XCTAssertLessThan(Date().timeIntervalSince(start), 5, "cancellation must tear the scan down promptly")
     }
+}
+
+/// Records the apps handed to a unit runner from a `@Sendable` closure.
+private actor AppsBox {
+    private(set) var value: [AppInfo] = []
+    func record(_ apps: [AppInfo]) { value = apps }
 }

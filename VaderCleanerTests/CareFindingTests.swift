@@ -46,7 +46,7 @@ final class CareFindingTests: XCTestCase {
         let result = ScanResult(items: [
             file("/a", size: 100), file("/b", size: 50, category: .userLogs)
         ])
-        let finding = CareFinding(kind: .junkCleanup, payload: .junk(result))
+        let finding = CareFinding(payload: .junk(result))
         XCTAssertEqual(finding.itemCount, 2)
         XCTAssertEqual(finding.reclaimableBytes, 150)
     }
@@ -57,7 +57,7 @@ final class CareFindingTests: XCTestCase {
             file("/copy1", size: 10),
             file("/copy2", size: 10)
         ])
-        let finding = CareFinding(kind: .duplicates, payload: .duplicates([group]))
+        let finding = CareFinding(payload: .duplicates([group]))
         // The kept original is never counted as removable work.
         XCTAssertEqual(finding.itemCount, 2)
         XCTAssertEqual(finding.reclaimableBytes, 20)
@@ -67,7 +67,7 @@ final class CareFindingTests: XCTestCase {
         let threats = [
             MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")
         ]
-        let finding = CareFinding(kind: .threats, payload: .threats(threats))
+        let finding = CareFinding(payload: .threats(threats))
         XCTAssertEqual(finding.itemCount, 1)
         XCTAssertEqual(finding.reclaimableBytes, 0)
     }
@@ -77,7 +77,7 @@ final class CareFindingTests: XCTestCase {
             file("/big1", size: 500, category: .largeFile),
             file("/old1", size: 300, category: .oldFile)
         ]
-        let finding = CareFinding(kind: .largeOldFiles, payload: .largeOldFiles(files))
+        let finding = CareFinding(payload: .largeOldFiles(files))
         XCTAssertEqual(finding.itemCount, 2)
         XCTAssertEqual(finding.reclaimableBytes, 800)
     }
@@ -87,7 +87,7 @@ final class CareFindingTests: XCTestCase {
             UnusedApp(app: appInfo("Stale"), lastUsedDate: .distantPast, sizeBytes: 1_000),
             UnusedApp(app: appInfo("Dusty"), lastUsedDate: .distantPast, sizeBytes: 2_000)
         ]
-        let finding = CareFinding(kind: .unusedApps, payload: .unusedApps(unused))
+        let finding = CareFinding(payload: .unusedApps(unused))
         XCTAssertEqual(finding.itemCount, 2)
         XCTAssertEqual(finding.reclaimableBytes, 3_000)
     }
@@ -101,7 +101,7 @@ final class CareFindingTests: XCTestCase {
                 totalBytes: 400
             )
         ]
-        let finding = CareFinding(kind: .appLeftovers, payload: .appLeftovers(groups))
+        let finding = CareFinding(payload: .appLeftovers(groups))
         XCTAssertEqual(finding.itemCount, 1)
         XCTAssertEqual(finding.reclaimableBytes, 400)
     }
@@ -115,26 +115,26 @@ final class CareFindingTests: XCTestCase {
                 kind: .diskImage
             )
         ]
-        let finding = CareFinding(kind: .installers, payload: .installers(installers))
+        let finding = CareFinding(payload: .installers(installers))
         XCTAssertEqual(finding.itemCount, 1)
         XCTAssertEqual(finding.reclaimableBytes, 700)
     }
 
     func test_appUpdatesFinding_countsUpdates_noBytes() {
-        let finding = CareFinding(kind: .appUpdates, payload: .appUpdates([update("One"), update("Two")]))
+        let finding = CareFinding(payload: .appUpdates([update("One"), update("Two")]))
         XCTAssertEqual(finding.itemCount, 2)
         XCTAssertEqual(finding.reclaimableBytes, 0)
     }
 
     func test_loginItemsFinding_countsItems() {
         let items = [LoginItem(id: "a", name: "Agent", isEnabled: true)]
-        let finding = CareFinding(kind: .loginItems, payload: .loginItems(items))
+        let finding = CareFinding(payload: .loginItems(items))
         XCTAssertEqual(finding.itemCount, 1)
         XCTAssertEqual(finding.reclaimableBytes, 0)
     }
 
     func test_maintenanceFinding_countsDueTasks() {
-        let finding = CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"]))
+        let finding = CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"]))
         XCTAssertEqual(finding.itemCount, 2)
         XCTAssertEqual(finding.reclaimableBytes, 0)
     }
@@ -144,13 +144,13 @@ final class CareFindingTests: XCTestCase {
             BrowserPrivacySummary(browser: .safari, counts: [.cookies: 10, .browsingHistory: 5]),
             BrowserPrivacySummary(browser: .chrome, counts: [.cookies: 3])
         ]
-        let finding = CareFinding(kind: .browserPrivacy, payload: .browserPrivacy(summaries))
+        let finding = CareFinding(payload: .browserPrivacy(summaries))
         XCTAssertEqual(finding.itemCount, 18)
         XCTAssertEqual(finding.reclaimableBytes, 0)
     }
 
     func test_lowDiskSpaceFinding_singleItem() {
-        let finding = CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(DiskStats(usedBytes: 95, totalBytes: 100)))
+        let finding = CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 95, totalBytes: 100)))
         XCTAssertEqual(finding.itemCount, 1)
         XCTAssertEqual(finding.reclaimableBytes, 0)
     }
@@ -158,10 +158,10 @@ final class CareFindingTests: XCTestCase {
     // MARK: - Empty detection
 
     func test_isEmpty_trueWhenPayloadHasNoWork() {
-        XCTAssertTrue(CareFinding(kind: .threats, payload: .threats([])).isEmpty)
-        XCTAssertTrue(CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: []))).isEmpty)
+        XCTAssertTrue(CareFinding(payload: .threats([])).isEmpty)
+        XCTAssertTrue(CareFinding(payload: .junk(ScanResult(items: []))).isEmpty)
         XCTAssertFalse(
-            CareFinding(kind: .installers, payload: .installers([
+            CareFinding(payload: .installers([
                 InstallationFile(url: URL(fileURLWithPath: "/x.pkg"), name: "x.pkg", sizeBytes: 1, kind: .package)
             ])).isEmpty
         )
@@ -170,51 +170,49 @@ final class CareFindingTests: XCTestCase {
     // MARK: - Urgency
 
     func test_urgency_threatsAreCritical() {
-        let finding = CareFinding(
-            kind: .threats,
-            payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/x"), threatName: "T")])
+        let finding = CareFinding(payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/x"), threatName: "T")])
         )
         XCTAssertEqual(finding.urgency, .critical)
     }
 
     func test_urgency_byteFindingsAreSpace() {
-        let finding = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file("/a", size: 1)])))
+        let finding = CareFinding(payload: .junk(ScanResult(items: [file("/a", size: 1)])))
         XCTAssertEqual(finding.urgency, .space)
     }
 
     func test_urgency_advisoryFindingsAreAttention() {
-        XCTAssertEqual(CareFinding(kind: .appUpdates, payload: .appUpdates([update("A")])).urgency, .attention)
-        XCTAssertEqual(CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(.empty)).urgency, .attention)
-        XCTAssertEqual(CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["x"])).urgency, .attention)
+        XCTAssertEqual(CareFinding(payload: .appUpdates([update("A")])).urgency, .attention)
+        XCTAssertEqual(CareFinding(payload: .lowDiskSpace(.empty)).urgency, .attention)
+        XCTAssertEqual(CareFinding(payload: .maintenanceDue(taskIDs: ["x"])).urgency, .attention)
     }
 
     // MARK: - Actionability (the safety model's single source of truth)
 
     func test_actionability_preApprovedKinds() {
-        XCTAssertEqual(CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: []))).actionability, .preApproved)
-        XCTAssertEqual(CareFinding(kind: .threats, payload: .threats([])).actionability, .preApproved)
-        XCTAssertEqual(CareFinding(kind: .duplicates, payload: .duplicates([])).actionability, .preApproved)
-        XCTAssertEqual(CareFinding(kind: .appUpdates, payload: .appUpdates([])).actionability, .preApproved)
-        XCTAssertEqual(CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: [])).actionability, .preApproved)
+        XCTAssertEqual(CareFinding(payload: .junk(ScanResult(items: []))).actionability, .preApproved)
+        XCTAssertEqual(CareFinding(payload: .threats([])).actionability, .preApproved)
+        XCTAssertEqual(CareFinding(payload: .duplicates([])).actionability, .preApproved)
+        XCTAssertEqual(CareFinding(payload: .appUpdates([])).actionability, .preApproved)
+        XCTAssertEqual(CareFinding(payload: .maintenanceDue(taskIDs: [])).actionability, .preApproved)
     }
 
     func test_actionability_optInKinds_realUserData() {
-        XCTAssertEqual(CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([])).actionability, .optIn)
-        XCTAssertEqual(CareFinding(kind: .unusedApps, payload: .unusedApps([])).actionability, .optIn)
-        XCTAssertEqual(CareFinding(kind: .appLeftovers, payload: .appLeftovers([])).actionability, .optIn)
-        XCTAssertEqual(CareFinding(kind: .installers, payload: .installers([])).actionability, .optIn)
-        XCTAssertEqual(CareFinding(kind: .browserPrivacy, payload: .browserPrivacy([])).actionability, .optIn)
+        XCTAssertEqual(CareFinding(payload: .largeOldFiles([])).actionability, .optIn)
+        XCTAssertEqual(CareFinding(payload: .unusedApps([])).actionability, .optIn)
+        XCTAssertEqual(CareFinding(payload: .appLeftovers([])).actionability, .optIn)
+        XCTAssertEqual(CareFinding(payload: .installers([])).actionability, .optIn)
+        XCTAssertEqual(CareFinding(payload: .browserPrivacy([])).actionability, .optIn)
     }
 
     func test_actionability_informationalKinds() {
-        XCTAssertEqual(CareFinding(kind: .loginItems, payload: .loginItems([])).actionability, .informational)
-        XCTAssertEqual(CareFinding(kind: .lowDiskSpace, payload: .lowDiskSpace(.empty)).actionability, .informational)
+        XCTAssertEqual(CareFinding(payload: .loginItems([])).actionability, .informational)
+        XCTAssertEqual(CareFinding(payload: .lowDiskSpace(.empty)).actionability, .informational)
     }
 
     // MARK: - Identity
 
     func test_id_isStableKindRawValue() {
-        let finding = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [])))
+        let finding = CareFinding(payload: .junk(ScanResult(items: [])))
         XCTAssertEqual(finding.id, "junkCleanup")
     }
 

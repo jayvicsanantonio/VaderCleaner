@@ -66,6 +66,58 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertEqual(vm.dominantDownloadSource, "Google Chrome")
     }
 
+    // MARK: - Failure policy
+
+    /// Every scanner failing is not a tidy Mac. The four sub-scans swallow their
+    /// own errors so one can't sink the dashboard, which left an all-failed scan
+    /// landing in `.empty` — "Nothing to clean up", stated as fact about a scan
+    /// that examined nothing.
+    func test_scan_reportsFailure_whenEveryScannerFailed() async {
+        let vm = MyClutterViewModel(
+            duplicateScan: { _ in throw ClutterScanFailure.boom },
+            similarScan: { _ in throw ClutterScanFailure.boom },
+            largeOldScan: { _ in throw ClutterScanFailure.boom },
+            downloadsScan: { _ in throw ClutterScanFailure.boom },
+            deleter: { Set($0) }
+        )
+
+        await vm.scan()
+
+        guard case .failed(let message) = vm.phase else {
+            return XCTFail("expected .failed, got \(vm.phase)")
+        }
+        XCTAssertFalse(message.isEmpty)
+    }
+
+    /// A scan where some scanners failed still shows what the others found — the
+    /// partial coverage the swallowing was there to protect.
+    func test_scan_landsResults_whenOnlySomeScannersFailed() async {
+        // Built outside the closure: the scan closures are `@Sendable` and the
+        // test case is main-actor isolated, so calling `file(_:size:)` inside
+        // one doesn't compile.
+        let survivor = file("/big/movie.mov", size: 1000)
+        let vm = MyClutterViewModel(
+            duplicateScan: { _ in throw ClutterScanFailure.boom },
+            similarScan: { _ in throw ClutterScanFailure.boom },
+            largeOldScan: { _ in [survivor] },
+            downloadsScan: { _ in throw ClutterScanFailure.boom },
+            deleter: { Set($0) }
+        )
+
+        await vm.scan()
+
+        XCTAssertEqual(vm.phase, .results)
+        XCTAssertEqual(vm.largeOldBytes, 1000)
+    }
+
+    /// Scanners that ran and genuinely found nothing still mean an empty Mac,
+    /// not a broken scan.
+    func test_scan_staysEmpty_whenEveryScannerSucceededWithNothing() async {
+        let vm = makeViewModel()
+        await vm.scan()
+        XCTAssertEqual(vm.phase, .empty)
+    }
+
     // MARK: - Large & old files notification
 
     /// The "Tell me when large or forgotten files turn up" preference had no
@@ -338,4 +390,10 @@ final class MyClutterViewModelTests: XCTestCase {
         vm.scanAgain()
         XCTAssertEqual(vm.scanPresentation, .intro)
     }
+}
+
+/// Stand-in for whatever a real sub-scan throws (an unreadable root, a scope
+/// folder that has gone away), so the failure policy can be driven without one.
+private enum ClutterScanFailure: Error {
+    case boom
 }

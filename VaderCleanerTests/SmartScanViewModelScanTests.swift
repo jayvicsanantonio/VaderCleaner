@@ -52,12 +52,12 @@ final class SmartScanViewModelScanTests: XCTestCase {
         )
         return Self.plan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(junk)),
-                CareFinding(kind: .threats, payload: .threats(threats)),
-                CareFinding(kind: .duplicates, payload: .duplicates([dupGroup])),
-                CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([bigFile])),
-                CareFinding(kind: .appUpdates, payload: .appUpdates([update])),
-                CareFinding(kind: .loginItems, payload: .loginItems([
+                CareFinding(payload: .junk(junk)),
+                CareFinding(payload: .threats(threats)),
+                CareFinding(payload: .duplicates([dupGroup])),
+                CareFinding(payload: .largeOldFiles([bigFile])),
+                CareFinding(payload: .appUpdates([update])),
+                CareFinding(payload: .loginItems([
                     LoginItem(id: "a", name: "Agent", isEnabled: true)
                 ])),
             ],
@@ -136,7 +136,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     }
 
     func test_scan_partialFailure_stillLandsResults() async {
-        let junk = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [Self.file("/c", size: 1)])))
+        let junk = CareFinding(payload: .junk(ScanResult(items: [Self.file("/c", size: 1)])))
         let expected = Self.plan(
             findings: [junk],
             outcomes: [.systemJunk: .completed, .malware: .failed(message: "broken")]
@@ -484,17 +484,17 @@ final class SmartScanViewModelScanTests: XCTestCase {
     /// drop both, so results can never be served from the previous plan.
     func test_rescan_invalidatesMemoizedPlanDerivations() async {
         let firstPlan = Self.plan(
-            findings: [CareFinding(kind: .duplicates, payload: .duplicates([
+            findings: [CareFinding(payload: .duplicates([
                 DuplicateGroup(files: [Self.file("/d/original", size: 10), Self.file("/d/copy", size: 10)])
             ]))],
             outcomes: [.duplicates: .completed]
         )
         let secondPlan = Self.plan(
             findings: [
-                CareFinding(kind: .duplicates, payload: .duplicates([
+                CareFinding(payload: .duplicates([
                     DuplicateGroup(files: [Self.file("/d/original", size: 500), Self.file("/d/copy", size: 500)])
                 ])),
-                CareFinding(kind: .threats, payload: .threats([
+                CareFinding(payload: .threats([
                     MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")
                 ]))
             ],

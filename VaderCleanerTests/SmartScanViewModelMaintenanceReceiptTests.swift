@@ -12,7 +12,7 @@ final class SmartScanViewModelMaintenanceReceiptTests: XCTestCase {
     private nonisolated static var maintenancePlan: CarePlan {
         CarePlan(
             findings: [
-                CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS", "reindexSpotlight"]))
+                CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "reindexSpotlight"]))
             ],
             health: nil,
             unitOutcomes: [.maintenanceDue: .completed],

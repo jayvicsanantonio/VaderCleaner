@@ -43,6 +43,15 @@ final class ProtectionPrivacyModel {
     @ObservationIgnored private let itemsProvider: ItemsProvider
     @ObservationIgnored private let removeAction: Remove
 
+    /// Identifies the operation that currently owns the published state.
+    ///
+    /// `phase` cannot do this job: `scan()` and `remove()` both write it, so a
+    /// removal landing mid-scan erased the `.scanning` marker and let the
+    /// finishing scan republish its *pre-removal* snapshot — permanently
+    /// restoring rows the user had just deleted, since nothing re-triggers a
+    /// scan afterwards. Every publish is gated on still owning this token.
+    @ObservationIgnored private var operationGeneration = 0
+
     init(detect: @escaping Detect, count: @escaping CountProvider, items: @escaping ItemsProvider, remove: @escaping Remove) {
         self.detect = detect
         self.countProvider = count
@@ -57,6 +66,7 @@ final class ProtectionPrivacyModel {
     /// numbers. No-op if already scanning.
     func scan() async {
         guard phase != .scanning else { return }
+        let generation = beginOperation()
         phase = .scanning
         let found = await detect()
         var newCounts: [Key: Int] = [:]
@@ -70,10 +80,21 @@ final class ProtectionPrivacyModel {
                 }
             }
         }
+        // A scan superseded by a removal (or a newer scan) must not publish:
+        // its numbers describe the world before that operation ran. It leaves
+        // `phase` alone too — whoever superseded it owns that now.
+        guard operationGeneration == generation else { return }
         browsers = found
         counts = newCounts
         itemsByKey = newItems
         phase = .ready
+    }
+
+    /// Claims ownership of the published state for a new operation, superseding
+    /// any still in flight.
+    private func beginOperation() -> Int {
+        operationGeneration &+= 1
+        return operationGeneration
     }
 
     // MARK: - Reads
@@ -170,16 +191,22 @@ final class ProtectionPrivacyModel {
     func remove() async {
         let requests = removalRequests()
         guard !requests.isEmpty else { return }
+        // Claimed before the await: a scan already in flight is now stale, and
+        // must not land its pre-removal counts on top of this removal.
+        let generation = beginOperation()
         blockedByRunningBrowser = nil
         phase = .removing
         do {
             try await removeAction(requests)
+            guard operationGeneration == generation else { return }
             deselectAll()
             await scan()
         } catch let PrivacyRemovalError.browserRunning(browser) {
+            guard operationGeneration == generation else { return }
             blockedByRunningBrowser = browser
             phase = .ready
         } catch {
+            guard operationGeneration == generation else { return }
             phase = .ready
         }
     }

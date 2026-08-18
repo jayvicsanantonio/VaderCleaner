@@ -51,7 +51,6 @@ final class PrivacyViewModel {
 
     typealias Detector             = @Sendable () async throws -> [Browser]
     typealias Sizer                = @Sendable (Browser, PrivacyCategory) async throws -> Int64
-    typealias Counter              = @Sendable (Browser, PrivacyCategory) async throws -> Int
     typealias PathsResolver        = @Sendable (Browser, PrivacyCategory) -> [URL]
     typealias Clearer              = @Sendable (Browser, PrivacyCategory) async throws -> Void
     typealias RecentFilesClearer   = @MainActor @Sendable () async throws -> Void
@@ -69,7 +68,6 @@ final class PrivacyViewModel {
 
     @ObservationIgnored private let detector: Detector
     @ObservationIgnored private let sizer: Sizer
-    @ObservationIgnored private let counter: Counter
     @ObservationIgnored private let pathsFor: PathsResolver
     @ObservationIgnored private let clearer: Clearer
     @ObservationIgnored private let clearRecentFiles: RecentFilesClearer
@@ -96,24 +94,18 @@ final class PrivacyViewModel {
     /// profile directories on the main actor.
     @ObservationIgnored private var pathsByBrowserCategory: [Selection: [URL]] = [:]
 
-    /// Cached per-cell item counts, populated alongside preview sizes so the
-    /// Protection Manager's rows show real counts in O(1).
-    @ObservationIgnored private var countsByBrowserCategory: [Selection: Int] = [:]
-
     init(
         detector: @escaping Detector,
         sizer: @escaping Sizer,
         // Defaults to a no-count closure so existing call sites that don't care
         // about item counts stay unchanged; `live()` and the Protection Manager
         // wire the real `BrowserDataCounter`.
-        counter: @escaping Counter = { _, _ in 0 },
         pathsFor: @escaping PathsResolver,
         clearer: @escaping Clearer,
         clearRecentFiles: @escaping RecentFilesClearer
     ) {
         self.detector = detector
         self.sizer = sizer
-        self.counter = counter
         self.pathsFor = pathsFor
         self.clearer = clearer
         self.clearRecentFiles = clearRecentFiles
@@ -193,20 +185,14 @@ final class PrivacyViewModel {
         checkedSelections.contains(Selection(browser: browser, category: category))
     }
 
+    // Item *counts* are deliberately not maintained here. They belong to
+    // `ProtectionPrivacyModel`, which is what the Protection Manager actually
+    // reads; the copy this model kept had no production caller and cost one
+    // extra async count per (browser × category) inside the preview loop.
+
     /// Per-cell size for the row label.
     func size(for browser: Browser, category: PrivacyCategory) -> Int64 {
         sizesByBrowserCategory[Selection(browser: browser, category: category)] ?? 0
-    }
-
-    /// Per-cell item count for the Protection Manager's category rows.
-    func count(for browser: Browser, category: PrivacyCategory) -> Int {
-        countsByBrowserCategory[Selection(browser: browser, category: category)] ?? 0
-    }
-
-    /// Total item count across every category of `browser` — the per-browser
-    /// total shown in the Protection Manager's middle column.
-    func totalCount(for browser: Browser) -> Int {
-        PrivacyCategory.allCases.reduce(0) { $0 + count(for: browser, category: $1) }
     }
 
     /// Sum of sizes for every category of `browser` regardless of
@@ -295,7 +281,6 @@ final class PrivacyViewModel {
         scannedItemCount = 0
         let detector = detector
         let sizer = sizer
-        let counter = counter
         let pathsFor = pathsFor
         let log = log
 
@@ -303,7 +288,6 @@ final class PrivacyViewModel {
             do {
                 let browsers = try await detector()
                 var sizes: [Selection: Int64] = [:]
-                var counts: [Selection: Int] = [:]
                 var pathsBySelection: [Selection: [URL]] = [:]
                 var checked: Set<Selection> = []
                 var processed = 0
@@ -312,7 +296,6 @@ final class PrivacyViewModel {
                         try Task.checkCancellation()
                         let selection = Selection(browser: browser, category: category)
                         sizes[selection] = try await sizer(browser, category)
-                        counts[selection] = try await counter(browser, category)
                         pathsBySelection[selection] = pathsFor(browser, category)
                         checked.insert(selection)
                         // Surface the running tally so the scanning screen shows
@@ -328,14 +311,12 @@ final class PrivacyViewModel {
                 }
                 try Task.checkCancellation()
                 let sizesSnapshot = sizes
-                let countsSnapshot = counts
                 let pathsSnapshot = pathsBySelection
                 let checkedSnapshot = checked
                 await MainActor.run { [weak self] in
                     guard let self, self.operationGeneration == generation else { return }
                     self.detectedBrowsers = browsers
                     self.sizesByBrowserCategory = sizesSnapshot
-                    self.countsByBrowserCategory = countsSnapshot
                     self.pathsByBrowserCategory = pathsSnapshot
                     self.checkedSelections = checkedSnapshot
                     self.isClearRecentsChecked = true
@@ -402,7 +383,6 @@ final class PrivacyViewModel {
         detectedBrowsers = []
         checkedSelections = []
         sizesByBrowserCategory = [:]
-        countsByBrowserCategory = [:]
         pathsByBrowserCategory = [:]
         isClearRecentsChecked = true
     }
@@ -530,16 +510,12 @@ extension PrivacyViewModel {
         let detector = DefaultBrowserDetector()
         let pathProvider = DefaultBrowserDataPathProvider()
         let clearer = BrowserDataClearer(pathProvider: pathProvider)
-        let dataCounter = BrowserDataCounter(pathProvider: pathProvider)
         let recents = RecentFilesManager()
 
         return PrivacyViewModel(
             detector: { detector.installedBrowsers() },
             sizer: { browser, category in
                 try await clearer.previewSize(for: category, browser: browser)
-            },
-            counter: { browser, category in
-                try await dataCounter.count(for: category, browser: browser)
             },
             pathsFor: { browser, category in
                 clearer.paths(for: category, browser: browser)

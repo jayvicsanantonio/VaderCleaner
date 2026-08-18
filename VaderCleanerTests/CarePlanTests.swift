@@ -28,7 +28,7 @@ final class CarePlanTests: XCTestCase {
     }
 
     func test_findingLookup_byKind() {
-        let junk = CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [])))
+        let junk = CareFinding(payload: .junk(ScanResult(items: [])))
         let sut = plan(findings: [junk], outcomes: [:])
         XCTAssertEqual(sut.finding(.junkCleanup), junk)
         XCTAssertNil(sut.finding(.threats))
@@ -83,11 +83,11 @@ final class CarePlanTests: XCTestCase {
     }
 
     private func junkFinding(_ paths: [String]) -> CareFinding {
-        CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: paths.map { file($0, size: 10) })))
+        CareFinding(payload: .junk(ScanResult(items: paths.map { file($0, size: 10) })))
     }
 
     private var largeFilesFinding: CareFinding {
-        CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([file("/Movies/huge.mov", size: 9_000)]))
+        CareFinding(payload: .largeOldFiles([file("/Movies/huge.mov", size: 9_000)]))
     }
 
     func test_merging_replacesFindingsForTheRescannedUnits() {

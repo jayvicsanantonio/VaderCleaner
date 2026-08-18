@@ -170,10 +170,15 @@ struct SimilarImageScanner {
             Self.distance(prints[i], prints[j])
         }
 
-        let groups = clusters.map { indices -> SimilarImageGroup in
+        let groups = clusters.compactMap { indices -> SimilarImageGroup? in
             // Keep the largest file as the original (highest fidelity).
             let files = indices.map { kept[$0] }.sorted { $0.size > $1.size }
-            return SimilarImageGroup(files: files)
+            // Two names for one inode are perceptually identical by
+            // construction, so they always cluster — but Trashing one frees
+            // nothing, and offering it would promise space that can't come back.
+            let distinct = DuplicateScanner.deduplicatedByInode(files)
+            guard distinct.count > 1 else { return nil }
+            return SimilarImageGroup(files: distinct)
         }
         return groups.sorted { $0.reclaimableBytes > $1.reclaimableBytes }
     }

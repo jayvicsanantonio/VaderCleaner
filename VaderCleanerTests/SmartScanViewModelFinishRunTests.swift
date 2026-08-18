@@ -33,7 +33,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
     }
 
     private nonisolated static var untouchedLargeFile: CareFinding {
-        CareFinding(kind: .largeOldFiles, payload: .largeOldFiles([file("/Movies/huge.mov", size: 9_000, category: .largeFile)]))
+        CareFinding(payload: .largeOldFiles([file("/Movies/huge.mov", size: 9_000, category: .largeFile)]))
     }
 
     /// Junk (pre-approved, so Run handles it) plus an opt-in large-file finding
@@ -41,7 +41,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
     private nonisolated static var scanned: CarePlan {
         plan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [file("/cache/safe", size: 1_000)]))),
+                CareFinding(payload: .junk(ScanResult(items: [file("/cache/safe", size: 1_000)]))),
                 untouchedLargeFile,
             ],
             outcomes: [.systemJunk: .completed, .largeOldFiles: .completed, .malware: .completed]
@@ -234,7 +234,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
     /// Re-scanning it would be work for an answer we already have.
     func test_finishRun_keepsAFindingWhoseActionChangedNothing() async {
         let scanCount = TestBox(0)
-        let due = CareFinding(kind: .maintenanceDue, payload: .maintenanceDue(taskIDs: ["flushDNS"]))
+        let due = CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS"]))
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in
                 scanCount.value += 1
@@ -331,9 +331,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
     /// re-check that still finds work arrives pre-approved as it does on a
     /// first scan.
     func test_finishRun_reseedsAFindingTheRunActuallyHandled() async {
-        let remainingJunk = CareFinding(
-            kind: .junkCleanup,
-            payload: .junk(ScanResult(items: [Self.file("/cache/more", size: 500)]))
+        let remainingJunk = CareFinding(payload: .junk(ScanResult(items: [Self.file("/cache/more", size: 500)]))
         )
         let scanCount = TestBox(0)
         let vm = SmartScanViewModel(
@@ -360,13 +358,11 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
     private func viewModelWithDuplicates() -> SmartScanViewModel {
         let copy = Self.file("/Pictures/copy.jpg", size: 2_000, category: .largeFile)
         let original = Self.file("/Pictures/original.jpg", size: 2_000, category: .largeFile)
-        let duplicates = CareFinding(
-            kind: .duplicates,
-            payload: .duplicates([DuplicateGroup(files: [original, copy])])
+        let duplicates = CareFinding(payload: .duplicates([DuplicateGroup(files: [original, copy])])
         )
         let first = Self.plan(
             findings: [
-                CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [Self.file("/cache/safe", size: 1_000)]))),
+                CareFinding(payload: .junk(ScanResult(items: [Self.file("/cache/safe", size: 1_000)]))),
                 duplicates,
                 Self.untouchedLargeFile,
             ],

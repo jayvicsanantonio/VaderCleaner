@@ -20,6 +20,12 @@ final class HomebrewViewModel {
         case notInstalled
         case ready
         case checkingUpdates
+        /// A brew query is in flight with no streamed log to show — the
+        /// reverse-dependency check behind the uninstall sheet, and the cleanup
+        /// dry run. Both invoke brew, so both must read as busy; without it the
+        /// UI's only re-entrancy defence (`.disabled(isBusy)`) stayed open and a
+        /// second action could start a concurrent brew process.
+        case preparing
         case running(Operation)
         case failed(message: String)
     }
@@ -91,7 +97,7 @@ final class HomebrewViewModel {
     /// guard that prevents two brew operations from running at once.
     var isBusy: Bool {
         switch phase {
-        case .loading, .checkingUpdates, .running:
+        case .loading, .checkingUpdates, .preparing, .running:
             return true
         case .idle, .notInstalled, .ready, .failed:
             return false
@@ -228,7 +234,21 @@ final class HomebrewViewModel {
         lastOperationError = nil
         let status = await stream(.upgrade, arguments: ["upgrade"] + names)
         recordFailureIfNeeded(status, verb: "upgrade")
-        if let runner { try? await reloadOutdated(runner: runner) }
+        if let runner {
+            do {
+                try await reloadOutdated(runner: runner)
+            } catch {
+                // The upgrade invalidated `outdated`; silently keeping the
+                // pre-upgrade list made just-upgraded packages reappear as
+                // update rows here *and* in the Updater, which reads this list.
+                log.error("Post-upgrade outdated reload failed: \(String(describing: error), privacy: .private)")
+                outdated = []
+                lastOperationError = String(
+                    localized: "Upgraded, but couldn't re-read Homebrew's outdated list. Check for updates again.",
+                    comment: "Shown when the post-upgrade refresh of the outdated list fails."
+                )
+            }
+        }
         phase = .ready
     }
 
@@ -239,6 +259,9 @@ final class HomebrewViewModel {
     /// contribute blocking dependents.
     func requestUninstall(_ packages: [BrewPackage]) async {
         guard let runner, !isBusy, !packages.isEmpty else { return }
+        let phaseBeforePreparing = phase
+        phase = .preparing
+        defer { if phase == .preparing { phase = phaseBeforePreparing } }
         // Reverse-dependency checks are independent read-only queries; run them
         // concurrently so the confirmation sheet isn't gated on a serial loop.
         var dependents: [String: [String]] = [:]
@@ -307,6 +330,9 @@ final class HomebrewViewModel {
     /// `.unavailable` when it can't be parsed).
     func previewCleanup() async {
         guard let runner, !isBusy else { return }
+        let phaseBeforePreparing = phase
+        phase = .preparing
+        defer { if phase == .preparing { phase = phaseBeforePreparing } }
         guard let result = try? await runner.runCapturing(["cleanup", "-n"]) else {
             reclaimablePreview = .unavailable
             return

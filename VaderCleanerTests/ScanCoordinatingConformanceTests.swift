@@ -117,7 +117,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         let vm = makeSmartScan(
             engine: { _, _ in
                 Self.carePlan(findings: [
-                    CareFinding(kind: .junkCleanup, payload: .junk(ScanResult(items: [junkFile])))
+                    CareFinding(payload: .junk(ScanResult(items: [junkFile])))
                 ])
             },
             junkCleaner: { _ in
