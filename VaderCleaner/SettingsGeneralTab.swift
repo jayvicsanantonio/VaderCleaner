@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 // MARK: - General tab
 
