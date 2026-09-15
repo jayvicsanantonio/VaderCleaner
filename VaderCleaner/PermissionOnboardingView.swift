@@ -36,6 +36,24 @@ struct PermissionOnboardingView: View {
             .padding()
             .glassEffect(.regular, in: .rect(cornerRadius: 8))
 
+            // Shown once the user has been to System Settings and access still
+            // reads false — the exact shape of "I already did that, why is this
+            // still here". macOS only applies Full Disk Access to a process
+            // started after the grant, so re-checking in the same running
+            // process keeps failing no matter how many times "Check Again" is
+            // clicked; quitting and reopening is what actually picks it up.
+            if viewModel.hasVisitedSystemSettings, !appState.hasFullDiskAccess {
+                Text(
+                    "Still seeing this after Check Again? macOS only applies Full Disk Access the next time VaderCleaner opens — quit and reopen it instead of checking again.",
+                    comment: "FDA onboarding sheet: explains why Check Again alone may not detect a grant made while the app was already running."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+                .accessibilityIdentifier("permissionOnboarding.restartNote")
+            }
+
             HStack(spacing: 12) {
                 Button("Continue Without Access") {
                     viewModel.dismiss()
@@ -74,5 +92,5 @@ struct PermissionOnboardingView: View {
 #Preview {
     PermissionOnboardingView()
         .environment(AppState(checker: { false }))
-        .environment(PermissionOnboardingViewModel())
+        .environment(PermissionOnboardingViewModel.live())
 }

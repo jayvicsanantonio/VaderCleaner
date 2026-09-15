@@ -644,7 +644,7 @@ private extension AnyTransition {
     )
         .environment(AppState(checker: { true }))
         .environment(SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!))
-        .environment(PermissionOnboardingViewModel())
+        .environment(PermissionOnboardingViewModel.live())
         // Marked complete so the preview shows the main window rather than the
         // first-run flow, which has its own preview.
         .environment({
