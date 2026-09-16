@@ -638,12 +638,10 @@ struct ProtectionDashboardView: View {
     }
 }
 
-/// Surfaces `removalFailureMessage` as an alert. On macOS 27, presentation is
-/// driven by a single `item:` binding synthesized from that optional; below
-/// 27 there is no such overload, so an `isPresented` Bool is derived from the
-/// same optional instead. Either way `removalFailureMessage` itself stays the
-/// one source of truth — there is no separate Bool for the two to drift out of
-/// sync on.
+/// Surfaces `removalFailureMessage` as an alert. That optional is the one
+/// source of truth for whether the alert is up — the `isPresented` Bool it
+/// needs is derived from it rather than tracked separately, so there is no
+/// separate Bool for the two to drift out of sync on.
 private struct RemovalFailureAlert: ViewModifier {
     let viewModel: ProtectionDashboardViewModel
 
@@ -653,35 +651,19 @@ private struct RemovalFailureAlert: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if #available(macOS 27, *) {
-            content.alert(
-                title,
-                item: Binding(
-                    get: { viewModel.removalFailureMessage },
-                    set: { if $0 == nil { viewModel.dismissRemovalFailure() } }
-                )
-            ) { _ in
-                Button(String(localized: "OK", comment: "Dismisses the privacy removal failure alert.")) {
-                    viewModel.dismissRemovalFailure()
-                }
-            } message: { message in
-                Text(message)
+        content.alert(
+            title,
+            isPresented: Binding(
+                get: { viewModel.removalFailureMessage != nil },
+                set: { if !$0 { viewModel.dismissRemovalFailure() } }
+            )
+        ) {
+            Button(String(localized: "OK", comment: "Dismisses the privacy removal failure alert.")) {
+                viewModel.dismissRemovalFailure()
             }
-        } else {
-            content.alert(
-                title,
-                isPresented: Binding(
-                    get: { viewModel.removalFailureMessage != nil },
-                    set: { if !$0 { viewModel.dismissRemovalFailure() } }
-                )
-            ) {
-                Button(String(localized: "OK", comment: "Dismisses the privacy removal failure alert.")) {
-                    viewModel.dismissRemovalFailure()
-                }
-            } message: {
-                if let message = viewModel.removalFailureMessage {
-                    Text(message)
-                }
+        } message: {
+            if let message = viewModel.removalFailureMessage {
+                Text(message)
             }
         }
     }

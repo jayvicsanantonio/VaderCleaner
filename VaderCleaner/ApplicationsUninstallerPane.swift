@@ -275,12 +275,10 @@ struct UninstallerPaneView: View {
     }
 }
 
-/// Confirms the single-app uninstall opened from the chevron detail. On
-/// macOS 27, presentation is driven directly by `pendingUninstall` via the
-/// `item:` overload; below 27 there is no such overload, so an `isPresented`
-/// Bool is derived from the same optional instead. Either way
-/// `pendingUninstall` stays the one source of truth for which app, if any, is
-/// pending confirmation.
+/// Confirms the single-app uninstall opened from the chevron detail.
+/// `pendingUninstall` is the one source of truth for which app, if any, is
+/// pending confirmation — the `isPresented` Bool the alert needs is derived
+/// from it rather than tracked separately, so the two can't drift apart.
 private struct SingleUninstallConfirmationAlert: ViewModifier {
     @Binding var pendingUninstall: AppInfo?
     let onConfirm: () -> Void
@@ -298,26 +296,17 @@ private struct SingleUninstallConfirmationAlert: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if #available(macOS 27, *) {
-            content.alert(title, item: $pendingUninstall) { _ in
-                Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
-                Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive, action: onConfirm)
-            } message: { _ in
-                Text(message)
-            }
-        } else {
-            content.alert(
-                title,
-                isPresented: Binding(
-                    get: { pendingUninstall != nil },
-                    set: { if !$0 { pendingUninstall = nil } }
-                )
-            ) {
-                Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
-                Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive, action: onConfirm)
-            } message: {
-                Text(message)
-            }
+        content.alert(
+            title,
+            isPresented: Binding(
+                get: { pendingUninstall != nil },
+                set: { if !$0 { pendingUninstall = nil } }
+            )
+        ) {
+            Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
+            Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive, action: onConfirm)
+        } message: {
+            Text(message)
         }
     }
 }
