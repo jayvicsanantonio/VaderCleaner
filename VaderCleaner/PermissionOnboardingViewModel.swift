@@ -28,11 +28,30 @@ final class PermissionOnboardingViewModel {
     /// own inline Full Disk Access prompts where they need it.
     var isDismissed: Bool = false
 
+    /// Set once the user has opened System Settings from this sheet, so the view
+    /// can explain — only once it's relevant — why "Check Again" alone won't pick
+    /// up a grant made while VaderCleaner was already running.
+    private(set) var hasVisitedSystemSettings = false
+
+    @ObservationIgnored private let openSystemSettingsAction: () -> Void
+
+    init(openSystemSettings: @escaping () -> Void) {
+        self.openSystemSettingsAction = openSystemSettings
+    }
+
+    /// Production wiring: the real System Settings deep-link.
+    static func live() -> PermissionOnboardingViewModel {
+        PermissionOnboardingViewModel(openSystemSettings: {
+            NSWorkspace.shared.open(systemSettingsURL)
+        })
+    }
+
     func dismiss() {
         isDismissed = true
     }
 
     func openSystemSettings() {
-        NSWorkspace.shared.open(Self.systemSettingsURL)
+        hasVisitedSystemSettings = true
+        openSystemSettingsAction()
     }
 }

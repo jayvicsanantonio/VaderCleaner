@@ -122,22 +122,7 @@ struct ProtectionDashboardView: View {
             }
             // The removal confirmation promises the data will be gone; when it
             // isn't, say so rather than leaving the tile sitting there.
-            .alert(
-                String(localized: "Couldn't remove these items",
-                       comment: "Title of the alert shown when a privacy tile's removal fails."),
-                isPresented: Binding(
-                    get: { viewModel.removalFailureMessage != nil },
-                    set: { if !$0 { viewModel.dismissRemovalFailure() } }
-                )
-            ) {
-                Button(String(localized: "OK", comment: "Dismisses the privacy removal failure alert.")) {
-                    viewModel.dismissRemovalFailure()
-                }
-            } message: {
-                if let message = viewModel.removalFailureMessage {
-                    Text(message)
-                }
-            }
+            .modifier(RemovalFailureAlert(viewModel: viewModel))
     }
 
     @ViewBuilder
@@ -649,6 +634,37 @@ struct ProtectionDashboardView: View {
             Color.clear
                 .frame(width: 360, height: 200)
                 .onAppear { reviewingThreats = false }
+        }
+    }
+}
+
+/// Surfaces `removalFailureMessage` as an alert. That optional is the one
+/// source of truth for whether the alert is up — the `isPresented` Bool it
+/// needs is derived from it rather than tracked separately, so there is no
+/// separate Bool for the two to drift out of sync on.
+private struct RemovalFailureAlert: ViewModifier {
+    let viewModel: ProtectionDashboardViewModel
+
+    private var title: String {
+        String(localized: "Couldn't remove these items",
+               comment: "Title of the alert shown when a privacy tile's removal fails.")
+    }
+
+    func body(content: Content) -> some View {
+        content.alert(
+            title,
+            isPresented: Binding(
+                get: { viewModel.removalFailureMessage != nil },
+                set: { if !$0 { viewModel.dismissRemovalFailure() } }
+            )
+        ) {
+            Button(String(localized: "OK", comment: "Dismisses the privacy removal failure alert.")) {
+                viewModel.dismissRemovalFailure()
+            }
+        } message: {
+            if let message = viewModel.removalFailureMessage {
+                Text(message)
+            }
         }
     }
 }

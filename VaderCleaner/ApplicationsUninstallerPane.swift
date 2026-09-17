@@ -21,8 +21,10 @@ struct UninstallerPaneView: View {
     @Binding var displayedApps: [AppInfo]
     @Binding var homebrewSelection: Set<BrewPackage.ID>
 
-    /// Confirmation for the single app open in the chevron detail.
-    @State private var showSingleUninstallConfirmation = false
+    /// The app pending confirmation from the chevron detail's Uninstall
+    /// button, if any. This is the one source of truth for whether the alert
+    /// is up — nothing else needs to stay in sync with it.
+    @State private var pendingUninstall: AppInfo?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -30,14 +32,10 @@ struct UninstallerPaneView: View {
             Divider().opacity(0.4)
             rightColumn.frame(maxWidth: .infinity)
         }
-        .alert(singleUninstallConfirmationTitle, isPresented: $showSingleUninstallConfirmation) {
-            Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
-            Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive) {
-                Task { await uninstallerViewModel.uninstall() }
-            }
-        } message: {
-            Text(singleUninstallConfirmationMessage)
-        }
+        .modifier(SingleUninstallConfirmationAlert(
+            pendingUninstall: $pendingUninstall,
+            onConfirm: { Task { await uninstallerViewModel.uninstall() } }
+        ))
     }
 
     // MARK: Middle (facets)
@@ -256,7 +254,7 @@ struct UninstallerPaneView: View {
                 groupedFiles: uninstallerViewModel.associatedFilesByCategory,
                 totalReclaimableSize: uninstallerViewModel.totalReclaimableSize,
                 canUninstall: uninstallerViewModel.canUninstallSelectedApp,
-                onUninstall: { showSingleUninstallConfirmation = true },
+                onUninstall: { pendingUninstall = uninstallerViewModel.selectedApp },
                 iconCache: iconCache
             )
         }
@@ -264,18 +262,6 @@ struct UninstallerPaneView: View {
             // The app was uninstalled from the detail — return to the list.
             if let id = inspectingAppID, !ids.contains(id) { inspectingAppID = nil }
         }
-    }
-
-    private var singleUninstallConfirmationTitle: String {
-        guard let app = uninstallerViewModel.selectedApp else {
-            return String(localized: "Move this app and its data to Trash?", comment: "Single uninstall confirmation title fallback.")
-        }
-        let format = String(localized: "Move %@ and its data to Trash?", comment: "Single uninstall confirmation title; %@ is the app name.")
-        return String.localizedStringWithFormat(format, app.name)
-    }
-
-    private var singleUninstallConfirmationMessage: String {
-        String(localized: "The application and its associated files will be moved to the Trash. You can restore them until you empty it.", comment: "Single uninstall confirmation message.")
     }
 
     private func sizeText(_ bytes: Int64?) -> String {
@@ -286,5 +272,41 @@ struct UninstallerPaneView: View {
     private func dateText(_ date: Date?) -> String {
         guard let date else { return "—" }
         return formattedDate(date)
+    }
+}
+
+/// Confirms the single-app uninstall opened from the chevron detail.
+/// `pendingUninstall` is the one source of truth for which app, if any, is
+/// pending confirmation — the `isPresented` Bool the alert needs is derived
+/// from it rather than tracked separately, so the two can't drift apart.
+private struct SingleUninstallConfirmationAlert: ViewModifier {
+    @Binding var pendingUninstall: AppInfo?
+    let onConfirm: () -> Void
+
+    private var title: String {
+        guard let app = pendingUninstall else {
+            return String(localized: "Move this app and its data to Trash?", comment: "Single uninstall confirmation title fallback.")
+        }
+        let format = String(localized: "Move %@ and its data to Trash?", comment: "Single uninstall confirmation title; %@ is the app name.")
+        return String.localizedStringWithFormat(format, app.name)
+    }
+
+    private var message: String {
+        String(localized: "The application and its associated files will be moved to the Trash. You can restore them until you empty it.", comment: "Single uninstall confirmation message.")
+    }
+
+    func body(content: Content) -> some View {
+        content.alert(
+            title,
+            isPresented: Binding(
+                get: { pendingUninstall != nil },
+                set: { if !$0 { pendingUninstall = nil } }
+            )
+        ) {
+            Button(String(localized: "Cancel", comment: "Cancel button on the uninstall confirmation."), role: .cancel) {}
+            Button(String(localized: "Uninstall", comment: "Confirm single-app uninstall."), role: .destructive, action: onConfirm)
+        } message: {
+            Text(message)
+        }
     }
 }

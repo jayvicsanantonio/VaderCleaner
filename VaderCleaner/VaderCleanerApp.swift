@@ -22,7 +22,7 @@ struct VaderCleanerApp: App {
     // windows the user might open. A per-view @State in ContentView would
     // be re-created per WindowGroup instance.
     @State private var appState = AppState()
-    @State private var onboardingViewModel = PermissionOnboardingViewModel()
+    @State private var onboardingViewModel = PermissionOnboardingViewModel.live()
     // The first-run flow covers the whole window, so it is owned here rather
     // than by ContentView: closing and reopening the window mid-flow must not
     // restart the tour from step one.

@@ -799,7 +799,7 @@ final class SystemStatsService {
     /// previously published value so a transient subprocess error doesn't
     /// flicker existing UI between stale and unknown/off values.
     func refreshDeviceHealth() {
-        backgroundQueue.async {
+        backgroundQueue.async { [weak self] in
             // Static methods read SMART and FileVault from subprocesses; no
             // `self` capture is required on the background hop. We re-acquire
             // a weak reference inside the MainActor hop so a service that has
