@@ -63,14 +63,21 @@ struct ProtectionManagerView: View {
                 Text(String(localized: "The selected items will be permanently deleted. This cannot be undone.",
                             comment: "Protection Manager removal confirmation body."))
             }
-            .alert(item: $blockedBrowser) { browser in
-                Alert(
-                    title: Text(String(localized: "Quit \(browser.displayName) first", comment: "Running-browser block title.")),
-                    message: Text(String(localized: "These items are stored in a database \(browser.displayName) has open. Quit \(browser.displayName) and try again.", comment: "Running-browser block body.")),
-                    dismissButton: .default(Text(String(localized: "OK", comment: "Acknowledge."))) {
-                        privacyModel.acknowledgeBlock()
-                    }
+            .alert(
+                String(localized: "Quit \(blockedBrowser?.displayName ?? "") first", comment: "Running-browser block title."),
+                isPresented: Binding(
+                    get: { blockedBrowser != nil },
+                    set: { if !$0 { blockedBrowser = nil } }
                 )
+            ) {
+                Button(String(localized: "OK", comment: "Acknowledge.")) {
+                    privacyModel.acknowledgeBlock()
+                }
+            } message: {
+                Text(String(
+                    localized: "These items are stored in a database \(blockedBrowser?.displayName ?? "") has open. Quit \(blockedBrowser?.displayName ?? "") and try again.",
+                    comment: "Running-browser block body."
+                ))
             }
     }
 
