@@ -1,5 +1,5 @@
 // ObservationRecording.swift
-// Test helpers for `@Observable` types: captures every value of a tracked key path while work runs, and polls a condition with a timeout — the @Observable equivalents of `vm.$phase.sink { … }` and `XCTestExpectation` fulfilment.
+// Test helpers for `@Observable` types: captures every value of a tracked key path while work runs, and polls a condition with a timeout — the @Observable equivalents of `vm.$phase.sink { … }` and `XCTestExpectation` fulfilment. `pollUntil` is framework-agnostic; `waitUntil` is its XCTest-failing wrapper.
 
 import Foundation
 import Observation
@@ -92,10 +92,31 @@ private final class TransitionRecorder<Subject: AnyObject, Value>: @unchecked Se
     }
 }
 
+/// Polls `condition` every `pollInterval` until it returns `true` or `timeout`
+/// elapses, returning whether it ever became true. The condition closure runs
+/// on the main actor so it can read tracked `@Observable` properties without
+/// bouncing actors.
+///
+/// Framework-agnostic so both `waitUntil` (XCTest) and Swift Testing's
+/// `#expect(await pollUntil { … })` can share one polling loop.
+@MainActor
+func pollUntil(
+    timeout: Duration = .seconds(2),
+    pollInterval: Duration = .milliseconds(20),
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while clock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: pollInterval)
+    }
+    return false
+}
+
 /// Polls `condition` every 20 ms until it returns `true` or `timeout` elapses.
 /// Used in place of `XCTestExpectation` + a `@Published` sink when waiting for
-/// an `@Observable` property to reach a value — the condition closure runs on
-/// the main actor so it can read tracked properties without bouncing actors.
+/// an `@Observable` property to reach a value.
 ///
 /// Calls `XCTFail` (attributed to `file`/`line`) if the timeout elapses
 /// without the condition becoming true, so the failure points at the test's
@@ -108,10 +129,8 @@ func waitUntil(
     line: UInt = #line,
     _ condition: @MainActor () -> Bool
 ) async {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() { return }
-        try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+    let succeeded = await pollUntil(timeout: .seconds(timeout), pollInterval: .seconds(pollInterval), condition)
+    if !succeeded {
+        XCTFail("Condition did not become true within \(timeout)s", file: file, line: line)
     }
-    XCTFail("Condition did not become true within \(timeout)s", file: file, line: line)
 }
