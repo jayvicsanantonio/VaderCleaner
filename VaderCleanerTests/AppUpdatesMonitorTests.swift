@@ -1,6 +1,8 @@
 // AppUpdatesMonitorTests.swift
 // Tests that the app-updates monitor only probes when the toggle allows it, notifies on new findings, and doesn't repeat the same result.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleaner
 
@@ -162,5 +164,47 @@ final class AppUpdatesMonitorTests: XCTestCase {
         await monitor.check()
 
         XCTAssertEqual(dispatcher.calls, [.appUpdates(count: 3), .appUpdates(count: 3)])
+    }
+}
+
+@MainActor
+@Suite
+struct AppUpdatesMonitorOverlapTests {
+
+    /// `start()` used to schedule a plain repeating `Timer` that kicked off a
+    /// fresh `check()` Task on every tick regardless of whether the previous
+    /// check had returned, and `lastCheck` is only written after the probe
+    /// awaits — so a slow probe left the interval guard unable to stop a
+    /// second tick from starting concurrently. This drives a `probe` slower
+    /// than the timer interval and asserts the peak concurrency never
+    /// exceeds 1.
+    @Test
+    func start_neverRunsOverlappingChecks() async throws {
+        let suiteName = "VaderCleanerTests.AppUpdatesOverlap.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let preferences = PreferencesStore(defaults: defaults)
+        let dispatcher = StubNotificationDispatcher()
+        let tracker = ConcurrencyPeakTracker()
+
+        let monitor = AppUpdatesMonitor(
+            preferences: preferences,
+            dispatcher: dispatcher,
+            probe: {
+                await tracker.enter()
+                try? await Task.sleep(for: .milliseconds(150))
+                await tracker.exit()
+                return 0
+            },
+            interval: 0.05,
+            defaults: defaults,
+            now: Date.init
+        )
+
+        monitor.start()
+        try await Task.sleep(for: .milliseconds(400))
+        monitor.stop()
+        defaults.removePersistentDomain(forName: suiteName)
+
+        #expect(await tracker.peak == 1)
     }
 }

@@ -31,7 +31,7 @@ final class AppUpdatesMonitor {
     private let defaults: UserDefaults
     private let now: () -> Date
 
-    private var timer: Timer?
+    private var pollTask: Task<Void, Never>?
 
     init(
         preferences: PreferencesStore,
@@ -88,16 +88,19 @@ final class AppUpdatesMonitor {
 
     func start() {
         stop()
-        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.check() }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.check()
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(self.interval))
+            }
         }
-        self.timer = timer
-        Task { await check() }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        pollTask?.cancel()
+        pollTask = nil
     }
 
     /// Production probe: enumerates installed apps and counts the ones with an

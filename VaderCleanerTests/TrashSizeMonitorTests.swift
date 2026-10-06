@@ -1,6 +1,8 @@
 // TrashSizeMonitorTests.swift
 // Verifies the Trash-size monitor fires only past the threshold, respects the toggle, and honors its cooldown.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleaner
 
@@ -71,5 +73,46 @@ final class TrashSizeMonitorTests: XCTestCase {
         virtualNow = virtualNow.addingTimeInterval(6 * 60 * 60 + 1)  // past cooldown
         monitor.evaluate(sizeBytes: 2_000_000_000)
         XCTAssertEqual(dispatcher.calls.count, 2)
+    }
+}
+
+@MainActor
+@Suite
+struct TrashSizeMonitorOverlapTests {
+
+    /// `start()` used to schedule a plain repeating `Timer` that kicked off a
+    /// fresh `poll()` Task on every tick regardless of whether the previous
+    /// poll had returned. A slow `sizeReader` (a large real Trash) could
+    /// therefore have two polls measuring at once. This drives a `sizeReader`
+    /// slower than the poll interval and asserts the peak concurrency never
+    /// exceeds 1.
+    @Test
+    func start_neverRunsOverlappingPolls() async throws {
+        let defaults = UserDefaults(suiteName: "VaderCleanerTests.TrashSizeOverlap.\(UUID().uuidString)")!
+        let preferences = PreferencesStore(defaults: defaults)
+        preferences.notifyTrashSize = true
+        preferences.trashSizeThresholdGB = 1_000_000 // never actually fires a notification
+        let dispatcher = StubNotificationDispatcher()
+        let tracker = ConcurrencyPeakTracker()
+
+        let monitor = TrashSizeMonitor(
+            preferences: preferences,
+            dispatcher: dispatcher,
+            sizeReader: {
+                await tracker.enter()
+                try? await Task.sleep(for: .milliseconds(60))
+                await tracker.exit()
+                return 0
+            },
+            cooldown: 0,
+            pollInterval: 0.02,
+            now: Date.init
+        )
+
+        monitor.start()
+        try await Task.sleep(for: .milliseconds(250))
+        monitor.stop()
+
+        #expect(await tracker.peak == 1)
     }
 }
