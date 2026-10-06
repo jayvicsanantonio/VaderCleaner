@@ -247,7 +247,7 @@ struct UpdateInstallTools: Sendable {
         // Poll rather than sleep a fixed interval, so a fast quit isn't
         // punished and a slow one still gets a fair chance.
         for _ in 0..<20 {
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? await Task.sleep(for: .milliseconds(250))
             let stillRunning = await MainActor.run {
                 NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             }

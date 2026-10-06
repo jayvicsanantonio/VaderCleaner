@@ -2,7 +2,6 @@
 // Drives the PerformanceViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/remove — through injected fakes.
 
 import XCTest
-import Combine
 @testable import VaderCleaner
 
 @MainActor
@@ -352,7 +351,7 @@ final class PerformanceViewModelTests: XCTestCase {
     /// Preferences toggle) must reload the Performance login-items row
     /// so the two surfaces never disagree within a session.
     func test_externalLaunchAtLoginChange_reloadsLoginItems() async {
-        let subject = PassthroughSubject<Void, Never>()
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
         let loadCount = TestBox(0)
         let vm = makeViewModel(
             loadLoginItems: {
@@ -361,12 +360,12 @@ final class PerformanceViewModelTests: XCTestCase {
                 // external change the backing state reads enabled.
                 return [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loadCount.value > 1)]
             },
-            launchAtLoginChanges: subject.eraseToAnyPublisher()
+            launchAtLoginChanges: stream
         )
         await vm.refresh()
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
 
-        subject.send(())
+        continuation.yield(())
         await waitUntil { vm.loginItems.first?.isEnabled == true }
 
         XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
@@ -393,8 +392,8 @@ final class PerformanceViewModelTests: XCTestCase {
     /// toggle reaches the Performance row, an Performance-side toggle
     /// writes back through `PreferencesStore`, and the SMAppService
     /// handler runs exactly once per change — no duplicated write path.
-    /// Also pins the `@Published` willSet/didSet ordering: the row is
-    /// reloaded *after* the handler has applied the new state.
+    /// Also pins the willSet/didSet ordering: the row is reloaded *after*
+    /// the handler has applied the new state.
     func test_integration_performanceAndPreferencesStayInSync() async {
         let suiteName = "VaderCleanerTests.Issue65.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -424,7 +423,7 @@ final class PerformanceViewModelTests: XCTestCase {
             setLoginItemEnabled: { enabled, _ in
                 try await MainActor.run { try prefs.setLaunchAtLogin(enabled) }
             },
-            launchAtLoginChanges: PerformanceViewModel.launchAtLoginChangePublisher(for: prefs)
+            launchAtLoginChanges: PerformanceViewModel.launchAtLoginChanges(for: prefs)
         )
         await vm.refresh()
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
@@ -655,7 +654,7 @@ final class PerformanceViewModelTests: XCTestCase {
         readSnapshotCount: @escaping PerformanceViewModel.ReadSnapshotCount = { 0 },
         runLog: MaintenanceRunLog? = nil,
         maintenanceScriptsAvailable: Bool = true,
-        launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
+        launchAtLoginChanges: AsyncStream<Void>? = nil
     ) -> PerformanceViewModel {
         // Default to an isolated, empty UserDefaults suite so the run log never
         // touches `.standard` or leaks state between tests.

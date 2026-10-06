@@ -1,7 +1,6 @@
 // PerformanceViewModel.swift
 // State machine behind the Performance view — loads login items + launch agents + RAM, and drives RAM flush, maintenance scripts, login-item toggle, and agent disable/remove through injected collaborators.
 
-import Combine
 import Foundation
 import Observation
 import ServiceManagement
@@ -123,7 +122,7 @@ final class PerformanceViewModel {
     /// view-models.
     @ObservationIgnored private var loadGeneration = 0
 
-    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var launchAtLoginObserverTask: Task<Void, Never>?
 
     init(
         loadLoginItems: @escaping LoadLoginItems,
@@ -144,7 +143,7 @@ final class PerformanceViewModel {
         readSnapshotCount: @escaping ReadSnapshotCount = { 0 },
         runLog: MaintenanceRunLog = MaintenanceRunLog(),
         maintenanceScriptsAvailable: Bool = true,
-        launchAtLoginChanges: AnyPublisher<Void, Never>? = nil
+        launchAtLoginChanges: AsyncStream<Void>? = nil
     ) {
         self.loadLoginItems = loadLoginItems
         self.loadUserAgents = loadUserAgents
@@ -169,20 +168,21 @@ final class PerformanceViewModel {
         // the Preferences "Launch at Login" toggle, which mutates
         // `PreferencesStore.launchAtLogin`. When it changes from there,
         // reload our row so the two surfaces never disagree in-session
-        // (issue #65). The `.receive(on:)` hop is load-bearing, not
-        // cosmetic: `@Published` fires its publisher in `willSet`, before
-        // `PreferencesStore`'s `didSet` has applied the change to
-        // `SMAppService`. Re-reading the live login-item status
-        // synchronously here would observe the *old* status; deferring to
-        // the next runloop pass guarantees the reload runs after `didSet`.
+        // (issue #65). The hop to a fresh `Task` per element is load-bearing,
+        // not cosmetic: `withObservationTracking`'s `onChange` fires
+        // synchronously in `willSet`, before `PreferencesStore`'s `didSet`
+        // has applied the change to `SMAppService`. Re-reading the live
+        // login-item status synchronously there would observe the *old*
+        // status — `launchAtLoginChanges(for:)` already defers its yield
+        // past that point, so consuming the stream here just needs to await
+        // each element in turn.
         if let launchAtLoginChanges {
-            launchAtLoginChanges
-                .receive(on: RunLoop.main)
-                .sink { [weak self] in
+            launchAtLoginObserverTask = Task { [weak self] in
+                for await _ in launchAtLoginChanges {
                     guard let self else { return }
-                    Task { await self.reloadLoginItemsAfterExternalChange() }
+                    await self.reloadLoginItemsAfterExternalChange()
                 }
-                .store(in: &cancellables)
+            }
         }
     }
 
@@ -630,46 +630,48 @@ extension PerformanceViewModel {
             // Reflect a Preferences-side toggle in this view's row. See
             // the `init` comment for why ordering matters here. The bridge
             // converts `PreferencesStore`'s Observation-tracked property
-            // into the `AnyPublisher` shape the view-model already consumes,
-            // so the test surface (mockable PassthroughSubject) stays intact.
-            launchAtLoginChanges: launchAtLoginChangePublisher(for: preferences)
+            // into the `AsyncStream` the view-model consumes, so the test
+            // surface (a stream fed by `AsyncStream.makeStream()`) stays
+            // the same shape as production.
+            launchAtLoginChanges: launchAtLoginChanges(for: preferences)
         )
     }
 
     /// Bridges `PreferencesStore.launchAtLogin` (an Observation-tracked
-    /// property) into an `AnyPublisher<Void, Never>` so callers built around
-    /// the older Combine seam keep working unchanged. Each detected change
-    /// hops back to the main actor before re-arming the registration —
+    /// property) into an `AsyncStream<Void>`. Each detected change hops back
+    /// to the main actor before re-arming the registration —
     /// `withObservationTracking`'s `onChange` fires exactly once per
     /// registration, so the closure that wants a continuous stream must
     /// re-register itself after every emission. Exposed `internal` so the
     /// integration test in `PerformanceViewModelTests` can wire up the
     /// same bridge `live()` builds and pin the willSet/didSet ordering.
     @MainActor
-    static func launchAtLoginChangePublisher(
+    static func launchAtLoginChanges(
         for preferences: PreferencesStore
-    ) -> AnyPublisher<Void, Never> {
-        let bridge = LaunchAtLoginBridge(preferences: preferences)
+    ) -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let bridge = LaunchAtLoginBridge(preferences: preferences, continuation: continuation)
         bridge.arm()
-        return bridge.subject.eraseToAnyPublisher()
+        return stream
     }
 }
 
-/// Backing state for `PerformanceViewModel.launchAtLoginChangePublisher`.
+/// Backing state for `PerformanceViewModel.launchAtLoginChanges(for:)`.
 ///
 /// Exists so `withObservationTracking`'s `@Sendable` `onChange` closure captures
-/// one box rather than the subject and the re-arm function separately, neither
-/// of which is `Sendable`. `@unchecked Sendable` is sound here because every
-/// member is created and touched only on the main actor: `arm()` is
-/// `@MainActor`, and the change callback hops back to it before sending or
+/// one box rather than the continuation and the re-arm function separately,
+/// neither of which is `Sendable`. `@unchecked Sendable` is sound here because
+/// every member is created and touched only on the main actor: `arm()` is
+/// `@MainActor`, and the change callback hops back to it before yielding or
 /// re-arming.
 private final class LaunchAtLoginBridge: @unchecked Sendable {
 
-    let subject = PassthroughSubject<Void, Never>()
     private let preferences: PreferencesStore
+    private let continuation: AsyncStream<Void>.Continuation
 
-    init(preferences: PreferencesStore) {
+    init(preferences: PreferencesStore, continuation: AsyncStream<Void>.Continuation) {
         self.preferences = preferences
+        self.continuation = continuation
     }
 
     @MainActor
@@ -678,7 +680,7 @@ private final class LaunchAtLoginBridge: @unchecked Sendable {
             _ = preferences.launchAtLogin
         } onChange: { [self] in
             Task { @MainActor in
-                subject.send(())
+                continuation.yield(())
                 arm()
             }
         }

@@ -435,7 +435,7 @@ final class HomebrewViewModel {
         let pumpSeconds = min(stallTimeout, 0.5)
         return Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(pumpSeconds * 1_000_000_000))
+                try? await Task.sleep(for: .seconds(pumpSeconds))
                 guard let self, !Task.isCancelled else { return }
                 self.liveLog = buffer.snapshot()
                 if buffer.idleInterval() >= stallTimeout {

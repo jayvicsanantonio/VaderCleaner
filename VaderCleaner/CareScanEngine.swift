@@ -2,6 +2,7 @@
 // Concurrent orchestrator for Smart Scan: runs the enabled scan units across five contention-aware lanes, streams lifecycle events, and aggregates a CarePlan.
 
 import Foundation
+import Synchronization
 
 /// Runs one Smart Scan. The engine owns *how* units execute — concurrency
 /// shape, failure isolation, progress clamping, skip bookkeeping — while the
@@ -308,15 +309,14 @@ private actor SharedAppDiscovery {
 /// Lock-guarded monotonic counter: progress ticks that would move the number
 /// backwards (stale phases, out-of-order threads) are dropped at the source,
 /// so consumers can trust every emitted count to climb.
-private final class MonotonicProgress: @unchecked Sendable {
-    private let lock = NSLock()
-    private var maxValue = 0
+private final class MonotonicProgress: Sendable {
+    private let maxValue = Mutex(0)
 
     func advance(to value: Int) -> Int? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard value > maxValue else { return nil }
-        maxValue = value
-        return value
+        maxValue.withLock { current in
+            guard value > current else { return nil }
+            current = value
+            return value
+        }
     }
 }

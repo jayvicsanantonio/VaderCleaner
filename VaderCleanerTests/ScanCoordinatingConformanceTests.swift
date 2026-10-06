@@ -2,7 +2,6 @@
 // Pins the full Phase→ScanPresentation mapping (every rich case) and the beginScan() entrypoint for all seven scannable view models conforming to ScanCoordinating.
 
 import XCTest
-import Combine
 @testable import VaderCleaner
 
 /// Each scannable view model keeps its own rich `Phase` enum; this suite
