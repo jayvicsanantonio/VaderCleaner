@@ -1,10 +1,12 @@
 // CarePlanRankerTests.swift
 // Tests the deterministic feed ordering: threats always lead, byte findings rank by reclaimable size, and advisory findings follow in curated kind order.
 
-import XCTest
+import Foundation
+import Testing
 @testable import VaderCleaner
 
-final class CarePlanRankerTests: XCTestCase {
+@Suite
+struct CarePlanRankerTests {
 
     private func file(_ path: String, size: Int64, category: ScanCategory = .userCache) -> ScannedFile {
         ScannedFile(
@@ -48,49 +50,56 @@ final class CarePlanRankerTests: XCTestCase {
         CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 85, totalBytes: 100)))
     }
 
-    func test_threatsLead_evenWithZeroBytes() {
+    @Test
+    func threatsLead_evenWithZeroBytes() {
         let ranked = CarePlanRanker.ranked([junk(bytes: 10_000_000_000), threats])
-        XCTAssertEqual(ranked.map(\.kind), [.threats, .junkCleanup])
+        #expect(ranked.map(\.kind) == [.threats, .junkCleanup])
     }
 
-    func test_byteFindings_orderBySizeDescending() {
+    @Test
+    func byteFindings_orderBySizeDescending() {
         let ranked = CarePlanRanker.ranked([junk(bytes: 100), largeOld(bytes: 900)])
-        XCTAssertEqual(ranked.map(\.kind), [.largeOldFiles, .junkCleanup])
+        #expect(ranked.map(\.kind) == [.largeOldFiles, .junkCleanup])
     }
 
-    func test_advisoryFindings_followByteFindings_inKindOrder() {
+    @Test
+    func advisoryFindings_followByteFindings_inKindOrder() {
         let ranked = CarePlanRanker.ranked([loginItems, updates, junk(bytes: 1), mildLowDisk])
-        XCTAssertEqual(ranked.map(\.kind), [.junkCleanup, .lowDiskSpace, .appUpdates, .loginItems])
+        #expect(ranked.map(\.kind) == [.junkCleanup, .lowDiskSpace, .appUpdates, .loginItems])
     }
 
-    func test_equalBytes_breakTiesByKindDeclarationOrder() {
+    @Test
+    func equalBytes_breakTiesByKindDeclarationOrder() {
         let ranked = CarePlanRanker.ranked([largeOld(bytes: 500), junk(bytes: 500)])
-        XCTAssertEqual(ranked.map(\.kind), [.junkCleanup, .largeOldFiles])
+        #expect(ranked.map(\.kind) == [.junkCleanup, .largeOldFiles])
     }
 
-    func test_ranking_isDeterministic() {
+    @Test
+    func ranking_isDeterministic() {
         let input = [loginItems, junk(bytes: 5), threats, updates, largeOld(bytes: 5)]
-        XCTAssertEqual(
-            CarePlanRanker.ranked(input).map(\.kind),
-            CarePlanRanker.ranked(input.reversed()).map(\.kind)
+        #expect(
+            CarePlanRanker.ranked(input).map(\.kind) == CarePlanRanker.ranked(input.reversed()).map(\.kind)
         )
     }
 
     // MARK: - Severity context
 
-    func test_sizedFindings_outrankCountOnlyFindings_whateverTheirScore() {
+    @Test
+    func sizedFindings_outrankCountOnlyFindings_whateverTheirScore() {
         // A single tiny junk find still leads a maxed-out advisory: bytes and
         // counts are different scales, and the space win is the actionable one.
         let ranked = CarePlanRanker.ranked([mildLowDisk, junk(bytes: 1)])
-        XCTAssertEqual(ranked.map(\.kind), [.junkCleanup, .lowDiskSpace])
+        #expect(ranked.map(\.kind) == [.junkCleanup, .lowDiskSpace])
     }
 
-    func test_criticallyFullDisk_leadsTheFeed_aboveLargerSpaceFindings() {
+    @Test
+    func criticallyFullDisk_leadsTheFeed_aboveLargerSpaceFindings() {
         let ranked = CarePlanRanker.ranked([junk(bytes: 40_000_000_000), lowDisk])
-        XCTAssertEqual(ranked.map(\.kind), [.lowDiskSpace, .junkCleanup])
+        #expect(ranked.map(\.kind) == [.lowDiskSpace, .junkCleanup])
     }
 
-    func test_diskPressure_liftsASafeWin_overAComparableOptInFinding() {
+    @Test
+    func diskPressure_liftsASafeWin_overAComparableOptInFinding() {
         let pressured = CareSeverityContext(
             health: CareHealthSnapshot(
                 disk: DiskStats(usedBytes: 850, totalBytes: 1_000),
@@ -100,13 +109,13 @@ final class CarePlanRankerTests: XCTestCase {
             )
         )
         let findings = [largeOld(bytes: 8_000_000_000), junk(bytes: 8_000_000_000)]
-        XCTAssertEqual(
-            CarePlanRanker.ranked(findings, context: pressured).map(\.kind),
-            [.junkCleanup, .largeOldFiles]
+        #expect(
+            CarePlanRanker.ranked(findings, context: pressured).map(\.kind) == [.junkCleanup, .largeOldFiles]
         )
     }
 
-    func test_regrownFinding_outranksAQuietPeerOfTheSameSize() {
+    @Test
+    func regrownFinding_outranksAQuietPeerOfTheSameSize() {
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let cleared = CareReceipt(
             date: now.addingTimeInterval(-86_400),
@@ -125,10 +134,11 @@ final class CarePlanRankerTests: XCTestCase {
             [quiet, regrown],
             context: CareSeverityContext(health: nil, receipts: [cleared], now: now)
         )
-        XCTAssertEqual(ranked.map(\.kind), [.installers, .largeOldFiles])
+        #expect(ranked.map(\.kind) == [.installers, .largeOldFiles])
     }
 
-    func test_rankingWithContext_isDeterministic() {
+    @Test
+    func rankingWithContext_isDeterministic() {
         let ctx = CareSeverityContext(
             health: CareHealthSnapshot(
                 disk: DiskStats(usedBytes: 900, totalBytes: 1_000),
@@ -138,9 +148,9 @@ final class CarePlanRankerTests: XCTestCase {
             )
         )
         let input = [loginItems, junk(bytes: 2_000_000_000), threats, updates, largeOld(bytes: 5)]
-        XCTAssertEqual(
-            CarePlanRanker.ranked(input, context: ctx).map(\.kind),
-            CarePlanRanker.ranked(input.reversed(), context: ctx).map(\.kind)
+        #expect(
+            CarePlanRanker.ranked(input, context: ctx).map(\.kind)
+                == CarePlanRanker.ranked(input.reversed(), context: ctx).map(\.kind)
         )
     }
 }
