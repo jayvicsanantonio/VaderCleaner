@@ -1,14 +1,17 @@
 // BrewOutdatedParserTests.swift
 // Verifies decoding of `brew outdated --json=v2` payloads: formulae, casks, pinned flags, empty, and malformed input.
 
-import XCTest
+import Foundation
+import Testing
 @testable import VaderCleaner
 
-final class BrewOutdatedParserTests: XCTestCase {
+@Suite
+struct BrewOutdatedParserTests {
 
     private func data(_ json: String) -> Data { Data(json.utf8) }
 
-    func test_parseOutdated_formulaeOnly() throws {
+    @Test
+    func parseOutdated_formulaeOnly() throws {
         let json = """
         {
           "formulae": [
@@ -18,15 +21,16 @@ final class BrewOutdatedParserTests: XCTestCase {
         }
         """
         let items = try BrewOutputParser.parseOutdatedJSON(data(json))
-        XCTAssertEqual(items.count, 1)
-        XCTAssertEqual(items[0].name, "git")
-        XCTAssertEqual(items[0].kind, .formula)
-        XCTAssertEqual(items[0].installedVersion, "2.42.0")
-        XCTAssertEqual(items[0].candidateVersion, "2.43.0")
-        XCTAssertFalse(items[0].isPinned)
+        #expect(items.count == 1)
+        #expect(items[0].name == "git")
+        #expect(items[0].kind == .formula)
+        #expect(items[0].installedVersion == "2.42.0")
+        #expect(items[0].candidateVersion == "2.43.0")
+        #expect(!items[0].isPinned)
     }
 
-    func test_parseOutdated_casksOnly_defaultUnpinned() throws {
+    @Test
+    func parseOutdated_casksOnly_defaultUnpinned() throws {
         let json = """
         {
           "formulae": [],
@@ -36,13 +40,14 @@ final class BrewOutdatedParserTests: XCTestCase {
         }
         """
         let items = try BrewOutputParser.parseOutdatedJSON(data(json))
-        XCTAssertEqual(items.count, 1)
-        XCTAssertEqual(items[0].kind, .cask)
-        XCTAssertEqual(items[0].candidateVersion, "121.0")
-        XCTAssertFalse(items[0].isPinned)
+        #expect(items.count == 1)
+        #expect(items[0].kind == .cask)
+        #expect(items[0].candidateVersion == "121.0")
+        #expect(!items[0].isPinned)
     }
 
-    func test_parseOutdated_mixedWithPinned() throws {
+    @Test
+    func parseOutdated_mixedWithPinned() throws {
         let json = """
         {
           "formulae": [
@@ -55,18 +60,22 @@ final class BrewOutdatedParserTests: XCTestCase {
         }
         """
         let items = try BrewOutputParser.parseOutdatedJSON(data(json))
-        XCTAssertEqual(items.count, 3)
+        #expect(items.count == 3)
         let node = items.first { $0.name == "node" }
-        XCTAssertEqual(node?.isPinned, true)
-        XCTAssertEqual(items.filter { $0.kind == .cask }.count, 1)
+        #expect(node?.isPinned == true)
+        #expect(items.filter { $0.kind == .cask }.count == 1)
     }
 
-    func test_parseOutdated_emptyPayload() throws {
+    @Test
+    func parseOutdated_emptyPayload() throws {
         let items = try BrewOutputParser.parseOutdatedJSON(data(#"{"formulae": [], "casks": []}"#))
-        XCTAssertTrue(items.isEmpty)
+        #expect(items.isEmpty)
     }
 
-    func test_parseOutdated_malformedThrows() {
-        XCTAssertThrowsError(try BrewOutputParser.parseOutdatedJSON(data("not json")))
+    @Test
+    func parseOutdated_malformedThrows() {
+        #expect(throws: (any Error).self) {
+            try BrewOutputParser.parseOutdatedJSON(data("not json"))
+        }
     }
 }
