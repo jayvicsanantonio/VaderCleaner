@@ -1,7 +1,7 @@
 // ScanCategoryTests.swift
 // Tests that every ScanCategory case has a non-empty display name and stable raw value for persistence.
 
-import XCTest
+import Testing
 @testable import VaderCleaner
 
 /// Pins the public surface of `ScanCategory`.
@@ -10,37 +10,37 @@ import XCTest
 /// surfaced in the UI by `displayName`. A future refactor that drops a case
 /// or renames a raw value would silently break stored state — these tests
 /// catch that.
-final class ScanCategoryTests: XCTestCase {
+@Suite
+struct ScanCategoryTests {
 
     /// `allCases` is the source of truth for the System Junk preview list and
     /// the Large & Old Files scanner's category set. Pinning the count means
     /// any future case addition is a deliberate test update, not a silent
     /// expansion that breaks downstream UI assumptions.
-    func test_allCases_containsAllExpectedCategories() {
-        XCTAssertEqual(ScanCategory.allCases.count, 13)
-        XCTAssertTrue(ScanCategory.allCases.contains(.systemCache))
-        XCTAssertTrue(ScanCategory.allCases.contains(.userCache))
-        XCTAssertTrue(ScanCategory.allCases.contains(.systemLogs))
-        XCTAssertTrue(ScanCategory.allCases.contains(.userLogs))
-        XCTAssertTrue(ScanCategory.allCases.contains(.languageFiles))
-        XCTAssertTrue(ScanCategory.allCases.contains(.mailAttachments))
-        XCTAssertTrue(ScanCategory.allCases.contains(.iosBackups))
-        XCTAssertTrue(ScanCategory.allCases.contains(.trash))
-        XCTAssertTrue(ScanCategory.allCases.contains(.largeFile))
-        XCTAssertTrue(ScanCategory.allCases.contains(.oldFile))
-        XCTAssertTrue(ScanCategory.allCases.contains(.xcodeJunk))
-        XCTAssertTrue(ScanCategory.allCases.contains(.documentVersions))
-        XCTAssertTrue(ScanCategory.allCases.contains(.webDevJunk))
+    @Test
+    func allCases_containsAllExpectedCategories() {
+        #expect(ScanCategory.allCases.count == 13)
+        #expect(ScanCategory.allCases.contains(.systemCache))
+        #expect(ScanCategory.allCases.contains(.userCache))
+        #expect(ScanCategory.allCases.contains(.systemLogs))
+        #expect(ScanCategory.allCases.contains(.userLogs))
+        #expect(ScanCategory.allCases.contains(.languageFiles))
+        #expect(ScanCategory.allCases.contains(.mailAttachments))
+        #expect(ScanCategory.allCases.contains(.iosBackups))
+        #expect(ScanCategory.allCases.contains(.trash))
+        #expect(ScanCategory.allCases.contains(.largeFile))
+        #expect(ScanCategory.allCases.contains(.oldFile))
+        #expect(ScanCategory.allCases.contains(.xcodeJunk))
+        #expect(ScanCategory.allCases.contains(.documentVersions))
+        #expect(ScanCategory.allCases.contains(.webDevJunk))
     }
 
     /// Every case must produce a non-empty user-facing label so the UI never
     /// renders a blank row.
-    func test_displayName_nonEmptyForEveryCase() {
+    @Test
+    func displayName_nonEmptyForEveryCase() {
         for category in ScanCategory.allCases {
-            XCTAssertFalse(
-                category.displayName.isEmpty,
-                "Display name was empty for \(category)"
-            )
+            #expect(!category.displayName.isEmpty, "Display name was empty for \(category)")
         }
     }
 
@@ -48,7 +48,8 @@ final class ScanCategoryTests: XCTestCase {
     /// (Smart Scan, standalone Cleanup Manager, My Clutter) consults to seed its
     /// default selection. Safe = regenerable or already-discarded; user-data
     /// categories must stay opt-in.
-    func test_isSafeToAutoRemove_pinsTheSafeSet() {
+    @Test
+    func isSafeToAutoRemove_pinsTheSafeSet() {
         let safe: Set<ScanCategory> = [
             .systemCache, .userCache,
             .systemLogs, .userLogs,
@@ -57,9 +58,8 @@ final class ScanCategoryTests: XCTestCase {
             .trash,
         ]
         for category in ScanCategory.allCases {
-            XCTAssertEqual(
-                category.isSafeToAutoRemove,
-                safe.contains(category),
+            #expect(
+                category.isSafeToAutoRemove == safe.contains(category),
                 "\(category) safe-to-auto-remove classification is wrong"
             )
         }
@@ -67,24 +67,23 @@ final class ScanCategoryTests: XCTestCase {
 
     /// The risky categories — real user data that a one-tap clean must never
     /// pre-check — are explicitly opt-in.
-    func test_isSafeToAutoRemove_excludesUserDataCategories() {
+    @Test
+    func isSafeToAutoRemove_excludesUserDataCategories() {
         for category in [ScanCategory.mailAttachments, .iosBackups, .largeFile, .oldFile] {
-            XCTAssertFalse(
-                category.isSafeToAutoRemove,
-                "\(category) holds user data and must not be auto-removed"
-            )
+            #expect(!category.isSafeToAutoRemove, "\(category) holds user data and must not be auto-removed")
         }
     }
 
     /// Raw values back persistence (preferences, JSON-encoded scan reports).
     /// Pinning them here guarantees a rename is accompanied by a test update.
-    func test_rawValues_areStable() {
-        XCTAssertEqual(ScanCategory.systemCache.rawValue, "systemCache")
-        XCTAssertEqual(ScanCategory.userCache.rawValue, "userCache")
-        XCTAssertEqual(ScanCategory.trash.rawValue, "trash")
-        XCTAssertEqual(ScanCategory.largeFile.rawValue, "largeFile")
-        XCTAssertEqual(ScanCategory.xcodeJunk.rawValue, "xcodeJunk")
-        XCTAssertEqual(ScanCategory.documentVersions.rawValue, "documentVersions")
-        XCTAssertEqual(ScanCategory.webDevJunk.rawValue, "webDevJunk")
+    @Test
+    func rawValues_areStable() {
+        #expect(ScanCategory.systemCache.rawValue == "systemCache")
+        #expect(ScanCategory.userCache.rawValue == "userCache")
+        #expect(ScanCategory.trash.rawValue == "trash")
+        #expect(ScanCategory.largeFile.rawValue == "largeFile")
+        #expect(ScanCategory.xcodeJunk.rawValue == "xcodeJunk")
+        #expect(ScanCategory.documentVersions.rawValue == "documentVersions")
+        #expect(ScanCategory.webDevJunk.rawValue == "webDevJunk")
     }
 }
