@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Exercises the pure aggregation layer that sits between scanners and the
 /// UI. Constructed from a fixed set of `ScannedFile` records so these tests

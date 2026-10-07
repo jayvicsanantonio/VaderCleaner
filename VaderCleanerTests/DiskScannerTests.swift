@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Integration tests for `DiskScanner`. We use real temp directories rather
 /// than a mock file system because the scanner's whole job is to read what's

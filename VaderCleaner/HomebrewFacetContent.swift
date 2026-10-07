@@ -2,6 +2,7 @@
 // Right-column content for the Homebrew facet of the Uninstaller and Updater panes — the installed-package list with reclaim actions, and the outdated-package list — styled with the shared manager chrome.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The Uninstaller pane's Homebrew facet: reclaim actions (cleanup / orphans)
 /// above the installed-package list, with batch checkboxes that feed the

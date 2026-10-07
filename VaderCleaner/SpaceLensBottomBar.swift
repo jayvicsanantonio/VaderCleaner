@@ -2,6 +2,7 @@
 // Space Lens footer — the boot-volume usage gauge with the removal selection highlighted, the running "N items selected · size" readout, and the Review and Remove button.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The bar pinned below the bubble chart. On the leading edge: the volume name,
 /// "X of Y used", and a thin gauge whose trailing segment shows how much the

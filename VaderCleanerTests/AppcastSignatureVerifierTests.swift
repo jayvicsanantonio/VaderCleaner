@@ -4,6 +4,7 @@
 import CryptoKit
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class AppcastSignatureVerifierTests: XCTestCase {
 

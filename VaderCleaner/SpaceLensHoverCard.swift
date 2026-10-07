@@ -3,6 +3,7 @@
 
 import SwiftUI
 import CoreGraphics
+import VaderCleanerCore
 
 /// Small material card surfaced on hover by the Space Lens bubble chart. Reports
 /// the hovered item's name, its category ("System folder" / "Folder" / "File"),

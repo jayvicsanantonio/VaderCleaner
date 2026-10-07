@@ -2,6 +2,7 @@
 // The pieces of the first-run flow: the glowing hero, each step's copy column, the Full Disk Access panel, the progress rail, and the staggered entrance they all share.
 
 import SwiftUI
+import VaderCleanerCore
 
 // MARK: - Hero
 

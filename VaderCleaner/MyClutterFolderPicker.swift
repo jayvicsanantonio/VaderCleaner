@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Lets the user choose which folder the My Clutter scan walks. Shows the
 /// current selection as a capsule (folder icon + name + chevron); the menu

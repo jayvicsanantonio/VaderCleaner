@@ -3,6 +3,7 @@
 
 import Testing
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Pins the public surface of `ScanCategory`.
 ///

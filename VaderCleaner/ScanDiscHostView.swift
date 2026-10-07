@@ -2,6 +2,7 @@
 // SwiftUI root hosted inside the Scan disc's child panel — picks the selected section's coordinator, renders the floating disc, and reports its visibility back to the window controller.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The content of `ScanDiscWindowController`'s child panel. It mirrors the
 /// section ContentView is showing (pushed onto `controller.section`) and renders

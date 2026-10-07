@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Non-blocking inline prompt rendered in a scannable section's empty or clean
 /// detail state (System Junk, Large & Old Files, Malware Removal) when Full

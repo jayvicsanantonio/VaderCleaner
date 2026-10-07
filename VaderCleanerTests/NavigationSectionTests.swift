@@ -4,6 +4,7 @@
 import Testing
 import AppKit
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @Suite
 struct NavigationSectionTests {

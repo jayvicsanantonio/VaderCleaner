@@ -2,6 +2,7 @@
 // Shared chrome for the Cleanup-style Manager screens — the accent-tinted nav row, the white light-mode surface, and the magenta manager accent reused by the Cleanup and Performance managers.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The magenta accent the standalone Manager cards adopt (not a section's own
 /// hue). It tints the sort/select values, chevrons, selection, checkboxes, and

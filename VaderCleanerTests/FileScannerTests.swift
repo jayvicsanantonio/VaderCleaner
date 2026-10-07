@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Exercises `FileScanner` against real temp directories created via
 /// `TestHelpers`. We deliberately avoid mocking `FileManager` — the whole

@@ -2,6 +2,7 @@
 // Post-scan dashboard for the Applications section — the "N apps found" header, the summary card grid, and the progress / failed states.
 
 import SwiftUI
+import VaderCleanerCore
 
 // MARK: - Dashboard
 

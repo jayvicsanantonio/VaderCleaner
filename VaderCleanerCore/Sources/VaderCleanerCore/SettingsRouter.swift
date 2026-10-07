@@ -1,0 +1,35 @@
+// SettingsRouter.swift
+// Shared selection state for the Settings window's tabs, so other surfaces (e.g. the Protection intro's Configure Scan button) can open Settings to a specific tab.
+
+import Foundation
+import Observation
+
+/// The tabs of the Settings window, used as the `TabView` selection. Adding a
+/// case is a compile-time prompt to give it a `.tag(...)` in `PreferencesView`.
+public enum SettingsTab: Hashable, CaseIterable {
+    case general
+    case scanning
+    case notifications
+    case exclusions
+    case menuBar
+    case protectionScan
+}
+
+/// Drives which Settings tab is shown. Injected into both the main `Window`
+/// scene and the `Settings` scene so a button in the window (Configure Scan)
+/// can select a tab and then call `openSettings()`. Mirrors the `MenuRouter`
+/// deep-link pattern the menu bar already uses.
+@MainActor
+@Observable
+public final class SettingsRouter {
+    /// The tab the Settings window should display. General on the first open;
+    /// after that it holds whatever was last selected, whether the user picked
+    /// it or a deep link did — so "Configure Scan" leaves Settings on Protection
+    /// and ⌘, reopens there for the rest of the session. That matches how
+    /// macOS's own Settings windows remember their pane, and it is deliberate:
+    /// resetting to General would make the deep link feel like it undid itself.
+    public var selectedTab: SettingsTab = .general
+
+    /// Public so the app can own the router; the synthesized one is internal.
+    public init() {}
+}

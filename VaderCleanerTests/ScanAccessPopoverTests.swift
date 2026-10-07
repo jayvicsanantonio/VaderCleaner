@@ -4,6 +4,7 @@
 import XCTest
 import SwiftUI
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @MainActor
 final class ScanAccessPopoverTests: XCTestCase {

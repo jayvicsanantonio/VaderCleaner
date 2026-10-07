@@ -32,6 +32,13 @@ configFiles:
   Debug: Signing.xcconfig
   Release: Signing.xcconfig
 
+# The UI-free core (scanners, stores, view models, models, and the helper's XPC
+# protocol) is a local Swift package, so its tests run under `swift test` with
+# no host app. The app links it statically; nothing extra is embedded or signed.
+packages:
+  VaderCleanerCore:
+    path: VaderCleanerCore
+
 targets:
   VaderCleaner:
     type: application
@@ -40,7 +47,6 @@ targets:
       - path: VaderCleaner
         excludes:
           - "**/*.md"
-      - path: Shared
       - path: VaderCleanerHelper/com.personal.VaderCleaner.helper.plist
         buildPhase:
           copyFiles:
@@ -50,6 +56,7 @@ targets:
       - target: VaderCleanerHelper
         copy:
           destination: executables
+      - package: VaderCleanerCore
     postCompileScripts:
       # Copies the bundled ClamAV binaries, dylibs, and data into the built
       # .app and code-signs them. Runs before the Embed/Copy phases and the
@@ -108,7 +115,10 @@ targets:
       - path: VaderCleanerHelper
         excludes:
           - "**/*.plist"
-      - path: Shared
+      # The XPC protocol and deletion policy the helper shares with the app.
+      # They live in the core package and are compiled into the helper
+      # directly, so the helper doesn't link the rest of the core.
+      - path: VaderCleanerCore/Sources/VaderCleanerCore/Shared
     settings:
       base:
         PRODUCT_NAME: VaderCleanerHelper

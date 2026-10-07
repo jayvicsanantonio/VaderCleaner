@@ -2,6 +2,7 @@
 // System Junk "Cleanup Manager" for Smart Scan — a store-backed three-pane (sections → categories → folder tree) manager with per-folder selection, search, sort, and a live selected-count footer. Panes paint instantly from a cheap shell and each category's rows load lazily, so huge junk scans open without blocking the UI.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// System Junk Review, rendered through the shared `SmartScanReviewManager` and
 /// served by the same `CleanupManagerStore` the standalone Cleanup Manager uses:

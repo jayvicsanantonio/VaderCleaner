@@ -5,6 +5,7 @@ import XCTest
 import SwiftUI
 import AppKit
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class ColorDeepenedForWhiteTests: XCTestCase {
 

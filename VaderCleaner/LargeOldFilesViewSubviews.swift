@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 enum LargeOldFilesFormatting {
     /// Finder-matching file-style byte string, formatted through the shared
@@ -168,8 +169,4 @@ struct LargeOldFilesFailedState: View {
         }
         .padding()
     }
-}
-
-extension ScannedFile: Identifiable {
-    var id: URL { url }
 }

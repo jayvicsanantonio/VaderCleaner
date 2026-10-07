@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Detail view for the Space Lens section. Owns no scan state — everything lives
 /// on `DiskScannerViewModel`. The unified flow shows the Scan landing while the

@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// The Ignore List pane promises "no scan will touch it". These scanners took
 /// no exclusions at all, so an ignored folder's installers, unused apps and

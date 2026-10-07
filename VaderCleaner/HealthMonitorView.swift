@@ -2,6 +2,7 @@
 // Health Monitor dashboard — a tall Mac Health hero and a Disk Encryption card in the left column, with a grid of live metric cards (Battery, Disk Health, RAM, CPU, Disk Space) on the right, bound to SystemStatsService via HealthMonitorViewModel.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Two-column dashboard of live system health. The left column leads with the
 /// `MacHealthHero` — one overall verdict, a glowing ring, and the boot volume's

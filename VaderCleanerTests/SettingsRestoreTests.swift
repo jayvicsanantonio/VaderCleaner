@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// The Restore Defaults dialog says "Your settings go back to how they started".
 /// It reset three of the five stores the Settings window edits — the Web

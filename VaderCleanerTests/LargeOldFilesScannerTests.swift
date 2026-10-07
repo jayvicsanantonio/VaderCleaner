@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Verifies `LargeOldFilesScanner` end-to-end. Like `SystemJunkScannerTests`,
 /// we never touch the real `~/Documents` etc. — a `StubUserFilesPathProvider`

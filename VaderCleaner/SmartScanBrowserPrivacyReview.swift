@@ -2,6 +2,7 @@
 // Browser privacy Review for Smart Scan — the shared three-pane manager over per-browser privacy counts. Clearable categories are opt-in rows; awareness-only counts appear in the header copy.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Browser Privacy Review, rendered through the shared
 /// `SmartScanReviewManager`. One middle-pane category per installed browser;

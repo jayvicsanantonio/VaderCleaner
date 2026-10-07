@@ -4,6 +4,7 @@
 import XCTest
 import Combine
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @MainActor
 final class PrivacyViewModelTests: XCTestCase {

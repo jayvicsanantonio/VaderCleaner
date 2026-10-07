@@ -4,6 +4,7 @@
 import XCTest
 import Observation
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @MainActor
 final class WebDevScanScopeStoreTests: XCTestCase {

@@ -2,6 +2,7 @@
 // "Review files before removal" overlay — pairs the 3D Space Lens hero with the list of selected items (location + size), lets the user uncheck any, and moves the kept selection to the Trash.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Confirmation overlay shown before Space Lens removes anything. A two-column
 /// card: the 3D Space Lens hero on the leading edge, and on the trailing edge

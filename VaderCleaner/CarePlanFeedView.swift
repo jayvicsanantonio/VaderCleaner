@@ -2,6 +2,7 @@
 // The results experience: a plain-language verdict hero over a zoned grid of care tiles — "Fix will handle these" (safe, pre-approved), "Worth a look" (the user's files, opt-in), and "Good to know" advisories.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The care-plan results shown when a scan lands, in the scanning grid's
 /// visual language: glass tiles with each domain's 3D art glowing in its own

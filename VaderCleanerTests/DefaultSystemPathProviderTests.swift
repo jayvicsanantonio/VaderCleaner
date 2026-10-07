@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// `DefaultSystemPathProvider`'s `roots()` walks the real macOS filesystem
 /// and is therefore not driven directly here — the test seam for that is

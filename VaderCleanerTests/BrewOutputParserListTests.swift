@@ -3,6 +3,7 @@
 
 import Testing
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @Suite
 struct BrewOutputParserListTests {

@@ -2,6 +2,7 @@
 // Reusable three-pane "Manager" shell for every Smart Scan Review screen — sections list, category list with size badges, and a per-item checkbox list, with search, sort, and a live selected-count footer. The item model is Sendable and built off the main thread so opening a manager over tens of thousands of files never blocks the UI.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Maps the model's `Sendable` tint to the SwiftUI `Color` a row renders
 /// with — kept beside the view so the model itself never imports SwiftUI.

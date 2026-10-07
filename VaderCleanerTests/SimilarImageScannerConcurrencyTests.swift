@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import Vision
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class SimilarImageScannerConcurrencyTests: XCTestCase {
 

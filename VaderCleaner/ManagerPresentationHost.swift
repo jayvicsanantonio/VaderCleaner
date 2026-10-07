@@ -2,6 +2,7 @@
 // Shared dashboard↔manager exchange for the section screens: the manager zooms up from the button that opened it over the receding dashboard. Neither surface is torn down by the exchange — the dashboard stays mounted throughout and the manager stays mounted after its first open, both hidden and inert while covered, so Back and reopen restore already-built views instead of rebuilding them.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Pure decisions behind `ManagerPresentationHost`, split out so the keep-alive
 /// and motion contract is unit-testable without rendering.

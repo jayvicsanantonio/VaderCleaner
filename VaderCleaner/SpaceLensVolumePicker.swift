@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Lets the user choose what the Space Lens scan walks: one of the Mac's
 /// mounted volumes (the boot volume by default) or any folder picked via

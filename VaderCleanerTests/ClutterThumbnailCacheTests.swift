@@ -4,6 +4,7 @@
 import XCTest
 import AppKit
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class ClutterThumbnailCacheTests: XCTestCase {
 

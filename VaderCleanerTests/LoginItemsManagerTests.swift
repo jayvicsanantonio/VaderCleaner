@@ -4,6 +4,7 @@
 import XCTest
 import ServiceManagement
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class LoginItemsManagerTests: XCTestCase {
 

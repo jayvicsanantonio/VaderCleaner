@@ -2,6 +2,7 @@
 // Space Lens bubble chart — packs the current folder's children into Liquid Glass bubbles sized by disk usage, drills in on tap, reflects the removal selection, and surfaces a details card on hover.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Renders the children of one `DiskNode` as a packed cluster of bubbles, areas
 /// proportional to byte size (`SpaceLensBubbleLayout`). Tapping a folder bubble

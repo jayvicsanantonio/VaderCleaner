@@ -4,6 +4,7 @@
 import CryptoKit
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @MainActor
 final class UpdateInstallerTests: XCTestCase {

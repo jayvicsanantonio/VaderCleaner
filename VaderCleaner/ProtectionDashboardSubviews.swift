@@ -2,6 +2,7 @@
 // Tiles for the Protection dashboard — the live malware-scan tile and the privacy result cards, sharing the Applications dashboard's glass-card styling.
 
 import SwiftUI
+import VaderCleanerCore
 
 // MARK: - Malware tile
 

@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Three-pane review over every My Clutter category. The left pane lists the
 /// four categories; the middle pane shows that category's groups or facets; the

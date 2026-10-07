@@ -4,6 +4,7 @@
 import XCTest
 import UserNotifications
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @MainActor
 final class NotificationManagerTests: XCTestCase {

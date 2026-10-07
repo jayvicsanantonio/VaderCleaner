@@ -3,6 +3,7 @@
 
 import AppKit
 import SwiftUI
+import VaderCleanerCore
 
 /// SwiftUI wrapper around an `NSTableView` for the manager's right-hand item
 /// list. The list is the one pane that can hold a very large number of rows, and

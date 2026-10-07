@@ -2,6 +2,7 @@
 // The "Applications Manager" — a white-card, three-pane CleanMyMac-style surface (left nav → middle facets → right item list + footer action) modeled on the My Clutter Manager, hosting the Uninstaller, Updater, Extensions, and Leftovers panes.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Three-pane manager reached from the Applications dashboard's "Manage My
 /// Applications" card and the cleanup cards' Review actions. The chrome (white

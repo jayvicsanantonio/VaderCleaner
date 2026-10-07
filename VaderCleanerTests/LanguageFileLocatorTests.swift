@@ -4,6 +4,7 @@
 import Foundation
 import Testing
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Drives `LanguageFileLocator` over temp directory trees that mimic
 /// real macOS `.lproj` layouts (`/Applications/Foo.app/Contents/Resources/<lang>.lproj`)

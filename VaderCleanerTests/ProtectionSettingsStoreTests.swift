@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 @MainActor
 final class ProtectionSettingsStoreTests: XCTestCase {

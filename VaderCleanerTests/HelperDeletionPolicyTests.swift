@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class HelperDeletionPolicyTests: XCTestCase {
     private var tempRoot: URL!

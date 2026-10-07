@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 // MARK: - Scanning tab (Customize Smart Care)
 

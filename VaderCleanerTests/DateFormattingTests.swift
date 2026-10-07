@@ -4,6 +4,7 @@
 import Foundation
 import Testing
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Tests for `DateFormatting`. The assertions compare against a locally
 /// configured `DateFormatter` rather than a literal string, because the output

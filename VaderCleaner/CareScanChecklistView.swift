@@ -2,6 +2,7 @@
 // The scanning experience: a grid of six care-domain tiles — corner art over an accent bloom, a traveling border while a domain scans — each filling in with a plain-language result the moment its sub-scans genuinely finish.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The `.scanning` surface: one tile per care domain in a fixed grid, styled
 /// like the results dashboard's cards (the domain's 3D art in the top-right

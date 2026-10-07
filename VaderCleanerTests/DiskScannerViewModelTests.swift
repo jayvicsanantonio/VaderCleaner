@@ -4,6 +4,7 @@
 import XCTest
 import Combine
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Drives `DiskScannerViewModel` against an injected scanner closure so the
 /// transitions can be exercised without touching the real filesystem. The

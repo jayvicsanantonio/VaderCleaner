@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Detail view shown when the user selects "Smart Scan" in the sidebar (the
 /// default landing section). Drives `SmartScanViewModel`'s state machine, and

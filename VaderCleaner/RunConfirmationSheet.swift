@@ -2,6 +2,7 @@
 // The lightweight confirmation shown when the Fix disc is tapped and the run includes a permanent delete — it lists what will happen and flags the one irreversible step before anything runs.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// A modal card over the results feed that confirms a Run pass which would
 /// permanently delete junk. It appears only for that irreversible case (runs

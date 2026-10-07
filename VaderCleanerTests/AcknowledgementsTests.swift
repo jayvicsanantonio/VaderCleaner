@@ -4,6 +4,7 @@
 import Foundation
 import Testing
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class AcknowledgementsTests {
 

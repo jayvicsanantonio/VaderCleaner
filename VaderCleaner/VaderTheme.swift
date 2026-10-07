@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Palette for the Vader identity. Deep near-black base with a vivid crimson
 /// accent — retained as the default control tint for surfaces that have no

@@ -2,6 +2,7 @@
 // Performance "Manager" for Smart Scan — the shared three-pane manager in read-only mode over the login items, with an "Open Performance" jump-link in the footer.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Performance / Performance Review, rendered through the shared
 /// `SmartScanReviewManager` in read-only mode. The actionable work — running

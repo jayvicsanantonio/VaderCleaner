@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Records `NotificationDispatching` calls in order for test assertions. Each
 /// test gets a fresh stub so call counts and recorded payloads do not leak.

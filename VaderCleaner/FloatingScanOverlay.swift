@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// The floating Scan button for one scannable section. Observes the coordinator
 /// so the disc is shown only while the section is at `.intro` and vanishes the

@@ -4,6 +4,7 @@
 import XCTest
 import SQLite3
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class BrowserDataCounterTests: XCTestCase {
 

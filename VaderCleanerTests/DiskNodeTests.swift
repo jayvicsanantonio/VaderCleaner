@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Unit tests for `DiskNode`. The node type is pure data — it does no I/O —
 /// so these tests build trees by hand. Disk-walking behaviour lives in

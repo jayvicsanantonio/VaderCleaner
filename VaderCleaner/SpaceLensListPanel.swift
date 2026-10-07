@@ -2,6 +2,7 @@
 // Space Lens left panel — folder header, the Select (None/All/Manually) menu, and the per-child rows with removal checkboxes, protected "i" badges, sizes, and an expandable "Other items" group.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The list beside the bubble chart. Mirrors the displayed children
 /// (`SpaceLensChildren`): each selectable child has a removal checkbox, each

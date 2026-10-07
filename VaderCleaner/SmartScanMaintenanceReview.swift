@@ -2,6 +2,7 @@
 // Tune-up "Manager" for Smart Scan — the shared three-pane manager over the due maintenance tasks, with per-task selection.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Maintenance Review, rendered through the shared `SmartScanReviewManager`.
 /// The tune-up tile is pre-approved, so every due task starts checked; the

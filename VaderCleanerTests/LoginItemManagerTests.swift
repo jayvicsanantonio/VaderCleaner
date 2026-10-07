@@ -4,6 +4,7 @@
 import XCTest
 import ServiceManagement
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// `LoginItemManager` wraps `SMAppService.mainApp`, which talks to the live
 /// launchd registration database. The test host (VaderCleaner.app inside

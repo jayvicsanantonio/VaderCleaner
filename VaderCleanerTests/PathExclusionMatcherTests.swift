@@ -3,6 +3,7 @@
 
 import Testing
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// `PathExclusionMatcher` decides, once per enumerated file, whether a path is
 /// excluded. These drive it directly rather than through a walk — the matching

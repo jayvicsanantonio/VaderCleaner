@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Verifies `SystemJunkScanner` end-to-end. We never touch the real macOS
 /// system paths — a `StubSystemPathProvider` returns roots under a temp

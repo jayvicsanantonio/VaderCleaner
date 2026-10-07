@@ -3,6 +3,7 @@
 
 import Foundation
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Locator stub returning a fixed URL (or nil to simulate "not installed").
 struct StubBrewLocator: BrewLocating {

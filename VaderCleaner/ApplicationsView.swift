@@ -2,6 +2,7 @@
 // Detail view for the Applications section — renders the post-scan dashboard grid and pushes into the Applications Manager screens.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Detail view shown when the user selects "Applications" in the sidebar and
 /// runs the scan. The intro screen and floating Scan disc are supplied by

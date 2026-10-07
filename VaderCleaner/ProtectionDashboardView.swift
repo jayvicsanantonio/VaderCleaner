@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Renders the Protection section's dashboard: a Start Over bar, a centered
 /// header, and a grid whose left tile shows the live malware scan while the

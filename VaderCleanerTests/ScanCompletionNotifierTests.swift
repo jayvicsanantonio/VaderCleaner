@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Minimal `ScanCoordinating` whose presentation the test drives directly.
 @MainActor

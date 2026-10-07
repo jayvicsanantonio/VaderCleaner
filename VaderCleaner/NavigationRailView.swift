@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// A custom rail of buttons (not a List) so selection can be a soft inset
 /// glass pill with generous spacing instead of the system's full-bleed

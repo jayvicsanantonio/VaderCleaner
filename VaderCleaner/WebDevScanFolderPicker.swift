@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Lets the user choose which folders the scattered-project half of the Web
 /// Development Junk scan walks. Shows the current scope as a capsule (folder

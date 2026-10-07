@@ -2,6 +2,7 @@
 // The Applications Manager's Extensions pane: the facet column plus the extensions and plug-ins list.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Middle-pane facet for the Extensions pane.
 enum ExtensionsFacet: Hashable {

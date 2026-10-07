@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// These tests deliberately never recycle a real file. `NSWorkspace.recycle`
 /// moves items into the *running user's* Trash, which a test suite must not do

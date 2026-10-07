@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 /// Each scannable view model keeps its own rich `Phase` enum; this suite
 /// verifies the coarse `ScanPresentation` projection ContentView relies on for

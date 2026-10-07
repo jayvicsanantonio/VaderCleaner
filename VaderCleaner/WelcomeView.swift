@@ -2,6 +2,7 @@
 // The first-run welcome flow: a full-window tour whose backdrop recolours to each step's section identity, ending in the user's first Smart Scan.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Covers the whole window on a first launch. Each step adopts a real
 /// section's colour identity, so the window gradient the user watches during
