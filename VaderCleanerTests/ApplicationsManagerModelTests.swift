@@ -174,7 +174,7 @@ final class ApplicationsManagerControlScopeTests: XCTestCase {
 
     /// Every pane can order by name, so the fallback is always available.
     func test_sortOptions_everyPaneSupportsName() {
-        for pane in [ApplicationsManagerView.Pane.uninstaller, .updater,
+        for pane in [AppManagerPane.uninstaller, .updater,
                      .extensions, .leftovers, .unsupported] {
             XCTAssertTrue(
                 ApplicationsManagerModel.sortOptions(for: pane).contains(.name),

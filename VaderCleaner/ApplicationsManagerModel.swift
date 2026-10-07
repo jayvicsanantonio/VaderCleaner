@@ -3,6 +3,18 @@
 
 import Foundation
 
+/// The Applications Manager's top-level panes, picked from its left-hand nav.
+/// Declared beside the model rather than nested in `ApplicationsManagerView`,
+/// so the per-pane rules below are written against it without reaching into
+/// the view.
+enum AppManagerPane: Hashable, Sendable {
+    case uninstaller
+    case updater
+    case extensions
+    case leftovers
+    case unsupported
+}
+
 /// The ordering options offered by the Applications Manager's "Sort by:" menu.
 /// A dedicated enum (rather than the shared `ManagerSort`) because this surface
 /// also sorts by an app's last-opened date.
@@ -80,7 +92,7 @@ enum ApplicationsManagerModel {
     ///
     /// A pane with one option gets no menu at all: there is no choice to
     /// present.
-    static func sortOptions(for pane: ApplicationsManagerView.Pane) -> [AppManagerSort] {
+    static func sortOptions(for pane: AppManagerPane) -> [AppManagerSort] {
         switch pane {
         case .uninstaller:  return [.name, .lastOpened, .size]
         case .extensions:   return [.name, .size]
@@ -96,7 +108,7 @@ enum ApplicationsManagerModel {
     /// the header claiming an ordering that isn't in effect.
     static func resolvedSort(
         _ sort: AppManagerSort,
-        for pane: ApplicationsManagerView.Pane
+        for pane: AppManagerPane
     ) -> AppManagerSort {
         sortOptions(for: pane).contains(sort) ? sort : .name
     }

@@ -26,13 +26,7 @@ struct ApplicationsManagerView: View {
     private let isPresented: Bool
     private let onBack: () -> Void
 
-    enum Pane: Hashable {
-        case uninstaller
-        case updater
-        case extensions
-        case leftovers
-        case unsupported
-    }
+    typealias Pane = AppManagerPane
 
     /// A place in the manager a dashboard card can deep-link straight to, so
     /// every "Review" button lands on the pane (and facet / leftover section)
