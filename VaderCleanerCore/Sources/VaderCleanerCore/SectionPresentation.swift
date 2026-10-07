@@ -67,6 +67,7 @@ public struct SectionPresentation {
                 heroTitle: nil,
                 tagline: String(
                     localized: "Quick maintenance that takes care of the essentials.",
+                    bundle: .module,
                     comment: "Smart Scan intro tagline."
                 ),
                 features: [
@@ -93,24 +94,26 @@ public struct SectionPresentation {
                 accent: section.theme.accent,
                 heroTitle: String(
                     localized: "Junk Cleanup",
+                    bundle: .module,
                     comment: "Cleanup intro hero heading (the sidebar label is the shorter \"Cleanup\")."
                 ),
                 tagline: String(
                     localized: "Clean your system to achieve maximum performance and reclaim more free space.",
+                    bundle: .module,
                     comment: "Cleanup intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "archivebox",
-                        title: String(localized: "System Junk", comment: "Cleanup feature row.")
+                        title: String(localized: "System Junk", bundle: .module, comment: "Cleanup feature row.")
                     ),
                     SectionFeature(
                         symbol: "envelope",
-                        title: String(localized: "Mail Attachments", comment: "Cleanup feature row.")
+                        title: String(localized: "Mail Attachments", bundle: .module, comment: "Cleanup feature row.")
                     ),
                     SectionFeature(
                         symbol: "trash",
-                        title: String(localized: "Trash Bins", comment: "Cleanup feature row.")
+                        title: String(localized: "Trash Bins", bundle: .module, comment: "Cleanup feature row.")
                     ),
                 ]
             )
@@ -124,24 +127,25 @@ public struct SectionPresentation {
                 heroTitle: nil,
                 tagline: String(
                     localized: "Sort through your files and reduce the mess in just a few clicks.",
+                    bundle: .module,
                     comment: "My Clutter intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "doc.on.doc",
-                        title: String(localized: "Large Files", comment: "My Clutter feature row.")
+                        title: String(localized: "Large Files", bundle: .module, comment: "My Clutter feature row.")
                     ),
                     SectionFeature(
                         symbol: "doc.on.doc.fill",
-                        title: String(localized: "Duplicates", comment: "My Clutter feature row.")
+                        title: String(localized: "Duplicates", bundle: .module, comment: "My Clutter feature row.")
                     ),
                     SectionFeature(
                         symbol: "photo.on.rectangle.angled",
-                        title: String(localized: "Similar Images", comment: "My Clutter feature row.")
+                        title: String(localized: "Similar Images", bundle: .module, comment: "My Clutter feature row.")
                     ),
                     SectionFeature(
                         symbol: "arrow.down.circle",
-                        title: String(localized: "Downloads", comment: "My Clutter feature row.")
+                        title: String(localized: "Downloads", bundle: .module, comment: "My Clutter feature row.")
                     ),
                 ]
             )
@@ -155,20 +159,21 @@ public struct SectionPresentation {
                 heroTitle: nil,
                 tagline: String(
                     localized: "Visualize what's taking up the most disk space and clean up your storage quickly.",
+                    bundle: .module,
                     comment: "Space Lens intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "map",
-                        title: String(localized: "Visual Storage Map", comment: "Space Lens feature row.")
+                        title: String(localized: "Visual Storage Map", bundle: .module, comment: "Space Lens feature row.")
                     ),
                     SectionFeature(
                         symbol: "doc.text.magnifyingglass",
-                        title: String(localized: "Hidden Files Uncovered", comment: "Space Lens feature row.")
+                        title: String(localized: "Hidden Files Uncovered", bundle: .module, comment: "Space Lens feature row.")
                     ),
                     SectionFeature(
                         symbol: "folder",
-                        title: String(localized: "Large Folders Overview", comment: "Space Lens feature row.")
+                        title: String(localized: "Large Folders Overview", bundle: .module, comment: "Space Lens feature row.")
                     ),
                 ]
             )
@@ -182,20 +187,21 @@ public struct SectionPresentation {
                 heroTitle: nil,
                 tagline: String(
                     localized: "Check your Mac for all kind of threats and vulnerabilities.",
+                    bundle: .module,
                     comment: "Protection intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "allergens",
-                        title: String(localized: "Malware Removal", comment: "Protection feature row.")
+                        title: String(localized: "Malware Removal", bundle: .module, comment: "Protection feature row.")
                     ),
                     SectionFeature(
                         symbol: "checkmark.shield.fill",
-                        title: String(localized: "Privacy Check", comment: "Protection feature row.")
+                        title: String(localized: "Privacy Check", bundle: .module, comment: "Protection feature row.")
                     ),
                     SectionFeature(
                         symbol: "lock.fill",
-                        title: String(localized: "Application Permissions", comment: "Protection feature row.")
+                        title: String(localized: "Application Permissions", bundle: .module, comment: "Protection feature row.")
                     ),
                 ]
             )
@@ -209,24 +215,25 @@ public struct SectionPresentation {
                 heroTitle: nil,
                 tagline: String(
                     localized: "Keep your Mac in top shape with recommended maintenance.",
+                    bundle: .module,
                     comment: "Performance intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "power",
-                        title: String(localized: "Login Items", comment: "Performance feature row.")
+                        title: String(localized: "Login Items", bundle: .module, comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "gearshape",
-                        title: String(localized: "Launch Agents", comment: "Performance feature row.")
+                        title: String(localized: "Launch Agents", bundle: .module, comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "memorychip",
-                        title: String(localized: "Free Up RAM", comment: "Performance feature row.")
+                        title: String(localized: "Free Up RAM", bundle: .module, comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "wrench.and.screwdriver",
-                        title: String(localized: "Maintenance Scripts", comment: "Performance feature row.")
+                        title: String(localized: "Maintenance Scripts", bundle: .module, comment: "Performance feature row.")
                     ),
                 ]
             )
@@ -244,24 +251,25 @@ public struct SectionPresentation {
                 heroTitle: nil,
                 tagline: String(
                     localized: "Review updates, unused apps, and leftovers in one place.",
+                    bundle: .module,
                     comment: "Applications intro tagline."
                 ),
                 features: [
                     SectionFeature(
                         symbol: "arrow.triangle.2.circlepath",
-                        title: String(localized: "Updates", comment: "Applications feature row.")
+                        title: String(localized: "Updates", bundle: .module, comment: "Applications feature row.")
                     ),
                     SectionFeature(
                         symbol: "moon.zzz",
-                        title: String(localized: "Unused Apps", comment: "Applications feature row.")
+                        title: String(localized: "Unused Apps", bundle: .module, comment: "Applications feature row.")
                     ),
                     SectionFeature(
                         symbol: "exclamationmark.triangle",
-                        title: String(localized: "Unsupported Apps", comment: "Applications feature row.")
+                        title: String(localized: "Unsupported Apps", bundle: .module, comment: "Applications feature row.")
                     ),
                     SectionFeature(
                         symbol: "trash",
-                        title: String(localized: "Leftovers", comment: "Applications feature row.")
+                        title: String(localized: "Leftovers", bundle: .module, comment: "Applications feature row.")
                     ),
                 ]
             )

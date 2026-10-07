@@ -50,20 +50,23 @@ enum PerformanceRecommendationEngine {
             kind: .freeUpRAM,
             title: String(
                 localized: "Free Up Your RAM",
+                bundle: .module,
                 comment: "Recommendation card title for freeing memory."
             ),
             detail: String(
                 localized: "Make room for more activities in your Mac's memory. Retrieve as much free RAM as possible.",
+                bundle: .module,
                 comment: "Recommendation card detail for freeing memory."
             ),
             icon: "memorychip",
-            actionLabel: String(localized: "Free Up", comment: "Action button on the free-RAM card."),
+            actionLabel: String(localized: "Free Up", bundle: .module, comment: "Action button on the free-RAM card."),
             isHero: true
         ))
 
         if snapshot.staleTaskCount > 0 {
             let titleFormat = String(
                 localized: "%d Maintenance Tasks Recommended",
+                bundle: .module,
                 comment: "Recommendation card title; %d is the number of due tasks."
             )
             recommendations.append(PerformanceRecommendation(
@@ -71,10 +74,11 @@ enum PerformanceRecommendationEngine {
                 title: String.localizedStringWithFormat(titleFormat, snapshot.staleTaskCount),
                 detail: String(
                     localized: "Your maintenance cocktail is ready. Run these tasks to keep your Mac in shape.",
+                    bundle: .module,
                     comment: "Recommendation card detail for due maintenance tasks."
                 ),
                 icon: "wrench.and.screwdriver",
-                actionLabel: String(localized: "Run Tasks", comment: "Action button on the maintenance-tasks card."),
+                actionLabel: String(localized: "Run Tasks", bundle: .module, comment: "Action button on the maintenance-tasks card."),
                 isHero: false
             ))
         }
@@ -82,6 +86,7 @@ enum PerformanceRecommendationEngine {
         if snapshot.backgroundItemCount > 0 {
             let titleFormat = String(
                 localized: "%d Background Items Found",
+                bundle: .module,
                 comment: "Recommendation card title; %d is the number of background items."
             )
             recommendations.append(PerformanceRecommendation(
@@ -89,10 +94,11 @@ enum PerformanceRecommendationEngine {
                 title: String.localizedStringWithFormat(titleFormat, snapshot.backgroundItemCount),
                 detail: String(
                     localized: "Review login items and launch agents that start automatically with your Mac.",
+                    bundle: .module,
                     comment: "Recommendation card detail for background items."
                 ),
                 icon: "gearshape",
-                actionLabel: String(localized: "Review", comment: "Action button on the background-items card."),
+                actionLabel: String(localized: "Review", bundle: .module, comment: "Action button on the background-items card."),
                 isHero: false
             ))
         }
@@ -102,14 +108,16 @@ enum PerformanceRecommendationEngine {
                 kind: .thinSnapshots,
                 title: String(
                     localized: "Thin Time Machine Snapshots",
+                    bundle: .module,
                     comment: "Recommendation card title for thinning snapshots."
                 ),
                 detail: String(
                     localized: "Reduce local snapshot storage without affecting your backups.",
+                    bundle: .module,
                     comment: "Recommendation card detail for thinning snapshots."
                 ),
                 icon: "clock.arrow.circlepath",
-                actionLabel: String(localized: "Run", comment: "Action button on the thin-snapshots card."),
+                actionLabel: String(localized: "Run", bundle: .module, comment: "Action button on the thin-snapshots card."),
                 isHero: false
             ))
         }

@@ -28,11 +28,11 @@ public enum AppManagerSort: String, CaseIterable, Identifiable, Sendable {
     public var label: String {
         switch self {
         case .name:
-            return String(localized: "Name", comment: "Applications Manager sort option ordering alphabetically.")
+            return String(localized: "Name", bundle: .module, comment: "Applications Manager sort option ordering alphabetically.")
         case .lastOpened:
-            return String(localized: "Last Opened", comment: "Applications Manager sort option ordering by most-recently-opened.")
+            return String(localized: "Last Opened", bundle: .module, comment: "Applications Manager sort option ordering by most-recently-opened.")
         case .size:
-            return String(localized: "Size", comment: "Applications Manager sort option ordering by size, largest first.")
+            return String(localized: "Size", bundle: .module, comment: "Applications Manager sort option ordering by size, largest first.")
         }
     }
 }

@@ -32,14 +32,14 @@ public enum NavigationSection: CaseIterable, Hashable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .smartScan:       return String(localized: "Smart Scan")
-        case .systemJunk:      return String(localized: "Cleanup")
-        case .largeOldFiles:   return String(localized: "My Clutter")
-        case .spaceLens:       return String(localized: "Space Lens")
-        case .malwareRemoval:  return String(localized: "Protection")
-        case .performance:    return String(localized: "Performance")
-        case .applications:    return String(localized: "Applications")
-        case .healthMonitor:   return String(localized: "Health Monitor")
+        case .smartScan:       return String(localized: "Smart Scan", bundle: .module)
+        case .systemJunk:      return String(localized: "Cleanup", bundle: .module)
+        case .largeOldFiles:   return String(localized: "My Clutter", bundle: .module)
+        case .spaceLens:       return String(localized: "Space Lens", bundle: .module)
+        case .malwareRemoval:  return String(localized: "Protection", bundle: .module)
+        case .performance:    return String(localized: "Performance", bundle: .module)
+        case .applications:    return String(localized: "Applications", bundle: .module)
+        case .healthMonitor:   return String(localized: "Health Monitor", bundle: .module)
         }
     }
 

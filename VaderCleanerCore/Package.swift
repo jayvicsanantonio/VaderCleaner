@@ -6,12 +6,16 @@ import PackageDescription
 
 let package = Package(
     name: "VaderCleanerCore",
+    defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "VaderCleanerCore", targets: ["VaderCleanerCore"]),
     ],
     targets: [
-        .target(name: "VaderCleanerCore"),
+        // The core's own string tables. Its lookups pass `bundle: .module`, so
+        // they resolve the same inside the app and under `swift test`, where
+        // `Bundle.main` is the test runner and has no tables at all.
+        .target(name: "VaderCleanerCore", resources: [.process("Resources")]),
         .testTarget(name: "VaderCleanerCoreTests", dependencies: ["VaderCleanerCore"]),
     ],
     swiftLanguageModes: [.v6]

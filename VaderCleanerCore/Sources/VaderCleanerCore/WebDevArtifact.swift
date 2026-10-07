@@ -61,6 +61,7 @@ enum WebDevArtifact {
         return String.localizedStringWithFormat(
             String(
                 localized: "%@ / %@",
+                bundle: .module,
                 comment: "Web Development Junk row title: containing project folder, artifact folder."
             ),
             parent, url.lastPathComponent
@@ -77,6 +78,7 @@ enum WebDevArtifact {
         return String.localizedStringWithFormat(
             String(
                 localized: "Last changed %@ · %@",
+                bundle: .module,
                 comment: "Web Development Junk row subtitle: relative last-changed date, containing project folder."
             ),
             RelativeDateText.string(for: changed, relativeTo: now), folder

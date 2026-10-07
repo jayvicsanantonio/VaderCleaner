@@ -177,6 +177,7 @@ public final class HealthMonitorViewModel {
         let total = SystemStatsFormatters.byteString(stats.totalBytes)
         let format = String(
             localized: "%@ of %@ used",
+            bundle: .module,
             comment: "Hero disk usage line, for example 121 GB of 494 GB used"
         )
         return String(format: format, used, total)

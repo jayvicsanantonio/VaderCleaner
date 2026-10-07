@@ -110,7 +110,7 @@ public final class MenuBarViewModel {
 
     /// Wi-Fi network name for the network tile title, or a generic "Wi-Fi" when
     /// the SSID is unavailable (not on Wi-Fi, or Location not yet authorized).
-    public var wifiNetworkName: String { service.wifiSSID ?? String(localized: "Wi-Fi") }
+    public var wifiNetworkName: String { service.wifiSSID ?? String(localized: "Wi-Fi", bundle: .module) }
 
     /// CPU temperature for the CPU tile, or `nil` when the SMC reports none on
     /// this hardware (the tile hides the value rather than showing a guess).
@@ -192,13 +192,13 @@ public final class MenuBarViewModel {
     public static func memoryFlushLabel(for state: MemoryFlushState) -> String? {
         switch state {
         case .idle:
-            return String(localized: "Free Memory", comment: "Memory tile link that purges inactive RAM.")
+            return String(localized: "Free Memory", bundle: .module, comment: "Memory tile link that purges inactive RAM.")
         case .running:
             return nil
         case .flushed:
-            return String(localized: "Memory freed", comment: "Memory tile link label after a successful purge.")
+            return String(localized: "Memory freed", bundle: .module, comment: "Memory tile link label after a successful purge.")
         case .failed:
-            return String(localized: "Retry", comment: "Memory tile link label after a failed purge.")
+            return String(localized: "Retry", bundle: .module, comment: "Memory tile link label after a failed purge.")
         }
     }
 
@@ -261,6 +261,7 @@ public final class MenuBarViewModel {
         let freePercent = freePercentInt(stats)
         let format = NSLocalizedString(
             "%@ · %d%% free",
+            bundle: .module,
             comment: "Format for disk usage and percent free, for example 250 GB / 500 GB · 50% free"
         )
         return String(format: format, usage, freePercent)
@@ -331,15 +332,15 @@ public final class MenuBarViewModel {
     /// Plain-language power state for the battery tile's subtitle.
     static func batteryStateString(_ charge: BatteryCharge) -> String {
         if charge.isCharging {
-            return String(localized: "Charging", comment: "Battery tile subtitle while charging.")
+            return String(localized: "Charging", bundle: .module, comment: "Battery tile subtitle while charging.")
         }
         if charge.percent >= 100 && charge.isPluggedIn {
-            return String(localized: "Fully Charged", comment: "Battery tile subtitle when full and on AC.")
+            return String(localized: "Fully Charged", bundle: .module, comment: "Battery tile subtitle when full and on AC.")
         }
         if charge.isPluggedIn {
-            return String(localized: "Plugged In", comment: "Battery tile subtitle on AC but not charging.")
+            return String(localized: "Plugged In", bundle: .module, comment: "Battery tile subtitle on AC but not charging.")
         }
-        return String(localized: "On Battery", comment: "Battery tile subtitle while discharging.")
+        return String(localized: "On Battery", bundle: .module, comment: "Battery tile subtitle while discharging.")
     }
 
     /// Battery temperature rounded to a whole degree, e.g. "30°C".
@@ -394,13 +395,13 @@ public final class MenuBarViewModel {
     public static func statusAccessibilityLabel(for color: StatusColor) -> String {
         switch color {
         case .green:
-            return String(localized: "OK", comment: "VoiceOver label for a green status dot.")
+            return String(localized: "OK", bundle: .module, comment: "VoiceOver label for a green status dot.")
         case .yellow:
-            return String(localized: "Needs attention", comment: "VoiceOver label for a yellow status dot.")
+            return String(localized: "Needs attention", bundle: .module, comment: "VoiceOver label for a yellow status dot.")
         case .red:
-            return String(localized: "Critical", comment: "VoiceOver label for a red status dot.")
+            return String(localized: "Critical", bundle: .module, comment: "VoiceOver label for a red status dot.")
         case .gray:
-            return String(localized: "Not available", comment: "VoiceOver label for a gray status dot.")
+            return String(localized: "Not available", bundle: .module, comment: "VoiceOver label for a gray status dot.")
         }
     }
 
@@ -467,9 +468,9 @@ public final class MenuBarViewModel {
     public static func protectionCardTitle(for activity: ScanActivity?) -> String {
         switch activity {
         case .smartScan, nil:
-            return String(localized: "Smart Scan", comment: "Scan card title.")
+            return String(localized: "Smart Scan", bundle: .module, comment: "Scan card title.")
         case .threatScan:
-            return String(localized: "Threat Scan", comment: "Scan card title while a threat-only scan is running.")
+            return String(localized: "Threat Scan", bundle: .module, comment: "Scan card title while a threat-only scan is running.")
         }
     }
 
@@ -484,17 +485,20 @@ public final class MenuBarViewModel {
             guard itemsScanned > 0 else {
                 return String(
                     localized: "Looking for junk, large files, and threats…",
+                    bundle: .module,
                     comment: "Protection card detail while Smart Scan is running."
                 )
             }
             let format = String(
                 localized: "Checked %@ items so far…",
+                bundle: .module,
                 comment: "Protection card detail while Smart Scan walks the disk; %@ is a formatted item count."
             )
             return String(format: format, itemsScanned.formatted())
         case .threatScan:
             return String(
                 localized: "Checking this Mac for threats…",
+                bundle: .module,
                 comment: "Protection card detail while a threat scan is running."
             )
         }
@@ -515,13 +519,13 @@ public final class MenuBarViewModel {
     public static func protectionStatusLabel(_ status: ProtectionStatus) -> String {
         switch status {
         case .protected:
-            return String(localized: "Protected", comment: "Protection card status when the last scan was clean.")
+            return String(localized: "Protected", bundle: .module, comment: "Protection card status when the last scan was clean.")
         case .threatsFound:
-            return String(localized: "Threats found", comment: "Protection card status when threats are present.")
+            return String(localized: "Threats found", bundle: .module, comment: "Protection card status when threats are present.")
         case .notScanned:
-            return String(localized: "Not scanned", comment: "Protection card status when no scan has run yet.")
+            return String(localized: "Not scanned", bundle: .module, comment: "Protection card status when no scan has run yet.")
         case .scanning:
-            return String(localized: "Scanning…", comment: "Protection card status while a scan is running.")
+            return String(localized: "Scanning…", bundle: .module, comment: "Protection card status while a scan is running.")
         }
     }
 
@@ -536,10 +540,10 @@ public final class MenuBarViewModel {
     /// "Last scan 3 days ago" / "No scans yet" detail for the Protection card.
     static func lastScanString(_ date: Date?) -> String {
         guard let date else {
-            return String(localized: "No scans yet", comment: "Protection card detail when no scan has run.")
+            return String(localized: "No scans yet", bundle: .module, comment: "Protection card detail when no scan has run.")
         }
         let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
-        let format = String(localized: "Last scan %@", comment: "Protection card detail; %@ is a relative date.")
+        let format = String(localized: "Last scan %@", bundle: .module, comment: "Protection card detail; %@ is a relative date.")
         return String(format: format, relative)
     }
 
@@ -552,23 +556,29 @@ public final class MenuBarViewModel {
     public static func heroHeadline(for status: MacHealthStatus?) -> String {
         guard let status else {
             return String(localized: "Checking your Mac…",
+                          bundle: .module,
                           comment: "Panel hero headline while health is still being measured.")
         }
         switch status {
         case .critical:
             return String(localized: "Your Mac needs help now",
+                          bundle: .module,
                           comment: "Panel hero headline for a Critical verdict.")
         case .requiresAttention:
             return String(localized: "Your Mac needs attention",
+                          bundle: .module,
                           comment: "Panel hero headline for a Requires Attention verdict.")
         case .fair:
             return String(localized: "Your Mac is doing OK",
+                          bundle: .module,
                           comment: "Panel hero headline for a Fair verdict.")
         case .good:
             return String(localized: "Your Mac is in good shape",
+                          bundle: .module,
                           comment: "Panel hero headline for a Good verdict.")
         case .excellent:
             return String(localized: "Your Mac is at its best",
+                          bundle: .module,
                           comment: "Panel hero headline for an Excellent verdict.")
         }
     }
@@ -628,10 +638,13 @@ public final class MenuBarViewModel {
         if protection == .threatsFound {
             return NextStep(
                 title: String(localized: "Threats found on this Mac",
+                              bundle: .module,
                               comment: "Next-step title when the last scan surfaced threats."),
                 detail: String(localized: "Review what turned up and remove it to stay protected.",
+                               bundle: .module,
                                comment: "Next-step detail when the last scan surfaced threats."),
                 actionLabel: String(localized: "Review Threats",
+                                    bundle: .module,
                                     comment: "Next-step button that opens the threats list."),
                 target: .threats,
                 startsScan: false,
@@ -641,10 +654,13 @@ public final class MenuBarViewModel {
         if disk.totalBytes > 0, 1.0 - diskUsedFraction(disk) < lowDiskFreeThreshold {
             return NextStep(
                 title: String(localized: "Storage is running low",
+                              bundle: .module,
                               comment: "Next-step title when free disk space is under 10%."),
                 detail: String(localized: "Less than 10% of your disk is free. Clear out junk to reclaim space.",
+                               bundle: .module,
                                comment: "Next-step detail when free disk space is under 10%."),
                 actionLabel: String(localized: "Clean Up",
+                                    bundle: .module,
                                     comment: "Next-step button that opens the Cleanup section."),
                 target: .cleanup,
                 startsScan: false,
@@ -654,10 +670,13 @@ public final class MenuBarViewModel {
         if pressure == .critical {
             return NextStep(
                 title: String(localized: "Memory pressure is critical",
+                              bundle: .module,
                               comment: "Next-step title when memory pressure is critical."),
                 detail: String(localized: "Your Mac is low on memory. Free some up to keep apps responsive.",
+                               bundle: .module,
                                comment: "Next-step detail when memory pressure is critical."),
                 actionLabel: String(localized: "Free Memory",
+                                    bundle: .module,
                                     comment: "Next-step button that opens the Performance section."),
                 target: .performance,
                 startsScan: false,
@@ -667,10 +686,13 @@ public final class MenuBarViewModel {
         if protection == .notScanned {
             return NextStep(
                 title: String(localized: "Give your Mac its first checkup",
+                              bundle: .module,
                               comment: "Next-step title before any scan has run."),
                 detail: String(localized: "One Smart Scan finds junk, large files, and threats in a single pass.",
+                               bundle: .module,
                                comment: "Next-step detail before any scan has run."),
                 actionLabel: String(localized: "Scan Now",
+                                    bundle: .module,
                                     comment: "Next-step button that starts a first Smart Scan."),
                 target: .smartScan,
                 startsScan: true,
@@ -680,10 +702,13 @@ public final class MenuBarViewModel {
         if lastScanDate.map({ now.timeIntervalSince($0) > staleScanInterval }) ?? true {
             return NextStep(
                 title: String(localized: "Time for a fresh scan",
+                              bundle: .module,
                               comment: "Next-step title when the last scan is over a week old."),
                 detail: String(localized: "It's been over a week since your last Smart Scan.",
+                               bundle: .module,
                                comment: "Next-step detail when the last scan is over a week old."),
                 actionLabel: String(localized: "Run Smart Scan",
+                                    bundle: .module,
                                     comment: "Next-step button that starts a Smart Scan."),
                 target: .smartScan,
                 startsScan: true,
@@ -692,10 +717,13 @@ public final class MenuBarViewModel {
         }
         return NextStep(
             title: String(localized: "You're all set",
+                          bundle: .module,
                           comment: "Next-step title when nothing needs attention."),
             detail: String(localized: "Nothing needs your attention right now.",
+                           bundle: .module,
                            comment: "Next-step detail when nothing needs attention."),
             actionLabel: String(localized: "Run Smart Scan",
+                                bundle: .module,
                                 comment: "Next-step button that starts a Smart Scan."),
             target: .smartScan,
             startsScan: true,
@@ -719,6 +747,7 @@ public final class MenuBarViewModel {
         guard hidden > 0 else { return nil }
         let format = String(
             localized: "+%d more",
+            bundle: .module,
             comment: "Connected Devices tile overflow line; %d is how many devices are not shown."
         )
         return String(format: format, hidden)
@@ -742,6 +771,7 @@ public final class MenuBarViewModel {
         }
         let format = String(
             localized: "on for %@",
+            bundle: .module,
             comment: "Header uptime line; %@ is a duration like 3d 4h. Reads as plain language, not server-style 'up'."
         )
         return String(format: format, value)

@@ -1,0 +1,8 @@
+"Large & Old Files" = "Large & Old Files";
+"Name" = "Name";
+"Size" = "Size";
+"%@ / %@" = "%@ / %@";
+"%@ · %d%% free" = "%@ · %d%% free";
+"MemoryPressure.Critical" = "Critical";
+"MemoryPressure.Fair" = "Fair";
+"MemoryPressure.Nominal" = "Normal";

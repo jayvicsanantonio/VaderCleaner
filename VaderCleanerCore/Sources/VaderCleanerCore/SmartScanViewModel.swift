@@ -318,6 +318,7 @@ public final class SmartScanViewModel {
             log.error("Smart Scan refused: every scan area is disabled in Settings")
             phase = .failed(message: String(
                 localized: "Every area is switched off in Settings → Scanning. Turn at least one back on and Smart Scan will have something to check.",
+                bundle: .module,
                 comment: "Smart Scan failure message when the user has disabled every scan area."
             ))
             return
@@ -404,6 +405,7 @@ public final class SmartScanViewModel {
                 return nil
             }.first ?? String(
                 localized: "The scan couldn't check anything this time.",
+                bundle: .module,
                 comment: "Fallback failure message when every scan unit failed."
             )
             log.error("Smart Scan failed: every attempted unit failed")
@@ -1519,6 +1521,7 @@ public final class SmartScanViewModel {
             let message = String.localizedStringWithFormat(
                 String(
                     localized: "Close %@ first, then try again.",
+                    bundle: .module,
                     comment: "Receipt failure line when a browser must quit before its data can be cleared."
                 ),
                 browser.displayName
@@ -1550,6 +1553,7 @@ public final class SmartScanViewModel {
                 bytesFreed: 0,
                 outcome: .failed(message: String(
                     localized: "These files couldn't be moved to the Trash.",
+                    bundle: .module,
                     comment: "Receipt failure line when no selected file could be recycled."
                 ))
             )

@@ -68,14 +68,14 @@ public enum ProtectionPrivacyCategory: String, CaseIterable, Identifiable, Hasha
 
     public var displayName: String {
         switch self {
-        case .autofillValues:      return String(localized: "Autofill Values", comment: "Protection privacy category.")
-        case .browsingHistory:     return String(localized: "Browsing History", comment: "Protection privacy category.")
-        case .cookies:             return String(localized: "Cookies", comment: "Protection privacy category.")
-        case .downloadsHistory:    return String(localized: "Downloads History", comment: "Protection privacy category.")
-        case .savedPasswords:      return String(localized: "Saved Passwords", comment: "Protection privacy category.")
-        case .searchQueries:       return String(localized: "Search Queries", comment: "Protection privacy category.")
-        case .cachedFiles:         return String(localized: "Cached Files", comment: "Protection privacy category.")
-        case .tabsFromLastSession: return String(localized: "Tabs From Last Session", comment: "Protection privacy category.")
+        case .autofillValues:      return String(localized: "Autofill Values", bundle: .module, comment: "Protection privacy category.")
+        case .browsingHistory:     return String(localized: "Browsing History", bundle: .module, comment: "Protection privacy category.")
+        case .cookies:             return String(localized: "Cookies", bundle: .module, comment: "Protection privacy category.")
+        case .downloadsHistory:    return String(localized: "Downloads History", bundle: .module, comment: "Protection privacy category.")
+        case .savedPasswords:      return String(localized: "Saved Passwords", bundle: .module, comment: "Protection privacy category.")
+        case .searchQueries:       return String(localized: "Search Queries", bundle: .module, comment: "Protection privacy category.")
+        case .cachedFiles:         return String(localized: "Cached Files", bundle: .module, comment: "Protection privacy category.")
+        case .tabsFromLastSession: return String(localized: "Tabs From Last Session", bundle: .module, comment: "Protection privacy category.")
         }
     }
 
@@ -84,21 +84,21 @@ public enum ProtectionPrivacyCategory: String, CaseIterable, Identifiable, Hasha
     public var info: String {
         switch self {
         case .autofillValues:
-            return String(localized: "Form data your browser has saved to autofill fields. Shown for your awareness; the manager never removes it.", comment: "Protection privacy category info.")
+            return String(localized: "Form data your browser has saved to autofill fields. Shown for your awareness; the manager never removes it.", bundle: .module, comment: "Protection privacy category info.")
         case .browsingHistory:
-            return String(localized: "The list of sites you've visited.", comment: "Protection privacy category info.")
+            return String(localized: "The list of sites you've visited.", bundle: .module, comment: "Protection privacy category info.")
         case .cookies:
-            return String(localized: "Small files sites store on your Mac to remember you between visits.", comment: "Protection privacy category info.")
+            return String(localized: "Small files sites store on your Mac to remember you between visits.", bundle: .module, comment: "Protection privacy category info.")
         case .downloadsHistory:
-            return String(localized: "The record of files you've downloaded (not the files themselves).", comment: "Protection privacy category info.")
+            return String(localized: "The record of files you've downloaded (not the files themselves).", bundle: .module, comment: "Protection privacy category info.")
         case .savedPasswords:
-            return String(localized: "Credentials your browser has saved. Shown for your awareness; the manager never removes them.", comment: "Protection privacy category info.")
+            return String(localized: "Credentials your browser has saved. Shown for your awareness; the manager never removes them.", bundle: .module, comment: "Protection privacy category info.")
         case .searchQueries:
-            return String(localized: "Terms you've typed into the address bar and search boxes.", comment: "Protection privacy category info.")
+            return String(localized: "Terms you've typed into the address bar and search boxes.", bundle: .module, comment: "Protection privacy category info.")
         case .cachedFiles:
-            return String(localized: "Temporary files browsers store to load pages faster.", comment: "Protection privacy category info.")
+            return String(localized: "Temporary files browsers store to load pages faster.", bundle: .module, comment: "Protection privacy category info.")
         case .tabsFromLastSession:
-            return String(localized: "Tabs your browser remembers from the previous session.", comment: "Protection privacy category info.")
+            return String(localized: "Tabs your browser remembers from the previous session.", bundle: .module, comment: "Protection privacy category info.")
         }
     }
 }

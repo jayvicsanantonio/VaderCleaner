@@ -24,11 +24,11 @@ public enum MacHealthStatus: Int, CaseIterable, Comparable, Sendable {
     /// Short headline word shown large and tinted in the hero card.
     public var title: String {
         switch self {
-        case .critical:          return String(localized: "Critical")
-        case .requiresAttention: return String(localized: "Requires Attention")
-        case .fair:              return String(localized: "Fair")
-        case .good:              return String(localized: "Good")
-        case .excellent:         return String(localized: "Excellent")
+        case .critical:          return String(localized: "Critical", bundle: .module)
+        case .requiresAttention: return String(localized: "Requires Attention", bundle: .module)
+        case .fair:              return String(localized: "Fair", bundle: .module)
+        case .good:              return String(localized: "Good", bundle: .module)
+        case .excellent:         return String(localized: "Excellent", bundle: .module)
         }
     }
 
@@ -50,15 +50,15 @@ public enum MacHealthStatus: Int, CaseIterable, Comparable, Sendable {
     public var summary: String {
         switch self {
         case .critical:
-            return String(localized: "We strongly recommend taking action to bring your Mac back to normal.")
+            return String(localized: "We strongly recommend taking action to bring your Mac back to normal.", bundle: .module)
         case .requiresAttention:
-            return String(localized: "Your Mac is not doing well. Run some maintenance to bring it back into shape.")
+            return String(localized: "Your Mac is not doing well. Run some maintenance to bring it back into shape.", bundle: .module)
         case .fair:
-            return String(localized: "Your Mac is OK, but some maintenance is recommended to avoid performance issues.")
+            return String(localized: "Your Mac is OK, but some maintenance is recommended to avoid performance issues.", bundle: .module)
         case .good:
-            return String(localized: "Your Mac is in good shape. Run some maintenance to perform even better.")
+            return String(localized: "Your Mac is in good shape. Run some maintenance to perform even better.", bundle: .module)
         case .excellent:
-            return String(localized: "Your Mac is doing great. Run regular maintenance to keep it this way.")
+            return String(localized: "Your Mac is doing great. Run regular maintenance to keep it this way.", bundle: .module)
         }
     }
 }

@@ -22,10 +22,12 @@ public enum ScanProgressFormatting {
         let template = count == 1
             ? String(
                 localized: "%@ item",
+                bundle: .module,
                 comment: "Live progress count, singular, shown under the Scanning label while an open-ended scan walks the file system; %@ is a localized item count of one."
             )
             : String(
                 localized: "%@ items",
+                bundle: .module,
                 comment: "Live progress count shown under the Scanning label while an open-ended scan walks the file system; %@ is a localized item count."
             )
         return String.localizedStringWithFormat(template, formatted)

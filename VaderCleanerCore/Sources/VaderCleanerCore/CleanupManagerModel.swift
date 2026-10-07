@@ -15,17 +15,17 @@ public enum CleanupManagerModel {
     public static let groups: [(id: String, title: String, categories: [ScanCategory])] = [
         (
             "systemJunk",
-            String(localized: "System Junk", comment: "Cleanup Manager section grouping caches, logs, and developer junk."),
+            String(localized: "System Junk", bundle: .module, comment: "Cleanup Manager section grouping caches, logs, and developer junk."),
             [.userCache, .xcodeJunk, .webDevJunk, .userLogs, .documentVersions, .systemCache, .systemLogs, .languageFiles, .iosBackups]
         ),
         (
             "mailAttachments",
-            String(localized: "Mail Attachments", comment: "Cleanup Manager section for mail attachment files."),
+            String(localized: "Mail Attachments", bundle: .module, comment: "Cleanup Manager section for mail attachment files."),
             [.mailAttachments]
         ),
         (
             "trashBins",
-            String(localized: "Trash Bins", comment: "Cleanup Manager section for the trash bins."),
+            String(localized: "Trash Bins", bundle: .module, comment: "Cleanup Manager section for the trash bins."),
             [.trash]
         ),
     ]
@@ -41,12 +41,15 @@ public enum CleanupManagerModel {
         switch id {
         case "systemJunk":
             return String(localized: "Redundant files that clog up device storage and impede optimal performance.",
+                          bundle: .module,
                           comment: "Cleanup Manager System Junk section description.")
         case "mailAttachments":
             return String(localized: "Local copies of email attachments Mail downloaded, which you can safely remove.",
+                          bundle: .module,
                           comment: "Cleanup Manager Mail Attachments section description.")
         case "trashBins":
             return String(localized: "Items in your Trash that still use disk space until the Trash is emptied.",
+                          bundle: .module,
                           comment: "Cleanup Manager Trash Bins section description.")
         default:
             return nil
@@ -59,36 +62,47 @@ public enum CleanupManagerModel {
         switch category {
         case .userCache:
             return String(localized: "Cache files your apps create to load faster. They're rebuilt automatically, so they're safe to remove.",
+                          bundle: .module,
                           comment: "Cleanup Manager User Caches category description.")
         case .systemCache:
             return String(localized: "Caches macOS writes to speed up the system. They're rebuilt as needed, so they're safe to remove.",
+                          bundle: .module,
                           comment: "Cleanup Manager System Caches category description.")
         case .userLogs:
             return String(localized: "Diagnostic logs your apps write. Safe to remove — new ones are created as needed.",
+                          bundle: .module,
                           comment: "Cleanup Manager User Logs category description.")
         case .systemLogs:
             return String(localized: "Diagnostic logs macOS writes. Safe to remove — the system creates new ones as needed.",
+                          bundle: .module,
                           comment: "Cleanup Manager System Logs category description.")
         case .languageFiles:
             return String(localized: "Translations for languages you don't use, bundled inside apps. Safe to remove — your active languages and English are kept.",
+                          bundle: .module,
                           comment: "Cleanup Manager Language Files category description.")
         case .mailAttachments:
             return String(localized: "Local copies of email attachments downloaded by Mail. Safe to remove — you can re-download them from the original messages.",
+                          bundle: .module,
                           comment: "Cleanup Manager Mail Attachments category description.")
         case .iosBackups:
             return String(localized: "Backups of your iPhone and iPad stored on this Mac. Not rebuilt — remove only if you have another backup.",
+                          bundle: .module,
                           comment: "Cleanup Manager iOS Backups category description.")
         case .xcodeJunk:
             return String(localized: "Derived data, archives, and old device support left behind by Xcode. Derived data and device support rebuild on demand; archives are your saved builds, so review those before removing.",
+                          bundle: .module,
                           comment: "Cleanup Manager Xcode Junk category description.")
         case .documentVersions:
             return String(localized: "Earlier revisions macOS keeps so you can “Revert To” previous versions of documents. Removing them clears that history.",
+                          bundle: .module,
                           comment: "Cleanup Manager Document Versions category description.")
         case .webDevJunk:
             return String(localized: "Dependency folders, build output, and package-manager caches left by web and dev toolchains. Rebuilt on demand — node_modules and build folders return after the next install or build.",
+                          bundle: .module,
                           comment: "Cleanup Manager Web Development Junk category description.")
         case .trash:
             return String(localized: "Items you've already moved to the Trash. Cleaning them empties the Trash to reclaim the space.",
+                          bundle: .module,
                           comment: "Cleanup Manager Trash category description.")
         case .largeFile, .oldFile:
             return nil
@@ -325,6 +339,7 @@ public enum CleanupManagerModel {
             id: "webDevJunk.idleProjects",
             title: String(
                 localized: "Select Idle Projects",
+                bundle: .module,
                 comment: "Bulk-select entry checking only long-untouched project build artifacts."
             ),
             apply: {

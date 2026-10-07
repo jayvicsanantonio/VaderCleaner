@@ -14,10 +14,10 @@ public enum MyClutterCategory: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .largeOld: return String(localized: "Large & Old Files", comment: "My Clutter Manager category.")
-        case .duplicates: return String(localized: "Duplicates", comment: "My Clutter Manager category.")
-        case .similar: return String(localized: "Similar Images", comment: "My Clutter Manager category.")
-        case .downloads: return String(localized: "Downloads", comment: "My Clutter Manager category.")
+        case .largeOld: return String(localized: "Large & Old Files", bundle: .module, comment: "My Clutter Manager category.")
+        case .duplicates: return String(localized: "Duplicates", bundle: .module, comment: "My Clutter Manager category.")
+        case .similar: return String(localized: "Similar Images", bundle: .module, comment: "My Clutter Manager category.")
+        case .downloads: return String(localized: "Downloads", bundle: .module, comment: "My Clutter Manager category.")
         }
     }
 
@@ -27,21 +27,25 @@ public enum MyClutterCategory: String, CaseIterable, Identifiable, Sendable {
         case .largeOld:
             return String(
                 localized: "These files are large and likely unneeded — you haven't opened them in a while.",
+                bundle: .module,
                 comment: "My Clutter Manager Large & Old description."
             )
         case .duplicates:
             return String(
                 localized: "Identical copies stored in different places. They may be wasting a lot of space.",
+                bundle: .module,
                 comment: "My Clutter Manager Duplicates description."
             )
         case .similar:
             return String(
                 localized: "Shots that are nearly identical to the eye — keep the best one and remove the rest.",
+                bundle: .module,
                 comment: "My Clutter Manager Similar Images description."
             )
         case .downloads:
             return String(
                 localized: "Downloads fill up with one-time-use files. Clear them out now and then to save space.",
+                bundle: .module,
                 comment: "My Clutter Manager Downloads description."
             )
         }
@@ -56,9 +60,9 @@ public enum MyClutterFileKind: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .archives: return String(localized: "Archives", comment: "Large & Old kind facet.")
-        case .videos: return String(localized: "Videos", comment: "Large & Old kind facet.")
-        case .other: return String(localized: "Other", comment: "Large & Old kind facet.")
+        case .archives: return String(localized: "Archives", bundle: .module, comment: "Large & Old kind facet.")
+        case .videos: return String(localized: "Videos", bundle: .module, comment: "Large & Old kind facet.")
+        case .other: return String(localized: "Other", bundle: .module, comment: "Large & Old kind facet.")
         }
     }
 
@@ -87,9 +91,9 @@ public enum MyClutterSizeBucket: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .huge: return String(localized: "Huge", comment: "Large & Old size facet.")
-        case .average: return String(localized: "Average", comment: "Large & Old size facet.")
-        case .small: return String(localized: "Small", comment: "Large & Old size facet.")
+        case .huge: return String(localized: "Huge", bundle: .module, comment: "Large & Old size facet.")
+        case .average: return String(localized: "Average", bundle: .module, comment: "Large & Old size facet.")
+        case .small: return String(localized: "Small", bundle: .module, comment: "Large & Old size facet.")
         }
     }
 
@@ -158,7 +162,7 @@ public enum MyClutterManagerModel {
     public static func downloadsBySource(_ items: [DownloadItem]) -> [MyClutterDownloadGroup] {
         var bySource: [String: [DownloadItem]] = [:]
         for item in items {
-            let key = item.sourceApp ?? String(localized: "Other", comment: "Downloads bucket for files with no recorded source.")
+            let key = item.sourceApp ?? String(localized: "Other", bundle: .module, comment: "Downloads bucket for files with no recorded source.")
             bySource[key, default: []].append(item)
         }
         return bySource

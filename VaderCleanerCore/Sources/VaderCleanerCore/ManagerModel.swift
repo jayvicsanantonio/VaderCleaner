@@ -191,7 +191,7 @@ public enum ManagerByteText {
     public static func string(_ bytes: Int64) -> String {
         if bytes < 1000 {
             return String.localizedStringWithFormat(
-                String(localized: "%lld bytes", comment: "Byte count under 1 KB in a Smart Scan Manager row."),
+                String(localized: "%lld bytes", bundle: .module, comment: "Byte count under 1 KB in a Smart Scan Manager row."),
                 bytes
             )
         }
@@ -215,9 +215,9 @@ public enum ManagerSort: String, CaseIterable, Identifiable {
     public var label: String {
         switch self {
         case .size:
-            return String(localized: "Size", comment: "Manager sort option ordering by byte size, largest first.")
+            return String(localized: "Size", bundle: .module, comment: "Manager sort option ordering by byte size, largest first.")
         case .name:
-            return String(localized: "Name", comment: "Manager sort option ordering alphabetically by name.")
+            return String(localized: "Name", bundle: .module, comment: "Manager sort option ordering alphabetically by name.")
         }
     }
 }

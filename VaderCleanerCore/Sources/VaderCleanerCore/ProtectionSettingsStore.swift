@@ -21,27 +21,27 @@ public enum ScanMode: String, CaseIterable, Identifiable, Sendable {
     /// Menu/picker label, e.g. "Quick Scan".
     public var displayName: String {
         switch self {
-        case .quick:    return String(localized: "Quick Scan", comment: "Protection scan mode name.")
-        case .balanced: return String(localized: "Balanced Scan", comment: "Protection scan mode name.")
-        case .deep:     return String(localized: "Deep Scan", comment: "Protection scan mode name.")
+        case .quick:    return String(localized: "Quick Scan", bundle: .module, comment: "Protection scan mode name.")
+        case .balanced: return String(localized: "Balanced Scan", bundle: .module, comment: "Protection scan mode name.")
+        case .deep:     return String(localized: "Deep Scan", bundle: .module, comment: "Protection scan mode name.")
         }
     }
 
     /// One-word speed characterization shown on the Protection settings tab.
     public var speed: String {
         switch self {
-        case .quick:    return String(localized: "Fast", comment: "Protection scan mode speed.")
-        case .balanced: return String(localized: "Moderate", comment: "Protection scan mode speed.")
-        case .deep:     return String(localized: "Slow", comment: "Protection scan mode speed.")
+        case .quick:    return String(localized: "Fast", bundle: .module, comment: "Protection scan mode speed.")
+        case .balanced: return String(localized: "Moderate", bundle: .module, comment: "Protection scan mode speed.")
+        case .deep:     return String(localized: "Slow", bundle: .module, comment: "Protection scan mode speed.")
         }
     }
 
     /// One-word depth characterization shown on the Protection settings tab.
     public var depth: String {
         switch self {
-        case .quick:    return String(localized: "Key areas", comment: "Protection scan mode depth.")
-        case .balanced: return String(localized: "Most files", comment: "Protection scan mode depth.")
-        case .deep:     return String(localized: "Every file", comment: "Protection scan mode depth.")
+        case .quick:    return String(localized: "Key areas", bundle: .module, comment: "Protection scan mode depth.")
+        case .balanced: return String(localized: "Most files", bundle: .module, comment: "Protection scan mode depth.")
+        case .deep:     return String(localized: "Every file", bundle: .module, comment: "Protection scan mode depth.")
         }
     }
 
@@ -51,16 +51,19 @@ public enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         case .quick:
             return String(
                 localized: "Checks the startup items and browser extensions that malware uses to stick around after a restart. Good for a regular checkup, or when you're short on time.",
+                bundle: .module,
                 comment: "Protection Quick Scan purpose."
             )
         case .balanced:
             return String(
                 localized: "Goes through all your personal files, including your Downloads and Desktop, plus everything Quick Scan checks. Skips big photo and cloud libraries so it still finishes at a reasonable pace.",
+                bundle: .module,
                 comment: "Protection Balanced Scan purpose."
             )
         case .deep:
             return String(
                 localized: "Looks at every file in your home folder and every startup item, including the photo, video, and cloud libraries the other scans skip. Worth the wait when you want to be certain, or if you think something slipped through.",
+                bundle: .module,
                 comment: "Protection Deep Scan purpose."
             )
         }

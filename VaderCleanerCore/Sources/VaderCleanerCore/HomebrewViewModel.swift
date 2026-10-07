@@ -182,6 +182,7 @@ public final class HomebrewViewModel {
         if updateResult == nil || updateResult?.terminationStatus != 0 {
             lastOperationError = String(
                 localized: "Couldn't refresh Homebrew — showing locally known outdated packages.",
+                bundle: .module,
                 comment: "Non-blocking warning when `brew update` fails during the update check."
             )
         }
@@ -245,6 +246,7 @@ public final class HomebrewViewModel {
                 outdated = []
                 lastOperationError = String(
                     localized: "Upgraded, but couldn't re-read Homebrew's outdated list. Check for updates again.",
+                    bundle: .module,
                     comment: "Shown when the post-upgrade refresh of the outdated list fails."
                 )
             }
@@ -277,6 +279,7 @@ public final class HomebrewViewModel {
                           result.terminationStatus == 0 else {
                         return (package.name, [String(
                             localized: "unknown (dependency check failed)",
+                            bundle: .module,
                             comment: "Placeholder dependent shown when `brew uses` couldn't be run."
                         )])
                     }

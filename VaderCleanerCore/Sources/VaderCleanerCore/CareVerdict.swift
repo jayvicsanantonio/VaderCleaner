@@ -78,15 +78,15 @@ public enum CareVerdictEngine {
     static func headline(for status: MacHealthStatus) -> String {
         switch status {
         case .excellent:
-            return String(localized: "Your Mac is in great shape", comment: "Care verdict headline: excellent.")
+            return String(localized: "Your Mac is in great shape", bundle: .module, comment: "Care verdict headline: excellent.")
         case .good:
-            return String(localized: "Your Mac is in good shape", comment: "Care verdict headline: good.")
+            return String(localized: "Your Mac is in good shape", bundle: .module, comment: "Care verdict headline: good.")
         case .fair:
-            return String(localized: "Your Mac could use a little care", comment: "Care verdict headline: fair.")
+            return String(localized: "Your Mac could use a little care", bundle: .module, comment: "Care verdict headline: fair.")
         case .requiresAttention:
-            return String(localized: "Your Mac needs some attention", comment: "Care verdict headline: requires attention.")
+            return String(localized: "Your Mac needs some attention", bundle: .module, comment: "Care verdict headline: requires attention.")
         case .critical:
-            return String(localized: "Your Mac needs help right now", comment: "Care verdict headline: critical.")
+            return String(localized: "Your Mac needs help right now", bundle: .module, comment: "Care verdict headline: critical.")
         }
     }
 
@@ -106,6 +106,7 @@ public enum CareVerdictEngine {
         if plan.findings.isEmpty {
             return String(
                 localized: "Nothing needs your attention right now.",
+                bundle: .module,
                 comment: "Care verdict detail when the scan found nothing."
             )
         }
@@ -113,6 +114,7 @@ public enum CareVerdictEngine {
         if !hasActionable {
             return String(
                 localized: "Nothing needs fixing — the notes below are just worth knowing.",
+                bundle: .module,
                 comment: "Care verdict detail when only informational findings exist."
             )
         }
@@ -121,6 +123,7 @@ public enum CareVerdictEngine {
             // on its own. Point at the zones below rather than quoting a count.
             return String(
                 localized: "Nothing to clean automatically — a few things below are worth a look.",
+                bundle: .module,
                 comment: "Care verdict detail when only opt-in findings exist."
             )
         }
@@ -128,6 +131,7 @@ public enum CareVerdictEngine {
             return String.localizedStringWithFormat(
                 String(
                     localized: "%d things worth doing — %@ can be freed safely.",
+                    bundle: .module,
                     comment: "Care verdict detail: pre-approved count and safely freeable bytes."
                 ),
                 readyCount,
@@ -137,6 +141,7 @@ public enum CareVerdictEngine {
         return String.localizedStringWithFormat(
             String(
                 localized: "%d things worth doing.",
+                bundle: .module,
                 comment: "Care verdict detail: pre-approved count, nothing byte-measurable."
             ),
             readyCount

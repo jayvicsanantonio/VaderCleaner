@@ -42,9 +42,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
     public static let catalog: [MaintenanceTask] = [
         MaintenanceTask(
             kind: .freeUpRAM,
-            title: String(localized: "Free Up RAM", comment: "Maintenance task title."),
+            title: String(localized: "Free Up RAM", bundle: .module, comment: "Maintenance task title."),
             summary: String(
                 localized: "Reclaim inactive memory so active apps have more room to work.",
+                bundle: .module,
                 comment: "Maintenance task summary for freeing RAM."
             ),
             icon: "memorychip",
@@ -52,9 +53,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
         ),
         MaintenanceTask(
             kind: .runMaintenanceScripts,
-            title: String(localized: "Run Maintenance Scripts", comment: "Maintenance task title."),
+            title: String(localized: "Run Maintenance Scripts", bundle: .module, comment: "Maintenance task title."),
             summary: String(
                 localized: "Run the system periodic daily, weekly, and monthly scripts.",
+                bundle: .module,
                 comment: "Maintenance task summary for periodic scripts."
             ),
             icon: "wrench.and.screwdriver",
@@ -62,9 +64,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
         ),
         MaintenanceTask(
             kind: .flushDNS,
-            title: String(localized: "Flush DNS Cache", comment: "Maintenance task title."),
+            title: String(localized: "Flush DNS Cache", bundle: .module, comment: "Maintenance task title."),
             summary: String(
                 localized: "Clear cached DNS records to fix stale lookups and connection slowdowns.",
+                bundle: .module,
                 comment: "Maintenance task summary for flushing DNS."
             ),
             icon: "network",
@@ -72,9 +75,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
         ),
         MaintenanceTask(
             kind: .reindexSpotlight,
-            title: String(localized: "Reindex Spotlight", comment: "Maintenance task title."),
+            title: String(localized: "Reindex Spotlight", bundle: .module, comment: "Maintenance task title."),
             summary: String(
                 localized: "Rebuild the Spotlight index to restore search speed and accuracy.",
+                bundle: .module,
                 comment: "Maintenance task summary for reindexing Spotlight."
             ),
             icon: "magnifyingglass",
@@ -82,9 +86,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
         ),
         MaintenanceTask(
             kind: .thinTimeMachineSnapshots,
-            title: String(localized: "Thin Time Machine Snapshots", comment: "Maintenance task title."),
+            title: String(localized: "Thin Time Machine Snapshots", bundle: .module, comment: "Maintenance task title."),
             summary: String(
                 localized: "Reclaim disk space from local snapshots without affecting your backups.",
+                bundle: .module,
                 comment: "Maintenance task summary for thinning Time Machine snapshots."
             ),
             icon: "clock.arrow.circlepath",
@@ -92,9 +97,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
         ),
         MaintenanceTask(
             kind: .speedUpMail,
-            title: String(localized: "Speed Up Mail", comment: "Maintenance task title."),
+            title: String(localized: "Speed Up Mail", bundle: .module, comment: "Maintenance task title."),
             summary: String(
                 localized: "Rebuild the Mail database to improve search and message handling.",
+                bundle: .module,
                 comment: "Maintenance task summary for speeding up Mail."
             ),
             icon: "envelope",

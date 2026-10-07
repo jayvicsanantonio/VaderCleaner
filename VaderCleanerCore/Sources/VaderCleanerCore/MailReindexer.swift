@@ -39,6 +39,7 @@ struct MailReindexer: Sendable {
         }
         let format = String(
             localized: "Reindexed %d Mail database(s). Quit and reopen Mail to see the change.",
+            bundle: .module,
             comment: "Result line after the Mail envelope indexes are rebuilt; %d is the count."
         )
         return String.localizedStringWithFormat(format, indexes.count)
@@ -128,16 +129,19 @@ enum MailReindexerError: LocalizedError {
         case .fullDiskAccessRequired:
             return String(
                 localized: "Speeding up Mail needs Full Disk Access. Grant it in System Settings → Privacy & Security → Full Disk Access, then try again.",
+                bundle: .module,
                 comment: "Error when MailReindexer can't read ~/Library/Mail because the app lacks Full Disk Access."
             )
         case .noMailData:
             return String(
                 localized: "No Mail databases were found to reindex.",
+                bundle: .module,
                 comment: "Error when MailReindexer finds no envelope-index databases even though it could read the Mail folder."
             )
         case .vacuumFailed:
             return String(
                 localized: "Couldn't reindex Mail. Quit Mail and try again.",
+                bundle: .module,
                 comment: "Error when the Mail envelope-index vacuum fails, usually because Mail is open."
             )
         }

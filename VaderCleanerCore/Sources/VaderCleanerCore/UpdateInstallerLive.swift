@@ -16,12 +16,15 @@ enum UpdateInstallError: LocalizedError {
         switch self {
         case .unsupportedArchive(let ext):
             return String(localized: "Updates packaged as .\(ext) can't be installed automatically.",
+                          bundle: .module,
                           comment: "Auto-install refusal for an archive format we don't expand.")
         case .noApplicationInArchive:
             return String(localized: "The download didn't contain an application.",
+                          bundle: .module,
                           comment: "Auto-install failure when an archive has no .app inside.")
         case .toolFailed(let tool):
             return String(localized: "\(tool) couldn't expand the download.",
+                          bundle: .module,
                           comment: "Auto-install failure when a system tool exits non-zero.")
         }
     }

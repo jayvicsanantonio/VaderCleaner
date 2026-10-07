@@ -14,9 +14,9 @@ public enum SmartCareFrequency: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .daily:   return String(localized: "Daily", comment: "Smart Scan reminder frequency.")
-        case .weekly:  return String(localized: "Weekly", comment: "Smart Scan reminder frequency.")
-        case .monthly: return String(localized: "Monthly", comment: "Smart Scan reminder frequency.")
+        case .daily:   return String(localized: "Daily", bundle: .module, comment: "Smart Scan reminder frequency.")
+        case .weekly:  return String(localized: "Weekly", bundle: .module, comment: "Smart Scan reminder frequency.")
+        case .monthly: return String(localized: "Monthly", bundle: .module, comment: "Smart Scan reminder frequency.")
         }
     }
 }
@@ -34,10 +34,10 @@ public enum MenuBarReading: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .none:      return String(localized: "Nothing", comment: "Menu bar reading choice.")
-        case .freeSpace: return String(localized: "Free space", comment: "Menu bar reading choice.")
-        case .memory:    return String(localized: "Memory pressure", comment: "Menu bar reading choice.")
-        case .cpu:       return String(localized: "CPU load", comment: "Menu bar reading choice.")
+        case .none:      return String(localized: "Nothing", bundle: .module, comment: "Menu bar reading choice.")
+        case .freeSpace: return String(localized: "Free space", bundle: .module, comment: "Menu bar reading choice.")
+        case .memory:    return String(localized: "Memory pressure", bundle: .module, comment: "Menu bar reading choice.")
+        case .cpu:       return String(localized: "CPU load", bundle: .module, comment: "Menu bar reading choice.")
         }
     }
 }
@@ -54,9 +54,9 @@ public enum MenuBarPresence: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .menuBarOnly: return String(localized: "Menu bar", comment: "Where the app keeps an icon.")
-        case .dockOnly:    return String(localized: "Dock", comment: "Where the app keeps an icon.")
-        case .both:        return String(localized: "Both", comment: "Where the app keeps an icon.")
+        case .menuBarOnly: return String(localized: "Menu bar", bundle: .module, comment: "Where the app keeps an icon.")
+        case .dockOnly:    return String(localized: "Dock", bundle: .module, comment: "Where the app keeps an icon.")
+        case .both:        return String(localized: "Both", bundle: .module, comment: "Where the app keeps an icon.")
         }
     }
 }
@@ -76,12 +76,12 @@ public enum MenuBarPanelRow: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .protection: return String(localized: "Protection", comment: "Menu bar panel row.")
-        case .storage:    return String(localized: "Storage", comment: "Menu bar panel row.")
-        case .memory:     return String(localized: "Memory", comment: "Menu bar panel row.")
-        case .cpu:        return String(localized: "CPU", comment: "Menu bar panel row.")
-        case .network:    return String(localized: "Wi-Fi & network", comment: "Menu bar panel row.")
-        case .devices:    return String(localized: "Connected devices", comment: "Menu bar panel row.")
+        case .protection: return String(localized: "Protection", bundle: .module, comment: "Menu bar panel row.")
+        case .storage:    return String(localized: "Storage", bundle: .module, comment: "Menu bar panel row.")
+        case .memory:     return String(localized: "Memory", bundle: .module, comment: "Menu bar panel row.")
+        case .cpu:        return String(localized: "CPU", bundle: .module, comment: "Menu bar panel row.")
+        case .network:    return String(localized: "Wi-Fi & network", bundle: .module, comment: "Menu bar panel row.")
+        case .devices:    return String(localized: "Connected devices", bundle: .module, comment: "Menu bar panel row.")
         }
     }
 }

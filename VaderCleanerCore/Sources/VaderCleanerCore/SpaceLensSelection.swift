@@ -14,9 +14,9 @@ public enum SpaceLensSelectMode: String, CaseIterable, Identifiable {
 
     public var displayName: String {
         switch self {
-        case .manually: return String(localized: "Manually")
-        case .all:      return String(localized: "All")
-        case .none:     return String(localized: "None")
+        case .manually: return String(localized: "Manually", bundle: .module)
+        case .all:      return String(localized: "All", bundle: .module)
+        case .none:     return String(localized: "None", bundle: .module)
         }
     }
 }

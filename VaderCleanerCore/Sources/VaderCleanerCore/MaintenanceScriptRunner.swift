@@ -38,6 +38,7 @@ struct MaintenanceScriptRunner {
         }
         return String(
             localized: "Ran maintenance scripts: periodic daily weekly monthly. Detailed output is written to /var/log/daily.out, /var/log/weekly.out, and /var/log/monthly.out.",
+            bundle: .module,
             comment: "Result line shown after the system maintenance scripts complete."
         )
     }

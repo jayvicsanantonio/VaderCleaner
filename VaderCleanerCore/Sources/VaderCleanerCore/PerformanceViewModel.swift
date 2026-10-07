@@ -360,6 +360,7 @@ public final class PerformanceViewModel {
             memory = readMemory()
             let format = String(
                 localized: "Freed inactive memory. Memory in use: %@.",
+                bundle: .module,
                 comment: "Result line after a successful RAM flush; %@ is a used/total memory string."
             )
             ramResult = String.localizedStringWithFormat(

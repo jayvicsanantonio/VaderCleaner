@@ -24,10 +24,10 @@ public enum SpaceLensProtection {
         /// Display string, matching the reference UI ("System folder").
         public var displayName: String {
             switch self {
-            case .systemFolder: return String(localized: "System folder")
-            case .homeFolder:   return String(localized: "Home folder")
-            case .folder:       return String(localized: "Folder")
-            case .file:         return String(localized: "File")
+            case .systemFolder: return String(localized: "System folder", bundle: .module)
+            case .homeFolder:   return String(localized: "Home folder", bundle: .module)
+            case .folder:       return String(localized: "Folder", bundle: .module)
+            case .file:         return String(localized: "File", bundle: .module)
             }
         }
     }

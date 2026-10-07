@@ -61,7 +61,7 @@ public enum SpaceLensChildren {
         let otherCount = remainder.reduce(0) { $0 + 1 + $1.itemCount }
         let other = SpaceLensDisplayItem(
             id: otherID,
-            name: String(localized: "Other items"),
+            name: String(localized: "Other items", bundle: .module),
             size: otherSize,
             itemCount: otherCount,
             node: nil,

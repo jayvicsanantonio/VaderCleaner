@@ -125,18 +125,20 @@ public enum ApplicationsDashboardTile: Identifiable {
     static let reassurancePool: [ReassuranceContent] = [
         ReassuranceContent(
             id: "applications.allClear",
-            title: String(localized: "Apps Look Healthy", comment: "Applications reassurance card title."),
+            title: String(localized: "Apps Look Healthy", bundle: .module, comment: "Applications reassurance card title."),
             detail: String(
                 localized: "No unused or unsupported apps, updates, leftovers, or installer files to review.",
+                bundle: .module,
                 comment: "Applications reassurance card detail."
             ),
             icon: "checkmark.seal"
         ),
         ReassuranceContent(
             id: "applications.manage",
-            title: String(localized: "Manage Anytime", comment: "Applications reassurance card title."),
+            title: String(localized: "Manage Anytime", bundle: .module, comment: "Applications reassurance card title."),
             detail: String(
                 localized: "Open Manage My Applications to browse everything you have installed.",
+                bundle: .module,
                 comment: "Applications reassurance card detail."
             ),
             icon: "square.grid.2x2"

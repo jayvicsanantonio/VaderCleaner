@@ -78,17 +78,17 @@ public enum CareDomain: String, CaseIterable, Hashable, Sendable {
     public var title: String {
         switch self {
         case .systemJunk:
-            return String(localized: "Cleanup", comment: "Smart Scan domain title for system junk.")
+            return String(localized: "Cleanup", bundle: .module, comment: "Smart Scan domain title for system junk.")
         case .myClutter:
-            return String(localized: "My Clutter", comment: "Smart Scan domain title for duplicates and large/old files.")
+            return String(localized: "My Clutter", bundle: .module, comment: "Smart Scan domain title for duplicates and large/old files.")
         case .malware:
-            return String(localized: "Protection", comment: "Smart Scan domain title for the malware check.")
+            return String(localized: "Protection", bundle: .module, comment: "Smart Scan domain title for the malware check.")
         case .browserPrivacy:
-            return String(localized: "Browser Privacy", comment: "Smart Scan domain title for browsing-data counts.")
+            return String(localized: "Browser Privacy", bundle: .module, comment: "Smart Scan domain title for browsing-data counts.")
         case .applications:
-            return String(localized: "Applications", comment: "Smart Scan domain title for app health checks.")
+            return String(localized: "Applications", bundle: .module, comment: "Smart Scan domain title for app health checks.")
         case .performance:
-            return String(localized: "Performance", comment: "Smart Scan domain title for tune-up checks.")
+            return String(localized: "Performance", bundle: .module, comment: "Smart Scan domain title for tune-up checks.")
         }
     }
 }

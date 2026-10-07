@@ -50,16 +50,19 @@ enum SystemStatsFormatters {
         case .nominal:
             return NSLocalizedString(
                 "MemoryPressure.Nominal",
+                bundle: .module,
                 comment: "Label for nominal memory pressure"
             )
         case .fair:
             return NSLocalizedString(
                 "MemoryPressure.Fair",
+                bundle: .module,
                 comment: "Label for fair memory pressure"
             )
         case .critical:
             return NSLocalizedString(
                 "MemoryPressure.Critical",
+                bundle: .module,
                 comment: "Label for critical memory pressure"
             )
         }
@@ -85,6 +88,7 @@ enum SystemStatsFormatters {
         let total = byteString(totalBytes)
         let format = NSLocalizedString(
             "%@ / %@",
+            bundle: .module,
             comment: "Format for used / total bytes, for example 8 GB / 16 GB"
         )
         return String(format: format, used, total)

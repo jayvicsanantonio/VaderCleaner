@@ -150,6 +150,7 @@
 		E593DA64025CAC2160110497 /* TriggerAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FF2C4CE1BE29B227FEB57CA /* TriggerAnchor.swift */; };
 		E77456FD775F682539451AFA /* ScanProgressIndicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F0F84AC9D6DC3F18F29AD5 /* ScanProgressIndicatorTests.swift */; };
 		EC99895496A545FE0F9A9222 /* FullDiskAccessPromptCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BAC4E977A664B7A960F1C77 /* FullDiskAccessPromptCard.swift */; };
+		ED8B418807B92B25701D1947 /* CoreResourceBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECD0D8D858A439BAB5E0F11 /* CoreResourceBundleTests.swift */; };
 		EE62512542BF54B5D6ADFA9D /* FloatingScanButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B14F49807367DE2ABB76753 /* FloatingScanButton.swift */; };
 		F2999D60141F92BE8DA1180B /* systemJunk.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 168266DA7B9E9A25E0B56A8C /* systemJunk.usdz */; };
 		F94ECD82ABC16F6465EEDA6C /* PerformanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935433C10308C1F2DDF51097 /* PerformanceView.swift */; };
@@ -295,6 +296,7 @@
 		8B18E28D449EF4D5FB1D6E0B /* SmartScanUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanUITests.swift; sourceTree = "<group>"; };
 		8B4703AF41629FA4FA05F270 /* MyClutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterView.swift; sourceTree = "<group>"; };
 		8EA94E47C68E68FD21342C5E /* SmartScanSimilarImagesReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanSimilarImagesReview.swift; sourceTree = "<group>"; };
+		8ECD0D8D858A439BAB5E0F11 /* CoreResourceBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreResourceBundleTests.swift; sourceTree = "<group>"; };
 		8EDBE956EC8D84E5724D183A /* SmartScanLeftoversReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanLeftoversReview.swift; sourceTree = "<group>"; };
 		91C01D5C9DD349049220AFB2 /* VaderCleanerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VaderCleanerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		935433C10308C1F2DDF51097 /* PerformanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceView.swift; sourceTree = "<group>"; };
@@ -607,6 +609,7 @@
 				8AE1D0804B8FCB3DD9A50123 /* CleanupCardTests.swift */,
 				17630CA93451A0E1A29ED6A1 /* CleanupGroupTests.swift */,
 				588B33B31E27D3E193DF5889 /* ColorDeepenedForWhiteTests.swift */,
+				8ECD0D8D858A439BAB5E0F11 /* CoreResourceBundleTests.swift */,
 				BC2AA1946F04527938EFF60D /* EmptyStateFullDiskAccessTests.swift */,
 				C2A35775D85A4E890A04EE26 /* FloatingScanButtonTests.swift */,
 				691F38EF10E826B31149A787 /* LargeOldFilesSummaryTests.swift */,
@@ -860,6 +863,7 @@
 				B3289BEA17E2D156D19E8E71 /* CleanupGroupTests.swift in Sources */,
 				99E2DC0FF5C29F7EFFC4F8D7 /* ColorDeepenedForWhiteTests.swift in Sources */,
 				FE0C4B840D6A01A133C40A62 /* ConcurrencyPeakTracker.swift in Sources */,
+				ED8B418807B92B25701D1947 /* CoreResourceBundleTests.swift in Sources */,
 				99B965EE0BB2762D13896FF6 /* EmptyStateFullDiskAccessTests.swift in Sources */,
 				FE156E2CD69BA8F894E9078D /* FloatingScanButtonTests.swift in Sources */,
 				250889E632F3F3F6E0C37E2B /* LargeOldFilesSummaryTests.swift in Sources */,

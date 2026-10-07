@@ -60,6 +60,7 @@ struct DNSCacheFlusher: Sendable {
             invoke: { helper, done in helper.flushDNSCache(reply: done) },
             successMessage: String(
                 localized: "Flushed the DNS resolver cache.",
+                bundle: .module,
                 comment: "Result line shown after the DNS cache is flushed."
             )
         )
@@ -80,6 +81,7 @@ struct SpotlightReindexer: Sendable {
             invoke: { helper, done in helper.reindexSpotlight(reply: done) },
             successMessage: String(
                 localized: "Started rebuilding the Spotlight index. Search may be slower until indexing finishes.",
+                bundle: .module,
                 comment: "Result line shown after a Spotlight reindex is started."
             )
         )
@@ -100,6 +102,7 @@ struct TimeMachineSnapshotThinner: Sendable {
             invoke: { helper, done in helper.thinTimeMachineSnapshots(reply: done) },
             successMessage: String(
                 localized: "Thinned local Time Machine snapshots.",
+                bundle: .module,
                 comment: "Result line shown after local Time Machine snapshots are thinned."
             )
         )

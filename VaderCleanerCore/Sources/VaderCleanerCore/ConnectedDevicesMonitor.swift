@@ -96,7 +96,7 @@ public final class ConnectedDevicesMonitor {
                 let address = device.addressString ?? UUID().uuidString
                 return ConnectedDevice(
                     id: "bt:\(address)",
-                    name: device.name ?? device.addressString ?? String(localized: "Bluetooth Device"),
+                    name: device.name ?? device.addressString ?? String(localized: "Bluetooth Device", bundle: .module),
                     kind: .bluetooth,
                     batteryPercent: nil,
                     volumeURL: nil

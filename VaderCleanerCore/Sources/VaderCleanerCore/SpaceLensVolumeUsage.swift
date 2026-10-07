@@ -38,7 +38,7 @@ public struct SpaceLensVolumeUsage: Equatable {
     public var formattedSummary: String {
         let used = Self.formatter.string(fromByteCount: usedBytes)
         let total = Self.formatter.string(fromByteCount: totalBytes)
-        return String(localized: "\(used) of \(total) used")
+        return String(localized: "\(used) of \(total) used", bundle: .module)
     }
 
     /// Decimal-unit byte formatter (1000-based), matching how disk capacity is

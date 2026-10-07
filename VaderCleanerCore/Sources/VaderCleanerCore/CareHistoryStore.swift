@@ -90,6 +90,7 @@ public final class CareHistoryStore {
         return String.localizedStringWithFormat(
             String(
                 localized: "%@ freed so far with Smart Scan.",
+                bundle: .module,
                 comment: "History line: lifetime bytes freed across every Run pass."
             ),
             CareFindingCopy.formattedBytes(cumulativeBytesFreed)

@@ -20,6 +20,7 @@ public enum NotificationAccessStatus {
                 isHealthy: true,
                 detail: String(
                     localized: "VaderCleaner can let you know when something needs you.",
+                    bundle: .module,
                     comment: "Notifications settings: alerts are allowed."
                 ),
                 actionTitle: nil
@@ -31,6 +32,7 @@ public enum NotificationAccessStatus {
                 isHealthy: true,
                 detail: String(
                     localized: "Alerts arrive quietly in Notification Centre, without a banner or sound.",
+                    bundle: .module,
                     comment: "Notifications settings: provisional authorization."
                 ),
                 actionTitle: nil
@@ -40,10 +42,12 @@ public enum NotificationAccessStatus {
                 isHealthy: false,
                 detail: String(
                     localized: "Alerts are turned off for VaderCleaner, so nothing below will reach you.",
+                    bundle: .module,
                     comment: "Notifications settings: alerts are denied."
                 ),
                 actionTitle: String(
                     localized: "Open Settings…",
+                    bundle: .module,
                     comment: "Notifications settings: button opening System Settings › Notifications."
                 )
             )
@@ -52,10 +56,12 @@ public enum NotificationAccessStatus {
                 isHealthy: false,
                 detail: String(
                     localized: "VaderCleaner hasn't been allowed to send alerts yet.",
+                    bundle: .module,
                     comment: "Notifications settings: authorization not yet requested."
                 ),
                 actionTitle: String(
                     localized: "Allow…",
+                    bundle: .module,
                     comment: "Notifications settings: button requesting notification permission."
                 )
             )
@@ -64,10 +70,12 @@ public enum NotificationAccessStatus {
                 isHealthy: false,
                 detail: String(
                     localized: "VaderCleaner can't tell whether it's allowed to send alerts.",
+                    bundle: .module,
                     comment: "Notifications settings: unrecognised authorization state."
                 ),
                 actionTitle: String(
                     localized: "Open Settings…",
+                    bundle: .module,
                     comment: "Notifications settings: button opening System Settings › Notifications."
                 )
             )

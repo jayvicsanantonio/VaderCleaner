@@ -82,25 +82,28 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
         return [
             WelcomeBeat(
                 symbol: "magnifyingglass",
-                title: String(localized: "Scan", comment: "First-run flow: first beat of the loop."),
+                title: String(localized: "Scan", bundle: .module, comment: "First-run flow: first beat of the loop."),
                 detail: String(
                     localized: "One pass over caches, threats, and clutter. Nothing is changed while it looks.",
+                    bundle: .module,
                     comment: "First-run flow: what the scan beat does."
                 )
             ),
             WelcomeBeat(
                 symbol: "checklist",
-                title: String(localized: "Review", comment: "First-run flow: second beat of the loop."),
+                title: String(localized: "Review", bundle: .module, comment: "First-run flow: second beat of the loop."),
                 detail: String(
                     localized: "Every finding is listed with its size and why it was flagged. You pick what goes.",
+                    bundle: .module,
                     comment: "First-run flow: what the review beat does."
                 )
             ),
             WelcomeBeat(
                 symbol: "sparkles",
-                title: String(localized: "Clean", comment: "First-run flow: third beat of the loop."),
+                title: String(localized: "Clean", bundle: .module, comment: "First-run flow: third beat of the loop."),
                 detail: String(
                     localized: "Your files move to the Trash, so a change of heart is always one restore away.",
+                    bundle: .module,
                     comment: "First-run flow: what the clean beat does."
                 )
             ),
@@ -143,6 +146,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "Welcome to VaderCleaner",
+                    bundle: .module,
                     comment: "First-run flow: greeting headline."
                 ),
                 tagline: String(
@@ -150,6 +154,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     A cleaner, a bodyguard, and a mechanic for your Mac — \
                     in one place. Here's what the next minute buys you.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: greeting tagline."
                 ),
                 screenshotAssetName: nil,
@@ -162,6 +167,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "Reclaim your space",
+                    bundle: .module,
                     comment: "First-run flow: cleaning tour headline."
                 ),
                 tagline: String(
@@ -170,6 +176,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     VaderCleaner finds them, shows its work, and moves your \
                     files to the Trash so nothing is ever gone for good.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: cleaning tour tagline."
                 ),
                 screenshotAssetName: "welcomeShotClean",
@@ -195,6 +202,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "Keep the bad stuff out",
+                    bundle: .module,
                     comment: "First-run flow: protection tour headline."
                 ),
                 tagline: String(
@@ -203,6 +211,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     remember about you, and a plain-language read on which \
                     apps hold which permissions.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: protection tour tagline."
                 ),
                 screenshotAssetName: "welcomeShotProtect",
@@ -211,16 +220,17 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                 features: [
                     SectionFeature(
                         symbol: "allergens",
-                        title: String(localized: "Malware Removal", comment: "First-run flow: protection capability.")
+                        title: String(localized: "Malware Removal", bundle: .module, comment: "First-run flow: protection capability.")
                     ),
                     SectionFeature(
                         symbol: "checkmark.shield.fill",
-                        title: String(localized: "Privacy Check", comment: "First-run flow: protection capability.")
+                        title: String(localized: "Privacy Check", bundle: .module, comment: "First-run flow: protection capability.")
                     ),
                     SectionFeature(
                         symbol: "lock.fill",
                         title: String(
                             localized: "Application Permissions",
+                            bundle: .module,
                             comment: "First-run flow: protection capability."
                         )
                     ),
@@ -231,6 +241,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "Keep it running fast",
+                    bundle: .module,
                     comment: "First-run flow: performance tour headline."
                 ),
                 tagline: String(
@@ -239,6 +250,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     and watch memory, storage, and temperature live from the \
                     menu bar.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: performance tour tagline."
                 ),
                 screenshotAssetName: "welcomeShotTune",
@@ -264,6 +276,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "How it works",
+                    bundle: .module,
                     comment: "First-run flow: usage headline."
                 ),
                 tagline: String(
@@ -271,6 +284,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     Every section works the same way, so learning one teaches \
                     you all of them.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: usage tagline."
                 ),
                 screenshotAssetName: nil,
@@ -286,6 +300,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "One permission to grant",
+                    bundle: .module,
                     comment: "First-run flow: Full Disk Access headline."
                 ),
                 tagline: String(
@@ -294,6 +309,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     behind Full Disk Access. Without it, scans come back \
                     empty — VaderCleaner never sends any of it anywhere.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: Full Disk Access tagline."
                 ),
                 screenshotAssetName: nil,
@@ -306,6 +322,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
             return WelcomeStepContent(
                 title: String(
                     localized: "You're all set",
+                    bundle: .module,
                     comment: "First-run flow: finish headline."
                 ),
                 tagline: String(
@@ -314,6 +331,7 @@ public enum WelcomeStep: Int, CaseIterable, Identifiable, Hashable {
                     you every finding before anything is touched. It's the \
                     best place to start.
                     """,
+                    bundle: .module,
                     comment: "First-run flow: finish tagline."
                 ),
                 screenshotAssetName: nil,

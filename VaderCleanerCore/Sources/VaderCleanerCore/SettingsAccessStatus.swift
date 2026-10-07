@@ -31,6 +31,7 @@ public enum SettingsAccessStatus {
                 isHealthy: true,
                 detail: String(
                     localized: "VaderCleaner can see everything it needs to check.",
+                    bundle: .module,
                     comment: "General settings: Full Disk Access is granted."
                 ),
                 actionTitle: nil
@@ -40,10 +41,12 @@ public enum SettingsAccessStatus {
             isHealthy: false,
             detail: String(
                 localized: "Without this, scans will miss things macOS keeps private.",
+                bundle: .module,
                 comment: "General settings: Full Disk Access is not granted."
             ),
             actionTitle: String(
                 localized: "Grant Access…",
+                bundle: .module,
                 comment: "General settings: button opening the Full Disk Access pane."
             )
         )
@@ -62,6 +65,7 @@ public enum SettingsAccessStatus {
                 isHealthy: true,
                 detail: String(
                     localized: "Ready to remove files that need your Mac's permission.",
+                    bundle: .module,
                     comment: "General settings: the privileged helper is installed and enabled."
                 ),
                 actionTitle: nil
@@ -71,10 +75,12 @@ public enum SettingsAccessStatus {
                 isHealthy: false,
                 detail: String(
                     localized: "Installed but not answering, so cleanups that need your Mac's permission will fail.",
+                    bundle: .module,
                     comment: "General settings: the privileged helper is registered but unreachable."
                 ),
                 actionTitle: String(
                     localized: "Repair…",
+                    bundle: .module,
                     comment: "General settings: button re-registering the helper."
                 )
             )
@@ -83,10 +89,12 @@ public enum SettingsAccessStatus {
                 isHealthy: false,
                 detail: String(
                     localized: "Waiting for you to approve it in System Settings.",
+                    bundle: .module,
                     comment: "General settings: the privileged helper needs user approval."
                 ),
                 actionTitle: String(
                     localized: "Approve…",
+                    bundle: .module,
                     comment: "General settings: button opening Login Items so the helper can be approved."
                 )
             )
@@ -97,10 +105,12 @@ public enum SettingsAccessStatus {
                 isHealthy: false,
                 detail: String(
                     localized: "Not installed, so some cleanups will ask for your password instead.",
+                    bundle: .module,
                     comment: "General settings: the privileged helper is missing."
                 ),
                 actionTitle: String(
                     localized: "Repair…",
+                    bundle: .module,
                     comment: "General settings: button re-registering the helper."
                 )
             )
