@@ -84,7 +84,11 @@ public enum ProtectionPrivacyCategory: String, CaseIterable, Identifiable, Hasha
     public var info: String {
         switch self {
         case .autofillValues:
-            return String(localized: "Form data your browser has saved to autofill fields. Shown for your awareness; the manager never removes it.", bundle: .module, comment: "Protection privacy category info.")
+            return String(
+                localized: "Form data your browser has saved to autofill fields. Shown for your awareness; the manager never removes it.",
+                bundle: .module,
+                comment: "Protection privacy category info."
+            )
         case .browsingHistory:
             return String(localized: "The list of sites you've visited.", bundle: .module, comment: "Protection privacy category info.")
         case .cookies:

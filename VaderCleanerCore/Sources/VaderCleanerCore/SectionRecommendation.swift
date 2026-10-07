@@ -83,7 +83,7 @@ public enum SectionRecommendationSelector {
     /// pool is too small the result can dip below the minimum rather than repeat
     /// a tile.
     public static func select<Payload>(real: [RankedTile<Payload>],
-                                reassurance: [RankedTile<Payload>]) -> [Payload] {
+                                       reassurance: [RankedTile<Payload>]) -> [Payload] {
         // Pair each real candidate with its original index so equal-rank ties
         // resolve to input order — `sorted(by:)` is not guaranteed stable.
         let ranked = real.enumerated()

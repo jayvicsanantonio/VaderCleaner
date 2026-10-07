@@ -45,11 +45,7 @@ public enum NotificationAccessStatus {
                     bundle: .module,
                     comment: "Notifications settings: alerts are denied."
                 ),
-                actionTitle: String(
-                    localized: "Open Settings…",
-                    bundle: .module,
-                    comment: "Notifications settings: button opening System Settings › Notifications."
-                )
+                actionTitle: String(localized: "Open Settings…", bundle: .module, comment: "Notifications settings: button opening System Settings › Notifications.")
             )
         case .notDetermined:
             return AccessStatusDisplay(
@@ -59,11 +55,7 @@ public enum NotificationAccessStatus {
                     bundle: .module,
                     comment: "Notifications settings: authorization not yet requested."
                 ),
-                actionTitle: String(
-                    localized: "Allow…",
-                    bundle: .module,
-                    comment: "Notifications settings: button requesting notification permission."
-                )
+                actionTitle: String(localized: "Allow…", bundle: .module, comment: "Notifications settings: button requesting notification permission.")
             )
         @unknown default:
             return AccessStatusDisplay(
@@ -73,11 +65,7 @@ public enum NotificationAccessStatus {
                     bundle: .module,
                     comment: "Notifications settings: unrecognised authorization state."
                 ),
-                actionTitle: String(
-                    localized: "Open Settings…",
-                    bundle: .module,
-                    comment: "Notifications settings: button opening System Settings › Notifications."
-                )
+                actionTitle: String(localized: "Open Settings…", bundle: .module, comment: "Notifications settings: button opening System Settings › Notifications.")
             )
         }
     }
