@@ -1,0 +1,503 @@
+// DiskScannerTests.swift
+// Drives DiskScanner against real temp directories to verify tree shape, size aggregation, symlink avoidance, permission tolerance, and progress reporting.
+
+import XCTest
+@testable import VaderCleanerCore
+
+/// Integration tests for `DiskScanner`. We use real temp directories rather
+/// than a mock file system because the scanner's whole job is to read what's
+/// actually on disk — mocking `FileManager` would test the mock, not the
+/// behaviour we ship.
+final class DiskScannerTests: XCTestCase {
+
+    private var tempRoot: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        tempRoot = try TestHelpers.createTempDirectory()
+    }
+
+    override func tearDown() {
+        if let tempRoot {
+            TestHelpers.tearDownTempDirectory(tempRoot)
+        }
+        tempRoot = nil
+        super.tearDown()
+    }
+
+    // MARK: - Tree shape and size aggregation
+
+    /// A nested fixture (`a/1.bin` (32B) + `a/b/2.bin` (64B)) must produce a
+    /// tree where every directory's reported size equals the sum of its
+    /// descendants' sizes, and the leaves carry their on-disk byte count.
+    /// This locks both the recursion shape and the bottom-up rollup.
+    func test_scan_buildsCorrectTreeForKnownDirectory() async throws {
+        let aDir = tempRoot.appendingPathComponent("a", isDirectory: true)
+        let bDir = aDir.appendingPathComponent("b", isDirectory: true)
+        try FileManager.default.createDirectory(at: bDir, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "1.bin", size: 32, in: aDir)
+        try TestHelpers.createDummyFile(named: "2.bin", size: 64, in: bDir)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        // Root's only child should be `a`.
+        XCTAssertTrue(root.isDirectory)
+        XCTAssertEqual(root.children.count, 1)
+        let aNode = try XCTUnwrap(root.children.first { $0.name == "a" })
+        XCTAssertTrue(aNode.isDirectory)
+
+        // `a` has one file (32B) and one subdir.
+        let oneBin = try XCTUnwrap(aNode.children.first { $0.name == "1.bin" })
+        XCTAssertFalse(oneBin.isDirectory)
+        XCTAssertEqual(oneBin.size, 32)
+
+        let bNode = try XCTUnwrap(aNode.children.first { $0.name == "b" })
+        XCTAssertTrue(bNode.isDirectory)
+
+        let twoBin = try XCTUnwrap(bNode.children.first { $0.name == "2.bin" })
+        XCTAssertEqual(twoBin.size, 64)
+
+        // Rollup: b = 64, a = 32 + 64 = 96, root = 96.
+        XCTAssertEqual(bNode.size, 64)
+        XCTAssertEqual(aNode.size, 96)
+        XCTAssertEqual(root.size, 96)
+    }
+
+    /// The scanner rolls up a recursive descendant count and captures each
+    /// node's modification date — the metadata the Space Lens list ("N items")
+    /// and hover card ("Modified: …") read.
+    func test_scan_populatesItemCountAndModificationDate() async throws {
+        let aDir = tempRoot.appendingPathComponent("a", isDirectory: true)
+        let bDir = aDir.appendingPathComponent("b", isDirectory: true)
+        try FileManager.default.createDirectory(at: bDir, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "1.bin", size: 32, in: aDir)
+        try TestHelpers.createDummyFile(named: "2.bin", size: 64, in: bDir)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        // Descendants of root: a, a/1.bin, a/b, a/b/2.bin = 4.
+        XCTAssertEqual(root.itemCount, 4)
+        let aNode = try XCTUnwrap(root.children.first { $0.name == "a" })
+        // a, a/1.bin, a/b, a/b/2.bin minus a itself = 3 beneath a.
+        XCTAssertEqual(aNode.itemCount, 3)
+        let oneBin = try XCTUnwrap(aNode.children.first { $0.name == "1.bin" })
+        XCTAssertEqual(oneBin.itemCount, 0)
+
+        XCTAssertNotNil(root.modificationDate)
+        XCTAssertNotNil(oneBin.modificationDate)
+    }
+
+    func test_scan_treatsPackageDirectoryAsLeafWithRolledUpSize() async throws {
+        let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "a.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "b.bin", size: 64, in: contents)
+
+        var progressCounts: [Int] = []
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { count in
+            progressCounts.append(count)
+        })
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Photos.app" })
+        XCTAssertFalse(packageNode.isDirectory, "Packages render as leaf tiles, not drill-down folders")
+        XCTAssertTrue(packageNode.children.isEmpty)
+        XCTAssertEqual(packageNode.size, 96)
+        XCTAssertEqual(root.size, 96)
+        XCTAssertEqual(progressCounts.last, 2, "Progress should still count regular files inside package rollups")
+    }
+
+    func test_scan_marksUnreadablePackageAsInaccessibleLeaf() async throws {
+        let package = tempRoot.appendingPathComponent("Protected.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: contents)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o000))],
+            ofItemAtPath: package.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o755))],
+                ofItemAtPath: package.path
+            )
+        }
+
+        let canStillRead = (try? FileManager.default.contentsOfDirectory(atPath: package.path)) != nil
+        try XCTSkipIf(canStillRead, "Current process can read chmod 000 packages; cannot exercise the deny path here.")
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Protected.app" })
+        XCTAssertFalse(packageNode.isDirectory, "Packages should remain leaf nodes even when inaccessible")
+        XCTAssertFalse(packageNode.isAccessible, "An unreadable package must not be reported as accessible")
+        XCTAssertTrue(packageNode.children.isEmpty)
+    }
+
+    // MARK: - Symlink handling
+
+    /// A symlink whose target is the scan's own root would cause infinite
+    /// recursion if followed. The scanner must complete and the link's
+    /// target contents must not appear under the link's path.
+    ///
+    /// Policy note: this test deliberately uses a directory symlink. The
+    /// scanner's documented behaviour is to skip *all* symlinks (file and
+    /// directory) — see `DiskScanner` for the rationale. Locking the
+    /// directory case here covers the cycle-prevention guarantee that the
+    /// prompt explicitly calls out.
+    func test_scan_doesNotFollowSymlinksAndAvoidsCycles() async throws {
+        let realDir = tempRoot.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: realDir, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "leaf.bin", size: 16, in: realDir)
+
+        // Cycle: tempRoot/real/loopback -> tempRoot
+        let loopback = realDir.appendingPathComponent("loopback")
+        try FileManager.default.createSymbolicLink(at: loopback, withDestinationURL: tempRoot)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        let realNode = try XCTUnwrap(root.children.first { $0.name == "real" })
+        // Only the leaf file should appear; the symlink is skipped entirely
+        // (not followed and not added as a stub).
+        let names = realNode.children.map(\.name).sorted()
+        XCTAssertEqual(names, ["leaf.bin"])
+        XCTAssertEqual(realNode.size, 16)
+    }
+
+    // MARK: - Permission denied
+
+    /// A subdirectory the current user cannot read must surface as a node
+    /// with `isAccessible == false` and `size == 0`, and the scan of its
+    /// peers must continue. Without this, one locked Library subfolder
+    /// would abort the whole volume scan.
+    ///
+    /// Skipped when the current process can still read a `chmod 000`
+    /// directory (e.g. running as root inside a CI container) — the test
+    /// would fail spuriously and the behaviour is unobservable in that
+    /// environment.
+    func test_scan_marksPermissionDeniedDirectoriesAsInaccessible() async throws {
+        let readable = tempRoot.appendingPathComponent("readable", isDirectory: true)
+        let locked = tempRoot.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: readable, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "open.bin", size: 8, in: readable)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 999, in: locked)
+
+        // Restore permissions in a defer so teardown can actually delete the
+        // temp tree — `try?` removal on a chmod 000 directory silently fails.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o000))],
+            ofItemAtPath: locked.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o755))],
+                ofItemAtPath: locked.path
+            )
+        }
+
+        // Confirm the precondition: this process actually cannot read the
+        // locked directory. If it can (root, weird sandbox), the assertion
+        // we want to make is unobservable.
+        let canStillRead = (try? FileManager.default.contentsOfDirectory(atPath: locked.path)) != nil
+        try XCTSkipIf(canStillRead, "Current process can read chmod 000 directories — cannot exercise the deny path here.")
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        let readableNode = try XCTUnwrap(root.children.first { $0.name == "readable" })
+        XCTAssertEqual(readableNode.size, 8, "Sibling enumeration must continue after a permission failure")
+
+        let lockedNode = try XCTUnwrap(root.children.first { $0.name == "locked" })
+        XCTAssertFalse(lockedNode.isAccessible, "A directory we couldn't read must be marked inaccessible")
+        XCTAssertEqual(lockedNode.size, 0, "Inaccessible directories report zero bytes — we never enumerated them")
+        XCTAssertTrue(lockedNode.children.isEmpty)
+    }
+
+    // MARK: - Symlinked root
+
+    /// macOS exposes `/tmp`, `/var`, and `/etc` as symlinks to
+    /// `/private/...`. If the user starts Space Lens at one of those
+    /// (or at any user-created directory symlink they think of as
+    /// "the folder"), we must scan the *target*, not return a single
+    /// zero-byte file node. Inside the walk we still skip symlinks
+    /// (cycle prevention + no double-counting) — this asserts the
+    /// asymmetry at the root is real and verified.
+    func test_scan_resolvesSymlinkedRootToTarget() async throws {
+        let target = tempRoot.appendingPathComponent("target", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "leaf.bin", size: 16, in: target)
+
+        let symlinkRoot = tempRoot.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: symlinkRoot, withDestinationURL: target)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: symlinkRoot, progress: { _ in })
+
+        XCTAssertTrue(root.isDirectory, "Resolved root should be treated as a directory, not a symlink leaf")
+        XCTAssertEqual(root.size, 16, "Tree must reflect the target's contents, not 0 bytes")
+        XCTAssertEqual(root.children.map(\.name).sorted(), ["leaf.bin"])
+    }
+
+    // MARK: - Missing root
+
+    /// A root that exists *and* has readable metadata (so the upfront
+    /// `resourceValues` validation passes) but whose contents the user
+    /// can't enumerate — `chmod 000`, sandbox-protected folders, certain
+    /// volume-root permission denials — must throw rather than emit a
+    /// single inaccessible node. There is no parent to render the locked
+    /// state, so the VM would otherwise land in `.ready(emptyTree)` and
+    /// the upcoming UI would lie that the scan succeeded.
+    ///
+    /// Skipped when the current process can read `chmod 000` directories
+    /// (root in a CI container, etc.); same gating as the descendant
+    /// permission test.
+    func test_scan_throwsWhenRootIsUnreadable() async throws {
+        let unreadableRoot = tempRoot.appendingPathComponent("locked-root", isDirectory: true)
+        try FileManager.default.createDirectory(at: unreadableRoot, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 8, in: unreadableRoot)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o000))],
+            ofItemAtPath: unreadableRoot.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o755))],
+                ofItemAtPath: unreadableRoot.path
+            )
+        }
+
+        let canStillRead = (try? FileManager.default.contentsOfDirectory(atPath: unreadableRoot.path)) != nil
+        try XCTSkipIf(canStillRead, "Current process can read chmod 000 directories — cannot exercise the deny path here.")
+
+        let scanner = DiskScanner()
+        do {
+            _ = try await scanner.scan(root: unreadableRoot, progress: { _ in })
+            XCTFail("Expected scan to throw for an unreadable root")
+        } catch let error as DiskScanError {
+            XCTAssertEqual(error, .rootInaccessible(unreadableRoot))
+        } catch {
+            XCTFail("Expected DiskScanError.rootInaccessible, got \(error)")
+        }
+    }
+
+    /// A root URL that doesn't exist (deleted directory, unmounted
+    /// volume) must surface as a thrown `DiskScanError.rootInaccessible`
+    /// rather than a successful empty `DiskNode`. Without this guarantee
+    /// the upcoming UI would render a zero-byte tree as a "scan
+    /// finished, nothing here" state instead of letting the user know
+    /// the scan couldn't run.
+    func test_scan_throwsWhenRootIsMissing() async {
+        let missingRoot = tempRoot.appendingPathComponent("does-not-exist", isDirectory: true)
+        let scanner = DiskScanner()
+
+        do {
+            _ = try await scanner.scan(root: missingRoot, progress: { _ in })
+            XCTFail("Expected scan to throw for a missing root")
+        } catch let error as DiskScanError {
+            XCTAssertEqual(error, .rootInaccessible(missingRoot))
+        } catch {
+            XCTFail("Expected DiskScanError.rootInaccessible, got \(error)")
+        }
+    }
+
+    // MARK: - Progress
+
+    /// The scanner must invoke its progress callback as it processes files,
+    /// with a monotonically non-decreasing count, and the final count must
+    /// equal the total number of regular files in the fixture. The Space
+    /// Lens UI uses this to drive its progress bar.
+    func test_scan_reportsProgressAsItScans() async throws {
+        let fileCount = 5
+        try TestHelpers.createDummyFiles(count: fileCount, size: 16, in: tempRoot)
+
+        var observed: [Int] = []
+        let scanner = DiskScanner()
+        _ = try await scanner.scan(root: tempRoot, progress: { count in
+            observed.append(count)
+        })
+
+        XCTAssertFalse(observed.isEmpty, "Progress callback must be invoked at least once")
+        XCTAssertEqual(observed.last, fileCount, "Final progress count should equal the regular-file count")
+        // Monotonic non-decreasing.
+        for (lhs, rhs) in zip(observed, observed.dropFirst()) {
+            XCTAssertLessThanOrEqual(lhs, rhs, "Progress counts must never decrease")
+        }
+    }
+
+    // MARK: - Exclusions
+
+    /// A path the user excluded must not appear anywhere in the tree, and
+    /// its bytes must not be rolled into the parent's size. Space Lens is a
+    /// "where are my bytes" view — an excluded directory the user asked us
+    /// to ignore would otherwise still dominate the treemap and skew every
+    /// ancestor's reported size.
+    func test_scan_skipsExcludedPathsInTree() async throws {
+        let kept = tempRoot.appendingPathComponent("kept", isDirectory: true)
+        let excluded = tempRoot.appendingPathComponent("excluded", isDirectory: true)
+        let excludedSub = excluded.appendingPathComponent("sub", isDirectory: true)
+        try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: excludedSub, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: kept)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: excluded)
+        try TestHelpers.createDummyFile(named: "deep.bin", size: 128, in: excludedSub)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [excluded],
+            progress: { _ in }
+        )
+
+        XCTAssertNil(
+            root.children.first { $0.name == "excluded" },
+            "Excluded directory must not appear in the tree"
+        )
+        let keptNode = try XCTUnwrap(root.children.first { $0.name == "kept" })
+        XCTAssertEqual(keptNode.size, 32)
+        XCTAssertEqual(
+            root.size,
+            32,
+            "Excluded bytes (64 + 128) must not roll into the parent total"
+        )
+    }
+
+    /// When the scan root *itself* is on the exclusions list (e.g. the
+    /// user excluded their home folder and Space Lens defaults to it),
+    /// the whole tree must be empty rather than walked. The child-loop
+    /// filter only sees descendants, so this is exercised by the
+    /// dedicated root-level check.
+    func test_scan_returnsEmptyTreeWhenRootItselfExcluded() async throws {
+        try TestHelpers.createDummyFile(named: "a.bin", size: 100, in: tempRoot)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [tempRoot],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(root.size, 0, "An excluded root must report zero bytes")
+        XCTAssertTrue(root.children.isEmpty, "An excluded root must have no children")
+    }
+
+    /// A package is rolled up as a single leaf; an excluded path *inside*
+    /// the package must still be subtracted from that rollup, otherwise
+    /// the excluded bytes silently re-enter via the package total and
+    /// every ancestor's size.
+    func test_scan_excludesPathsInsidePackageFromRollup() async throws {
+        let package = tempRoot.appendingPathComponent("Photos.app", isDirectory: true)
+        let contents = package.appendingPathComponent("Contents", isDirectory: true)
+        let excludedInside = contents.appendingPathComponent("excluded", isDirectory: true)
+        try FileManager.default.createDirectory(at: excludedInside, withIntermediateDirectories: true)
+        try TestHelpers.createDummyFile(named: "keep.bin", size: 32, in: contents)
+        try TestHelpers.createDummyFile(named: "secret.bin", size: 64, in: excludedInside)
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(
+            root: tempRoot,
+            excluding: [excludedInside],
+            progress: { _ in }
+        )
+
+        let packageNode = try XCTUnwrap(root.children.first { $0.name == "Photos.app" })
+        XCTAssertEqual(
+            packageNode.size,
+            32,
+            "Excluded 64 bytes inside the package must not count toward its rollup"
+        )
+        XCTAssertEqual(root.size, 32)
+    }
+
+    // MARK: - Cancellation
+
+    /// `await Task.yield()` costs roughly 9µs of scheduler round-trip, so it
+    /// is throttled to one in `yieldInterval` nodes rather than paid per file.
+    /// Cancellation itself is *not* throttled — `Task.checkCancellation()` is
+    /// nanoseconds and still runs at every node — so a cancelled scan must
+    /// still abort promptly even in a tree far smaller than one yield
+    /// interval. This is the regression that throttling could plausibly break.
+    func test_scan_honorsCancellationInTreeSmallerThanTheYieldInterval() async throws {
+        for index in 0..<8 {
+            try TestHelpers.createDummyFile(named: "f\(index).bin", size: 8, in: tempRoot)
+        }
+
+        let scanner = DiskScanner()
+        // Read before the Task so the closure captures the root, not `self`.
+        let root = tempRoot!
+        let progress: @Sendable (Int) -> Void = { _ in }
+        let task = Task {
+            // Spin until cancellation lands so the walk cannot race ahead and
+            // finish this tiny tree before it is observable.
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return try await scanner.scan(root: root, progress: progress)
+        }
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled scan must not return a tree")
+        } catch is CancellationError {
+            // Expected: eight files is far below one yield interval, and the
+            // per-node cancellation check must still catch it.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    /// Cancellation across a tree that spans several yield intervals, where
+    /// the throttled yield actually takes effect.
+    func test_scan_honorsCancellationAcrossManyNodes() async throws {
+        for index in 0..<(DiskScanner.yieldInterval * 3) {
+            try TestHelpers.createDummyFile(named: "f\(index).bin", size: 1, in: tempRoot)
+        }
+
+        let scanner = DiskScanner()
+        let root = tempRoot!
+        let progress: @Sendable (Int) -> Void = { _ in }
+        let task = Task {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return try await scanner.scan(root: root, progress: progress)
+        }
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("A scan of \(DiskScanner.yieldInterval * 3) files should observe cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    /// Throttling the yield must not change what the walk produces. A tree
+    /// spanning several yield intervals must still report every file and the
+    /// correct rollup.
+    func test_scan_isCompleteAcrossManyYieldIntervals() async throws {
+        let count = DiskScanner.yieldInterval * 2 + 5
+        for index in 0..<count {
+            try TestHelpers.createDummyFile(named: "f\(index).bin", size: 4, in: tempRoot)
+        }
+
+        let scanner = DiskScanner()
+        let root = try await scanner.scan(root: tempRoot, progress: { _ in })
+
+        XCTAssertEqual(root.children.count, count)
+        XCTAssertEqual(root.size, Int64(count * 4))
+        XCTAssertEqual(root.itemCount, count)
+    }
+}

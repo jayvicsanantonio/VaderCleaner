@@ -7,13 +7,14 @@
 
 included:
   - VaderCleaner
+  - VaderCleanerCore
   - VaderCleanerTests
   - VaderCleanerUITests
   - VaderCleanerHelper
-  - Shared
 
 excluded:
   - .build
+  - VaderCleanerCore/.build
   - DerivedData
   - Vendor
   - .claude

@@ -1,6 +1,6 @@
 // swift-tools-version: 6.2
 // Package.swift
-// Builds VaderCleanerCore — the app's UI-free scanners, stores, view models, and helper XPC protocol — as a library the app links.
+// Builds VaderCleanerCore — the app's UI-free scanners, stores, view models, and helper XPC protocol — as a library the app links, with a test target that runs without a host app.
 
 import PackageDescription
 
@@ -12,6 +12,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "VaderCleanerCore"),
+        .testTarget(name: "VaderCleanerCoreTests", dependencies: ["VaderCleanerCore"]),
     ],
     swiftLanguageModes: [.v6]
 )

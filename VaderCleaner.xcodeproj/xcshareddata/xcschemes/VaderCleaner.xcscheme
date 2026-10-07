@@ -57,6 +57,18 @@
             testExecutionOrdering = "random">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "VaderCleanerCoreTests"
+               BuildableName = "VaderCleanerCoreTests"
+               BlueprintName = "VaderCleanerCoreTests"
+               ReferencedContainer = "container:VaderCleanerCore">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO"
+            testExecutionOrdering = "random">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "F6D57048ED0E43FEADC2CFAF"
                BuildableName = "VaderCleanerUITests.xctest"
                BlueprintName = "VaderCleanerUITests"

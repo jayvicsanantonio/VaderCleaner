@@ -1,0 +1,313 @@
+// LaunchAgentManagerTests.swift
+// Exercises LaunchAgentManager plist parsing, launchctl-loaded status, and disable/remove routing through temp fixtures and injected fakes.
+
+import XCTest
+@testable import VaderCleanerCore
+
+final class LaunchAgentManagerTests: XCTestCase {
+
+    private var tempDir: URL!
+
+    override func setUpWithError() throws {
+        tempDir = try TestHelpers.createTempDirectory()
+    }
+
+    override func tearDownWithError() throws {
+        TestHelpers.tearDownTempDirectory(tempDir)
+    }
+
+    // MARK: - launchctl list parsing
+
+    func test_parseLoadedLabels_extractsLabelColumnSkippingHeader() {
+        let output = """
+        PID\tStatus\tLabel
+        1234\t0\tcom.apple.Finder
+        -\t0\tcom.example.updater
+        \t
+        """
+        let labels = LaunchAgentManager.parseLoadedLabels(from: output)
+        XCTAssertEqual(labels, ["com.apple.Finder", "com.example.updater"])
+    }
+
+    // MARK: - programPath extraction
+
+    func test_programPath_prefersProgramKey() {
+        let plist: [String: Any] = ["Program": "/usr/local/bin/agent"]
+        XCTAssertEqual(LaunchAgentManager.programPath(from: plist), "/usr/local/bin/agent")
+    }
+
+    func test_programPath_fallsBackToFirstProgramArgument() {
+        let plist: [String: Any] = ["ProgramArguments": ["/opt/tool/run", "--flag"]]
+        XCTAssertEqual(LaunchAgentManager.programPath(from: plist), "/opt/tool/run")
+    }
+
+    func test_programPath_nilWhenAbsent() {
+        XCTAssertNil(LaunchAgentManager.programPath(from: [:]))
+    }
+
+    // MARK: - Orphaned (no loadable job)
+
+    func test_isOrphaned_trueWhenNoProgramAndNotLoaded() {
+        let agent = LaunchAgent(
+            label: "com.example.empty", path: URL(fileURLWithPath: "/tmp/x.plist"),
+            programPath: nil, isEnabled: false, domain: .user
+        )
+        XCTAssertTrue(agent.isOrphaned)
+    }
+
+    func test_isOrphaned_falseWhenProgramPresent() {
+        let agent = LaunchAgent(
+            label: "com.example.real", path: URL(fileURLWithPath: "/tmp/x.plist"),
+            programPath: "/bin/true", isEnabled: false, domain: .user
+        )
+        XCTAssertFalse(agent.isOrphaned)
+    }
+
+    func test_isOrphaned_falseWhenLoadedEvenWithoutProgram() {
+        // A job that launchctl reports as loaded is live regardless of how we
+        // parsed its program, so it is never treated as an orphaned stub.
+        let agent = LaunchAgent(
+            label: "com.example.live", path: URL(fileURLWithPath: "/tmp/x.plist"),
+            programPath: nil, isEnabled: true, domain: .user
+        )
+        XCTAssertFalse(agent.isOrphaned)
+    }
+
+    func test_userAgents_emptyPlistIsOrphaned() throws {
+        let url = tempDir.appendingPathComponent("com.vendor.stub.plist")
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: [String: Any](), format: .xml, options: 0
+        )
+        try data.write(to: url)
+
+        let agent = try XCTUnwrap(makeManager(loaded: []).userAgents().first)
+
+        XCTAssertNil(agent.programPath)
+        XCTAssertTrue(agent.isOrphaned)
+    }
+
+    // MARK: - userAgents discovery
+
+    func test_userAgents_parsesLabelProgramAndLoadedStatus() throws {
+        try writePlist(
+            named: "com.example.loaded.plist",
+            label: "com.example.loaded",
+            program: "/opt/example/loaded"
+        )
+        try writePlist(
+            named: "com.example.unloaded.plist",
+            label: "com.example.unloaded",
+            programArguments: ["/opt/example/unloaded", "-x"]
+        )
+
+        let manager = makeManager(loaded: ["com.example.loaded"])
+        let agents = manager.userAgents().sorted { $0.label < $1.label }
+
+        XCTAssertEqual(agents.map(\.label),
+                       ["com.example.loaded", "com.example.unloaded"])
+        XCTAssertEqual(agents[0].programPath, "/opt/example/loaded")
+        XCTAssertTrue(agents[0].isEnabled)
+        XCTAssertEqual(agents[1].programPath, "/opt/example/unloaded")
+        XCTAssertFalse(agents[1].isEnabled)
+        XCTAssertEqual(agents[0].domain, .user)
+    }
+
+    func test_userAgents_fallsBackToFilenameWhenLabelMissing() throws {
+        let url = tempDir.appendingPathComponent("no-label.plist")
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: ["Program": "/bin/true"],
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: url)
+
+        let manager = makeManager(loaded: [])
+        XCTAssertEqual(manager.userAgents().first?.label, "no-label")
+    }
+
+    func test_userAgents_ignoresNonPlistFiles() throws {
+        try "junk".write(
+            to: tempDir.appendingPathComponent("notes.txt"),
+            atomically: true, encoding: .utf8
+        )
+        let manager = makeManager(loaded: [])
+        XCTAssertTrue(manager.userAgents().isEmpty)
+    }
+
+    // MARK: - enable / disable
+
+    func test_disable_invokesLaunchctlUnloadWithAgentPath() throws {
+        try writePlist(named: "a.plist", label: "a", program: "/bin/a")
+        let captured = TestBox<[String]?>(nil)
+        let manager = makeManager(loaded: ["a"], launchctl: { captured.value = $0 })
+        let agent = try XCTUnwrap(manager.userAgents().first)
+
+        try manager.disable(agent)
+
+        // `-w` records the agent as disabled in launchd's per-user override
+        // database so it stays off across logins, not just for the session.
+        XCTAssertEqual(captured.value, ["unload", "-w", agent.path.path])
+    }
+
+    func test_enable_invokesLaunchctlLoadWithAgentPath() throws {
+        try writePlist(named: "a.plist", label: "a", program: "/bin/a")
+        let captured = TestBox<[String]?>(nil)
+        let manager = makeManager(loaded: [], launchctl: { captured.value = $0 })
+        let agent = try XCTUnwrap(manager.userAgents().first)
+
+        try manager.enable(agent)
+
+        // `-w` clears the agent's launchd override entry so `load` reliably
+        // re-registers it even when it was previously disabled.
+        XCTAssertEqual(captured.value, ["load", "-w", agent.path.path])
+    }
+
+    // MARK: - remove
+
+    func test_remove_userAgentDeletesFileInProcess() async throws {
+        try writePlist(named: "doomed.plist", label: "doomed", program: "/bin/x")
+        let manager = makeManager(loaded: [])
+        let agent = try XCTUnwrap(manager.userAgents().first)
+
+        try await manager.remove(agent)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: agent.path.path))
+    }
+
+    func test_remove_systemAgentRoutesThroughPrivilegedHelper() async throws {
+        let systemDir = tempDir.appendingPathComponent("system", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemDir, withIntermediateDirectories: true)
+        let plistURL = systemDir.appendingPathComponent("com.sys.daemon.plist")
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: ["Label": "com.sys.daemon", "Program": "/usr/sbin/sysd"],
+            format: .xml, options: 0
+        )
+        try data.write(to: plistURL)
+
+        let fake = FakeRemovalHelper()
+        let manager = LaunchAgentManager(
+            userAgentsDirectory: tempDir,
+            systemAgentDirectories: [systemDir],
+            loadedLabels: { [] },
+            launchctl: { _ in },
+            helperProvider: { _ in fake }
+        )
+        let agent = try XCTUnwrap(manager.systemAgents().first)
+
+        try await manager.remove(agent)
+
+        // Directory enumeration resolves the /var → /private/var symlink on
+        // the temp path, so match by suffix rather than the absolute string.
+        let received = try XCTUnwrap(fake.removedLaunchAgentPath)
+        XCTAssertTrue(
+            received.hasSuffix("/system/com.sys.daemon.plist"),
+            "Helper received unexpected path: \(received)"
+        )
+        // System file routed through the helper; not deleted in-process.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plistURL.path))
+    }
+
+    // MARK: - allAgents
+
+    func test_allAgents_queriesLoadedLabelsOnce() throws {
+        let systemDir = tempDir.appendingPathComponent("system", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemDir, withIntermediateDirectories: true)
+        try writePlist(named: "com.example.user.plist", label: "com.example.user",
+                       program: "/opt/example/user")
+        let systemPlist = systemDir.appendingPathComponent("com.example.system.plist")
+        try PropertyListSerialization.data(
+            fromPropertyList: ["Label": "com.example.system", "Program": "/usr/sbin/sysd"],
+            format: .xml, options: 0
+        ).write(to: systemPlist)
+
+        // `launchctl list` is a subprocess spawn; both domains must share one
+        // snapshot rather than paying for it twice.
+        let queries = TestBox(0)
+        let manager = LaunchAgentManager(
+            userAgentsDirectory: tempDir,
+            systemAgentDirectories: [systemDir],
+            loadedLabels: {
+                queries.value += 1
+                return ["com.example.user"]
+            },
+            launchctl: { _ in },
+            helperProvider: { _ in nil }
+        )
+
+        let agents = manager.allAgents().sorted { $0.label < $1.label }
+
+        XCTAssertEqual(queries.value, 1)
+        XCTAssertEqual(agents.map(\.label), ["com.example.system", "com.example.user"])
+        XCTAssertEqual(agents.map(\.domain), [.system, .user])
+        // The shared snapshot must still drive per-agent loaded status.
+        XCTAssertFalse(agents[0].isEnabled)
+        XCTAssertTrue(agents[1].isEnabled)
+    }
+
+    func test_allAgents_matchesTheTwoSeparateDiscoveryCalls() throws {
+        let systemDir = tempDir.appendingPathComponent("system", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemDir, withIntermediateDirectories: true)
+        try writePlist(named: "com.example.user.plist", label: "com.example.user",
+                       program: "/opt/example/user")
+
+        let manager = LaunchAgentManager(
+            userAgentsDirectory: tempDir,
+            systemAgentDirectories: [systemDir],
+            loadedLabels: { [] },
+            launchctl: { _ in },
+            helperProvider: { _ in nil }
+        )
+
+        XCTAssertEqual(manager.allAgents(), manager.userAgents() + manager.systemAgents())
+    }
+
+    // MARK: - Helpers
+
+    private func makeManager(
+        loaded: Set<String>,
+        launchctl: @escaping @Sendable (_ args: [String]) throws -> Void = { _ in }
+    ) -> LaunchAgentManager {
+        LaunchAgentManager(
+            userAgentsDirectory: tempDir,
+            systemAgentDirectories: [],
+            loadedLabels: { loaded },
+            launchctl: launchctl,
+            helperProvider: { _ in nil }
+        )
+    }
+
+    private func writePlist(
+        named name: String,
+        label: String,
+        program: String? = nil,
+        programArguments: [String]? = nil
+    ) throws {
+        var dict: [String: Any] = ["Label": label]
+        if let program { dict["Program"] = program }
+        if let programArguments { dict["ProgramArguments"] = programArguments }
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: dict, format: .xml, options: 0
+        )
+        try data.write(to: tempDir.appendingPathComponent(name))
+    }
+}
+
+/// Captures the path passed to `removeLaunchAgent` and replies success.
+/// `@unchecked Sendable`: a test spy written by the helper call and read by the
+/// assertion after it, never concurrently.
+private final class FakeRemovalHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
+    private(set) var removedLaunchAgentPath: String?
+
+    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) { reply(nil) }
+    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
+    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {
+        removedLaunchAgentPath = path
+        reply(nil)
+    }
+    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
+    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
+}

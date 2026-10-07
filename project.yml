@@ -132,11 +132,18 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
 
+  # The suites that need the app around them: they exercise SwiftUI or AppKit
+  # types, the asset catalog, or UNUserNotificationCenter (which throws without
+  # an app bundle). Everything else is in the package's hostless
+  # VaderCleanerCoreTests.
   VaderCleanerTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: VaderCleanerTests
+      # Test helpers (TestBox and friends) shared with VaderCleanerCoreTests;
+      # they live in the package and are compiled into this target as well.
+      - path: VaderCleanerCore/Tests/VaderCleanerCoreTests/Helpers
     dependencies:
       - target: VaderCleaner
     settings:
@@ -196,6 +203,10 @@ schemes:
       config: Debug
       targets:
         - name: VaderCleanerTests
+          randomExecutionOrder: true
+        # Listed so ⌘U and build-for-testing cover the package's suite too;
+        # from a terminal it runs faster as `swift test`.
+        - package: VaderCleanerCore/VaderCleanerCoreTests
           randomExecutionOrder: true
         - name: VaderCleanerUITests
           randomExecutionOrder: true

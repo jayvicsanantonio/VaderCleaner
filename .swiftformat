@@ -28,4 +28,4 @@
 --maxwidth none
 --trimwhitespace always
 
---exclude .build,DerivedData,Vendor,.claude,Scripts
+--exclude .build,VaderCleanerCore/.build,DerivedData,Vendor,.claude,Scripts
