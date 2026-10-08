@@ -32,6 +32,23 @@ struct DefaultBrewRunner: BrewRunning {
         process.standardOutput = outPipe
         process.standardError = errPipe
 
+        // The result is ready once the child has exited and both pipes are at
+        // EOF, so all three join one group. The exit is observed through
+        // `terminationHandler`, never `waitUntilExit()`, which can wait
+        // forever on a child that has already exited: it decides whether the
+        // calling thread launched the process from a per-thread list of
+        // addresses that is never pruned, so once an address is reused it can
+        // take this process for one that thread launched earlier, then wait
+        // for a notification only the real launching thread's run loop would
+        // post (see `ProcessExitWaitTests`). Having a handler also keeps that
+        // notification from being queued at all: queued on a pool thread's run
+        // loop, which never runs, it would keep the process and its pipes'
+        // file descriptors alive indefinitely. Set before launch, so the
+        // handler is in place however quickly the child exits.
+        let group = DispatchGroup()
+        group.enter()
+        process.terminationHandler = { _ in group.leave() }
+
         // Launched before the cancellation handler is wired up so a fast
         // cancellation can't see `isRunning == false` and skip the
         // terminate() — same ordering as `ProcessLineStreamer.run`.
@@ -46,7 +63,6 @@ struct DefaultBrewRunner: BrewRunning {
                 // another block submitted to the same queue — that pattern
                 // stalls once the queue's threads are all occupied by
                 // waiters.
-                let group = DispatchGroup()
                 let out = DataBox()
                 let err = DataBox()
                 Self.blockingQueue.async(group: group) {
@@ -56,9 +72,6 @@ struct DefaultBrewRunner: BrewRunning {
                     err.value = Self.readToEnd(errPipe.fileHandleForReading)
                 }
                 group.notify(queue: Self.blockingQueue) {
-                    // Both pipes are at EOF by now, so the child has closed
-                    // its descriptors and this returns promptly.
-                    process.waitUntilExit()
                     continuation.resume(returning: BrewResult(
                         terminationStatus: process.terminationStatus,
                         standardOutput: String(decoding: out.value, as: UTF8.self),
@@ -68,9 +81,9 @@ struct DefaultBrewRunner: BrewRunning {
             }
         } onCancel: {
             // Without this a cancelled `brew` query leaves the child running
-            // and this call blocked on `waitUntilExit()` for as long as it
-            // takes. `terminate()` is documented safe from any thread; the
-            // reads then hit EOF and the normal path returns.
+            // and this call waiting on it for as long as it takes.
+            // `terminate()` is documented safe from any thread; the reads
+            // then hit EOF and the normal path returns.
             if process.isRunning {
                 process.terminate()
             }
@@ -103,10 +116,10 @@ struct DefaultBrewRunner: BrewRunning {
     /// Dedicated queue for the blocking process I/O below.
     ///
     /// `Task.detached` runs on the cooperative pool, which is sized to the
-    /// core count — and `waitUntilExit()` plus two `readToEnd()` calls block
-    /// their threads outright rather than suspending. Three blocked pool
-    /// threads per concurrent `brew` query is a forward-progress hazard on a
-    /// machine with few cores, and `CareScanEngine` runs five lanes at once.
+    /// core count — and the two `readToEnd()` calls block their threads
+    /// outright rather than suspending. Two blocked pool threads per
+    /// concurrent `brew` query is a forward-progress hazard on a machine with
+    /// few cores, and `CareScanEngine` runs five lanes at once.
     /// A `.concurrent` `DispatchQueue` grows its own threads instead, so
     /// blocking here starves nothing.
     private static let blockingQueue = DispatchQueue(
