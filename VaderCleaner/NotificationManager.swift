@@ -112,7 +112,7 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
         do {
             _ = try await authorizationRequester()
         } catch {
-            os_log("requestAuthorization failed: %{public}@",
+            os_log("requestAuthorization failed: %{private}@",
                    log: log, type: .error, error.localizedDescription)
         }
     }
@@ -209,9 +209,11 @@ final class NotificationManager: NSObject, NotificationDispatching, UNUserNotifi
             content: content,
             trigger: nil
         )
-        center.add(request) { [log] error in
-            if let error = error {
-                os_log("UNUserNotificationCenter.add failed: %{public}@",
+        Task {
+            do {
+                try await center.add(request)
+            } catch {
+                os_log("UNUserNotificationCenter.add failed: %{private}@",
                        log: log, type: .error, error.localizedDescription)
             }
         }

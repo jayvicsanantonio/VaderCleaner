@@ -18,10 +18,12 @@ protocol BrowserDataPathProviding: Sendable {
 /// Production resolver. Returns the real macOS paths for each
 /// `(browser, category)` pair, anchored to an injectable home directory so
 /// tests can drive every code path without touching the user's actual data.
-struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, @unchecked Sendable {
+struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
 
     private let homeDirectory: URL
-    private let fileManager: FileManager
+    /// `FileManager` is documented thread-safe; `nonisolated(unsafe)` matches
+    /// the same field on `DefaultAppDiscovery` and `ExtensionDiscovery`.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,

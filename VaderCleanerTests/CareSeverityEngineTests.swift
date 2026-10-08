@@ -1,10 +1,12 @@
 // CareSeverityEngineTests.swift
 // Tests the pure severity derivation: kind-derived base tier, disk-pressure escalation and boost, regrowth and decline signals, and the score that orders findings within a tier.
 
-import XCTest
+import Foundation
+import Testing
 @testable import VaderCleaner
 
-final class CareSeverityEngineTests: XCTestCase {
+@Suite
+struct CareSeverityEngineTests {
 
     // MARK: - Fixtures
 
@@ -65,126 +67,133 @@ final class CareSeverityEngineTests: XCTestCase {
 
     // MARK: - Base tier
 
-    func test_baseTier_matchesTheKindsUrgency_withEmptyContext() {
+    @Test
+    func baseTier_matchesTheKindsUrgency_withEmptyContext() {
         for finding in [junk(bytes: 5_000), largeOld(bytes: 5_000), updates(3), lowDisk(usedRatio: 0.5)] {
-            XCTAssertEqual(
-                severity(finding).urgency,
-                finding.urgency,
+            #expect(
+                severity(finding).urgency == finding.urgency,
                 "an empty context must never move \(finding.kind) off its kind-derived tier"
             )
         }
     }
 
-    func test_appUpdates_stayAttention_atEveryCount() {
+    @Test
+    func appUpdates_stayAttention_atEveryCount() {
         for count in [1, 20, 200] {
-            XCTAssertEqual(severity(updates(count), context(usedRatio: 0.99)).urgency, .attention)
+            #expect(severity(updates(count), context(usedRatio: 0.99)).urgency == .attention)
         }
     }
 
     // MARK: - Disk-pressure escalation
 
-    func test_lowDiskSpace_at99Percent_escalatesToCritical() {
+    @Test
+    func lowDiskSpace_at99Percent_escalatesToCritical() {
         let result = severity(lowDisk(usedRatio: 0.99), context(usedRatio: 0.99))
-        XCTAssertEqual(result.urgency, .critical)
-        XCTAssertTrue(result.signals.contains(.diskPressure))
+        #expect(result.urgency == .critical)
+        #expect(result.signals.contains(.diskPressure))
     }
 
-    func test_lowDiskSpace_at91Percent_staysAttention() {
-        XCTAssertEqual(severity(lowDisk(usedRatio: 0.91), context(usedRatio: 0.91)).urgency, .attention)
+    @Test
+    func lowDiskSpace_at91Percent_staysAttention() {
+        #expect(severity(lowDisk(usedRatio: 0.91), context(usedRatio: 0.91)).urgency == .attention)
     }
 
-    func test_lowDiskSpace_readsItsOwnPayload_notTheContext() {
+    @Test
+    func lowDiskSpace_readsItsOwnPayload_notTheContext() {
         // The card describes a specific volume; its escalation must follow that
         // payload even when the health snapshot is missing.
-        XCTAssertEqual(severity(lowDisk(usedRatio: 0.99)).urgency, .critical)
+        #expect(severity(lowDisk(usedRatio: 0.99)).urgency == .critical)
     }
 
-    func test_diskThresholds_areTheHealthMonitorConstants_notCopies() {
-        XCTAssertEqual(CareSeverityEngine.diskCriticalThreshold, HealthMonitorViewModel.diskCriticalThreshold)
-        XCTAssertEqual(CareSeverityEngine.diskWarningThreshold, HealthMonitorViewModel.diskWarningThreshold)
+    @Test
+    func diskThresholds_areTheHealthMonitorConstants_notCopies() {
+        #expect(CareSeverityEngine.diskCriticalThreshold == HealthMonitorViewModel.diskCriticalThreshold)
+        #expect(CareSeverityEngine.diskWarningThreshold == HealthMonitorViewModel.diskWarningThreshold)
     }
 
     // MARK: - Disk-pressure boost
 
-    func test_largePreApprovedFinding_underDiskPressure_outscoresItsQuietSelf() {
+    @Test
+    func largePreApprovedFinding_underDiskPressure_outscoresItsQuietSelf() {
         let big = junk(bytes: 8_000_000_000)
-        XCTAssertGreaterThan(
-            severity(big, context(usedRatio: 0.85)).score,
-            severity(big, context(usedRatio: 0.20)).score
-        )
-        XCTAssertTrue(severity(big, context(usedRatio: 0.85)).signals.contains(.diskPressure))
+        #expect(severity(big, context(usedRatio: 0.85)).score > severity(big, context(usedRatio: 0.20)).score)
+        #expect(severity(big, context(usedRatio: 0.85)).signals.contains(.diskPressure))
     }
 
-    func test_optInFinding_underDiskPressure_getsNoBoost() {
+    @Test
+    func optInFinding_underDiskPressure_getsNoBoost() {
         // The user's own files are their call — pressure must not make the app
         // push harder on data it isn't allowed to remove unattended.
         let big = largeOld(bytes: 8_000_000_000)
-        XCTAssertEqual(
-            severity(big, context(usedRatio: 0.85)).score,
-            severity(big, context(usedRatio: 0.20)).score,
-            accuracy: 0.0001
-        )
-        XCTAssertFalse(severity(big, context(usedRatio: 0.85)).signals.contains(.diskPressure))
+        #expect(abs(severity(big, context(usedRatio: 0.85)).score - severity(big, context(usedRatio: 0.20)).score) <= 0.0001)
+        #expect(!severity(big, context(usedRatio: 0.85)).signals.contains(.diskPressure))
     }
 
-    func test_findingBelowTheBoostFloor_underDiskPressure_getsNoBoost() {
+    @Test
+    func findingBelowTheBoostFloor_underDiskPressure_getsNoBoost() {
         let small = junk(bytes: 500_000_000)
-        XCTAssertEqual(
-            severity(small, context(usedRatio: 0.85)).score,
-            severity(small, context(usedRatio: 0.20)).score,
-            accuracy: 0.0001
+        #expect(
+            abs(severity(small, context(usedRatio: 0.85)).score - severity(small, context(usedRatio: 0.20)).score) <= 0.0001
         )
     }
 
-    func test_diskPressureBoost_needsPressure() {
+    @Test
+    func diskPressureBoost_needsPressure() {
         let big = junk(bytes: 8_000_000_000)
-        XCTAssertFalse(severity(big, context(usedRatio: 0.50)).signals.contains(.diskPressure))
+        #expect(!severity(big, context(usedRatio: 0.50)).signals.contains(.diskPressure))
     }
 
     // MARK: - Score
 
-    func test_score_isMonotonicInBytes_forSizedFindings() {
+    @Test
+    func score_isMonotonicInBytes_forSizedFindings() {
         let sizes: [Int64] = [1_000, 50_000_000, 900_000_000, 6_000_000_000, 40_000_000_000]
         let scores = sizes.map { severity(junk(bytes: $0)).score }
-        XCTAssertEqual(scores, scores.sorted(), "score must never fall as bytes rise")
+        #expect(scores == scores.sorted(), "score must never fall as bytes rise")
     }
 
-    func test_score_separatesLargeFindings_moreThanSmallOnes() {
+    @Test
+    func score_separatesLargeFindings_moreThanSmallOnes() {
         // The point of log scaling: 40 GB vs 6 GB is a real difference worth
         // ordering on; 200 MB vs 100 MB is noise that should not dominate.
         let bigGap = severity(junk(bytes: 40_000_000_000)).score - severity(junk(bytes: 6_000_000_000)).score
         let smallGap = severity(junk(bytes: 200_000_000)).score - severity(junk(bytes: 100_000_000)).score
-        XCTAssertGreaterThan(bigGap, smallGap)
+        #expect(bigGap > smallGap)
     }
 
-    func test_score_isClampedToOne_aboveTheCeiling() {
+    @Test
+    func score_isClampedToOne_aboveTheCeiling() {
         let huge = junk(bytes: CareSeverityEngine.scoreCeilingBytes * 10)
-        XCTAssertLessThanOrEqual(severity(huge, context(usedRatio: 0.99)).score, 1.0)
+        #expect(severity(huge, context(usedRatio: 0.99)).score <= 1.0)
     }
 
-    func test_countFindings_scoreSaturatesAtNotableCount() {
+    @Test
+    func countFindings_scoreSaturatesAtNotableCount() {
         let notable = CareSeverityEngine.notableCount(for: .appUpdates)
         let saturated = severity(updates(notable)).score
-        XCTAssertEqual(saturated, CareSeverityEngine.magnitudeWeight, accuracy: 0.0001)
-        XCTAssertEqual(severity(updates(notable * 3)).score, saturated, accuracy: 0.0001)
+        #expect(abs(saturated - CareSeverityEngine.magnitudeWeight) <= 0.0001)
+        #expect(abs(severity(updates(notable * 3)).score - saturated) <= 0.0001)
     }
 
-    func test_countFindings_scoreRisesWithCount_belowSaturation() {
-        XCTAssertGreaterThan(severity(updates(10)).score, severity(updates(2)).score)
+    @Test
+    func countFindings_scoreRisesWithCount_belowSaturation() {
+        #expect(severity(updates(10)).score > severity(updates(2)).score)
     }
 
-    func test_notableCount_isPositive_forEveryKind() {
+    @Test
+    func notableCount_isPositive_forEveryKind() {
         for kind in CareFinding.Kind.allCases {
-            XCTAssertGreaterThan(CareSeverityEngine.notableCount(for: kind), 0, "\(kind) needs a saturation point")
+            #expect(CareSeverityEngine.notableCount(for: kind) > 0, "\(kind) needs a saturation point")
         }
     }
 
     // MARK: - Signals
 
-    func test_size_neverRaisesASignal_howeverLargeTheFinding() {
+    @Test
+    func size_neverRaisesASignal_howeverLargeTheFinding() {
         // Magnitude orders the feed; it never speaks. The card already prints
         // the size, so a note restating it would be noise on every big finding.
-        XCTAssertTrue(severity(junk(bytes: 90_000_000_000)).signals.isEmpty)
+        #expect(severity(junk(bytes: 90_000_000_000)).signals.isEmpty)
     }
 
     // MARK: - Regrowth
@@ -214,85 +223,96 @@ final class CareSeverityEngineTests: XCTestCase {
         return CareFinding(payload: .installers(files))
     }
 
-    func test_regrowth_firesWithinTheWindow_atHalfTheClearedCount() {
+    @Test
+    func regrowth_firesWithinTheWindow_atHalfTheClearedCount() {
         let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 5)])
         let result = severity(installers(5), ctx)
-        XCTAssertTrue(result.signals.contains { if case .regrowth = $0 { return true } else { return false } })
+        #expect(result.signals.contains { if case .regrowth = $0 { return true } else { return false } })
     }
 
-    func test_regrowth_doesNotFire_belowHalfTheClearedCount() {
+    @Test
+    func regrowth_doesNotFire_belowHalfTheClearedCount() {
         let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 5)])
-        XCTAssertFalse(severity(installers(4), ctx).signals.contains { if case .regrowth = $0 { return true } else { return false } })
+        #expect(!severity(installers(4), ctx).signals.contains { if case .regrowth = $0 { return true } else { return false } })
     }
 
-    func test_regrowth_doesNotFire_pastTheWindow() {
+    @Test
+    func regrowth_doesNotFire_pastTheWindow() {
         let stale = CareSeverityEngine.regrowthWindowDays + 1
         let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: stale)])
-        XCTAssertNil(CareSeverityEngine.regrowth(for: installers(10), context: ctx))
+        #expect(CareSeverityEngine.regrowth(for: installers(10), context: ctx) == nil)
     }
 
-    func test_regrowth_reportsTheMostRecentClearingReceipt() {
+    @Test
+    func regrowth_reportsTheMostRecentClearingReceipt() {
         let ctx = history([
             receipt(kind: .installers, itemsProcessed: 10, daysAgo: 20),
             receipt(kind: .installers, itemsProcessed: 10, daysAgo: 3),
         ])
-        XCTAssertEqual(
-            CareSeverityEngine.regrowth(for: installers(10), context: ctx),
-            now.addingTimeInterval(-3 * 86_400)
+        #expect(
+            CareSeverityEngine.regrowth(for: installers(10), context: ctx) == now.addingTimeInterval(-3 * 86_400)
         )
     }
 
-    func test_regrowth_ignoresReceiptLinesThatProcessedNothing() {
+    @Test
+    func regrowth_ignoresReceiptLinesThatProcessedNothing() {
         let ctx = history([receipt(kind: .installers, itemsProcessed: 0, daysAgo: 3)])
-        XCTAssertNil(CareSeverityEngine.regrowth(for: installers(10), context: ctx))
+        #expect(CareSeverityEngine.regrowth(for: installers(10), context: ctx) == nil)
     }
 
-    func test_regrowth_ignoresOtherKinds() {
+    @Test
+    func regrowth_ignoresOtherKinds() {
         let ctx = history([receipt(kind: .downloads, itemsProcessed: 10, daysAgo: 3)])
-        XCTAssertNil(CareSeverityEngine.regrowth(for: installers(10), context: ctx))
+        #expect(CareSeverityEngine.regrowth(for: installers(10), context: ctx) == nil)
     }
 
-    func test_regrowth_raisesScore_forAWhitelistedKind() {
+    @Test
+    func regrowth_raisesScore_forAWhitelistedKind() {
         let ctx = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 1)])
-        XCTAssertGreaterThan(severity(installers(10), ctx).score, severity(installers(10)).score)
+        #expect(severity(installers(10), ctx).score > severity(installers(10)).score)
     }
 
-    func test_regrowth_scoreDecays_asTheReceiptAges() {
+    @Test
+    func regrowth_scoreDecays_asTheReceiptAges() {
         let fresh = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 1)])
         let old = history([receipt(kind: .installers, itemsProcessed: 10, daysAgo: 25)])
-        XCTAssertGreaterThan(severity(installers(10), fresh).score, severity(installers(10), old).score)
+        #expect(severity(installers(10), fresh).score > severity(installers(10), old).score)
     }
 
-    func test_regrowth_onJunk_isNeitherReportedNorScored() {
+    @Test
+    func regrowth_onJunk_isNeitherReportedNorScored() {
         // macOS rebuilding its own caches is the system working as designed.
         // Reporting it as "back since your last cleanup" would frame correct
         // behaviour as a complaint.
         let ctx = history([receipt(kind: .junkCleanup, itemsProcessed: 100, daysAgo: 1)])
         let regrown = CareFinding(payload: .junk(ScanResult(items: (0..<100).map { file("/cache/\($0)", size: 1_000) }))
         )
-        XCTAssertFalse(hasRegrowthSignal(severity(regrown, ctx)))
-        XCTAssertEqual(severity(regrown, ctx).score, severity(regrown).score, accuracy: 0.0001)
+        #expect(!hasRegrowthSignal(severity(regrown, ctx)))
+        #expect(abs(severity(regrown, ctx).score - severity(regrown).score) <= 0.0001)
     }
 
-    func test_regrowth_onRoutineMaintenance_isNeitherReportedNorScored() {
+    @Test
+    func regrowth_onRoutineMaintenance_isNeitherReportedNorScored() {
         // A tune-up that never came due again would not be routine. Same
         // category error as junk, and the same answer.
         let ctx = history([receipt(kind: .maintenanceDue, itemsProcessed: 2, daysAgo: 1)])
         let due = CareFinding(payload: .maintenanceDue(taskIDs: ["flushDNS", "speedUpMail"]))
-        XCTAssertFalse(hasRegrowthSignal(severity(due, ctx)))
-        XCTAssertEqual(severity(due, ctx).score, severity(due).score, accuracy: 0.0001)
+        #expect(!hasRegrowthSignal(severity(due, ctx)))
+        #expect(abs(severity(due, ctx).score - severity(due).score) <= 0.0001)
     }
 
-    func test_recurringByDesignKinds_areExcludedFromRegrowth() {
+    @Test
+    func recurringByDesignKinds_areExcludedFromRegrowth() {
         // The carve-out is the rule, not an accident of the current list.
-        XCTAssertFalse(CareSeverityEngine.regrowthKinds.contains(.junkCleanup))
-        XCTAssertFalse(CareSeverityEngine.regrowthKinds.contains(.maintenanceDue))
+        #expect(!CareSeverityEngine.regrowthKinds.contains(.junkCleanup))
+        #expect(!CareSeverityEngine.regrowthKinds.contains(.maintenanceDue))
     }
 
-    func test_regrowthKinds_areAllTrashRecoverable() {
+    @Test
+    func regrowthKinds_areAllTrashRecoverable() {
         // Every kind that regrowth escalates must be one the user can undo.
         for kind in CareSeverityEngine.regrowthKinds {
-            XCTAssertTrue(kind.movesToTrash, "\(kind) escalates on regrowth but isn't recoverable")
+            #expect(kind.movesToTrash, "\(kind) escalates on regrowth but isn't recoverable")
         }
     }
 
@@ -314,78 +334,80 @@ final class CareSeverityEngineTests: XCTestCase {
         return CareFinding(payload: .similarImages([group]))
     }
 
-    func test_decliningBelowTheThreshold_changesNothing() {
+    @Test
+    func decliningBelowTheThreshold_changesNothing() {
         let finding = similarImages(bytes: 2_000_000_000)
         let below = CareSeverityEngine.declineThreshold - 1
-        XCTAssertEqual(
-            severity(finding, declined([.similarImages: below])).score,
-            severity(finding).score,
-            accuracy: 0.0001
+        #expect(
+            abs(severity(finding, declined([.similarImages: below])).score - severity(finding).score) <= 0.0001
         )
     }
 
-    func test_decliningAtTheThreshold_dampensTheScore() {
+    @Test
+    func decliningAtTheThreshold_dampensTheScore() {
         let finding = similarImages(bytes: 2_000_000_000)
-        XCTAssertLessThan(
-            severity(finding, declined([.similarImages: CareSeverityEngine.declineThreshold])).score,
-            severity(finding).score
+        #expect(
+            severity(finding, declined([.similarImages: CareSeverityEngine.declineThreshold])).score
+                < severity(finding).score
         )
     }
 
-    func test_dampeningDeepens_withMoreDeclines() {
+    @Test
+    func dampeningDeepens_withMoreDeclines() {
         let finding = similarImages(bytes: 2_000_000_000)
         let three = severity(finding, declined([.similarImages: 3])).score
         let five = severity(finding, declined([.similarImages: 5])).score
-        XCTAssertLessThan(five, three)
+        #expect(five < three)
     }
 
-    func test_dampening_neverFallsBelowTheFloor() {
+    @Test
+    func dampening_neverFallsBelowTheFloor() {
         let finding = similarImages(bytes: 2_000_000_000)
         let quiet = severity(finding).score
         let hammered = severity(finding, declined([.similarImages: 500])).score
-        XCTAssertGreaterThanOrEqual(hammered, quiet * CareSeverityEngine.declineDampingFloor - 0.0001)
+        #expect(hammered >= quiet * CareSeverityEngine.declineDampingFloor - 0.0001)
     }
 
-    func test_declines_neverDampenPreApprovedFindings() {
+    @Test
+    func declines_neverDampenPreApprovedFindings() {
         // Junk, duplicates, updates, maintenance — hygiene the app vouches for.
         // Passing on it once is not a reason to stop mentioning it.
         let finding = junk(bytes: 8_000_000_000)
-        XCTAssertEqual(
-            severity(finding, declined([.junkCleanup: 50])).score,
-            severity(finding).score,
-            accuracy: 0.0001
+        #expect(
+            abs(severity(finding, declined([.junkCleanup: 50])).score - severity(finding).score) <= 0.0001
         )
     }
 
-    func test_declines_neverQuietThreats() {
+    @Test
+    func declines_neverQuietThreats() {
         let threat = CareFinding(payload: .threats([MalwareThreat(filePath: URL(fileURLWithPath: "/tmp/evil"), threatName: "Eicar")])
         )
         let result = severity(threat, declined([.threats: 500]))
-        XCTAssertEqual(result.urgency, .critical)
-        XCTAssertEqual(result.score, severity(threat).score, accuracy: 0.0001)
+        #expect(result.urgency == .critical)
+        #expect(abs(result.score - severity(threat).score) <= 0.0001)
     }
 
-    func test_declines_neverChangeTheTier() {
+    @Test
+    func declines_neverChangeTheTier() {
         let finding = similarImages(bytes: 2_000_000_000)
-        XCTAssertEqual(
-            severity(finding, declined([.similarImages: 500])).urgency,
-            finding.urgency
-        )
+        #expect(severity(finding, declined([.similarImages: 500])).urgency == finding.urgency)
     }
 
-    func test_decliningReportsTheSignal_onlyOnceDampeningStarts() {
+    @Test
+    func decliningReportsTheSignal_onlyOnceDampeningStarts() {
         let finding = similarImages(bytes: 2_000_000_000)
         let below = CareSeverityEngine.declineThreshold - 1
-        XCTAssertFalse(hasDeclinedSignal(severity(finding, declined([.similarImages: below]))))
-        XCTAssertTrue(hasDeclinedSignal(severity(finding, declined([.similarImages: CareSeverityEngine.declineThreshold]))))
+        #expect(!hasDeclinedSignal(severity(finding, declined([.similarImages: below]))))
+        #expect(hasDeclinedSignal(severity(finding, declined([.similarImages: CareSeverityEngine.declineThreshold]))))
     }
 
-    func test_declinedFinding_stillOutranksASmallerOne() {
+    @Test
+    func declinedFinding_stillOutranksASmallerOne() {
         // Dampening lowers a card; it must not bury a genuinely bigger finding
         // beneath a trivial one.
         let bigDeclined = severity(similarImages(bytes: 40_000_000_000), declined([.similarImages: 500])).score
         let tinyQuiet = severity(similarImages(bytes: 1_000)).score
-        XCTAssertGreaterThan(bigDeclined, tinyQuiet)
+        #expect(bigDeclined > tinyQuiet)
     }
 
     private func hasDeclinedSignal(_ severity: CareSeverity) -> Bool {
@@ -394,9 +416,10 @@ final class CareSeverityEngineTests: XCTestCase {
 
     // MARK: - Determinism
 
-    func test_severity_isDeterministic_forTheSameInputs() {
+    @Test
+    func severity_isDeterministic_forTheSameInputs() {
         let finding = junk(bytes: 3_000_000_000)
         let ctx = context(usedRatio: 0.9)
-        XCTAssertEqual(severity(finding, ctx), severity(finding, ctx))
+        #expect(severity(finding, ctx) == severity(finding, ctx))
     }
 }

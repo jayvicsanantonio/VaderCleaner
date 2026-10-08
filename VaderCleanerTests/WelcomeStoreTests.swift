@@ -1,19 +1,20 @@
 // WelcomeStoreTests.swift
 // Tests the persisted "has this Mac seen the first-run flow" flag, including its fresh-install default and reset.
 
-import XCTest
+import Foundation
+import Testing
 @testable import VaderCleaner
 
 @MainActor
-final class WelcomeStoreTests: XCTestCase {
+@Suite(.serialized)
+final class WelcomeStoreTests {
 
-    private var suiteName: String!
-    private var defaults: UserDefaults!
+    private let suiteName: String
+    private let defaults: UserDefaults
 
-    override func setUp() async throws {
-        try await super.setUp()
+    init() {
         suiteName = "VaderCleanerTests.Welcome.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        defaults = UserDefaults(suiteName: suiteName)!
         // An isolated suite is not isolated from NSArgumentDomain: that domain
         // is in every UserDefaults instance's search list and outranks the
         // persistent one. Running the suite from a scheme that passes
@@ -21,7 +22,8 @@ final class WelcomeStoreTests: XCTestCase {
         // and inherited by the Test action whenever
         // `shouldUseLaunchSchemeArgsEnv` is on) would otherwise shadow every
         // write this test makes and fail it for a reason that has nothing to
-        // do with the store.
+        // do with the store. This suite runs `.serialized` because it mutates
+        // that process-wide argument domain.
         //
         // Overwriting the domain with an empty one is the move that works.
         // `removeVolatileDomain(forName:)` looks like the obvious call and is
@@ -30,93 +32,102 @@ final class WelcomeStoreTests: XCTestCase {
         defaults.setVolatileDomain([:], forName: UserDefaults.argumentDomain)
     }
 
-    override func tearDown() async throws {
+    isolated deinit {
         defaults.removePersistentDomain(forName: suiteName)
-        defaults = nil
-        suiteName = nil
-        try await super.tearDown()
     }
 
-    func test_freshInstall_hasNotCompletedWelcome() {
+    @Test
+    func freshInstall_hasNotCompletedWelcome() {
         let sut = WelcomeStore(defaults: defaults)
-        XCTAssertFalse(sut.hasCompletedWelcome)
+        #expect(!sut.hasCompletedWelcome)
     }
 
-    func test_markCompleted_persistsAcrossReload() {
+    @Test
+    func markCompleted_persistsAcrossReload() {
         WelcomeStore(defaults: defaults).markCompleted()
-        XCTAssertTrue(WelcomeStore(defaults: defaults).hasCompletedWelcome)
+        #expect(WelcomeStore(defaults: defaults).hasCompletedWelcome)
     }
 
-    func test_reset_returnsToTheFreshInstallState() {
+    @Test
+    func reset_returnsToTheFreshInstallState() {
         let sut = WelcomeStore(defaults: defaults)
         sut.markCompleted()
         sut.markScanHintSeen()
         sut.recordStep(.access)
         sut.reset()
-        XCTAssertFalse(sut.hasCompletedWelcome)
-        XCTAssertFalse(sut.hasSeenScanHint)
-        XCTAssertNil(sut.resumeStep)
+        #expect(!sut.hasCompletedWelcome)
+        #expect(!sut.hasSeenScanHint)
+        #expect(sut.resumeStep == nil)
         let reloaded = WelcomeStore(defaults: defaults)
-        XCTAssertFalse(reloaded.hasCompletedWelcome)
-        XCTAssertFalse(reloaded.hasSeenScanHint)
+        #expect(!reloaded.hasCompletedWelcome)
+        #expect(!reloaded.hasSeenScanHint)
     }
 
     // MARK: Resume point
 
-    func test_freshInstall_hasNoResumePoint() {
-        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+    @Test
+    func freshInstall_hasNoResumePoint() {
+        #expect(WelcomeStore(defaults: defaults).resumeStep == nil)
     }
 
-    func test_recordStep_persistsAcrossReload() {
+    @Test
+    func recordStep_persistsAcrossReload() {
         // Granting Full Disk Access makes macOS quit the app, so the flow's
         // place has to outlive the process that was showing it.
         WelcomeStore(defaults: defaults).recordStep(.access)
-        XCTAssertEqual(WelcomeStore(defaults: defaults).resumeStep, .access)
+        #expect(WelcomeStore(defaults: defaults).resumeStep == .access)
     }
 
-    func test_resumeStep_ignoresANameThatIsNoLongerAStep() {
+    @Test
+    func resumeStep_ignoresANameThatIsNoLongerAStep() {
         // A build that removes or renames a step must not resume into a case
         // that no longer exists.
         defaults.set("aStepThatWasRemoved", forKey: "welcome.resumeStep")
-        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+        #expect(WelcomeStore(defaults: defaults).resumeStep == nil)
     }
 
-    func test_resumeStep_ignoresAStoredValueOfTheWrongType() {
+    @Test
+    func resumeStep_ignoresAStoredValueOfTheWrongType() {
         // The marker used to be written as an ordinal. Anything that isn't a
         // recognised name — including a leftover number — starts over.
         defaults.set(5, forKey: "welcome.resumeStep")
-        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+        #expect(WelcomeStore(defaults: defaults).resumeStep == nil)
     }
 
-    func test_resumeStep_isStoredByNameSoReorderingCannotRepointIt() {
+    @Test
+    func resumeStep_isStoredByNameSoReorderingCannotRepointIt() {
         // Presentation order lives in the raw values, so persisting those
         // would make inserting a step silently move everyone's resume marker.
         WelcomeStore(defaults: defaults).recordStep(.access)
-        XCTAssertEqual(defaults.string(forKey: "welcome.resumeStep"), "access")
+        #expect(defaults.string(forKey: "welcome.resumeStep") == "access")
     }
 
-    func test_markCompleted_clearsTheResumePoint() {
+    @Test
+    func markCompleted_clearsTheResumePoint() {
         let sut = WelcomeStore(defaults: defaults)
         sut.recordStep(.access)
         sut.markCompleted()
-        XCTAssertNil(sut.resumeStep)
-        XCTAssertNil(WelcomeStore(defaults: defaults).resumeStep)
+        #expect(sut.resumeStep == nil)
+        #expect(WelcomeStore(defaults: defaults).resumeStep == nil)
     }
 
     // MARK: Scan hint
 
-    func test_freshInstall_hasNotSeenTheScanHint() {
-        XCTAssertFalse(WelcomeStore(defaults: defaults).hasSeenScanHint)
+    @Test
+    func freshInstall_hasNotSeenTheScanHint() {
+        #expect(!WelcomeStore(defaults: defaults).hasSeenScanHint)
     }
 
-    func test_markScanHintSeen_persistsAcrossReload() {
+    @Test
+    func markScanHintSeen_persistsAcrossReload() {
         WelcomeStore(defaults: defaults).markScanHintSeen()
-        XCTAssertTrue(WelcomeStore(defaults: defaults).hasSeenScanHint)
+        #expect(WelcomeStore(defaults: defaults).hasSeenScanHint)
     }
 
-    func test_scanHintAndCompletion_areTrackedIndependently() {
+    @Test
+    func scanHintAndCompletion_areTrackedIndependently() {
         let sut = WelcomeStore(defaults: defaults)
         sut.markCompleted()
-        XCTAssertFalse(sut.hasSeenScanHint, "Finishing the flow is not the same as being pointed at the disc")
+        #expect(!sut.hasSeenScanHint, "Finishing the flow is not the same as being pointed at the disc")
     }
 }

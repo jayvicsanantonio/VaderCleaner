@@ -2,6 +2,7 @@
 // Orchestrator that asks SystemPathProviding for category-tagged roots, runs FileScanner over them, and packages the output as a ScanResult.
 
 import Foundation
+import Synchronization
 
 /// Top-level entry point for the System Junk feature. Composes a
 /// `SystemPathProviding` (which knows where macOS keeps caches, logs,
@@ -140,10 +141,13 @@ struct SystemJunkScanner: Sendable {
 /// without the relay, the hand-off from the main walk to the supplementary
 /// enumerators would reset (or freeze) the count the scanning screen shows.
 /// Thread-safe because phases report from their own tasks.
-private final class PhaseProgressRelay: @unchecked Sendable {
-    private let lock = NSLock()
-    private var completedPhasesTotal = 0
-    private var currentPhaseCount = 0
+private final class PhaseProgressRelay: Sendable {
+    private struct State {
+        var completedPhasesTotal = 0
+        var currentPhaseCount = 0
+    }
+
+    private let state = Mutex(State())
     private let onProgress: (@Sendable (Int) -> Void)?
 
     init(_ onProgress: (@Sendable (Int) -> Void)?) {
@@ -154,19 +158,19 @@ private final class PhaseProgressRelay: @unchecked Sendable {
     /// all-phases total. Kept monotonic within the phase so an out-of-order
     /// tick can't move the number backwards.
     func report(_ count: Int) {
-        lock.lock()
-        currentPhaseCount = max(currentPhaseCount, count)
-        let total = completedPhasesTotal + currentPhaseCount
-        lock.unlock()
+        let total = state.withLock { state -> Int in
+            state.currentPhaseCount = max(state.currentPhaseCount, count)
+            return state.completedPhasesTotal + state.currentPhaseCount
+        }
         onProgress?(total)
     }
 
     /// Seals the finished phase's tally into the running base before the next
     /// phase starts its own count from zero.
     func finishPhase() {
-        lock.lock()
-        completedPhasesTotal += currentPhaseCount
-        currentPhaseCount = 0
-        lock.unlock()
+        state.withLock { state in
+            state.completedPhasesTotal += state.currentPhaseCount
+            state.currentPhaseCount = 0
+        }
     }
 }

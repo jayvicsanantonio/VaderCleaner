@@ -25,7 +25,7 @@ Build:
 xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-Run the unit suite (2137 tests, ~70s):
+Run the unit suite (2103 XCTest + 212 Swift Testing tests, ~75s):
 
 ```bash
 xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' -only-testing:VaderCleanerTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal" 
@@ -159,6 +159,23 @@ lint suggestions in this repo were unsound and would not have compiled.
 - User files are moved to the Trash, never hard-deleted, so a change of heart is
   recoverable. Permanent deletion is reserved for regenerable caches and is
   confirmed in the UI first.
+- **New unit tests use Swift Testing** (`@Suite`/`@Test`/`#expect`/`#require`),
+  not XCTest. A 21-suite pilot (listed in git history as the
+  `modernize/swift-testing-pilot` commits) set the conversion pattern; the
+  remaining XCTest suites are migrated opportunistically; there's no deadline
+  to finish them. `#expect` doesn't always infer a bare integer-literal
+  expression's type the way `XCTAssertEqual` does when compared against an
+  optional — wrap the literal side in an explicit cast (e.g. `Int64(...)`)
+  rather than trust a passing build.
+  - Suites that touch process-wide state (the `UserDefaults` argument domain,
+    a shared singleton) run `@Suite(.serialized)`; everything else runs in
+    parallel by default.
+  - `pollUntil` (`VaderCleanerTests/ObservationRecording.swift`) is the
+    framework-agnostic polling helper — use it from Swift Testing with
+    `#expect(await pollUntil { ... })`. `waitUntil` is its XCTest-only
+    `XCTFail`-reporting wrapper; keep using it from XCTest suites.
+  - UI tests (`VaderCleanerUITests/`) stay on XCTest/XCUIAutomation — Swift
+    Testing has no XCUITest equivalent.
 
 ## Concurrency
 
@@ -173,10 +190,15 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
 
 - Injected-collaborator typealiases are `@Sendable`, because scanners invoke
   them from detached tasks.
-- `@unchecked Sendable` is used only where a lock or a documented
-  single-threaded invariant backs it, and the reason is written at the
-  declaration. `nonisolated(unsafe)` is used for `FileManager` properties —
-  `.default` is documented thread-safe and test fixtures are single-threaded.
+- Lock-guarded shared state uses `Mutex` from the `Synchronization` framework
+  (e.g. `LockedByteFormatter`, `CareScanEngine`'s `MonotonicProgress`) rather
+  than a hand-rolled `NSLock` + `@unchecked Sendable`, so the compiler verifies
+  the `Sendable` conformance instead of taking it on faith. `@unchecked
+  Sendable` is reserved for cases `Mutex` doesn't express cleanly (a lock
+  spanning an `await`, or several fields guarded together with non-lock
+  logic), and the reason is written at the declaration. `nonisolated(unsafe)`
+  is used for `FileManager` properties — `.default` is documented thread-safe
+  and test fixtures are single-threaded.
 - AppKit-driving types (`VaderCleanerAppDelegate`, `ManagerItemTable.Coordinator`)
   are `@MainActor`. Callbacks AppKit delivers on the main thread use
   `MainActor.assumeIsolated` rather than hopping through a `Task`, so UI updates

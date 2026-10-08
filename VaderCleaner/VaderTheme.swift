@@ -111,18 +111,11 @@ extension Color {
     }
 }
 
-private struct SectionAccentKey: EnvironmentKey {
-    static let defaultValue: Color = .vaderCrimson
-}
-
 extension EnvironmentValues {
     /// The active section's accent — the same colour as the control tint, but
     /// readable from a `ButtonStyle` (the tint shape style is not). Drives the
     /// prominent button fill and its legible label.
-    var sectionAccent: Color {
-        get { self[SectionAccentKey.self] }
-        set { self[SectionAccentKey.self] = newValue }
-    }
+    @Entry var sectionAccent: Color = .vaderCrimson
 }
 
 /// Prominent action button that fills with the section accent and labels it in

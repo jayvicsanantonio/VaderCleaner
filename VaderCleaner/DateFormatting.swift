@@ -2,6 +2,7 @@
 // The app's shared date-to-string formatting, so every surface stamps a file's dates the same way.
 
 import Foundation
+import Synchronization
 
 /// Medium date, no time ("Nov 14, 2023") — the form the list columns use, where
 /// a row shows when a file was last touched and the time of day would be noise.
@@ -24,24 +25,21 @@ func formattedDateTime(_ date: Date) -> String {
 /// should not pay for it per row. `DateFormatter` has no type-method escape
 /// hatch the way `ByteCountFormatter` does, so the lock is the whole mechanism
 /// rather than a fallback for awkward configurations.
-private final class LockedDateFormatter: @unchecked Sendable {
+private final class LockedDateFormatter: Sendable {
 
     static let dateOnly = LockedDateFormatter(dateStyle: .medium, timeStyle: .none)
     static let dateAndTime = LockedDateFormatter(dateStyle: .medium, timeStyle: .short)
 
-    private let lock = NSLock()
-    private let formatter: DateFormatter
+    private let formatter: Mutex<DateFormatter>
 
     init(dateStyle: DateFormatter.Style, timeStyle: DateFormatter.Style) {
         let formatter = DateFormatter()
         formatter.dateStyle = dateStyle
         formatter.timeStyle = timeStyle
-        self.formatter = formatter
+        self.formatter = Mutex(formatter)
     }
 
     func string(from date: Date) -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return formatter.string(from: date)
+        formatter.withLock { $0.string(from: date) }
     }
 }

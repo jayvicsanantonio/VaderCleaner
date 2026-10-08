@@ -117,8 +117,23 @@ struct ProtectionDashboardView: View {
                 Text(String(localized: "The infected files will be permanently deleted. This cannot be undone.",
                             comment: "Body of the malware removal confirmation alert."))
             }
-            .alert(item: $pendingPrivacyRemoval) { removal in
-                privacyRemovalAlert(removal)
+            .alert(
+                String(localized: "Remove these items?",
+                       comment: "Privacy removal confirmation title."),
+                isPresented: Binding(
+                    get: { pendingPrivacyRemoval != nil },
+                    set: { if !$0 { pendingPrivacyRemoval = nil } }
+                )
+            ) {
+                Button(String(localized: "Cancel", comment: "Cancel privacy removal."), role: .cancel) {}
+                if let removal = pendingPrivacyRemoval {
+                    Button(String(localized: "Remove", comment: "Confirm privacy removal."), role: .destructive) {
+                        performPrivacyRemoval(removal)
+                    }
+                }
+            } message: {
+                Text(String(localized: "This permanently deletes the selected data. This cannot be undone.",
+                            comment: "Privacy removal confirmation body."))
             }
             // The removal confirmation promises the data will be gone; when it
             // isn't, say so rather than leaving the tile sitting there.
@@ -568,8 +583,7 @@ struct ProtectionDashboardView: View {
 
     // MARK: - Removal
 
-    /// What a privacy tile's Remove acts on. `Identifiable` so it can drive an
-    /// `.alert(item:)` confirmation.
+    /// What a privacy tile's Remove acts on.
     enum PrivacyRemoval: Identifiable {
         case browser(Browser)
         case recents
@@ -582,21 +596,6 @@ struct ProtectionDashboardView: View {
         }
 
         var tileID: String { id }
-    }
-
-    private func privacyRemovalAlert(_ removal: PrivacyRemoval) -> Alert {
-        Alert(
-            title: Text(String(localized: "Remove these items?",
-                               comment: "Privacy removal confirmation title.")),
-            message: Text(String(localized: "This permanently deletes the selected data. This cannot be undone.",
-                                 comment: "Privacy removal confirmation body.")),
-            primaryButton: .destructive(
-                Text(String(localized: "Remove", comment: "Confirm privacy removal."))
-            ) {
-                performPrivacyRemoval(removal)
-            },
-            secondaryButton: .cancel()
-        )
     }
 
     private func performPrivacyRemoval(_ removal: PrivacyRemoval) {

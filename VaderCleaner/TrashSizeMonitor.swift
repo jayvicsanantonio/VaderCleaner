@@ -23,7 +23,7 @@ final class TrashSizeMonitor {
     private let now: () -> Date
 
     private var lastFired: Date?
-    private var timer: Timer?
+    private var pollTask: Task<Void, Never>?
 
     init(
         preferences: PreferencesStore,
@@ -53,19 +53,25 @@ final class TrashSizeMonitor {
         lastFired = now()
     }
 
-    /// Begins polling the Trash size on a timer.
+    /// Begins polling the Trash size on a loop that waits for one poll to
+    /// finish before sleeping toward the next — a repeating `Timer` here
+    /// would start a fresh poll on every tick regardless of whether the
+    /// previous one (walking a possibly-large Trash) had returned yet.
     func start() {
         stop()
-        let timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.poll() }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.poll()
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(self.pollInterval))
+            }
         }
-        self.timer = timer
-        Task { await poll() }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        pollTask?.cancel()
+        pollTask = nil
     }
 
     private func poll() async {

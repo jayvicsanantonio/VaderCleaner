@@ -2,6 +2,7 @@
 // Runs clamscan over the requested paths, streams progress line by line, and returns the parsed list of detected threats.
 
 import Foundation
+import Synchronization
 import os.log
 
 /// Scans paths for malware with `clamscan` and returns the matches.
@@ -327,19 +328,14 @@ private final class LineCounter: @unchecked Sendable {
 /// `ProcessLineStreamer` invokes the line callback from its background read
 /// loop, so the buffer is guarded the same way as `SystemJunkDeleter`'s
 /// once-only resumer.
-private final class ThreatCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var threats: [MalwareThreat] = []
+private final class ThreatCollector: Sendable {
+    private let threats = Mutex<[MalwareThreat]>([])
 
     func append(_ threat: MalwareThreat) {
-        lock.lock()
-        threats.append(threat)
-        lock.unlock()
+        threats.withLock { $0.append(threat) }
     }
 
     func snapshot() -> [MalwareThreat] {
-        lock.lock()
-        defer { lock.unlock() }
-        return threats
+        threats.withLock { $0 }
     }
 }

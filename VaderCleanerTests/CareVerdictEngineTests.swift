@@ -1,10 +1,12 @@
 // CareVerdictEngineTests.swift
 // Tests the pure verdict derivation: base tier from health telemetry, severity caps from findings, and plain-language headline/detail composition.
 
-import XCTest
+import Foundation
+import Testing
 @testable import VaderCleaner
 
-final class CareVerdictEngineTests: XCTestCase {
+@Suite
+struct CareVerdictEngineTests {
 
     // MARK: - Fixtures
 
@@ -43,66 +45,76 @@ final class CareVerdictEngineTests: XCTestCase {
 
     // MARK: - Tiers
 
-    func test_healthyMacWithNothingFound_isExcellent() {
+    @Test
+    func healthyMacWithNothingFound_isExcellent() {
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [], health: healthyTelemetry))
-        XCTAssertEqual(verdict.status, .excellent)
+        #expect(verdict.status == .excellent)
     }
 
-    func test_unmeasuredHealth_defaultsToGoodBase() {
+    @Test
+    func unmeasuredHealth_defaultsToGoodBase() {
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [], health: nil))
-        XCTAssertEqual(verdict.status, .good)
+        #expect(verdict.status == .good)
     }
 
-    func test_threats_capAtRequiresAttention() {
+    @Test
+    func threats_capAtRequiresAttention() {
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [threatFinding], health: healthyTelemetry))
-        XCTAssertEqual(verdict.status, .requiresAttention)
+        #expect(verdict.status == .requiresAttention)
     }
 
-    func test_largeSafeJunk_capsAtFair() {
+    @Test
+    func largeSafeJunk_capsAtFair() {
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: CareVerdictEngine.safeJunkCapBytes + 1)], health: healthyTelemetry)
         )
-        XCTAssertEqual(verdict.status, .fair)
+        #expect(verdict.status == .fair)
     }
 
-    func test_heavySafeJunk_capsAtRequiresAttention() {
+    @Test
+    func heavySafeJunk_capsAtRequiresAttention() {
         // 94 GB of clearable junk is not "a little care".
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: CareVerdictEngine.heavyJunkCapBytes + 1)], health: healthyTelemetry)
         )
-        XCTAssertEqual(verdict.status, .requiresAttention)
+        #expect(verdict.status == .requiresAttention)
     }
 
-    func test_junkBetweenTheTwoCaps_staysFair() {
+    @Test
+    func junkBetweenTheTwoCaps_staysFair() {
         let midpoint = (CareVerdictEngine.safeJunkCapBytes + CareVerdictEngine.heavyJunkCapBytes) / 2
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: midpoint)], health: healthyTelemetry)
         )
-        XCTAssertEqual(verdict.status, .fair)
+        #expect(verdict.status == .fair)
     }
 
-    func test_heavyJunkCap_sitsAboveTheFairCap() {
+    @Test
+    func heavyJunkCap_sitsAboveTheFairCap() {
         // The two thresholds must stay ordered, or the tiers invert.
-        XCTAssertGreaterThan(CareVerdictEngine.heavyJunkCapBytes, CareVerdictEngine.safeJunkCapBytes)
+        #expect(CareVerdictEngine.heavyJunkCapBytes > CareVerdictEngine.safeJunkCapBytes)
     }
 
-    func test_junkAlone_neverReachesCritical_howeverMuchOfItThereIs() {
+    @Test
+    func junkAlone_neverReachesCritical_howeverMuchOfItThereIs() {
         // Junk is all safely removable. Critical is reserved for a disk about
         // to stop working, not for a big pile of caches.
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: 900_000_000_000)], health: healthyTelemetry)
         )
-        XCTAssertGreaterThan(verdict.status, .critical)
+        #expect(verdict.status > .critical)
     }
 
-    func test_smallSafeJunk_doesNotCap() {
+    @Test
+    func smallSafeJunk_doesNotCap() {
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: 1_000)], health: healthyTelemetry)
         )
-        XCTAssertEqual(verdict.status, .excellent)
+        #expect(verdict.status == .excellent)
     }
 
-    func test_optInBytes_neverCapTheVerdict() {
+    @Test
+    func optInBytes_neverCapTheVerdict() {
         // 100 GB of the user's own large files is not "an unhealthy Mac".
         let big = ScannedFile(
             url: URL(fileURLWithPath: "/Movies/raw.mov"),
@@ -113,10 +125,11 @@ final class CareVerdictEngineTests: XCTestCase {
         )
         let finding = CareFinding(payload: .largeOldFiles([big]))
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
-        XCTAssertEqual(verdict.status, .excellent)
+        #expect(verdict.status == .excellent)
     }
 
-    func test_nearlyFullDisk_lowersTheBaseTier() {
+    @Test
+    func nearlyFullDisk_lowersTheBaseTier() {
         let fullDisk = CareHealthSnapshot(
             disk: DiskStats(usedBytes: 960, totalBytes: 1_000),
             memoryPressure: .nominal,
@@ -124,10 +137,11 @@ final class CareVerdictEngineTests: XCTestCase {
             battery: .absent
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [], health: fullDisk))
-        XCTAssertEqual(verdict.status, .requiresAttention)
+        #expect(verdict.status == .requiresAttention)
     }
 
-    func test_capsOnlyLower_neverRaise() {
+    @Test
+    func capsOnlyLower_neverRaise() {
         let failingDisk = CareHealthSnapshot(
             disk: DiskStats(usedBytes: 990, totalBytes: 1_000),
             memoryPressure: .nominal,
@@ -135,66 +149,74 @@ final class CareVerdictEngineTests: XCTestCase {
             battery: .absent
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [threatFinding], health: failingDisk))
-        XCTAssertEqual(verdict.status, .critical, "a threat cap must not raise a critical hardware verdict")
+        #expect(verdict.status == .critical, "a threat cap must not raise a critical hardware verdict")
     }
 
-    func test_criticallyFullDiskFinding_capsTheVerdictAtCritical() {
+    @Test
+    func criticallyFullDiskFinding_capsTheVerdictAtCritical() {
         let finding = CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 990, totalBytes: 1_000))
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
-        XCTAssertEqual(verdict.status, .critical)
+        #expect(verdict.status == .critical)
     }
 
-    func test_fillingButNotCriticalDiskFinding_doesNotCapAtCritical() {
+    @Test
+    func fillingButNotCriticalDiskFinding_doesNotCapAtCritical() {
         let finding = CareFinding(payload: .lowDiskSpace(DiskStats(usedBytes: 850, totalBytes: 1_000))
         )
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [finding], health: healthyTelemetry))
-        XCTAssertGreaterThan(verdict.status, .critical)
+        #expect(verdict.status > .critical)
     }
 
-    func test_threats_stillCapAtRequiresAttention_notCritical() {
+    @Test
+    func threats_stillCapAtRequiresAttention_notCritical() {
         // Threats carry a critical *finding* urgency; that must not be confused
         // with a critical verdict for the whole Mac.
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [threatFinding], health: healthyTelemetry))
-        XCTAssertEqual(verdict.status, .requiresAttention)
+        #expect(verdict.status == .requiresAttention)
     }
 
     // MARK: - Copy
 
-    func test_headlines_areDistinctAndNonEmpty_perTier() {
+    @Test
+    func headlines_areDistinctAndNonEmpty_perTier() {
         var headlines = Set<String>()
         for status in MacHealthStatus.allCases {
             let headline = CareVerdictEngine.headline(for: status)
-            XCTAssertFalse(headline.isEmpty)
+            #expect(!headline.isEmpty)
             headlines.insert(headline)
         }
-        XCTAssertEqual(headlines.count, MacHealthStatus.allCases.count)
+        #expect(headlines.count == MacHealthStatus.allCases.count)
     }
 
-    func test_detail_nothingFound_saysSo() {
+    @Test
+    func detail_nothingFound_saysSo() {
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [], health: healthyTelemetry))
-        XCTAssertFalse(verdict.detail.isEmpty)
+        #expect(!verdict.detail.isEmpty)
     }
 
-    func test_detail_includesSafelyFreeableBytes() {
+    @Test
+    func detail_includesSafelyFreeableBytes() {
         let verdict = CareVerdictEngine.verdict(
             for: plan(findings: [junkFinding(bytes: 2_300_000_000)], health: healthyTelemetry)
         )
-        XCTAssertTrue(
+        #expect(
             verdict.detail.contains(CareFindingCopy.formattedBytes(2_300_000_000)),
             "detail should quote the safely-freeable byte total: \(verdict.detail)"
         )
     }
 
-    func test_detail_countsOnlyActionableFindings() {
+    @Test
+    func detail_countsOnlyActionableFindings() {
         let info = CareFinding(payload: .loginItems([
             LoginItem(id: "a", name: "Agent", isEnabled: true)
         ]))
         let verdict = CareVerdictEngine.verdict(for: plan(findings: [info], health: healthyTelemetry))
-        XCTAssertFalse(verdict.detail.contains("1 thing"), "informational findings are not 'things worth doing'")
+        #expect(!verdict.detail.contains("1 thing"), "informational findings are not 'things worth doing'")
     }
 
-    func test_detail_withSuppliedCountAndBytes_quotesTheFixScopeNotTheGross() {
+    @Test
+    func detail_withSuppliedCountAndBytes_quotesTheFixScopeNotTheGross() {
         // The feed passes the pre-approved count and its selected bytes so the
         // hero speaks to what Fix handles; the plan's gross figures are larger.
         let carePlan = plan(findings: [junkFinding(bytes: 110_000_000_000)], health: healthyTelemetry)
@@ -203,18 +225,19 @@ final class CareVerdictEngineTests: XCTestCase {
             readyCount: 4,
             safeFreeableBytes: 94_650_000_000
         )
-        XCTAssertTrue(detail.contains("4 things"), "hero counts only what Fix handles: \(detail)")
-        XCTAssertTrue(
+        #expect(detail.contains("4 things"), "hero counts only what Fix handles: \(detail)")
+        #expect(
             detail.contains(CareFindingCopy.formattedBytes(94_650_000_000)),
             "detail should quote the supplied selected total: \(detail)"
         )
-        XCTAssertFalse(
-            detail.contains(CareFindingCopy.formattedBytes(110_000_000_000)),
+        #expect(
+            !detail.contains(CareFindingCopy.formattedBytes(110_000_000_000)),
             "detail must not quote the gross found total"
         )
     }
 
-    func test_detail_readyCountZero_pointsAtOptInWorkInstead() {
+    @Test
+    func detail_readyCountZero_pointsAtOptInWorkInstead() {
         // Actionable work exists but none of it is pre-approved: the hero must
         // not say "0 things worth doing" — it points at the zones below.
         let optIn = CareFinding(payload: .largeOldFiles([
@@ -226,7 +249,7 @@ final class CareVerdictEngineTests: XCTestCase {
             readyCount: 0,
             safeFreeableBytes: 0
         )
-        XCTAssertFalse(detail.contains("0 things"), "never quote a zero count: \(detail)")
-        XCTAssertFalse(detail.isEmpty)
+        #expect(!detail.contains("0 things"), "never quote a zero count: \(detail)")
+        #expect(!detail.isEmpty)
     }
 }
