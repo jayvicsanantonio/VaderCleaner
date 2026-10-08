@@ -69,12 +69,11 @@ import Testing
         }
         // Timed on `SuspendingClock` rather than `pollUntil`'s continuous
         // clock: a Mac that sleeps mid-run pauses the runs too, and that time
-        // must not count against them. A thousand runs take a few seconds
-        // (under ten through xcodebuild, which runs this suite's tests one at
-        // a time); the limit only has to tell that apart from a run that never
-        // returns.
+        // must not count against them. A thousand runs take a few seconds on
+        // a developer Mac and about twenty on a CI runner; the limit only has
+        // to tell that apart from a run that never returns.
         let clock = SuspendingClock()
-        let deadline = clock.now.advanced(by: .seconds(60))
+        let deadline = clock.now.advanced(by: .seconds(120))
         while !finished.value, clock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
