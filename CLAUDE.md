@@ -27,7 +27,7 @@ xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration D
 
 The unit tests are two suites:
 
-- **`VaderCleanerCoreTests`** — nearly all of them (1921 XCTest + 200 Swift
+- **`VaderCleanerCoreTests`** — nearly all of them (1921 XCTest + 202 Swift
   Testing tests). They test the `VaderCleanerCore` package directly and run
   hostless: no XcodeGen, no ClamAV staging, no app build, signing, or launch.
   ~25s from clean, ~10s warm:
@@ -59,25 +59,34 @@ signal-killed before it establishes its XPC connection. They compile, and a
 failure. Check for a doubled `Testing started` in the log, which means the first
 session crashed and was retried. Run UI tests from Xcode.
 
-Child-process tests (`DefaultBrewRunnerTests`, `ProcessLineStreamerTests`, both
-in the package suite) intermittently hang the test run indefinitely —
-`DefaultBrewRunnerTests` far more often. `pkill -f xctest` (or `pkill -f
-xcodebuild` when running through the scheme) and re-run.
+**Never wait for a child with `Process.waitUntilExit()` unless the same thread
+called `run()` with no suspension in between.** Foundation decides whether the
+calling thread launched the process by looking the object's address up in a
+per-thread list it never prunes, so once an address is reused a thread can take
+another thread's process for its own. With no `terminationHandler` set, it then
+waits forever for a termination notification only the launching thread's run
+loop would post — and a Swift concurrency pool thread never runs its run loop.
+That was the intermittent hang in `DefaultBrewRunnerTests` and
+`ProcessLineStreamerTests`, in code the app runs for every `brew` query and
+ClamAV scan. Both wrappers set `terminationHandler` before `run()` and wait on
+that, and `ProcessExitWaitTests` pins it by running each a thousand times back
+to back; against `waitUntilExit()` both failed in each of five runs. Call
+sites that launch and wait synchronously on one thread are unaffected.
 
-**CI skips those two suites** (`--skip` in the `core-tests` job of
-`.github/workflows/ci.yml`) because the hang wedges the whole run rather than
-failing — one run sat for 37 minutes. They still run in the command above, so
-**the only coverage of subprocess cancellation and pipe-EOF handling now lives on
-developer machines**. If you change `ProcessLineStreamer` or `DefaultBrewRunner`,
-run the suite locally without `--skip`; CI will not catch a regression there.
+The handler matters even where nothing calls `waitUntilExit()`. If none is set
+when the child exits, Foundation queues the termination notification on the
+launching thread's run loop instead, and on a pool thread, which never runs it,
+that keeps the `Process` and its pipes' file descriptors alive indefinitely — so
+set it before `run()`. A handler assigned after the child has already exited
+still fires, which is why `UpdateInstallerLive`'s after-`run()` assignment
+works, but that `Process` is kept alive the same way.
 
-The underlying leak is unfixed: a grandchild process that survives
-`Process.terminate()` keeps its inherited dup of the stdout pipe's write end, so
-the reader never sees EOF. `DefaultBrewRunnerTests` documents the mechanism and
-defends against it with `exec`, which suggests the remaining path is elsewhere.
-A sampled hang points at one: `runCapturing` blocked in `waitUntilExit()` with
-both pipes already at EOF and the child already reaped, so Foundation never
-delivered the termination to the waiting run loop.
+CI runs both suites. A grandchild process that survives `Process.terminate()`
+still keeps its inherited dup of the stdout pipe's write end, so a reader never
+sees EOF; the cancellation tests use `exec` so SIGTERM reaches the process that
+holds the pipe. If a child-process test does hang, `sample` the `xctest`
+process before killing it — `pkill -f xctest` (or `pkill -f xcodebuild` when
+running through the scheme) — and re-run.
 
 ## Linting
 
