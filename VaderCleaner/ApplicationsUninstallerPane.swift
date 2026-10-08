@@ -2,6 +2,7 @@
 // The Applications Manager's Uninstaller pane: the facet column plus the app list, or a single app's associated-files detail.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The Uninstaller pane — the facet column plus the app list (or an app's
 /// associated-files detail). Extracted from `ApplicationsManagerView` so a

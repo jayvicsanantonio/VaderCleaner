@@ -2,6 +2,7 @@
 // Applications "Manager" for Smart Scan — the shared three-pane manager over available updates, grouped by update channel, with per-update selection.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→update lookup the selection callbacks need. Built on the same
 /// background pass as the section model so the main thread never rebuilds it;

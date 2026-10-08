@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Panel presented when the user clicks the menu bar icon. Built around a
 /// three-beat hierarchy an ordinary person can read in two seconds:

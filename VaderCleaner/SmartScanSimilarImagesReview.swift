@@ -2,6 +2,7 @@
 // Similar-photos Review for Smart Scan — the shared two-pane manager over near-duplicate image groups, each row a Quick Look thumbnail. One category per group leads with the kept best shot as a locked row (shown, but no checkbox, so it can't be deleted) above the deletable near-duplicate copies.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→file and url→size lookups the selection callbacks need, built on
 /// the same background pass as the section model so nothing O(all-files) runs on

@@ -3,6 +3,7 @@
 
 import AppKit
 import SwiftUI
+import VaderCleanerCore
 
 // MARK: - Dashboard
 

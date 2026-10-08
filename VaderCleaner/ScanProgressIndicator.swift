@@ -2,6 +2,7 @@
 // A section-tinted animated scan indicator — a glowing core with sonar pulses and counter-rotating arcs — used in place of the plain system spinner on every scan/clean-in-progress screen.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Animated, section-tinted stand-in for `ProgressView` on the app's
 /// scan/clean-in-progress screens. A soft accent bloom, three expanding "sonar"

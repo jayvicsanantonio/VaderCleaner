@@ -2,6 +2,7 @@
 // Unused apps Review for Smart Scan — the shared three-pane manager over long-unopened apps, opt-in per app with real app icons, last-opened dates, and sizes.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→app lookup the selection callbacks need. Built on the same
 /// background pass as the section model so the main thread never rebuilds it;

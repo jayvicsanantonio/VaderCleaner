@@ -2,6 +2,7 @@
 // Performance feature view — login items, launch agents (user/system), RAM flush, and system maintenance scripts.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Detail view shown when the user selects "Performance" in the sidebar.
 /// Four sections — Login Items, Launch Agents, RAM, Maintenance Scripts —

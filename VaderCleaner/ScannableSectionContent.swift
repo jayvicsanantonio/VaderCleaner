@@ -2,6 +2,7 @@
 // Wrapper that crossfades a scannable section between its unified intro view and its own detail view, gated by the coordinator's scanPresentation.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Gates a scannable section between the unified `SectionIntroView` and its
 /// own detail view. The coordinator is held as a plain stored property — every

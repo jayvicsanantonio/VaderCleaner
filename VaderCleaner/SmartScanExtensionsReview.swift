@@ -2,6 +2,7 @@
 // Extensions "Manager" for Smart Scan — the shared three-pane manager in read-only mode over the browser/app extensions found, grouped by type, with an "Open Applications" jump-link. Smart Scan never disables or removes an extension itself.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Extensions Review, rendered through the shared `SmartScanReviewManager` in
 /// read-only mode. Disabling an extension is a deliberate, per-item decision, so

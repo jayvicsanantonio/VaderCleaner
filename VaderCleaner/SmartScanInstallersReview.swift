@@ -2,6 +2,7 @@
 // Finished installers Review for Smart Scan — the shared three-pane manager over leftover .dmg/.pkg/.iso files, opt-in per installer with Finder icons.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→installer lookup the selection callbacks need. Built on the
 /// same background pass as the section model so the main thread never rebuilds

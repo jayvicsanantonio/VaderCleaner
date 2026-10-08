@@ -1,0 +1,32 @@
+// AppState.swift
+// Process-wide observable state — currently tracks Full Disk Access; will accumulate other app-wide flags.
+
+import Foundation
+import Observation
+
+/// Holds app-wide state that views need to observe — currently just the cached
+/// Full Disk Access flag. This is the home for a flag that more than one
+/// section needs; anything owned by a single screen belongs on that screen's
+/// view model instead.
+///
+/// The FDA checker is injected as a closure so tests can stub the result without
+/// depending on the host machine's TCC state.
+@MainActor
+@Observable
+public final class AppState {
+
+    public private(set) var hasFullDiskAccess: Bool
+
+    @ObservationIgnored private let checker: () -> Bool
+
+    public init(checker: @escaping () -> Bool = { PrivacyPermissionChecker.hasFullDiskAccess() }) {
+        self.checker = checker
+        self.hasFullDiskAccess = checker()
+    }
+
+    /// Re-runs the FDA check. Called when the app foregrounds (`scenePhase == .active`)
+    /// so that granting access in System Settings reflects without a relaunch.
+    public func refresh() {
+        hasFullDiskAccess = checker()
+    }
+}

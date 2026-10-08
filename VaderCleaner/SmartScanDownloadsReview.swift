@@ -2,6 +2,7 @@
 // Old-downloads Review for Smart Scan — the shared three-pane manager over the Downloads-folder findings, opt-in per file with Finder icons and source-app subtitles.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→item and url→size lookups the selection callbacks need, built on
 /// the same background pass as the section model so nothing O(all-files) runs on

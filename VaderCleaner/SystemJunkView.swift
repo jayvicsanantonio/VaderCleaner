@@ -2,6 +2,7 @@
 // System Junk feature view — renders the idle/scanning/preview/cleaning/complete states from SystemJunkViewModel and binds the per-category checkboxes and Clean / Re-scan / Scan Again actions.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Detail view shown when the user selects "System Junk" in the sidebar.
 /// Each phase of `SystemJunkViewModel.Phase` maps to a dedicated subview:

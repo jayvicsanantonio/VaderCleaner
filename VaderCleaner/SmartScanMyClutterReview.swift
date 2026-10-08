@@ -2,6 +2,7 @@
 // My Clutter "Manager" for Smart Scan — the shared three-pane manager over duplicate-file groups. One category per group lists the redundant copies (the kept original is named but never listed, so it can't be deleted). The model is built off the main thread so large scans open without blocking.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→file and url→size lookups the selection callbacks need. Built
 /// on the same background task as the section model so nothing O(N) runs on the

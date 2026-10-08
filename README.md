@@ -248,23 +248,27 @@ open VaderCleaner.xcodeproj
 ### Project layout
 
 ```text
-VaderCleaner/            Main app — SwiftUI views, view models, scanners, services, models
+VaderCleaner/            Main app — SwiftUI views and styles, AppKit windows, the app entry point
+VaderCleanerCore/        Swift package with the UI-free core — view models, scanners, services, models
+  Sources/…/Shared/      Code shared between app and helper (XPC protocol, deletion policy)
+  Tests/                 Unit tests that run without the app (XCTest + Swift Testing)
 VaderCleanerHelper/      Privileged helper daemon (XPC) for root-level operations
-Shared/                  Code shared between app and helper (XPC protocol, deletion policy)
-VaderCleanerTests/       Unit tests (XCTest) — view models, scanners, services
+VaderCleanerTests/       Unit tests that need the app — views, the asset catalog, notifications
 VaderCleanerUITests/     End-to-end UI tests (XCUITest)
 VaderCleaner.xcodeproj/  Xcode project
 ```
 
-The app follows a straightforward SwiftUI pattern: one `*View` and one `*ViewModel` per feature, with scanning/cleanup logic isolated in dedicated service types so it can be unit-tested without the UI.
+The app follows a straightforward SwiftUI pattern: one `*View` and one `*ViewModel` per feature, with scanning/cleanup logic isolated in dedicated service types so it can be unit-tested without the UI. Everything that doesn't draw lives in the `VaderCleanerCore` package, which the app links.
 
 ### Targets & schemes
 
 | Target | Purpose |
 | --- | --- |
 | `VaderCleaner` | The main app |
+| `VaderCleanerCore` (package) | The UI-free core the app links |
 | `VaderCleanerHelper` | Privileged helper, bundled into the app (not run standalone) |
-| `VaderCleanerTests` | Unit tests |
+| `VaderCleanerCoreTests` (package) | Unit tests for the core, run without the app |
+| `VaderCleanerTests` | Unit tests that run inside the app |
 | `VaderCleanerUITests` | UI tests |
 
 Schemes: **`VaderCleaner`** (build/run the app and tests) and **`VaderCleanerHelper`**.
@@ -299,18 +303,30 @@ VaderCleaner detects `clamscan`/`freshclam` on your `PATH`, refreshes the signat
 
 ### Running the tests
 
-The project ships unit tests (`VaderCleanerTests`) and end-to-end UI tests (`VaderCleanerUITests`). Run everything:
+The project ships two unit-test suites and end-to-end UI tests (`VaderCleanerUITests`). Run everything:
 
 ```bash
 xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS'
 ```
 
+Most unit tests are in the `VaderCleanerCore` package and run without building or launching the app — the quickest loop:
+
+```bash
+swift test --package-path VaderCleanerCore
+```
+
 Run a single unit test class:
+
+```bash
+swift test --package-path VaderCleanerCore --filter SmartScanViewModelScanTests
+```
+
+The few that need the app around them (`VaderCleanerTests`) run hosted:
 
 ```bash
 xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner \
   -destination 'platform=macOS' \
-  -only-testing:VaderCleanerTests/SmartScanViewModelScanTests
+  -only-testing:VaderCleanerTests
 ```
 
 Run a single UI test:

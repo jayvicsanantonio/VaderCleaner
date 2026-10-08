@@ -25,11 +25,30 @@ Build:
 xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-Run the unit suite (2103 XCTest + 212 Swift Testing tests, ~75s):
+The unit tests are two suites:
 
-```bash
-xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' -only-testing:VaderCleanerTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal" 
-```
+- **`VaderCleanerCoreTests`** — nearly all of them (1921 XCTest + 200 Swift
+  Testing tests). They test the `VaderCleanerCore` package directly and run
+  hostless: no XcodeGen, no ClamAV staging, no app build, signing, or launch.
+  ~25s from clean, ~10s warm:
+
+  ```bash
+  swift test --package-path VaderCleanerCore
+  ```
+
+- **`VaderCleanerTests`** — the suites that need the app around them (182
+  XCTest + 17 Swift Testing tests): ones that exercise SwiftUI or AppKit
+  types, the asset catalog, or `UNUserNotificationCenter` (which throws
+  without an app bundle). `TEST_HOST` injects them into a launched
+  VaderCleaner.app:
+
+  ```bash
+  xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' -only-testing:VaderCleanerTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal"
+  ```
+
+A new test goes in the package unless it touches something in the app target
+or needs a real app bundle. The VaderCleaner scheme lists both suites, so ⌘U
+in Xcode runs everything, UI tests included.
 
 `CODE_SIGN_IDENTITY="skip-dev-seal"` matters: `Scripts/sign-dev.sh` otherwise
 seals the app bundle in a way that breaks the test bundle's format.
@@ -40,21 +59,25 @@ signal-killed before it establishes its XPC connection. They compile, and a
 failure. Check for a doubled `Testing started` in the log, which means the first
 session crashed and was retried. Run UI tests from Xcode.
 
-Child-process tests (`BrewRunner`, `ProcessLineStreamer`) intermittently hang
-`xcodebuild` indefinitely. `pkill -f xcodebuild` and re-run.
+Child-process tests (`DefaultBrewRunnerTests`, `ProcessLineStreamerTests`, both
+in the package suite) intermittently hang the test run indefinitely —
+`DefaultBrewRunnerTests` far more often. `pkill -f xctest` (or `pkill -f
+xcodebuild` when running through the scheme) and re-run.
 
-**CI skips those two suites** (`-skip-testing:` in `.github/workflows/ci.yml`)
-because the hang wedges the whole session at teardown rather than failing — one
-run sat for 37 minutes. They still run in the command above, so **the only
-coverage of subprocess cancellation and pipe-EOF handling now lives on
+**CI skips those two suites** (`--skip` in the `core-tests` job of
+`.github/workflows/ci.yml`) because the hang wedges the whole run rather than
+failing — one run sat for 37 minutes. They still run in the command above, so
+**the only coverage of subprocess cancellation and pipe-EOF handling now lives on
 developer machines**. If you change `ProcessLineStreamer` or `DefaultBrewRunner`,
-run the suite locally without `-skip-testing`; CI will not catch a regression
-there.
+run the suite locally without `--skip`; CI will not catch a regression there.
 
 The underlying leak is unfixed: a grandchild process that survives
 `Process.terminate()` keeps its inherited dup of the stdout pipe's write end, so
 the reader never sees EOF. `DefaultBrewRunnerTests` documents the mechanism and
 defends against it with `exec`, which suggests the remaining path is elsewhere.
+A sampled hang points at one: `runCapturing` blocked in `waitUntilExit()` with
+both pipes already at EOF and the child already reaped, so Foundation never
+delivered the termination to the waiting run loop.
 
 ## Linting
 
@@ -103,17 +126,34 @@ lint suggestions in this repo were unsound and would not have compiled.
 
 ## Architecture
 
+- **Two modules.** The UI-free core — scanners, stores, view models, models,
+  and the helper's XPC protocol — is the local Swift package
+  `VaderCleanerCore/`, which the app links statically. The `VaderCleaner`
+  target keeps only what draws: SwiftUI views and styles, AppKit views and
+  windows, `NSApp` use, and `@main`. A new file that declares none of those
+  belongs in the package, where SwiftPM picks it up without `xcodegen`.
+  - Whatever the app uses is `public`; tests reach everything else through
+    `@testable import VaderCleanerCore`. Making a struct or enum `public`
+    drops the `Sendable` conformance Swift infers for internal types, so spell
+    it out when the type crosses isolation; and a synthesized memberwise
+    init is internal, so one the app calls is written out as a `public init`.
+  - Core strings pass `bundle: .module` and live in the package's own
+    `Resources/en.lproj` tables, so they resolve both inside the app and
+    hostless, where `Bundle.main` is the test runner. A key used on both sides
+    of the boundary sits in both tables, since each module reads only its own.
 - **Sections** — each feature area (Smart Scan, Cleanup, My Clutter, Space Lens,
   Performance, Protection, Applications) is a SwiftUI view backed by an
-  `@Observable` view model in `VaderCleaner/*ViewModel.swift`.
+  `@Observable` view model in `VaderCleanerCore/Sources/VaderCleanerCore/*ViewModel.swift`.
 - **Collaborators are injected as closures.** Every view model takes its
   scanners, removers, and system probes as closure properties with a `live()`
   production factory. This is what makes the suite hermetic — tests drive the
   real state machine against fakes, never a mock framework.
-- **Scanners** (`VaderCleaner/*Scanner.swift`) walk the filesystem off the main
-  actor and stream progress back. They are `Sendable` values.
-- **Stores** (`VaderCleaner/*Store.swift`) own persisted preferences and scan
-  scope, all `@Observable` and main-actor isolated.
+- **Scanners** (`VaderCleanerCore/Sources/VaderCleanerCore/*Scanner.swift`) walk
+  the filesystem off the main actor and stream progress back. They are
+  `Sendable` values.
+- **Stores** (`VaderCleanerCore/Sources/VaderCleanerCore/*Store.swift`) own
+  persisted preferences and scan scope, all `@Observable` and main-actor
+  isolated.
 - **First run** — `WelcomeView` covers the whole window until the user hands
   themselves off (optionally straight into a first Smart Scan). Each step
   borrows a real `NavigationSection.theme`, so the window recolours through the
@@ -134,9 +174,12 @@ lint suggestions in this repo were unsound and would not have compiled.
   tiers. `SmartScanViewModel` turns that into the checklist, the results feed,
   the per-finding Review screens, and the Run receipt.
 - **Privileged operations** go over XPC to `VaderCleanerHelper` (an SMAppService
-  bundle daemon). The protocol lives in `Shared/HelperProtocol.swift`, so it is
-  compiled into both targets; changing it means updating the helper, the app,
-  and every test spy together.
+  bundle daemon). The protocol lives in
+  `VaderCleanerCore/Sources/VaderCleanerCore/Shared/HelperProtocol.swift`: part
+  of the core, and also compiled straight into the helper, which doesn't link
+  the rest of it. Changing it means updating the helper, the app, and every
+  test spy together. Files in `Shared/` can't use `Bundle.module` — the helper
+  has none.
 
 ## Conventions
 
@@ -170,7 +213,7 @@ lint suggestions in this repo were unsound and would not have compiled.
   - Suites that touch process-wide state (the `UserDefaults` argument domain,
     a shared singleton) run `@Suite(.serialized)`; everything else runs in
     parallel by default.
-  - `pollUntil` (`VaderCleanerTests/ObservationRecording.swift`) is the
+  - `pollUntil` (`VaderCleanerCore/Tests/VaderCleanerCoreTests/ObservationRecording.swift`) is the
     framework-agnostic polling helper — use it from Swift Testing with
     `#expect(await pollUntil { ... })`. `waitUntil` is its XCTest-only
     `XCTFail`-reporting wrapper; keep using it from XCTest suites.
@@ -180,9 +223,10 @@ lint suggestions in this repo were unsound and would not have compiled.
 ## Concurrency
 
 Everything builds in the **Swift 6 language mode** with 0 warnings — the app,
-`Shared/`, the helper, **and both test targets**. Keep it that way; the test
-targets count, and a clean incremental build is not evidence, because only
-recompiled files re-emit warnings. To check honestly:
+the `VaderCleanerCore` package, the helper, **and all three test targets**.
+Keep it that way; the test targets count, and a clean incremental build is not
+evidence, because only recompiled files re-emit warnings. To check honestly
+(the scheme covers the package and its tests too):
 
 ```bash
 xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal"
@@ -203,8 +247,10 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   are `@MainActor`. Callbacks AppKit delivers on the main thread use
   `MainActor.assumeIsolated` rather than hopping through a `Task`, so UI updates
   don't land a frame late.
-- Test doubles record through `TestBox` (`VaderCleanerTests/Helpers`), since a
-  `@Sendable` closure cannot capture a local `var`.
+- Test doubles record through `TestBox`
+  (`VaderCleanerCore/Tests/VaderCleanerCoreTests/Helpers`, which the hosted
+  target compiles too), since a `@Sendable` closure cannot capture a local
+  `var`.
 - `XCTestCase` subclasses that touch main-actor state are `@MainActor`, and they
   override the **async** lifecycle hooks (`setUp() async throws` /
   `tearDown() async throws`). The sync `setUp()` / `setUpWithError()` are

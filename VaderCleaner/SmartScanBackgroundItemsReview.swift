@@ -2,6 +2,7 @@
 // Background Items "Manager" for Smart Scan — the shared three-pane manager in read-only mode over the launch agents/daemons found, with an "Open Performance" jump-link. Smart Scan never disables or removes an agent itself.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Background Items Review, rendered through the shared `SmartScanReviewManager`
 /// in read-only mode. Disabling a launch agent is a deliberate, potentially

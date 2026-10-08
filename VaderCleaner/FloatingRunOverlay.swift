@@ -2,6 +2,7 @@
 // The floating Run disc for Smart Scan's results dashboard — hosted in the same child panel as the Scan disc so it straddles the main window's bottom edge with matching size and position.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The floating Run button for the Smart Scan results dashboard. Mirrors the
 /// shape of `FloatingScanOverlay` so the disc inside the borderless child

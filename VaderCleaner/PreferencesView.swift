@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 /// Shared layout metrics so every tab's header and content line up on one grid
 /// — the same left edge, top offset, and header-to-content gap across all six

@@ -2,6 +2,7 @@
 // FDA onboarding sheet — explains why VaderCleaner needs Full Disk Access and links to System Settings.
 
 import SwiftUI
+import VaderCleanerCore
 
 struct PermissionOnboardingView: View {
     @Environment(AppState.self) private var appState

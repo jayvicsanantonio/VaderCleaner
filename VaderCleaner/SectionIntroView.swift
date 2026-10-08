@@ -3,6 +3,7 @@
 
 import SwiftUI
 import RealityKit
+import VaderCleanerCore
 
 /// A scannable section's intro screen. Renders the section's hero, title,
 /// one-line tagline, and the descriptive feature rows summarizing what the

@@ -1,0 +1,212 @@
+// ApplicationsManagerModel.swift
+// Pure facet, filter, and sort helpers behind the Applications Manager's Uninstaller pane — turns the installed-app list plus measured sizes/dates into the middle-column facet counts and the filtered, sorted right-hand list.
+
+import Foundation
+
+/// The Applications Manager's top-level panes, picked from its left-hand nav.
+/// Declared beside the model rather than nested in `ApplicationsManagerView`,
+/// so the per-pane rules below are written against it without reaching into
+/// the view.
+public enum AppManagerPane: Hashable, Sendable {
+    case uninstaller
+    case updater
+    case extensions
+    case leftovers
+    case unsupported
+}
+
+/// The ordering options offered by the Applications Manager's "Sort by:" menu.
+/// A dedicated enum (rather than the shared `ManagerSort`) because this surface
+/// also sorts by an app's last-opened date.
+public enum AppManagerSort: String, CaseIterable, Identifiable, Sendable {
+    case name
+    case lastOpened
+    case size
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .name:
+            return String(localized: "Name", bundle: .module, comment: "Applications Manager sort option ordering alphabetically.")
+        case .lastOpened:
+            return String(localized: "Last Opened", bundle: .module, comment: "Applications Manager sort option ordering by most-recently-opened.")
+        case .size:
+            return String(localized: "Size", bundle: .module, comment: "Applications Manager sort option ordering by size, largest first.")
+        }
+    }
+}
+
+/// A selectable facet in the Uninstaller pane's middle column. Mirrors the
+/// reference layout: the top group (All / Unused / Suspicious / Selected), then
+/// a store group, then a per-vendor group.
+public enum AppManagerFacet: Hashable, Sendable {
+    case all
+    case unused
+    case selected
+    case store(isAppStore: Bool)
+    case vendor(AppVendor)
+    /// Homebrew packages — a parallel list (formulae + casks) shown under the
+    /// Stores group. Not an `AppInfo` filter: the pane swaps in the brew list
+    /// and dispatches removal through Homebrew rather than the Trash recycler.
+    case homebrew
+}
+
+/// What a manager's item list should render.
+///
+/// `loading` applies only to an *empty* list: a pane that already has
+/// results must keep showing them through a refresh, because blanking a
+/// populated list to a spinner loses the user's place for no gain.
+public enum ManagerListState: Equatable, Sendable {
+    case loading
+    case empty
+    case content
+}
+
+/// Stateless derivations over the installed-app list. Kept separate from the
+/// view so the facet counts, filtering, and ordering are unit-testable without
+/// SwiftUI — the same split as `MyClutterManagerModel`.
+public enum ApplicationsManagerModel {
+
+    /// Updates tallied by channel, with an entry for **every** source.
+    ///
+    /// Complete rather than sparse so the facet column can be derived by
+    /// iterating `UpdateSource.allCases`. The count it replaces was
+    /// `total - appStore`, which silently absorbed a third channel the
+    /// day one was added: Homebrew-managed rows started counting as Web.
+    /// A subtraction cannot be made exhaustive; a tally can.
+    public static func updateStoreCounts(_ updates: [UpdateInfo]) -> [UpdateSource: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: UpdateSource.allCases.map { ($0, 0) })
+        for update in updates { counts[update.source, default: 0] += 1 }
+        return counts
+    }
+
+    /// The sort options a pane can actually honour.
+    ///
+    /// Not every pane has every dimension: updates carry no size or
+    /// last-opened date, extensions have no last-opened, and unsupported
+    /// apps have no measured size. Offering an option a pane ignores is
+    /// the same defect as showing a control that does nothing — the
+    /// header already hides the menu for Homebrew facets on exactly this
+    /// reasoning, and this applies it everywhere.
+    ///
+    /// A pane with one option gets no menu at all: there is no choice to
+    /// present.
+    public static func sortOptions(for pane: AppManagerPane) -> [AppManagerSort] {
+        switch pane {
+        case .uninstaller:  return [.name, .lastOpened, .size]
+        case .extensions:   return [.name, .size]
+        case .leftovers:    return [.name, .size]
+        case .unsupported:  return [.name, .lastOpened]
+        case .updater:      return [.name]
+        }
+    }
+
+    /// The sort a pane will actually apply, falling back to `.name` when
+    /// the carried selection isn't one it supports. Switching from a pane
+    /// sorted by size to one that has no sizes must not silently leave
+    /// the header claiming an ordering that isn't in effect.
+    public static func resolvedSort(
+        _ sort: AppManagerSort,
+        for pane: AppManagerPane
+    ) -> AppManagerSort {
+        sortOptions(for: pane).contains(sort) ? sort : .name
+    }
+
+    /// Whether an item matches the manager's search field.
+    ///
+    /// `identifier` is the bundle ID or path, searched alongside the
+    /// display name. Panes previously disagreed about this — typing a
+    /// bundle ID found apps in the Uninstaller and nothing in the
+    /// Updater — so the rule lives here rather than being restated per
+    /// pane.
+    public static func matchesSearch(_ search: String, name: String, identifier: String? = nil) -> Bool {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        if name.localizedCaseInsensitiveContains(trimmed) { return true }
+        guard let identifier else { return false }
+        return identifier.localizedCaseInsensitiveContains(trimmed)
+    }
+
+    /// Which state a manager list should render.
+    ///
+    /// An empty list while work is still running is not the same as an
+    /// empty result, and the empty states in this manager assert facts —
+    /// "Everything is in order", "No browser extensions were found". Said
+    /// before the scan finishes, those are simply untrue.
+    public static func listState(isLoading: Bool, isEmpty: Bool) -> ManagerListState {
+        guard isEmpty else { return .content }
+        return isLoading ? .loading : .empty
+    }
+
+    /// Count of App Store vs. non-App-Store apps, off `AppInfo.isAppStore`.
+    public static func storeCounts(apps: [AppInfo]) -> (appStore: Int, other: Int) {
+        var appStore = 0
+        for app in apps where app.isAppStore { appStore += 1 }
+        return (appStore, apps.count - appStore)
+    }
+
+    /// The vendors actually present, each with its app count, ordered by count
+    /// descending (ties broken by vendor title) so the busiest vendor leads.
+    public static func vendorCounts(apps: [AppInfo]) -> [(vendor: AppVendor, count: Int)] {
+        var counts: [AppVendor: Int] = [:]
+        for app in apps {
+            counts[AppVendor.of(bundleID: app.bundleID), default: 0] += 1
+        }
+        return counts
+            .map { (vendor: $0.key, count: $0.value) }
+            .sorted {
+                $0.count != $1.count ? $0.count > $1.count : $0.vendor.title < $1.vendor.title
+            }
+    }
+
+    /// Applies the active facet and the search query to the app list. Search is
+    /// a case-insensitive substring match on the name or bundle ID.
+    public static func filter(
+        _ apps: [AppInfo],
+        facet: AppManagerFacet,
+        search: String,
+        unusedIDs: Set<AppInfo.ID>,
+        selectedIDs: Set<AppInfo.ID>
+    ) -> [AppInfo] {
+        let faceted = apps.filter { app in
+            switch facet {
+            case .all:                      return true
+            case .unused:                   return unusedIDs.contains(app.id)
+            case .selected:                 return selectedIDs.contains(app.id)
+            case .store(let isAppStore):    return app.isAppStore == isAppStore
+            case .vendor(let vendor):       return AppVendor.of(bundleID: app.bundleID) == vendor
+            // Homebrew is a parallel list, not an app filter — the pane renders
+            // the brew list directly and never calls this with `.homebrew`, but
+            // the switch must stay exhaustive.
+            case .homebrew:                 return false
+            }
+        }
+        return faceted.filter {
+            matchesSearch(search, name: $0.name, identifier: $0.bundleID)
+        }
+    }
+
+    /// Orders the apps for display. Size and last-opened are descending (largest
+    /// / most-recent first). Last-opened rides on `AppInfo` (resolved during
+    /// discovery); size is passed in because it is measured lazily, and apps
+    /// still missing a size sink to the end so a half-built size cache never
+    /// floats unmeasured rows to the top.
+    public static func sort(
+        _ apps: [AppInfo],
+        by sort: AppManagerSort,
+        sizes: [AppInfo.ID: Int64]
+    ) -> [AppInfo] {
+        switch sort {
+        case .name:
+            return apps.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        case .size:
+            return apps.sorted { (sizes[$0.id] ?? -1) > (sizes[$1.id] ?? -1) }
+        case .lastOpened:
+            let floor = Date.distantPast
+            return apps.sorted { ($0.lastUsedDate ?? floor) > ($1.lastUsedDate ?? floor) }
+        }
+    }
+}

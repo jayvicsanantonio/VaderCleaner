@@ -1,0 +1,406 @@
+// HealthMonitorViewModel.swift
+// View-model behind the Health Monitor — formats SystemStatsService values into card-ready display strings and traffic-light status colors.
+
+import Foundation
+import Observation
+
+/// Drives the Health Monitor feature view.
+///
+/// The view-model is intentionally thin: it holds a reference to
+/// `SystemStatsService` (the live polling source) and exposes computed
+/// properties that render the tracked service state into card-ready strings
+/// and `StatusColor` values.
+///
+/// All formatting and color-mapping logic is exposed as `static` pure
+/// functions so unit tests can pin the rules without instantiating a service
+/// or driving real CPU/RAM/disk telemetry. Instance properties simply forward
+/// the live service state through those formatters.
+@MainActor
+@Observable
+public final class HealthMonitorViewModel {
+
+    /// Live data source. Held strongly. The service itself is app-scope
+    /// (`VaderCleanerApp.systemStats`) and outlives every view-model derived
+    /// from it, so the strong reference does not extend its lifetime.
+    ///
+    /// No manual republish bridge: under the Observation framework SwiftUI
+    /// tracks the read chain `view → vm.someComputed → service.someProperty`
+    /// transparently, so a service tick directly invalidates any view
+    /// reading the matching computed property here.
+    public let service: SystemStatsService
+
+    public init(service: SystemStatsService) {
+        self.service = service
+    }
+
+    /// Name of the boot volume (e.g. "Macintosh HD"), read once at creation —
+    /// it never changes for the life of the view-model and the hero card
+    /// shows it on every render, so resolving it per-render would be wasteful.
+    public let diskVolumeName: String = HealthMonitorViewModel.rootVolumeName()
+
+    /// Apple Silicon chip name (e.g. "Apple M3 Max"), read once — it's fixed
+    /// hardware, shown in the hero's system snapshot.
+    public let chipName: String = HealthMonitorViewModel.readChipName()
+
+    /// Running OS version (e.g. "macOS 26.1"), read once at creation.
+    public let osVersion: String = HealthMonitorViewModel.osVersionString(
+        ProcessInfo.processInfo.operatingSystemVersion
+    )
+
+    /// Live system uptime as a compact string (e.g. "4d 3h") for the hero's
+    /// system snapshot.
+    public var uptime: String { Self.uptimeString(ProcessInfo.processInfo.systemUptime) }
+
+    // MARK: - Live-bound display values
+
+    public var cpuPercent: String { Self.cpuPercentString(service.cpuUsage) }
+    public var cpuRatio: Double { Self.cpuRatio(service.cpuUsage) }
+
+    public var ramUsage: String { Self.ramUsageString(service.ramUsage) }
+    public var ramPressureLevel: MemoryPressureLevel { service.ramUsage.pressureLevel }
+    public var ramPressureLabel: String { Self.pressureLabel(for: ramPressureLevel) }
+
+    public var diskUsage: String { Self.diskSpaceString(service.diskSpace) }
+    public var diskRatio: Double { Self.diskUsageRatio(service.diskSpace) }
+
+    public var batteryAvailability: BatteryAvailability { service.batteryAvailability }
+
+    public var smartStatus: SMARTStatus { service.diskSMARTStatus }
+    public var smartLabel: String { Self.smartLabel(for: smartStatus) }
+
+    public var fileVaultState: FileVaultState { service.fileVaultState }
+    public var fileVaultIconName: String { Self.fileVaultIconName(for: fileVaultState) }
+    public var fileVaultLabel: String { Self.fileVaultLabel(for: fileVaultState) }
+
+    // MARK: - Mac Health hero verdict
+
+    /// Single overall verdict the hero card renders, or `nil` while the boot
+    /// volume is still unmeasured (so the hero shows "Measuring…" instead of
+    /// a confident verdict off zero data on the first tick).
+    public var macHealth: MacHealthStatus? {
+        Self.macHealthStatus(disk: service.diskSpace, smart: smartStatus, battery: batteryAvailability)
+    }
+
+    /// "121 GB of 494 GB used" line shown beneath the volume name in the hero.
+    public var diskUsageDetail: String { Self.diskUsageDetailString(service.diskSpace) }
+
+    // MARK: - Pure formatters / color rules
+
+    /// Derives the overall Mac Health verdict with a problem-based model that
+    /// mirrors CleanMyMac: the Mac is Excellent until a concrete problem is
+    /// detected, and the verdict is the worst tier any tracked factor produces
+    /// (no compounding, no double-counting). Only the factors CleanMyMac counts
+    /// that we can observe drive it — disk hardware health (SMART), battery
+    /// health, and low disk space. Transient readings (RAM pressure, CPU load)
+    /// and the FileVault toggle keep their own cards but never drag the overall
+    /// verdict, so a momentary CPU spike or a half-full disk no longer reads as
+    /// "Fair".
+    ///
+    /// Returns `nil` when the volume is unmeasured (`totalBytes == 0`) so the
+    /// hero can show a neutral measuring state rather than a confident verdict
+    /// off a zero reading.
+    nonisolated static func macHealthStatus(
+        disk: DiskStats,
+        smart: SMARTStatus,
+        battery: BatteryAvailability
+    ) -> MacHealthStatus? {
+        guard disk.totalBytes > 0 else { return nil }
+
+        let tiers = [
+            diskSpaceTier(for: disk),
+            smartTier(for: smart),
+            batteryTier(for: battery)
+        ]
+        // `MacHealthStatus` orders worst-to-best, so the minimum tier is the
+        // worst problem found. With every factor healthy the minimum is the
+        // best tier — Excellent.
+        return tiers.min() ?? .excellent
+    }
+
+    /// The verdict a surface actually renders: the shared derivation, capped
+    /// at Good until the Mac has been scanned once. "Excellent" alongside a
+    /// "run your first scan" prompt contradicts itself, so pre-first-scan no
+    /// surface claims more than Good. The cap only ever lowers — a real
+    /// problem (Fair or worse) passes through untouched — and the measuring
+    /// state (`nil`) is preserved. Both the hero and the menu bar panel render
+    /// through this one rule so they can never disagree about the same Mac.
+    public static func displayedHealth(_ base: MacHealthStatus?, hasScanned: Bool) -> MacHealthStatus? {
+        guard let base else { return nil }
+        guard !hasScanned else { return base }
+        return min(base, .good)
+    }
+
+    /// Low-disk-space contribution to the verdict. A disk under the card's
+    /// warning threshold is not a problem at all (Excellent); only a genuinely
+    /// full disk escalates. The 0.80 / 0.95 edges line up with
+    /// `diskWarningThreshold` / `diskCriticalThreshold` so the verdict and the
+    /// Disk Space card's status dot never tell contradictory stories.
+    nonisolated static func diskSpaceTier(for stats: DiskStats) -> MacHealthStatus {
+        let ratio = diskUsageRatio(stats)
+        if ratio >= 0.98 { return .critical }
+        if ratio >= diskCriticalThreshold { return .requiresAttention }
+        if ratio >= 0.90 { return .fair }
+        if ratio >= diskWarningThreshold { return .good }
+        return .excellent
+    }
+
+    /// Disk hardware-health contribution. A failing SMART self-assessment is the
+    /// most serious problem — the user needs to back up immediately — so it
+    /// forces `.critical`. `.good` and `.unknown` are not problems.
+    nonisolated static func smartTier(for status: SMARTStatus) -> MacHealthStatus {
+        switch status {
+        case .failing: return .critical
+        case .good, .unknown: return .excellent
+        }
+    }
+
+    /// Battery-health contribution. Only the conditions that mean the battery
+    /// needs service count as a problem, matching CleanMyMac's "critical battery
+    /// health" factor. A healthy, absent, unknown, or merely-unreadable
+    /// condition is never penalized — capacity fade alone does not lower the
+    /// overall verdict.
+    nonisolated static func batteryTier(for availability: BatteryAvailability) -> MacHealthStatus {
+        guard case .present(let stats) = availability else { return .excellent }
+        switch stats.condition {
+        case "Service Battery", "Service Recommended", "Replace Soon", "Replace Now", "Permanent Failure":
+            return .requiresAttention
+        default:
+            return .excellent
+        }
+    }
+
+    /// "121 GB of 494 GB used" — the hero's disk line. Phrased as
+    /// "used of total" (rather than the cards' "used / total") to match the
+    /// dashboard hero layout.
+    static func diskUsageDetailString(_ stats: DiskStats) -> String {
+        let used = SystemStatsFormatters.byteString(stats.usedBytes)
+        let total = SystemStatsFormatters.byteString(stats.totalBytes)
+        let format = String(
+            localized: "%@ of %@ used",
+            bundle: .module,
+            comment: "Hero disk usage line, for example 121 GB of 494 GB used"
+        )
+        return String(format: format, used, total)
+    }
+
+    /// Reads the Apple Silicon chip name from `sysctl` (e.g. "Apple M3 Max").
+    /// Returns an empty string if the query fails, so the caller can omit the
+    /// row rather than show a placeholder.
+    static func readChipName() -> String {
+        var size = 0
+        guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
+            return ""
+        }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
+            return ""
+        }
+        // `String(cString:)` is deprecated; decode up to the null terminator.
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// Formats an OS version as `"macOS <major>.<minor>"` — the patch level is
+    /// dropped so the hero row stays short.
+    static func osVersionString(_ version: OperatingSystemVersion) -> String {
+        "macOS \(version.majorVersion).\(version.minorVersion)"
+    }
+
+    /// Formats an uptime interval as the two largest non-zero units, so the
+    /// hero row stays compact: days+hours, else hours+minutes, else minutes.
+    /// Negative inputs clamp to zero.
+    static func uptimeString(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
+    }
+
+    /// Reads the boot volume's display name from the filesystem. Falls back to
+    /// the conventional default if the lookup fails (it shouldn't for "/").
+    static func rootVolumeName() -> String {
+        let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey])
+        return values?.volumeName ?? "Macintosh HD"
+    }
+
+    /// Formats a unit-interval CPU usage to an integer percentage. Inputs
+    /// outside `[0, 1]` clamp at the boundary — the service is expected to
+    /// clamp first, but the formatter is the last line of defence and is
+    /// reused by the menu bar and Smart Scan.
+    static func cpuPercentString(_ usage: Double) -> String {
+        SystemStatsFormatters.cpuPercentString(usage)
+    }
+
+    /// Returns `usage` clamped to `[0, 1]`. Drives the CPU progress bar.
+    static func cpuRatio(_ usage: Double) -> Double {
+        SystemStatsFormatters.unitRatio(usage)
+    }
+
+    /// Formats RAM byte counts as `"used / total"` in GB. We force the GB unit
+    /// (rather than letting `ByteCountFormatter` pick) so 8 GB never renders
+    /// as "8,000 MB" on a non-en locale and so the card width stays stable.
+    static func ramUsageString(_ stats: MemoryStats) -> String {
+        SystemStatsFormatters.memoryUsageString(stats)
+    }
+
+    /// `usedBytes / totalBytes` clamped to `[0, 1]` for the Memory card's fill
+    /// ring. Returns `0` for zero-byte totals (pre-first-refresh) so the ring
+    /// stays empty rather than NaN.
+    public static func ramUsageRatio(_ stats: MemoryStats) -> Double {
+        guard stats.totalBytes > 0 else { return 0.0 }
+        let raw = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return max(0.0, min(1.0, raw))
+    }
+
+    /// Formats disk byte counts identically to RAM — see `ramUsageString` for
+    /// rationale on locking the unit.
+    static func diskSpaceString(_ stats: DiskStats) -> String {
+        SystemStatsFormatters.diskUsageString(stats)
+    }
+
+    /// `usedBytes / totalBytes` clamped to `[0, 1]`. Returns `0` for zero-byte
+    /// totals (pre-first-refresh) so the % bar stays empty rather than NaN.
+    nonisolated static func diskUsageRatio(_ stats: DiskStats) -> Double {
+        guard stats.totalBytes > 0 else { return 0.0 }
+        let raw = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return max(0.0, min(1.0, raw))
+    }
+
+    /// Disk fullness color. Below 80% green, 80–95% yellow, above red.
+    /// Boundaries are inclusive at the lower bound (a disk exactly at 80%
+    /// flips to yellow), matching `MemoryPressureLevel`'s convention.
+    public static func diskColor(for stats: DiskStats) -> StatusColor {
+        let ratio = diskUsageRatio(stats)
+        if ratio < diskWarningThreshold { return .green }
+        if ratio < diskCriticalThreshold { return .yellow }
+        return .red
+    }
+
+    /// Threshold at which the disk card flips from green to yellow.
+    /// Disk fullness is a near-permanent state — anything ≥ 80% warrants
+    /// surfacing in the UI because reclaiming space is slow user work.
+    nonisolated static let diskWarningThreshold = 0.80
+
+    /// Threshold at which the disk card flips from yellow to red.
+    nonisolated static let diskCriticalThreshold = 0.95
+
+    /// Threshold at which the CPU card flips from green to yellow. Kept
+    /// separate from `diskWarningThreshold` (even though the initial values
+    /// match) because CPU and disk thresholds tune independently — a
+    /// compile-host machine pegging CPU at 95% is normal, while a disk at
+    /// 95% full is not.
+    static let cpuWarningThreshold = 0.80
+
+    /// Threshold at which the CPU card flips from yellow to red.
+    static let cpuCriticalThreshold = 0.95
+
+    /// CPU load color from a unit-interval ratio. Same shape as
+    /// `diskColor(for:)`; thresholds are independent so the two metrics can
+    /// evolve apart.
+    public static func cpuColor(for usage: Double) -> StatusColor {
+        let ratio = cpuRatio(usage)
+        if ratio < cpuWarningThreshold { return .green }
+        if ratio < cpuCriticalThreshold { return .yellow }
+        return .red
+    }
+
+    /// Color for a memory-pressure bucket. Mirrors the disk ramp but reads
+    /// off `MemoryPressureLevel` (whose thresholds are pinned in
+    /// `SystemStatsService`).
+    public static func pressureColor(for level: MemoryPressureLevel) -> StatusColor {
+        SystemStatsFormatters.pressureColor(for: level)
+    }
+
+    /// Human-readable label for a memory-pressure bucket.
+    static func pressureLabel(for level: MemoryPressureLevel) -> String {
+        SystemStatsFormatters.pressureLabel(for: level)
+    }
+
+    /// Battery health color from explicit availability. `.unknown` and
+    /// `.absent` are both neutral gray; only a present battery can produce
+    /// health colors.
+    public static func batteryColor(for availability: BatteryAvailability) -> StatusColor {
+        guard case .present(let stats) = availability else { return .gray }
+        switch stats.condition {
+        case "Good", "Normal":
+            return .green
+        case "Service Battery", "Service Recommended", "Replace Soon", "Replace Now", "Permanent Failure":
+            return .red
+        default:
+            // "Fair", "Poor", "Unknown" or anything unrecognised → yellow.
+            // Unknown leans toward yellow rather than gray because the battery
+            // *exists* (we have a non-nil `BatteryStats`); the state is just
+            // ambiguous, which is itself worth surfacing.
+            return .yellow
+        }
+    }
+
+    /// The present battery's capacity as a unit-interval value for the card's
+    /// fill ring, clamped to `[0, 1]`. Absent and unknown batteries report `0`
+    /// so the ring renders empty rather than implying a full charge.
+    public static func batteryCapacityRatio(for availability: BatteryAvailability) -> Double {
+        guard case .present(let stats) = availability else { return 0.0 }
+        return max(0.0, min(1.0, stats.maxCapacityPercent))
+    }
+
+    /// Formats `maxCapacityPercent` (0.0–1.0) as an integer percentage.
+    public static func batteryCapacityString(_ stats: BatteryStats) -> String {
+        SystemStatsFormatters.batteryCapacityString(stats)
+    }
+
+    /// SMART status color. Only `.failing` warrants red — the user needs to
+    /// be backing up. `.unknown` is gray (no opinion) rather than yellow
+    /// because an Apple Silicon internal disk reporting "Verified" is the
+    /// common case and a USB enclosure declining to report SMART is not a
+    /// problem the user can act on.
+    public static func smartColor(for status: SMARTStatus) -> StatusColor {
+        switch status {
+        case .good: return .green
+        case .failing: return .red
+        case .unknown: return .gray
+        }
+    }
+
+    /// Human-readable SMART label.
+    static func smartLabel(for status: SMARTStatus) -> String {
+        switch status {
+        case .good: return "Good"
+        case .failing: return "Failing"
+        case .unknown: return "Unknown"
+        }
+    }
+
+    /// FileVault footer text. Unknown is distinct from a definitive Off so
+    /// the first render and previews do not imply encryption is disabled.
+    static func fileVaultLabel(for state: FileVaultState) -> String {
+        switch state {
+        case .unknown: return "FileVault: —"
+        case .off: return "FileVault: Off"
+        case .on: return "FileVault: On"
+        }
+    }
+
+    /// FileVault icon. Unknown uses an indeterminate symbol instead of the
+    /// open lock used for a definitive Off state.
+    static func fileVaultIconName(for state: FileVaultState) -> String {
+        switch state {
+        case .unknown: return "questionmark.circle"
+        case .off: return "lock.open"
+        case .on: return "lock.shield.fill"
+        }
+    }
+
+    /// FileVault color. Off is yellow rather than red because disabling
+    /// FileVault is a deliberate user choice, not a failure mode — the dot
+    /// flags it for visibility without alarmism. Unknown stays neutral.
+    public static func fileVaultColor(for state: FileVaultState) -> StatusColor {
+        switch state {
+        case .unknown: return .gray
+        case .off: return .yellow
+        case .on: return .green
+        }
+    }
+}

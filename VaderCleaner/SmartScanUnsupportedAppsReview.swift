@@ -2,6 +2,7 @@
 // Unsupported apps Review for Smart Scan — the shared three-pane manager over apps incompatible with this macOS, opt-in per app with real app icons. Removal moves the bundle to the Trash.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→app lookup the selection callbacks need. Built on the same
 /// background pass as the section model so the main thread never rebuilds it;

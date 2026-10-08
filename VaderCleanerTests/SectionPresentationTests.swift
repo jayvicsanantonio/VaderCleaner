@@ -5,6 +5,7 @@ import XCTest
 import AppKit
 import SwiftUI
 @testable import VaderCleaner
+@testable import VaderCleanerCore
 
 final class SectionPresentationTests: XCTestCase {
 

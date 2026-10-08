@@ -2,6 +2,7 @@
 // The "Applications Manager" — a white-card, three-pane CleanMyMac-style surface (left nav → middle facets → right item list + footer action) modeled on the My Clutter Manager, hosting the Uninstaller, Updater, Extensions, and Leftovers panes.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Three-pane manager reached from the Applications dashboard's "Manage My
 /// Applications" card and the cleanup cards' Review actions. The chrome (white
@@ -26,13 +27,7 @@ struct ApplicationsManagerView: View {
     private let isPresented: Bool
     private let onBack: () -> Void
 
-    enum Pane: Hashable {
-        case uninstaller
-        case updater
-        case extensions
-        case leftovers
-        case unsupported
-    }
+    typealias Pane = AppManagerPane
 
     /// A place in the manager a dashboard card can deep-link straight to, so
     /// every "Review" button lands on the pane (and facet / leftover section)

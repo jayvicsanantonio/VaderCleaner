@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import VaderCleanerCore
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState

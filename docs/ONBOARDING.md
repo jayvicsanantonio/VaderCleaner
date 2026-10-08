@@ -49,7 +49,15 @@ Build:
 xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-Run the unit suite (~70 seconds):
+Run the unit tests. Nearly all of them are in the `VaderCleanerCore` package
+and run without the app (~25 seconds from clean, ~10 warm):
+
+```bash
+swift test --package-path VaderCleanerCore
+```
+
+The rest need the app around them — views, the asset catalog, notifications —
+and run hosted inside a launched VaderCleaner.app:
 
 ```bash
 xcodebuild test -project VaderCleaner.xcodeproj -scheme VaderCleaner -destination 'platform=macOS' -only-testing:VaderCleanerTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="skip-dev-seal"
@@ -65,8 +73,8 @@ unrecognized".
 - **`DefaultBrewRunnerTests` / `ProcessLineStreamerTests` can hang forever.**
   Not fail — hang. A grandchild process survives `Process.terminate()` and
   keeps its inherited copy of the stdout pipe open, so the reader never sees
-  EOF. `pkill -f xcodebuild` and re-run, or pass
-  `-skip-testing:` for both (which is what CI does). If you changed
+  EOF. `pkill -f xctest` and re-run, or pass
+  `--skip` for both to `swift test` (which is what CI does). If you changed
   `ProcessLineStreamer` or `DefaultBrewRunner`, you **must** run them locally —
   CI skips them, so developer machines are the only coverage.
 - **UI tests can't run from a terminal here.** The XCUITest runner is
@@ -114,9 +122,9 @@ Only when you need them:
 - **`CareScanEngine.swift` + `CarePlan.swift`** — Smart Scan. It runs scan
   units concurrently and produces a `CarePlan` of `CareFinding`s carrying
   safety tiers. It's the most intricate feature; don't start here.
-- **`Shared/HelperProtocol.swift`** — the XPC interface to the privileged
-  helper. Compiled into *both* targets, so changing it means updating the
-  helper, the app, and every test spy together.
+- **`Shared/HelperProtocol.swift`** (in the core package) — the XPC interface
+  to the privileged helper. Compiled into *both* the core and the helper, so
+  changing it means updating the helper, the app, and every test spy together.
 - **`ManagerItemTable.swift`** — an `NSTableView` bridged into SwiftUI. It
   exists because SwiftUI lists jank at tens of thousands of rows and a junk
   category can hold far more.
@@ -155,7 +163,8 @@ should not add one. If something is hard to test, the answer is almost always
 
 Two supporting rules:
 
-- Tests record through `TestBox` (`VaderCleanerTests/Helpers/TestBox.swift`),
+- Tests record through `TestBox`
+  (`VaderCleanerCore/Tests/VaderCleanerCoreTests/Helpers/TestBox.swift`),
   because a `@Sendable` closure cannot capture a local `var`.
 - `XCTestCase` subclasses that touch main-actor state are `@MainActor` and
   override the **async** lifecycle hooks (`setUp() async throws`). The sync
@@ -226,10 +235,14 @@ malware threats, and background items are uncapped. An eagerly-built stack of
 
 ## 6. Adding a feature: the recipe
 
-1. Add the file to the right directory, then `xcodegen generate`.
+1. Add the file to the right directory. Anything that doesn't draw — no
+   SwiftUI view or style, AppKit view or window, or `NSApp` — goes in the core
+   package (`VaderCleanerCore/Sources/VaderCleanerCore/`), which picks it up
+   on its own; mark what the app uses `public`. Views go in `VaderCleaner/`,
+   followed by `xcodegen generate`.
 2. Start the file with the two-line comment: filename, then what it does.
-   Every source file in the app, `Shared/`, and the helper does this without
-   exception; keep the streak.
+   Every source file in the app, the core package, and the helper does this
+   without exception; keep the streak.
 3. **Write the test first.** This repo practises TDD, and the suite is
    hermetic — real state machines against fake closures.
 4. Inject collaborators as closures; add a `live()` factory for production.
@@ -254,10 +267,12 @@ past lint suggestions in this repo were unsound and would not have compiled.
 ## 7. Where things live
 
 ```
-VaderCleaner/          the app — views, view models, scanners, stores
-Shared/                types compiled into BOTH the app and the helper
+VaderCleaner/          the app — views, styles, windows, the app entry point
+VaderCleanerCore/      Swift package: view models, scanners, stores, models
+  Sources/…/Shared/    types compiled into BOTH the core and the helper
+  Tests/               unit tests that run without the app (~2,100 of them)
 VaderCleanerHelper/    the privileged XPC daemon (runs as root)
-VaderCleanerTests/     unit tests (~2,270 of them)
+VaderCleanerTests/     unit tests that need the app (~200 of them)
 VaderCleanerUITests/   XCUITests — run these from Xcode
 Scripts/               build-phase scripts (ClamAV staging, dev signing)
 docs/                  design notes; docs/history/ is a historical record

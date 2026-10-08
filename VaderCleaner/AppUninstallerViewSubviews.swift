@@ -3,6 +3,7 @@
 
 import AppKit
 import SwiftUI
+import VaderCleanerCore
 
 enum AppUninstallerFormatting {
     /// Finder-matching file-style byte string, formatted through the shared

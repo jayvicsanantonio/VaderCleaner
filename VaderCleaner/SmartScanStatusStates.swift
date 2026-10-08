@@ -2,6 +2,7 @@
 // Smart Scan's transient full-screen states: the Run-in-progress indicator, the plain-language receipt, and the scan-failed screen.
 
 import SwiftUI
+import VaderCleanerCore
 
 // MARK: - Progress
 

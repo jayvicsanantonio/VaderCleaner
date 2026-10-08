@@ -4,6 +4,7 @@
 import SwiftUI
 import QuickLookThumbnailing
 import AppKit
+import VaderCleanerCore
 
 /// One card on the My Clutter dashboard: a clutter category with findings, or
 /// an "all good" reassurance card used to backfill the grid to its minimum

@@ -2,6 +2,7 @@
 // The Protection Manager — a white-card, CleanMyMac-style three-pane surface. The Privacy pane lists each browser's data categories with custom glossy icons, info popovers for non-removable categories, expandable per-item rows (cookies/downloads by domain), and per-item selection; the Malware Removal pane lists detected threats. Self-contained within the Protection section.
 
 import SwiftUI
+import VaderCleanerCore
 
 struct ProtectionManagerView: View {
 

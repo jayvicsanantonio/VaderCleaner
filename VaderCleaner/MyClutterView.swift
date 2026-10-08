@@ -2,6 +2,7 @@
 // My Clutter section detail: switches between the scanning state, the four-card results dashboard, and the My Clutter Manager review screen (deep-linked to the tapped card's category).
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Detail view for the My Clutter section. Owns the transient "which review is
 /// open" navigation state and renders the dashboard, the review screen, or the

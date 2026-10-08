@@ -1,0 +1,35 @@
+// ScanProgressFormatting.swift
+// Shared, localized copy + number formatting for the live "it's still scanning" feedback shown under each scan's progress indicator.
+
+import Foundation
+
+/// One place for the strings and number formatting the scanning screens use to
+/// reassure the user a scan is advancing. Centralised so every section reads
+/// identically and locale grouping (`Int.formatted()`) is applied consistently.
+public enum ScanProgressFormatting {
+
+    /// "12,431 items" — the live walked-count line shown under the "Scanning…"
+    /// label on the open-ended file-walk scans (Large & Old Files, System Junk,
+    /// Smart Scan, Privacy). The label already carries the verb, so this line is
+    /// just the magnitude — no "Scanned" prefix or trailing ellipsis, which
+    /// would double up with the label. Grouping separators come from the user's
+    /// locale via `Int.formatted()`.
+    public static func itemsScanned(_ count: Int) -> String {
+        let formatted = count.formatted()
+        // Pick a singular template at count == 1 — Privacy and the early
+        // ticks of any scan can land there — so the readout never says
+        // "1 items".
+        let template = count == 1
+            ? String(
+                localized: "%@ item",
+                bundle: .module,
+                comment: "Live progress count, singular, shown under the Scanning label while an open-ended scan walks the file system; %@ is a localized item count of one."
+            )
+            : String(
+                localized: "%@ items",
+                bundle: .module,
+                comment: "Live progress count shown under the Scanning label while an open-ended scan walks the file system; %@ is a localized item count."
+            )
+        return String.localizedStringWithFormat(template, formatted)
+    }
+}

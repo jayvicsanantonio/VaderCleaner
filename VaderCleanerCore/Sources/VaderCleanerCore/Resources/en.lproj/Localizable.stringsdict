@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>%d threats found</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@threats@ found</string>
+        <key>threats</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d threat</string>
+            <key>other</key>
+            <string>%d threats</string>
+        </dict>
+    </dict>
+    <key>%d login items</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d login item</string>
+            <key>other</key>
+            <string>%d login items</string>
+        </dict>
+    </dict>
+    <key>%d updates available</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@updates@ available</string>
+        <key>updates</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d update</string>
+            <key>other</key>
+            <string>%d updates</string>
+        </dict>
+    </dict>
+    <key>%d tasks due</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@tasks@ due</string>
+        <key>tasks</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d task</string>
+            <key>other</key>
+            <string>%d tasks</string>
+        </dict>
+    </dict>
+    <key>%d items</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d item</string>
+            <key>other</key>
+            <string>%d items</string>
+        </dict>
+    </dict>
+    <key>%d things worth doing — %@ can be freed safely.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@things@ worth doing — %@ can be freed safely.</string>
+        <key>things</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d thing</string>
+            <key>other</key>
+            <string>%d things</string>
+        </dict>
+    </dict>
+    <key>%d things worth doing.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@things@ worth doing.</string>
+        <key>things</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d thing</string>
+            <key>other</key>
+            <string>%d things</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

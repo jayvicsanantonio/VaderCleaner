@@ -2,6 +2,7 @@
 // The Applications Manager's Leftovers pane: the Installers / Leftover Files section column plus the matching file list.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Which sub-list the Leftovers pane shows in its right column.
 enum LeftoverSection: Hashable {

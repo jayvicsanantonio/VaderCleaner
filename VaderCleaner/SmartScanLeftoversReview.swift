@@ -2,6 +2,7 @@
 // App leftovers Review for Smart Scan — the shared three-pane manager over orphaned support files of uninstalled apps, opt-in per app with the files revealed as children.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Holds the id→group lookup the selection callbacks need. Built on the same
 /// background pass as the section model so the main thread never rebuilds it;

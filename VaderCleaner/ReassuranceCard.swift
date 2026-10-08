@@ -2,6 +2,7 @@
 // The shared "all good" dashboard tile used to backfill a section's grid to its minimum count when there aren't enough real findings to fill it.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// A calm, positive dashboard card shown when a section has fewer real findings
 /// than the minimum tile count. Shares the glass surface and corner radius of

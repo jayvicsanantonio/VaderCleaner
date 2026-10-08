@@ -2,6 +2,7 @@
 // Constants and shared subviews (header, selectable row, checkbox, empty and loading states) used across the Applications Manager panes.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Constants and helpers shared by the Applications Manager and its pane
 /// subviews. The accent is the standalone Manager magenta shared across the

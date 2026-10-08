@@ -2,6 +2,7 @@
 // The Applications Manager's Updater pane: the facet column plus the available-updates list.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// Middle-pane facet for the Updater pane.
 enum UpdaterFacet: Hashable {

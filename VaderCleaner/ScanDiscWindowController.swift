@@ -3,6 +3,7 @@
 
 import AppKit
 import SwiftUI
+import VaderCleanerCore
 
 /// Manages a borderless `NSPanel`, attached as a child of the app's main
 /// window, that hosts the floating Scan disc. A child panel is the only way to

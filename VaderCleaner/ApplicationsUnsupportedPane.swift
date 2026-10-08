@@ -2,6 +2,7 @@
 // The Applications Manager's Unsupported pane: the apps that cannot run on this macOS, each with a checkbox.
 
 import SwiftUI
+import VaderCleanerCore
 
 /// The Unsupported pane — a single-section column plus the list of apps that
 /// can't run on this macOS, each with a checkbox. Selection lives on
