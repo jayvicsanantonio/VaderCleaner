@@ -40,7 +40,7 @@ enum ProcessLineStreamer {
     /// is SIGTERM-ed via `Process.terminate()`. clamscan exits within a
     /// second, the read loop sees EOF, and `run()` returns the (signal-
     /// derived) termination status to the caller. Without this the
-    /// detached read loop would block on `waitUntilExit()` forever and
+    /// detached read loop would wait on the child forever and
     /// the child would outlive its parent — a real concern in the
     /// Malware Removal flow where the user can cancel mid-scan or quit
     /// the app while clamscan is still walking the home directory.
@@ -79,6 +79,15 @@ enum ProcessLineStreamer {
             process.standardError = FileHandle.nullDevice
         }
 
+        // Left once the child exits. The read loop waits on this rather than
+        // `waitUntilExit()`, which can wait forever on a child that has
+        // already exited — see `DefaultBrewRunner.runCapturing` for why. Set
+        // before launch, so the handler is in place however quickly the child
+        // exits.
+        let exited = DispatchGroup()
+        exited.enter()
+        process.terminationHandler = { _ in exited.leave() }
+
         // Launch synchronously before the cancellation handler is wired
         // up so a fast cancellation can't see `process.isRunning == false`
         // and skip the terminate() — the handler only fires after this
@@ -106,7 +115,9 @@ enum ProcessLineStreamer {
                 // EOF — the process closed stdout without a final newline.
                 emit(buffer, to: onLine)
 
-                process.waitUntilExit()
+                await withCheckedContinuation { continuation in
+                    exited.notify(queue: .global()) { continuation.resume() }
+                }
                 return process.terminationStatus
             }.value
         } onCancel: {

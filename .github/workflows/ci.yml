@@ -112,21 +112,7 @@ jobs:
           swift --version
 
       - name: Test VaderCleanerCore
-        run: |
-          # DefaultBrewRunner and ProcessLineStreamer are skipped: they spawn
-          # child processes and can wedge the whole test process at teardown
-          # — a leaked grandchild holding the stdout pipe's write end keeps
-          # the test process alive — rather than failing. One run sat for 37
-          # minutes before being cancelled.
-          #
-          # This gives up the only coverage of subprocess cancellation and
-          # pipe-EOF handling, which is the code whose real failure mode is a
-          # scan that never returns. The suites still run locally
-          # (`swift test --package-path VaderCleanerCore` with no --skip), so
-          # the coverage is deferred to a developer machine, not deleted.
-          swift test --package-path VaderCleanerCore \
-            --skip DefaultBrewRunnerTests \
-            --skip ProcessLineStreamerTests
+        run: swift test --package-path VaderCleanerCore
 
   lint:
     runs-on: macos-26
