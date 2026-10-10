@@ -26,4 +26,14 @@ final class TestBox<Value>: @unchecked Sendable {
         get { lock.withLock { storage } }
         set { lock.withLock { storage = newValue } }
     }
+
+    /// Runs `body` against the value under a single lock acquisition.
+    ///
+    /// `value.append(_:)` is a separate get and set, so two threads doing it at
+    /// once can lose one of the appends. A read-modify-write that has to be
+    /// atomic — appending to a log and reading back its new length, say — goes
+    /// through here instead.
+    func withLock<Result>(_ body: (inout Value) throws -> Result) rethrows -> Result {
+        try lock.withLock { try body(&storage) }
+    }
 }

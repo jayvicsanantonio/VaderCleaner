@@ -75,6 +75,7 @@
 		61C66E58D4DCA2759E35FAC3 /* SmartScanStatusStates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A990C87AEDE5DAF5D2FCDAC7 /* SmartScanStatusStates.swift */; };
 		62008FB47BE4AAA0214310C4 /* MyClutterFolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA622E5E85D2E2FD626F480C /* MyClutterFolderPicker.swift */; };
 		62A51901AE4CA4CE8FB58349 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 46466A1909A880757A7C4B31 /* Localizable.strings */; };
+		62DCED1CDCE2A907F1F73D10 /* HelperProtocolSpy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25887D736DC42A4B13A045B7 /* HelperProtocolSpy.swift */; };
 		67B6E2F0F779AF28BBBA00C1 /* ScanDiscHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3655EDEA0B38D11EFCE61986 /* ScanDiscHostView.swift */; };
 		6902C7298B34C1DD1DFABCCF /* CleanupCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AE1D0804B8FCB3DD9A50123 /* CleanupCardTests.swift */; };
 		6A34CA9DF4F4B0D1326A965C /* performance.usdz in Resources */ = {isa = PBXBuildFile; fileRef = B51321F0F77F5813E6777822 /* performance.usdz */; };
@@ -231,6 +232,7 @@
 		215EFDDDC81E5E7C6DBD72AB /* SmartScanApplicationsReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanApplicationsReview.swift; sourceTree = "<group>"; };
 		24196A23E9B3D20BE9A50B84 /* SmartScanUnsupportedAppsReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartScanUnsupportedAppsReview.swift; sourceTree = "<group>"; };
 		24633693DA0109BA4809355D /* MyClutterThumbnailStripItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyClutterThumbnailStripItemTests.swift; sourceTree = "<group>"; };
+		25887D736DC42A4B13A045B7 /* HelperProtocolSpy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperProtocolSpy.swift; sourceTree = "<group>"; };
 		2605C9D00F82838A6A9D11A3 /* SystemJunkDashboardSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemJunkDashboardSubviews.swift; sourceTree = "<group>"; };
 		2659D57635179FE36BEC0366 /* WebDevScanFolderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDevScanFolderPicker.swift; sourceTree = "<group>"; };
 		2B14F49807367DE2ABB76753 /* FloatingScanButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingScanButton.swift; sourceTree = "<group>"; };
@@ -392,6 +394,7 @@
 			isa = PBXGroup;
 			children = (
 				B190774692285AA026AB01E6 /* ConcurrencyPeakTracker.swift */,
+				25887D736DC42A4B13A045B7 /* HelperProtocolSpy.swift */,
 				ED9237DC6C31AF0B00142B6F /* TestBox.swift */,
 				76AAFE68E825ABF25884D805 /* TestHelpers.swift */,
 			);
@@ -866,6 +869,7 @@
 				ED8B418807B92B25701D1947 /* CoreResourceBundleTests.swift in Sources */,
 				99B965EE0BB2762D13896FF6 /* EmptyStateFullDiskAccessTests.swift in Sources */,
 				FE156E2CD69BA8F894E9078D /* FloatingScanButtonTests.swift in Sources */,
+				62DCED1CDCE2A907F1F73D10 /* HelperProtocolSpy.swift in Sources */,
 				250889E632F3F3F6E0C37E2B /* LargeOldFilesSummaryTests.swift in Sources */,
 				C789001CAAACBF6DE4388751 /* ManagerContentTokenTests.swift in Sources */,
 				70010C6EFD37532FC548F632 /* ManagerPresentationHostTests.swift in Sources */,
