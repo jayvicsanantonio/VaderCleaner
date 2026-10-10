@@ -124,7 +124,8 @@ Only when you need them:
   safety tiers. It's the most intricate feature; don't start here.
 - **`Shared/HelperProtocol.swift`** (in the core package) — the XPC interface
   to the privileged helper. Compiled into *both* the core and the helper, so
-  changing it means updating the helper, the app, and every test spy together.
+  changing it means updating the helper, the app, and the shared test spy
+  (`HelperProtocolSpy`) together.
 - **`ManagerItemTable.swift`** — an `NSTableView` bridged into SwiftUI. It
   exists because SwiftUI lists jank at tens of thousands of rows and a junk
   category can hold far more.

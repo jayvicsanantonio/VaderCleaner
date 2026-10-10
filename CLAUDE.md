@@ -186,9 +186,10 @@ lint suggestions in this repo were unsound and would not have compiled.
   bundle daemon). The protocol lives in
   `VaderCleanerCore/Sources/VaderCleanerCore/Shared/HelperProtocol.swift`: part
   of the core, and also compiled straight into the helper, which doesn't link
-  the rest of it. Changing it means updating the helper, the app, and every
-  test spy together. Files in `Shared/` can't use `Bundle.module` — the helper
-  has none.
+  the rest of it. Changing it means updating the helper, the app, and the one
+  test spy every suite shares (`HelperProtocolSpy`, in the core tests'
+  `Helpers/`) together. Files in `Shared/` can't use `Bundle.module` — the
+  helper has none.
 
 ## Conventions
 

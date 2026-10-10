@@ -7,17 +7,18 @@ import XCTest
 final class RAMManagerTests: XCTestCase {
 
     func test_flush_invokesHelperAndSucceeds() async throws {
-        let helper = SpyFlushHelper(replyError: nil)
+        let helper = HelperProtocolSpy()
         let manager = RAMManager(helperProvider: { _ in helper })
 
         try await manager.flush()
 
-        XCTAssertTrue(helper.flushCalled)
+        XCTAssertTrue(helper.calledSelectors.contains(.flushInactiveMemory))
     }
 
     func test_flush_throwsWhenHelperRepliesError() async {
         struct Boom: Error {}
-        let helper = SpyFlushHelper(replyError: Boom())
+        let helper = HelperProtocolSpy()
+        helper.setReply(.failure(Boom()), for: .flushInactiveMemory)
         let manager = RAMManager(helperProvider: { _ in helper })
 
         do {
@@ -44,7 +45,7 @@ final class RAMManagerTests: XCTestCase {
         struct Dropped: Error {}
         let manager = RAMManager(helperProvider: { errorHandler in
             DispatchQueue.global().async { errorHandler(Dropped()) }
-            return DroppingFlushHelper()
+            return HelperProtocolSpy(defaultReply: .drop)
         })
 
         do {
@@ -54,40 +55,4 @@ final class RAMManagerTests: XCTestCase {
             // Expected — did not hang.
         }
     }
-}
-
-/// `@unchecked Sendable`: a test spy whose state is written once by the helper
-/// call and read by the assertion after it, never concurrently.
-private final class SpyFlushHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    private let replyError: Error?
-    private(set) var flushCalled = false
-
-    init(replyError: Error?) { self.replyError = replyError }
-
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) { reply(nil) }
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {
-        flushCalled = true
-        reply(replyError)
-    }
-    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
-}
-
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class DroppingFlushHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
-    func flushDNSCache(reply: @escaping (Error?) -> Void) {}
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }

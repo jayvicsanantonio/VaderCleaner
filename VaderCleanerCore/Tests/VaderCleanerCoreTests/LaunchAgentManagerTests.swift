@@ -184,7 +184,7 @@ final class LaunchAgentManagerTests: XCTestCase {
         )
         try data.write(to: plistURL)
 
-        let fake = FakeRemovalHelper()
+        let fake = HelperProtocolSpy()
         let manager = LaunchAgentManager(
             userAgentsDirectory: tempDir,
             systemAgentDirectories: [systemDir],
@@ -198,7 +198,7 @@ final class LaunchAgentManagerTests: XCTestCase {
 
         // Directory enumeration resolves the /var → /private/var symlink on
         // the temp path, so match by suffix rather than the absolute string.
-        let received = try XCTUnwrap(fake.removedLaunchAgentPath)
+        let received = try XCTUnwrap(fake.removeLaunchAgentPaths.last)
         XCTAssertTrue(
             received.hasSuffix("/system/com.sys.daemon.plist"),
             "Helper received unexpected path: \(received)"
@@ -290,24 +290,4 @@ final class LaunchAgentManagerTests: XCTestCase {
         )
         try data.write(to: tempDir.appendingPathComponent(name))
     }
-}
-
-/// Captures the path passed to `removeLaunchAgent` and replies success.
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class FakeRemovalHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    private(set) var removedLaunchAgentPath: String?
-
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) { reply(nil) }
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {
-        removedLaunchAgentPath = path
-        reply(nil)
-    }
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }
