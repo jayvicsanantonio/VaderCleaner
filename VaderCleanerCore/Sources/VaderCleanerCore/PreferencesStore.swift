@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import os.log
 
 /// How often the "Remind me to run a Smart Scan" notification repeats.
 public enum SmartCareFrequency: String, CaseIterable, Identifiable, Sendable {
@@ -106,8 +107,10 @@ public final class PreferencesStore {
 
     /// Side-effect contract for the `launchAtLogin` toggle. Production passes
     /// `LoginItemManager.setEnabled`; tests pass `nil` so writing to
-    /// `launchAtLogin` is a pure model mutation.
-    public typealias LaunchAtLoginHandler = @MainActor (Bool) throws -> Void
+    /// `launchAtLogin` is a pure model mutation. `@Sendable` because the store
+    /// calls it off the main actor: `SMAppService.register()` and
+    /// `unregister()` block until launchd answers.
+    public typealias LaunchAtLoginHandler = @Sendable (Bool) throws -> Void
 
     /// Reported when applying the launch-at-login change to launchd fails. The
     /// app layer surfaces this via `NSAlert`; the model stays UI-free.
@@ -353,7 +356,7 @@ public final class PreferencesStore {
             // so it sets `isApplyingLaunchAtLogin` to skip this path and avoid a
             // duplicate SMAppService write (issue #65).
             guard !isApplyingLaunchAtLogin else { return }
-            applyLaunchAtLogin(revertingTo: oldValue)
+            applyLaunchAtLogin()
         }
     }
 
@@ -442,6 +445,20 @@ public final class PreferencesStore {
     /// failed apply reverts it — so the property's `didSet` skips re-applying a
     /// side effect it has already run.
     @ObservationIgnored private var isApplyingLaunchAtLogin = false
+    /// What launchd last accepted, and so what the toggle goes back to when a
+    /// write fails. Seeded with the persisted preference: that is the value
+    /// `init`'s reconcile pushes, and a failed reconcile should leave the
+    /// stored choice standing rather than invent its opposite.
+    @ObservationIgnored private var acceptedLaunchAtLogin: Bool
+    /// The newest launch-at-login write. Each write waits for the one before
+    /// it, so writes reach launchd one at a time and in the order they were
+    /// made.
+    @ObservationIgnored private var launchAtLoginWrite: Task<Void, any Error>?
+    /// Counts the launch-at-login writes requested so far, so a finished write
+    /// can tell whether a newer one has superseded it.
+    @ObservationIgnored private var launchAtLoginWriteGeneration = 0
+    @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
+                                                 category: "PreferencesStore")
 
     public init(
         defaults: UserDefaults = .standard,
@@ -487,7 +504,9 @@ public final class PreferencesStore {
         self.installUpdatesAutomatically = Self.bool(defaults, Key.installUpdatesAutomatically, default: Self.defaultInstallUpdatesAutomatically)
         self.notifyDefinitionsStale = Self.bool(defaults, Key.notifyDefinitionsStale, default: Self.defaultNotifyDefinitionsStale)
         self.notificationSoundsEnabled = Self.bool(defaults, Key.notificationSoundsEnabled, default: Self.defaultNotificationSoundsEnabled)
-        self.launchAtLogin = Self.bool(defaults, Key.launchAtLogin, default: Self.defaultLaunchAtLogin)
+        let storedLaunchAtLogin = Self.bool(defaults, Key.launchAtLogin, default: Self.defaultLaunchAtLogin)
+        self.launchAtLogin = storedLaunchAtLogin
+        self.acceptedLaunchAtLogin = storedLaunchAtLogin
         self.showMenuBar = Self.bool(defaults, Key.showMenuBar, default: Self.defaultShowMenuBar)
         self.keepDockIcon = Self.bool(defaults, Key.keepDockIcon, default: Self.defaultKeepDockIcon)
         self.statsUpdateInterval = (defaults.object(forKey: Key.statsUpdateInterval) as? Double)
@@ -518,7 +537,9 @@ public final class PreferencesStore {
         // Reconcile the persisted preference with launchd's actual state once
         // the tracked properties are populated. The handler's presence is the
         // signal that we're in production wiring (tests pass nil); skipping in
-        // tests keeps unit tests from mutating the host's login items.
+        // tests keeps unit tests from mutating the host's login items. The
+        // write runs off the main actor, so the app's launch never waits on
+        // launchd.
         if launchAtLoginHandler != nil {
             applyLaunchAtLogin()
         }
@@ -568,46 +589,93 @@ public final class PreferencesStore {
     /// `SMAppService` access in one place (issue #65) — but rethrows any failure
     /// to the caller instead of routing it to the global alert reporter, so the
     /// error can be shown inline without double-reporting. On success it updates
-    /// and persists the tracked value, keeping the Preferences toggle in lockstep.
-    func setLaunchAtLogin(_ enabled: Bool) throws {
-        // Apply first so a failure propagates before the model changes. The
-        // tracked-value update below would otherwise re-apply via `didSet`, so
-        // guard it to keep the handler running exactly once per change.
-        if let handler = launchAtLoginHandler {
-            try handler(enabled)
-        }
-        isApplyingLaunchAtLogin = true
-        launchAtLogin = enabled
-        isApplyingLaunchAtLogin = false
+    /// and persists the tracked value, keeping the Preferences toggle in lockstep
+    /// — unless a newer change was made while launchd answered, which then
+    /// decides it. Returns once launchd has answered.
+    func setLaunchAtLogin(_ enabled: Bool) async throws {
+        // The tracked value only moves once the write succeeds, so a failure
+        // propagates before the model changes. The write updates it behind
+        // `isApplyingLaunchAtLogin`, keeping the handler running exactly once
+        // per change.
+        try await writeLaunchAtLogin(enabled, reportingFailure: false).value
+    }
+
+    /// Returns once every launch-at-login write requested so far has finished.
+    /// For a reader that must see launchd's answer rather than the state the
+    /// write is replacing — the Performance Login Items row re-reads
+    /// `SMAppService` after each change.
+    func waitForLaunchAtLoginWrites() async {
+        _ = await launchAtLoginWrite?.result
     }
 
     /// Pushes the current `launchAtLogin` value through the injected handler
     /// (in production, `LoginItemManager.setEnabled`). Errors are forwarded to
     /// the optional reporter so the App layer can surface an alert without
     /// coupling the model to AppKit.
-    ///
-    /// `previous` is the value the toggle was at before this change. On failure
-    /// the tracked value goes back to it, because launchd is still there: the
-    /// write is what failed. Without the revert the model — and `UserDefaults`
-    /// — would claim a state the login item never reached, and `init`'s
-    /// reconcile would re-attempt (and re-alert on) that same failing write at
-    /// every launch, with no way to clear it from the toggle.
-    ///
-    /// The reconcile itself passes no `previous`: the persisted preference is
-    /// the only candidate there, so inventing its opposite would be a guess.
-    private func applyLaunchAtLogin(revertingTo previous: Bool? = nil) {
-        guard let handler = launchAtLoginHandler else { return }
-        do {
-            try handler(launchAtLogin)
-        } catch {
-            if let previous, previous != launchAtLogin {
-                // The nested `didSet` persists the restored value; the flag
-                // stops it from applying a side effect that just failed.
-                isApplyingLaunchAtLogin = true
-                launchAtLogin = previous
-                isApplyingLaunchAtLogin = false
+    private func applyLaunchAtLogin() {
+        guard launchAtLoginHandler != nil else { return }
+        writeLaunchAtLogin(launchAtLogin, reportingFailure: true)
+    }
+
+    /// Hands `enabled` to launchd through the injected handler, off the main
+    /// actor: `SMAppService.register()` and `unregister()` block until launchd
+    /// answers, and on the main actor that freezes the UI for as long as it
+    /// takes. The write waits for every earlier one first, so writes reach
+    /// launchd one at a time and in the order they were made. The returned
+    /// task finishes once launchd has answered, throwing whatever the handler
+    /// threw.
+    @discardableResult
+    private func writeLaunchAtLogin(_ enabled: Bool, reportingFailure: Bool) -> Task<Void, any Error> {
+        let handler = launchAtLoginHandler
+        let earlier = launchAtLoginWrite
+        launchAtLoginWriteGeneration += 1
+        let generation = launchAtLoginWriteGeneration
+        let write = Task {
+            _ = await earlier?.result
+            do {
+                if let handler {
+                    try await Task.detached(priority: .userInitiated) {
+                        try handler(enabled)
+                    }.value
+                }
+                acceptedLaunchAtLogin = enabled
+                finishLaunchAtLoginWrite(generation, failure: nil, reportingFailure: reportingFailure)
+            } catch {
+                finishLaunchAtLoginWrite(generation, failure: error, reportingFailure: reportingFailure)
+                throw error
             }
-            launchAtLoginErrorReporter?(error)
+        }
+        launchAtLoginWrite = write
+        return write
+    }
+
+    /// Settles the toggle once a write has finished. Only the newest write
+    /// decides what the toggle shows and whether a failure raises the alert;
+    /// one that a newer change has superseded leaves both to that change.
+    ///
+    /// The newest write brings the tracked value in line with what launchd
+    /// last accepted. After a failure that means going back, because launchd
+    /// is still there: the write is what failed. Without the revert the model
+    /// — and `UserDefaults` — would claim a state the login item never
+    /// reached, and `init`'s reconcile would re-attempt (and re-alert on) that
+    /// same failing write at every launch, with no way to clear it from the
+    /// toggle.
+    private func finishLaunchAtLoginWrite(_ generation: Int, failure: (any Error)?, reportingFailure: Bool) {
+        guard generation == launchAtLoginWriteGeneration else {
+            if let failure, reportingFailure {
+                log.error("Superseded launch-at-login write failed: \(failure.localizedDescription, privacy: .private)")
+            }
+            return
+        }
+        if launchAtLogin != acceptedLaunchAtLogin {
+            // The nested `didSet` persists the settled value; the flag stops
+            // it from sending launchd a write it has just answered.
+            isApplyingLaunchAtLogin = true
+            launchAtLogin = acceptedLaunchAtLogin
+            isApplyingLaunchAtLogin = false
+        }
+        if let failure, reportingFailure {
+            launchAtLoginErrorReporter?(failure)
         }
     }
 }

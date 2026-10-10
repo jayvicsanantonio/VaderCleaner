@@ -170,12 +170,12 @@ public final class PerformanceViewModel {
         // reload our row so the two surfaces never disagree in-session
         // (issue #65). The hop to a fresh `Task` per element is load-bearing,
         // not cosmetic: `withObservationTracking`'s `onChange` fires
-        // synchronously in `willSet`, before `PreferencesStore`'s `didSet`
-        // has applied the change to `SMAppService`. Re-reading the live
-        // login-item status synchronously there would observe the *old*
-        // status — `launchAtLoginChanges(for:)` already defers its yield
-        // past that point, so consuming the stream here just needs to await
-        // each element in turn.
+        // synchronously in `willSet`, before `PreferencesStore` has even
+        // queued the change for `SMAppService`, which it then applies off the
+        // main actor. Re-reading the live login-item status any earlier would
+        // observe the *old* status — `launchAtLoginChanges(for:)` defers its
+        // yield until that write has landed, so consuming the stream here
+        // just needs to await each element in turn.
         if let launchAtLoginChanges {
             launchAtLoginObserverTask = Task { [weak self] in
                 for await _ in launchAtLoginChanges {
@@ -591,11 +591,10 @@ extension PerformanceViewModel {
             // registration so `setLoginItem` can surface it inline instead of
             // the global "Launch at Login" alert.
             setLoginItemEnabled: { enabled, _ in
-                // Hops to the store's isolation; the registration itself is
-                // main-actor work, so this only makes the existing hop explicit.
-                try await MainActor.run {
-                    try preferences.setLaunchAtLogin(enabled)
-                }
+                // The store queues the registration behind any write still in
+                // flight and runs it off the main actor; this returns once
+                // launchd has answered.
+                try await preferences.setLaunchAtLogin(enabled)
             },
             // A login item macOS holds in `.requiresApproval` can only be
             // approved by the user in System Settings; deep-link straight to
@@ -643,7 +642,8 @@ extension PerformanceViewModel {
     /// to the main actor before re-arming the registration —
     /// `withObservationTracking`'s `onChange` fires exactly once per
     /// registration, so the closure that wants a continuous stream must
-    /// re-register itself after every emission. Exposed `internal` so the
+    /// re-register itself after every change — and is yielded only once the
+    /// store's write to launchd has landed. Exposed `internal` so the
     /// integration test in `PerformanceViewModelTests` can wire up the
     /// same bridge `live()` builds and pin the willSet/didSet ordering.
     @MainActor
@@ -681,8 +681,14 @@ private final class LaunchAtLoginBridge: @unchecked Sendable {
             _ = preferences.launchAtLogin
         } onChange: { [self] in
             Task { @MainActor in
-                continuation.yield(())
+                // Re-arm before waiting, so a change made while this one's
+                // write is in flight still gets an element of its own.
                 arm()
+                // The toggle moves before launchd has the change — the store
+                // applies it off the main actor — and a row re-read any
+                // sooner would show the state being replaced.
+                await preferences.waitForLaunchAtLoginWrites()
+                continuation.yield(())
             }
         }
     }
