@@ -33,7 +33,9 @@ public enum LoginItemManager {
 
     /// Registers (or unregisters) the host app with launchd. No-op when the
     /// requested state already matches `service.status`, so this is safe to
-    /// call from a `didSet` that fires on every preference write.
+    /// call on every preference write. `register()` and `unregister()` block
+    /// until launchd answers, so `PreferencesStore` calls this off the main
+    /// actor.
     public static func setEnabled(_ enabled: Bool) throws {
         let service = SMAppService.mainApp
 

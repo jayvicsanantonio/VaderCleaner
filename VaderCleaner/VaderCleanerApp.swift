@@ -263,11 +263,12 @@ struct VaderCleanerApp: App {
     /// type (rather than inside the store) so the model layer remains free of
     /// AppKit references and continues to be unit-testable without `NSAlert`.
     ///
-    /// The alert is dispatched asynchronously because the very first call site
-    /// is `PreferencesStore.init` running inside `VaderCleanerApp.init()` —
-    /// before `NSApp` has finished launching. Presenting a modal there would
-    /// race the run loop and could deadlock startup. The async hop guarantees
-    /// the alert lands after the app is up.
+    /// The alert is dispatched asynchronously because the very first report
+    /// can come from the reconcile `PreferencesStore.init` starts inside
+    /// `VaderCleanerApp.init()`, and launchd may answer it before `NSApp` has
+    /// finished launching. Presenting a modal there would race the run loop
+    /// and could deadlock startup. The async hop guarantees the alert lands
+    /// after the app is up.
     @MainActor
     private static func presentLaunchAtLoginAlert(_ error: Error) {
         let description = error.localizedDescription
