@@ -9,17 +9,18 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
     // MARK: - DNS cache
 
     func test_dnsFlusher_invokesSelectorAndReturnsResult() async throws {
-        let helper = RecordingHelper(replyError: nil)
+        let helper = HelperProtocolSpy()
         let runner = DNSCacheFlusher(helperProvider: { _ in helper })
 
         let output = try await runner.run()
 
-        XCTAssertTrue(helper.calledSelectors.contains("flushDNSCache"))
+        XCTAssertTrue(helper.calledSelectors.contains(.flushDNSCache))
         XCTAssertFalse(output.isEmpty)
     }
 
     func test_dnsFlusher_throwsWhenHelperRepliesError() async {
-        let helper = RecordingHelper(replyError: Boom())
+        let helper = HelperProtocolSpy()
+        helper.setReply(.failure(Boom()), for: .flushDNSCache)
         let runner = DNSCacheFlusher(helperProvider: { _ in helper })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
@@ -35,7 +36,7 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
     func test_dnsFlusher_resolvesViaConnectionErrorHandlerWhenReplyDropped() async {
         let runner = DNSCacheFlusher(helperProvider: { errorHandler in
             DispatchQueue.global().async { errorHandler(Boom()) }
-            return DroppingHelper()
+            return HelperProtocolSpy(defaultReply: .drop)
         })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
@@ -43,17 +44,18 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
     // MARK: - Spotlight
 
     func test_spotlightReindexer_invokesSelectorAndReturnsResult() async throws {
-        let helper = RecordingHelper(replyError: nil)
+        let helper = HelperProtocolSpy()
         let runner = SpotlightReindexer(helperProvider: { _ in helper })
 
         let output = try await runner.run()
 
-        XCTAssertTrue(helper.calledSelectors.contains("reindexSpotlight"))
+        XCTAssertTrue(helper.calledSelectors.contains(.reindexSpotlight))
         XCTAssertFalse(output.isEmpty)
     }
 
     func test_spotlightReindexer_throwsWhenHelperRepliesError() async {
-        let helper = RecordingHelper(replyError: Boom())
+        let helper = HelperProtocolSpy()
+        helper.setReply(.failure(Boom()), for: .reindexSpotlight)
         let runner = SpotlightReindexer(helperProvider: { _ in helper })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
@@ -66,17 +68,18 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
     // MARK: - Time Machine
 
     func test_tmThinner_invokesSelectorAndReturnsResult() async throws {
-        let helper = RecordingHelper(replyError: nil)
+        let helper = HelperProtocolSpy()
         let runner = TimeMachineSnapshotThinner(helperProvider: { _ in helper })
 
         let output = try await runner.run()
 
-        XCTAssertTrue(helper.calledSelectors.contains("thinTimeMachineSnapshots"))
+        XCTAssertTrue(helper.calledSelectors.contains(.thinTimeMachineSnapshots))
         XCTAssertFalse(output.isEmpty)
     }
 
     func test_tmThinner_throwsWhenHelperRepliesError() async {
-        let helper = RecordingHelper(replyError: Boom())
+        let helper = HelperProtocolSpy()
+        helper.setReply(.failure(Boom()), for: .thinTimeMachineSnapshots)
         let runner = TimeMachineSnapshotThinner(helperProvider: { _ in helper })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
@@ -101,50 +104,4 @@ private func XCTAssertThrowsErrorAsync(
     } catch {
         // Expected.
     }
-}
-
-/// Records which protocol selectors were invoked and replies with a configured
-/// error. Replies success for the calls the runners under test don't make.
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class RecordingHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    private let replyError: Error?
-    private(set) var calledSelectors: [String] = []
-
-    init(replyError: Error?) { self.replyError = replyError }
-
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) { reply(nil) }
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushDNSCache(reply: @escaping (Error?) -> Void) {
-        calledSelectors.append("flushDNSCache")
-        reply(replyError)
-    }
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) {
-        calledSelectors.append("reindexSpotlight")
-        reply(replyError)
-    }
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {
-        calledSelectors.append("thinTimeMachineSnapshots")
-        reply(replyError)
-    }
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
-}
-
-/// Drops every reply block — models a dead NSXPCConnection where the
-/// connection-level error handler fires instead of the per-call reply.
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class DroppingHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
-    func flushDNSCache(reply: @escaping (Error?) -> Void) {}
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
 }

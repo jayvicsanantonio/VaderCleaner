@@ -7,18 +7,19 @@ import XCTest
 final class MaintenanceScriptRunnerTests: XCTestCase {
 
     func test_run_returnsNonEmptyResultOnSuccess() async throws {
-        let helper = SpyMaintenanceHelper(replyError: nil)
+        let helper = HelperProtocolSpy()
         let runner = MaintenanceScriptRunner(helperProvider: { _ in helper })
 
         let output = try await runner.run()
 
-        XCTAssertTrue(helper.runCalled)
+        XCTAssertTrue(helper.calledSelectors.contains(.runMaintenanceScripts))
         XCTAssertFalse(output.isEmpty)
     }
 
     func test_run_throwsWhenHelperRepliesError() async {
         struct Boom: Error {}
-        let helper = SpyMaintenanceHelper(replyError: Boom())
+        let helper = HelperProtocolSpy()
+        helper.setReply(.failure(Boom()), for: .runMaintenanceScripts)
         let runner = MaintenanceScriptRunner(helperProvider: { _ in helper })
 
         do {
@@ -46,7 +47,7 @@ final class MaintenanceScriptRunnerTests: XCTestCase {
         struct Dropped: Error {}
         let runner = MaintenanceScriptRunner(helperProvider: { errorHandler in
             DispatchQueue.global().async { errorHandler(Dropped()) }
-            return DroppingMaintenanceHelper()
+            return HelperProtocolSpy(defaultReply: .drop)
         })
 
         do {
@@ -56,40 +57,4 @@ final class MaintenanceScriptRunnerTests: XCTestCase {
             // Expected — did not hang.
         }
     }
-}
-
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class DroppingMaintenanceHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {}
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
-    func flushDNSCache(reply: @escaping (Error?) -> Void) {}
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
-}
-
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class SpyMaintenanceHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    private let replyError: Error?
-    private(set) var runCalled = false
-
-    init(replyError: Error?) { self.replyError = replyError }
-
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) { reply(nil) }
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {
-        runCalled = true
-        reply(replyError)
-    }
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }

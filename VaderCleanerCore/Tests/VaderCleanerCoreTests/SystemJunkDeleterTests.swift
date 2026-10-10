@@ -213,7 +213,7 @@ final class SystemJunkDeleterTests: XCTestCase {
 
     /// When a system-path file is in the batch, the helper proxy must be
     /// asked to delete it. We don't run a real privileged helper here —
-    /// instead, an injected `FakeHelper` records the paths it received so
+    /// instead, an injected `HelperProtocolSpy` records the paths it received so
     /// the test can assert the routing decision without launching XPC.
     func test_delete_systemPathRoutesThroughHelperAndCountsBytesOnSuccess() async throws {
         let userDir = tempRoot.appendingPathComponent("user-cache", isDirectory: true)
@@ -227,12 +227,12 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: systemURL, size: 250, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 
-        let fakeHelper = FakeHelper(replyError: nil)
+        let fakeHelper = HelperProtocolSpy()
         let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(bytesFreed, 350, "Both user (100) and helper-credited system (250) bytes count")
-        XCTAssertEqual(fakeHelper.receivedPaths, [systemURL.path])
+        XCTAssertEqual(fakeHelper.deleteFilesPaths, [systemURL.path])
     }
 
     /// If the helper reports an error, the system-path bytes must NOT be
@@ -249,7 +249,8 @@ final class SystemJunkDeleterTests: XCTestCase {
             ScannedFile(url: systemURL, size: 999, lastAccessDate: nil, lastModifiedDate: nil, category: .systemCache)
         ]
 
-        let fakeHelper = FakeHelper(replyError: NSError(domain: "test", code: 1))
+        let fakeHelper = HelperProtocolSpy()
+        fakeHelper.setReply(.failure(NSError(domain: "test", code: 1)), for: .deleteFiles)
         let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper }, trashItem: sandboxedTrash)
         let bytesFreed = try await deleter.delete(files)
 
@@ -273,7 +274,7 @@ final class SystemJunkDeleterTests: XCTestCase {
         // Deleter that never replies — only the error handler fires. Without
         // the per-call error sink, `withCheckedContinuation` would never
         // resume and this test would time out under XCTest's default cap.
-        let droppingHelper = DroppingReplyHelper()
+        let droppingHelper = HelperProtocolSpy(defaultReply: .drop)
         let deleter = SystemJunkDeleter(helperProvider: { errorHandler in
             // Simulate XPC delivering a connection-level error.
             errorHandler(NSError(domain: "test.xpc", code: 1, userInfo: [
@@ -319,7 +320,7 @@ final class SystemJunkDeleterTests: XCTestCase {
             )
         }
 
-        let fakeHelper = FakeHelper(replyError: nil)
+        let fakeHelper = HelperProtocolSpy()
         let deleter = SystemJunkDeleter(
             helperProvider: { _ in fakeHelper },
             trashItem: sandboxedTrash,
@@ -328,11 +329,11 @@ final class SystemJunkDeleterTests: XCTestCase {
         let bytesFreed = try await deleter.delete(files)
 
         XCTAssertEqual(
-            fakeHelper.receivedBatches.map(\.count), [2, 2, 1],
+            fakeHelper.deleteFilesBatches.map(\.count), [2, 2, 1],
             "paths must be split into XPC calls of at most the batch size"
         )
         XCTAssertEqual(
-            Set(fakeHelper.receivedPaths), Set(files.map { $0.url.path }),
+            Set(fakeHelper.deleteFilesPaths), Set(files.map { $0.url.path }),
             "every helper path must be sent exactly once across the batches"
         )
         XCTAssertEqual(bytesFreed, 50, "all bytes are credited when every chunk succeeds")
@@ -350,10 +351,8 @@ final class SystemJunkDeleterTests: XCTestCase {
         }
 
         // Batches with size 2: [f0,f1], [f2,f3], [f4]. Fail only the middle one.
-        let helper = BatchFailingHelper(
-            failingBatchIndex: 1,
-            error: NSError(domain: "test", code: 1)
-        )
+        let helper = HelperProtocolSpy()
+        helper.setReply(.failure(NSError(domain: "test", code: 1)), for: .deleteFiles, onCall: 1)
         let deleter = SystemJunkDeleter(
             helperProvider: { _ in helper },
             trashItem: sandboxedTrash,
@@ -361,96 +360,10 @@ final class SystemJunkDeleterTests: XCTestCase {
         )
         let bytesFreed = try await deleter.delete(files)
 
-        XCTAssertEqual(helper.receivedBatches.count, 3, "a failed chunk must not abort the remaining chunks")
+        XCTAssertEqual(helper.deleteFilesBatches.count, 3, "a failed chunk must not abort the remaining chunks")
         XCTAssertEqual(
             bytesFreed, 30,
             "only the two succeeded chunks (2 + 1 files × 10 bytes) are credited; the failed middle chunk is not"
         )
     }
-}
-
-// MARK: - Test doubles
-
-/// Minimal `VaderCleanerHelperProtocol` stand-in — captures the paths it was
-/// asked to delete and replies with the supplied error (or nil for success).
-/// Inherits from `NSObject` because the underlying protocol is `@objc`.
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class FakeHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    private let replyError: Error?
-    /// Every `deleteFiles` call's paths, in order — one entry per XPC message,
-    /// so chunking tests can assert how the paths were split.
-    private(set) var receivedBatches: [[String]] = []
-    /// Flattened view of all received paths, for callers that don't care about
-    /// batch boundaries.
-    var receivedPaths: [String] { receivedBatches.flatMap { $0 } }
-
-    init(replyError: Error?) {
-        self.replyError = replyError
-    }
-
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        receivedBatches.append(paths)
-        reply(replyError)
-    }
-
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
-}
-
-/// Helper stand-in that intentionally drops the reply block on the floor —
-/// models the real `NSXPCConnection` failure mode where the connection-level
-/// error handler fires instead of the per-call reply. The test confirms the
-/// awaiting `delete()` resolves anyway, via the per-call error sink.
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class DroppingReplyHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        // Intentionally no `reply(...)`.
-    }
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) {}
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) {}
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) {}
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) {}
-    func flushDNSCache(reply: @escaping (Error?) -> Void) {}
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) {}
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {}
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) {}
-}
-
-/// Helper stand-in that replies with an error only for the batch at
-/// `failingBatchIndex` (0-based call order), so a partial-failure test can
-/// verify the remaining chunks still run and succeeded chunks are credited.
-/// `@unchecked Sendable`: a test spy written by the helper call and read by the
-/// assertion after it, never concurrently.
-private final class BatchFailingHelper: NSObject, VaderCleanerHelperProtocol, @unchecked Sendable {
-    private let failingBatchIndex: Int
-    private let error: Error
-    private(set) var receivedBatches: [[String]] = []
-
-    init(failingBatchIndex: Int, error: Error) {
-        self.failingBatchIndex = failingBatchIndex
-        self.error = error
-    }
-
-    func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
-        let index = receivedBatches.count
-        receivedBatches.append(paths)
-        reply(index == failingBatchIndex ? error : nil)
-    }
-
-    func runMaintenanceScripts(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLoginItem(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func removeLaunchAgent(path: String, reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushInactiveMemory(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func flushDNSCache(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func reindexSpotlight(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) { reply(nil) }
-    func scanDocumentVersions(reply: @escaping ([String], [NSNumber], Error?) -> Void) { reply([], [], nil) }
 }
