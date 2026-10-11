@@ -39,7 +39,8 @@ Nine steps, and only steps 1–3 are one-time setup:
 1. Join the Apple Developer Program, create a **Developer ID Application**
    certificate
 2. Save notary credentials to your keychain
-3. Turn on hardened runtime and Developer ID signing for **Release** builds
+3. Turn on Developer ID signing for **Release** builds (the hardened runtime
+   is already on)
 4. `xcodebuild archive` → `xcodebuild -exportArchive`
 5. Verify the signature locally (free, instant — do this before wasting a
    notary round-trip)
@@ -168,7 +169,7 @@ spctl -a -t exec -vvv VaderCleaner.app
 | --- | --- | --- | --- |
 | Signature valid & unmodified | ✅ | ✅ | ✅ |
 | Developer ID certificate | ❌ (Apple Development) | ❌ | ❌ |
-| Hardened runtime | ❌ `flags=0x0(none)` | ❌ | ✅ `flags=0x10000(runtime)` |
+| Hardened runtime | ✅ `flags=0x10000(runtime)` | ✅ | ✅ `flags=0x10000(runtime)` |
 | Secure timestamp | ❌ | ❌ | ✅ |
 | Notarization ticket | ❌ | — | — |
 
@@ -182,8 +183,8 @@ missing the distribution certificate and the ticket.
 **ClamAV is already signed the right way.** `Scripts/stage-clamav.sh` reads
 `EXPANDED_CODE_SIGN_IDENTITY` from the build and, when a real identity is
 present, signs with `--options runtime --timestamp`. It will pick up your
-Developer ID certificate automatically, with no changes. The app and helper are
-the ones that need fixing.
+Developer ID certificate automatically, with no changes. The app and helper
+only need the certificate and the timestamp.
 
 The app also carries `com.apple.security.get-task-allow` — Xcode's debugger
 entitlement, which the notary service rejects. This one disappears on its own in
@@ -252,27 +253,17 @@ takes `--keychain-profile VaderNotary` and no secrets.
 
 ### Step 3 — Fix the Release build settings
 
-Two changes, both in `project.yml`, because this project generates its Xcode
+One change, in `project.yml`, because this project generates its Xcode
 project with XcodeGen. **Never edit `VaderCleaner.xcodeproj` by hand** — it gets
 regenerated and your changes vanish.
 
-**3a. Hardened runtime, Release only.** Today `project.yml` pins
-`ENABLE_HARDENED_RUNTIME: NO` for every configuration. Debug needs it off (it
-interferes with the debugger and with ad-hoc local signing); Release needs it on.
-Split it:
-
-```yaml
-settings:
-  base:
-    SWIFT_VERSION: "6.0"
-    MACOSX_DEPLOYMENT_TARGET: "26.0"
-    ENABLE_USER_SCRIPT_SANDBOXING: NO
-  configs:
-    Debug:
-      ENABLE_HARDENED_RUNTIME: NO
-    Release:
-      ENABLE_HARDENED_RUNTIME: YES
-```
+**3a. Hardened runtime — already on.** `project.yml` sets
+`ENABLE_HARDENED_RUNTIME: YES` for every configuration, Debug included, because
+the root helper's code-signing check depends on it: without it,
+`DYLD_INSERT_LIBRARIES` runs injected code inside the genuine signed app, which
+the helper then trusts. Debug builds still get Xcode's `get-task-allow`, so the
+debugger attaches as usual, and `Scripts/sign-dev.sh` signs ad-hoc builds
+without the runtime flag. Nothing to change here.
 
 **3b. Developer ID signing for Release.** The project maps both configurations to
 `Signing.xcconfig`, which deliberately signs with no identity. Follow the same

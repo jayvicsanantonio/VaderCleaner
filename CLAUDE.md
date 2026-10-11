@@ -273,6 +273,12 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
 - `ENABLE_USER_SCRIPT_SANDBOXING` must stay `NO` in `project.yml`. Xcode's
   "update to recommended settings" turns it on and breaks the ClamAV staging
   build phase.
+- `ENABLE_HARDENED_RUNTIME` must stay `YES`. The helper pins its XPC client to
+  the app's signing team (`HelperCodeSigningRequirements.peerRequirement`), and
+  without the hardened runtime `DYLD_INSERT_LIBRARIES` runs injected code inside
+  the genuine app, which then passes that pin. CoreLocation needs the
+  `personal-information.location` entitlement under it, which
+  `VaderCleaner.entitlements` carries.
 - `/usr/sbin/periodic` no longer exists on macOS 26; maintenance-script features
   are gated on its presence.
 - ClamAV is **bundled** (staged by `Scripts/stage-clamav.sh`), with Homebrew

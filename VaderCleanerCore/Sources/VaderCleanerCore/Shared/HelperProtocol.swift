@@ -39,17 +39,14 @@ enum HelperCodeSigningRequirements {
     ///      requirement is always `identifier "…" and anchor apple generic
     ///      and certificate leaf[subject.OU] = "<team>"`, so a mis-signed
     ///      build fails closed instead.
-    ///   2. Flip `ENABLE_HARDENED_RUNTIME` to YES in project.yml. It's
-    ///      required for notarization, and the app's JIT / unsigned-memory
-    ///      entitlements only take effect under the hardened runtime.
-    ///   3. (Optional, stricter) Prefer the bundled ClamAV over the
+    ///   2. (Optional, stricter) Prefer the bundled ClamAV over the
     ///      user-writable Homebrew fallbacks (`/opt/homebrew/bin`,
     ///      `/usr/local/bin`) in `ClamAVDetector` / `DatabaseUpdater` so a
     ///      planted binary there can't be run in a Release build.
     private static let releaseTeamIdentifier: String? = nil
 
     #if !DEBUG
-    #warning("Before distributing: set releaseTeamIdentifier to the Developer ID Team ID and enable the hardened runtime — see the checklist on releaseTeamIdentifier.")
+    #warning("Before distributing: set releaseTeamIdentifier to the Developer ID Team ID — see the checklist on releaseTeamIdentifier.")
     #endif
 
     /// How the running process is itself signed, which decides what it can
