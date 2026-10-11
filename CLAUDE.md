@@ -27,7 +27,7 @@ xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration D
 
 The unit tests are two suites:
 
-- **`VaderCleanerCoreTests`** — nearly all of them (1921 XCTest + 202 Swift
+- **`VaderCleanerCoreTests`** — nearly all of them (1921 XCTest + 210 Swift
   Testing tests). They test the `VaderCleanerCore` package directly and run
   hostless: no XcodeGen, no ClamAV staging, no app build, signing, or launch.
   ~25s from clean, ~10s warm:

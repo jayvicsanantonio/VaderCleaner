@@ -1,6 +1,8 @@
 // PerformanceViewModelTests.swift
 // Drives the PerformanceViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/remove — through injected fakes.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -404,24 +406,25 @@ final class PerformanceViewModelTests: XCTestCase {
         // mutates `loginEnabled`, exactly like the production single
         // write path through PreferencesStore.didSet.
         let loginEnabled = TestBox(false)
-        var handlerCalls = 0
+        let handlerCalls = TestBox(0)
         let prefs = PreferencesStore(
             defaults: defaults,
             launchAtLoginHandler: { enabled in
-                handlerCalls += 1
+                handlerCalls.value += 1
                 loginEnabled.value = enabled
             }
         )
-        // init's reconcile pushes the persisted value once; reset so the
-        // assertions below count only user-driven toggles.
-        handlerCalls = 0
+        // init's reconcile pushes the persisted value once; let it land, then
+        // reset so the assertions below count only user-driven toggles.
+        await prefs.waitForLaunchAtLoginWrites()
+        handlerCalls.value = 0
 
         let vm = makeViewModel(
             loadLoginItems: {
                 [LoginItem(id: "host", name: "VaderCleaner", isEnabled: loginEnabled.value)]
             },
             setLoginItemEnabled: { enabled, _ in
-                try await MainActor.run { try prefs.setLaunchAtLogin(enabled) }
+                try await prefs.setLaunchAtLogin(enabled)
             },
             launchAtLoginChanges: PerformanceViewModel.launchAtLoginChanges(for: prefs)
         )
@@ -432,7 +435,7 @@ final class PerformanceViewModelTests: XCTestCase {
         prefs.launchAtLogin = true
         await waitUntil { vm.loginItems.first?.isEnabled == true }
         XCTAssertEqual(vm.loginItems.first?.isEnabled, true)
-        XCTAssertEqual(handlerCalls, 1, "exactly one SMAppService write via the single path")
+        XCTAssertEqual(handlerCalls.value, 1, "exactly one SMAppService write via the single path")
 
         // Performance → Preferences.
         await vm.setLoginItem(
@@ -441,7 +444,7 @@ final class PerformanceViewModelTests: XCTestCase {
         )
         XCTAssertFalse(prefs.launchAtLogin, "Performance toggle writes through PreferencesStore")
         XCTAssertEqual(vm.loginItems.first?.isEnabled, false)
-        XCTAssertEqual(handlerCalls, 2, "no duplicated write path")
+        XCTAssertEqual(handlerCalls.value, 2, "no duplicated write path")
     }
 
     // MARK: - Agent disable / remove
@@ -709,5 +712,62 @@ final class PerformanceViewModelTests: XCTestCase {
             isEnabled: true,
             domain: domain
         )
+    }
+}
+
+/// `PreferencesStore` hands a launch-at-login change to launchd off the main
+/// actor, so the toggle has moved before launchd has the new state. The
+/// bridge behind the Performance Login Items row must not announce the change
+/// until the write has landed: a row re-read any earlier shows the state
+/// being replaced, and nothing announces the change again to correct it.
+@MainActor
+@Suite
+final class PerformanceViewModelLaunchAtLoginBridgeTests {
+
+    private let suiteName = "VaderCleanerTests.LaunchAtLoginBridge.\(UUID().uuidString)"
+    private let defaults: UserDefaults
+
+    init() {
+        defaults = UserDefaults(suiteName: suiteName)!
+    }
+
+    isolated deinit {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    @Test
+    func launchAtLoginChanges_announceAChangeOnlyOnceItsWriteHasLanded() async {
+        defaults.set(false, forKey: "preferences.launchAtLogin")
+        let gate = CallGate()
+        // Stand-in for launchd's registration, which only the handler changes.
+        let registered = TestBox(false)
+        let prefs = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { enabled in
+                if enabled { gate.hold() }
+                registered.value = enabled
+            }
+        )
+        await prefs.waitForLaunchAtLoginWrites()
+        // What a reload of the row would read each time the bridge announces
+        // a change.
+        let readOnEachChange = TestBox<[Bool]>([])
+        let changes = PerformanceViewModel.launchAtLoginChanges(for: prefs)
+        let reader = Task {
+            for await _ in changes {
+                readOnEachChange.value.append(registered.value)
+            }
+        }
+        defer { reader.cancel() }
+
+        prefs.launchAtLogin = true
+        #expect(await pollUntil { gate.isHolding })
+        let announcedEarly = await pollUntil(timeout: .milliseconds(200)) {
+            !readOnEachChange.value.isEmpty
+        }
+        #expect(!announcedEarly, "nothing is announced while launchd is still answering")
+        gate.open()
+
+        #expect(await pollUntil { readOnEachChange.value == [true] })
     }
 }

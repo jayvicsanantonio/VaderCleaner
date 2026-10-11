@@ -1,6 +1,8 @@
 // PreferencesStoreTests.swift
 // Tests that PreferencesStore exposes spec defaults and persists changes through an injected UserDefaults.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -199,44 +201,48 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(reader.trashSizeThresholdGB, PreferencesStore.defaultTrashSizeThresholdGB)
     }
 
-    func test_restoreDefaults_reappliesLaunchAtLoginThroughHandler() {
-        var received: [Bool] = []
+    func test_restoreDefaults_reappliesLaunchAtLoginThroughHandler() async {
+        let received = TestBox<[Bool]>([])
         let sut = PreferencesStore(
             defaults: defaults,
-            launchAtLoginHandler: { received.append($0) }
+            launchAtLoginHandler: { received.value.append($0) }
         )
         sut.launchAtLogin = false
-        received.removeAll()
+        await sut.waitForLaunchAtLoginWrites()
+        received.value.removeAll()
 
         sut.restoreDefaults()
+        await sut.waitForLaunchAtLoginWrites()
 
         // Restoring flips launchAtLogin back to its default and reconciles the
         // login item through the same handler a manual toggle uses.
         XCTAssertEqual(sut.launchAtLogin, PreferencesStore.defaultLaunchAtLogin)
-        XCTAssertEqual(received, [PreferencesStore.defaultLaunchAtLogin])
+        XCTAssertEqual(received.value, [PreferencesStore.defaultLaunchAtLogin])
     }
 
     // MARK: - Launch-at-login wiring
 
-    func test_didSet_invokesLaunchAtLoginHandler() {
+    func test_didSet_invokesLaunchAtLoginHandler() async {
         // Each handler invocation appends the value it received so we can
         // assert on both the initial reconcile and the user-driven toggle.
-        var received: [Bool] = []
+        let received = TestBox<[Bool]>([])
         let sut = PreferencesStore(
             defaults: defaults,
-            launchAtLoginHandler: { received.append($0) }
+            launchAtLoginHandler: { received.value.append($0) }
         )
 
         // The reconcile in init runs before the test mutates anything, so we
         // clear the captured values to focus the assertion on the didSet.
-        received.removeAll()
+        await sut.waitForLaunchAtLoginWrites()
+        received.value.removeAll()
 
         sut.launchAtLogin = false
+        await sut.waitForLaunchAtLoginWrites()
 
-        XCTAssertEqual(received, [false])
+        XCTAssertEqual(received.value, [false])
     }
 
-    func test_handlerThrows_invokesErrorReporter() {
+    func test_handlerThrows_invokesErrorReporter() async {
         struct StubError: Error, Equatable {}
         var reported: [StubError] = []
         let sut = PreferencesStore(
@@ -252,49 +258,53 @@ final class PreferencesStoreTests: XCTestCase {
         // The init reconcile already throws once because the handler always
         // throws. Reset, then exercise the didSet path explicitly so the
         // assertion covers the user-driven toggle, not the reconcile path.
+        await sut.waitForLaunchAtLoginWrites()
         reported.removeAll()
         sut.launchAtLogin.toggle()
+        await sut.waitForLaunchAtLoginWrites()
 
         XCTAssertEqual(reported, [StubError()])
     }
 
-    func test_init_reconcilesLaunchAtLogin_whenHandlerProvided() {
+    func test_init_reconcilesLaunchAtLogin_whenHandlerProvided() async {
         // Persist a non-default value first so we can assert that the
         // reconcile pushes the *persisted* state, not the spec default.
         defaults.set(false, forKey: "preferences.launchAtLogin")
 
-        var received: [Bool] = []
-        _ = PreferencesStore(
+        let received = TestBox<[Bool]>([])
+        let sut = PreferencesStore(
             defaults: defaults,
-            launchAtLoginHandler: { received.append($0) }
+            launchAtLoginHandler: { received.value.append($0) }
         )
+        await sut.waitForLaunchAtLoginWrites()
 
-        XCTAssertEqual(received, [false])
+        XCTAssertEqual(received.value, [false])
     }
 
     // MARK: - Inline launch-at-login entry point
 
-    func test_setLaunchAtLogin_appliesHandlerOnceAndPersists() throws {
-        var received: [Bool] = []
+    func test_setLaunchAtLogin_appliesHandlerOnceAndPersists() async throws {
+        let received = TestBox<[Bool]>([])
         let sut = PreferencesStore(
             defaults: defaults,
-            launchAtLoginHandler: { received.append($0) }
+            launchAtLoginHandler: { received.value.append($0) }
         )
         // Drop the init reconcile so the assertion counts only this call.
-        received.removeAll()
+        await sut.waitForLaunchAtLoginWrites()
+        received.value.removeAll()
 
-        try sut.setLaunchAtLogin(false)
+        try await sut.setLaunchAtLogin(false)
 
         // Exactly one SMAppService write per change — the issue #65 single-path
         // invariant — even though the tracked value is updated and persisted too.
-        XCTAssertEqual(received, [false])
+        XCTAssertEqual(received.value, [false])
         XCTAssertFalse(sut.launchAtLogin)
 
         let reader = PreferencesStore(defaults: defaults)
         XCTAssertFalse(reader.launchAtLogin)
     }
 
-    func test_setLaunchAtLogin_rethrowsHandlerErrorWithoutReporting() {
+    func test_setLaunchAtLogin_rethrowsHandlerErrorWithoutReporting() async {
         struct StubError: Error, Equatable {}
         var reported: [StubError] = []
         let sut = PreferencesStore(
@@ -305,17 +315,23 @@ final class PreferencesStoreTests: XCTestCase {
             }
         )
         // Drop the init reconcile's throw before exercising the entry point.
+        await sut.waitForLaunchAtLoginWrites()
         reported.removeAll()
 
         // Unlike the property setter — which routes failures to the global
         // alert reporter — this entry point rethrows so a caller with its own
         // inline failure UI (the Performance row) can surface the error
         // without double-reporting it.
-        XCTAssertThrowsError(try sut.setLaunchAtLogin(!sut.launchAtLogin))
+        do {
+            try await sut.setLaunchAtLogin(!sut.launchAtLogin)
+            XCTFail("Expected the handler's error to be rethrown")
+        } catch {
+            XCTAssertTrue(error is StubError)
+        }
         XCTAssertTrue(reported.isEmpty)
     }
 
-    func test_init_skipsReconcile_whenHandlerNil() {
+    func test_init_skipsReconcile_whenHandlerNil() async {
         // Pins the nil-handler contract that all the other PreferencesStore
         // tests depend on: constructing the store with no handler must not
         // attempt any side effect, even when the persisted preference would
@@ -332,11 +348,12 @@ final class PreferencesStoreTests: XCTestCase {
         defaults.set(true, forKey: "preferences.launchAtLogin")
 
         var reporterCalled = false
-        _ = PreferencesStore(
+        let sut = PreferencesStore(
             defaults: defaults,
             launchAtLoginHandler: nil,
             launchAtLoginErrorReporter: { _ in reporterCalled = true }
         )
+        await sut.waitForLaunchAtLoginWrites()
 
         XCTAssertFalse(reporterCalled)
     }
@@ -345,7 +362,7 @@ final class PreferencesStoreTests: XCTestCase {
     /// launchd never reached. Without the revert the wrong value is persisted
     /// too, so `init`'s reconcile re-attempts it — and re-alerts — on every
     /// launch, with no way to clear it from the Settings toggle.
-    func test_launchAtLoginToggle_revertsWhenTheHandlerFails() {
+    func test_launchAtLoginToggle_revertsWhenTheHandlerFails() async {
         struct StubError: Error {}
         // The handler is `@Sendable`, so its switch has to live in a box rather
         // than a captured local.
@@ -358,9 +375,11 @@ final class PreferencesStoreTests: XCTestCase {
         )
         // Establish a known-good starting point through the succeeding handler.
         sut.launchAtLogin = true
+        await sut.waitForLaunchAtLoginWrites()
         shouldThrow.value = true
 
         sut.launchAtLogin = false
+        await sut.waitForLaunchAtLoginWrites()
 
         XCTAssertTrue(sut.launchAtLogin, "a failed apply must leave the previous value standing")
         XCTAssertEqual(reportCount, 1, "the failure is reported exactly once, not once per revert")
@@ -373,7 +392,7 @@ final class PreferencesStoreTests: XCTestCase {
     /// The reconcile in `init` has no previous value to fall back to — the
     /// persisted preference is the only candidate — so it reports and leaves
     /// the stored choice alone rather than inventing the opposite.
-    func test_initReconcileFailure_leavesThePersistedValueAlone() {
+    func test_initReconcileFailure_leavesThePersistedValueAlone() async {
         struct StubError: Error {}
         defaults.set(true, forKey: "preferences.launchAtLogin")
 
@@ -383,6 +402,7 @@ final class PreferencesStoreTests: XCTestCase {
             launchAtLoginHandler: { _ in throw StubError() },
             launchAtLoginErrorReporter: { _ in reportCount += 1 }
         )
+        await sut.waitForLaunchAtLoginWrites()
 
         XCTAssertTrue(sut.launchAtLogin)
         XCTAssertEqual(reportCount, 1)
@@ -462,5 +482,216 @@ final class PreferencesStoreTests: XCTestCase {
         PreferencesStore(defaults: defaults).statsUpdateInterval = 5
 
         XCTAssertEqual(PreferencesStore.statsUpdateInterval(in: defaults), 5)
+    }
+}
+
+/// `SMAppService.register()` and `unregister()` block until launchd answers,
+/// so the store hands each launch-at-login write to launchd off the main
+/// actor. These pin what that must not cost: the toggle and the alert behave
+/// as they did when the write ran inline, writes reach launchd one at a time
+/// and in order, and a change made while one is in flight is never lost.
+@MainActor
+@Suite
+final class PreferencesStoreLaunchAtLoginWriteTests {
+
+    private struct StubError: Error {}
+
+    private let suiteName = "VaderCleanerTests.PreferencesStore.LaunchAtLoginWrites.\(UUID().uuidString)"
+    private let defaults: UserDefaults
+
+    init() {
+        defaults = UserDefaults(suiteName: suiteName)!
+    }
+
+    isolated deinit {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    /// The toggle must not freeze the UI while launchd answers: the setter
+    /// returns at once and the write runs elsewhere.
+    @Test
+    func aSlowWriteRunsOffTheMainActor() async {
+        let gate = CallGate()
+        let sut = PreferencesStore(
+            defaults: defaults,
+            // Only the toggle's write is slow; the launch reconcile pushes `true`.
+            launchAtLoginHandler: { enabled in if !enabled { gate.hold() } }
+        )
+        await sut.waitForLaunchAtLoginWrites()
+
+        sut.launchAtLogin = false
+
+        // `pollUntil` runs on the main actor, so seeing the write held at all
+        // proves the main actor is still free while launchd answers.
+        #expect(await pollUntil { gate.isHolding })
+        #expect(gate.heldOnMainThread == false)
+        #expect(sut.launchAtLogin == false, "the toggle flips immediately, as it always has")
+        gate.open()
+        await sut.waitForLaunchAtLoginWrites()
+        #expect(sut.launchAtLogin == false)
+    }
+
+    /// `init` runs inside `VaderCleanerApp.init()`, so a reconcile that waited
+    /// on launchd would hold up the app's launch.
+    @Test
+    func theLaunchReconcileDoesNotHoldUpInit() async {
+        let gate = CallGate()
+        let sut = PreferencesStore(defaults: defaults, launchAtLoginHandler: { _ in gate.hold() })
+
+        #expect(await pollUntil { gate.isHolding })
+        #expect(gate.heldOnMainThread == false)
+        gate.open()
+        await sut.waitForLaunchAtLoginWrites()
+    }
+
+    @Test
+    func aFailedWriteRevertsTheToggleAndReportsTheError() async {
+        var reports: [any Error] = []
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { enabled in if !enabled { throw StubError() } },
+            launchAtLoginErrorReporter: { reports.append($0) }
+        )
+        await sut.waitForLaunchAtLoginWrites()
+
+        sut.launchAtLogin = false
+        await sut.waitForLaunchAtLoginWrites()
+
+        #expect(sut.launchAtLogin, "a failed write must leave the previous value standing")
+        #expect(reports.count == 1)
+        #expect(reports.first is StubError)
+        #expect(PreferencesStore(defaults: defaults).launchAtLogin, "the reverted value is what persists")
+    }
+
+    @Test
+    func writesReachLaunchdOneAtATimeInTheOrderTheyWereMade() async {
+        let gate = CallGate()
+        let written = TestBox<[Bool]>([])
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { enabled in
+                written.value.append(enabled)
+                // Hold the first write after the launch reconcile, so the
+                // changes below are made while it is still in flight.
+                if written.value.count == 2 { gate.hold() }
+            }
+        )
+        await sut.waitForLaunchAtLoginWrites()
+
+        sut.launchAtLogin = false
+        #expect(await pollUntil { gate.isHolding })
+        sut.launchAtLogin = true
+        sut.launchAtLogin = false
+        // Give the later writes every chance to start before the held one
+        // has answered.
+        let startedAlongside = await pollUntil(timeout: .milliseconds(200)) { written.value.count > 2 }
+        #expect(!startedAlongside, "a write must not start while another is still waiting on launchd")
+        gate.open()
+        await sut.waitForLaunchAtLoginWrites()
+
+        #expect(written.value == [true, false, true, false])
+        #expect(sut.launchAtLogin == false)
+    }
+
+    /// Only the newest write decides what the toggle shows and whether the
+    /// alert appears. A failure that a newer change has already superseded
+    /// must neither revert the toggle over that change nor raise the alert.
+    @Test
+    func aSupersededFailureNeitherRevertsTheToggleNorAlerts() async {
+        let gate = CallGate()
+        let calls = TestBox(0)
+        var reports = 0
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { _ in
+                calls.value += 1
+                // The first write after the launch reconcile is held, then fails.
+                if calls.value == 2 {
+                    gate.hold()
+                    throw StubError()
+                }
+            },
+            launchAtLoginErrorReporter: { _ in reports += 1 }
+        )
+        await sut.waitForLaunchAtLoginWrites()
+
+        sut.launchAtLogin = false
+        #expect(await pollUntil { gate.isHolding })
+        // Back on, then off again: the newest change asks for the same value
+        // as the failing write, so only its being newer keeps the failure
+        // from reverting it.
+        sut.launchAtLogin = true
+        sut.launchAtLogin = false
+        gate.open()
+        await sut.waitForLaunchAtLoginWrites()
+
+        #expect(calls.value == 4)
+        #expect(sut.launchAtLogin == false)
+        #expect(reports == 0)
+    }
+
+    /// When the newest write fails, the toggle goes back to what launchd last
+    /// accepted, not merely to its value before that write: a superseded
+    /// failure can already have made that value wrong.
+    @Test
+    func aFailedWriteRevertsToWhatLaunchdLastAccepted() async {
+        defaults.set(false, forKey: "preferences.launchAtLogin")
+        let gate = CallGate()
+        let calls = TestBox(0)
+        var reports = 0
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { enabled in
+                calls.value += 1
+                // launchd accepts the reconcile's `false` and refuses every
+                // registration; the toggle's own attempt is held first.
+                guard enabled else { return }
+                if calls.value == 2 { gate.hold() }
+                throw StubError()
+            },
+            launchAtLoginErrorReporter: { _ in reports += 1 }
+        )
+        await sut.waitForLaunchAtLoginWrites()
+
+        sut.launchAtLogin = true
+        #expect(await pollUntil { gate.isHolding })
+        // Restore Defaults re-applies `true` while the toggle's write is still
+        // in flight, so that newest write has `true` on both sides of it.
+        sut.restoreDefaults()
+        gate.open()
+        await sut.waitForLaunchAtLoginWrites()
+
+        #expect(calls.value == 3)
+        #expect(sut.launchAtLogin == false)
+        #expect(reports == 1)
+        #expect(PreferencesStore(defaults: defaults).launchAtLogin == false)
+    }
+
+    /// The Performance row's entry point keeps the toggle where it is until
+    /// launchd has answered, and its write runs off the main actor like any
+    /// other — exactly once.
+    @Test
+    func setLaunchAtLogin_movesTheToggleOnlyOnceLaunchdHasAnswered() async throws {
+        let gate = CallGate()
+        let written = TestBox<[Bool]>([])
+        let sut = PreferencesStore(
+            defaults: defaults,
+            launchAtLoginHandler: { enabled in
+                written.value.append(enabled)
+                if !enabled { gate.hold() }
+            }
+        )
+        await sut.waitForLaunchAtLoginWrites()
+
+        let change = Task { try await sut.setLaunchAtLogin(false) }
+        #expect(await pollUntil { gate.isHolding })
+        #expect(gate.heldOnMainThread == false)
+        #expect(sut.launchAtLogin, "the toggle waits for launchd's answer")
+        gate.open()
+        try await change.value
+
+        #expect(sut.launchAtLogin == false)
+        #expect(written.value == [true, false], "one write for the change, not a second one from didSet")
+        #expect(PreferencesStore(defaults: defaults).launchAtLogin == false)
     }
 }
