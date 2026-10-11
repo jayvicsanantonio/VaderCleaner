@@ -1,6 +1,8 @@
 // UpdateInstallToolsTests.swift
 // Tests the live update-install layer's filename handling, which decides where a feed-supplied download is allowed to land on disk.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -100,5 +102,55 @@ final class UpdateInstallToolsTests: XCTestCase {
         let destination = workingDirectory
             .appendingPathComponent(UpdateInstallTools.downloadFilename(for: url), isDirectory: false)
         XCTAssertTrue(destination.pathExtension.isEmpty)
+    }
+}
+
+/// The version the rollback check trusts. It is compared against the
+/// installed app's version as discovery read it, so it has to be read the
+/// same way, or the comparison isn't like for like.
+@Suite
+final class UpdateInstallToolsBundleVersionTests {
+
+    private let root: URL
+
+    init() throws {
+        root = try TestHelpers.createTempDirectory()
+    }
+
+    deinit {
+        TestHelpers.tearDownTempDirectory(root)
+    }
+
+    /// Writes a minimal `.app` whose `Contents/Info.plist` holds `info`.
+    private func bundle(declaring info: [String: String]) throws -> URL {
+        let app = root.appendingPathComponent("Helio.app", isDirectory: true)
+        let contents = app.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try data.write(to: contents.appendingPathComponent("Info.plist"))
+        return app
+    }
+
+    @Test
+    func bundleVersion_prefersTheShortVersionString() throws {
+        let app = try bundle(declaring: ["CFBundleShortVersionString": "2.0", "CFBundleVersion": "2045"])
+        #expect(UpdateInstallTools.bundleVersion(of: app) == "2.0")
+    }
+
+    @Test
+    func bundleVersion_fallsBackToTheBuildVersion() throws {
+        let app = try bundle(declaring: ["CFBundleVersion": "2045"])
+        #expect(UpdateInstallTools.bundleVersion(of: app) == "2045")
+    }
+
+    @Test
+    func bundleVersion_isNilWhenTheBundleDeclaresNone() throws {
+        let app = try bundle(declaring: ["CFBundleIdentifier": "com.acme.helio"])
+        #expect(UpdateInstallTools.bundleVersion(of: app) == nil)
+    }
+
+    @Test
+    func bundleVersion_isNilForAMissingBundle() {
+        #expect(UpdateInstallTools.bundleVersion(of: root.appendingPathComponent("Missing.app")) == nil)
     }
 }

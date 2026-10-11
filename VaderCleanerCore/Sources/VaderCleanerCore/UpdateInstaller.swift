@@ -52,6 +52,12 @@ struct UpdateInstaller: Sendable {
     /// The `CFBundleIdentifier` of a bundle on disk, used to prove the
     /// download is the same app rather than merely the same developer.
     typealias ReadBundleIdentifier = @Sendable (_ bundle: URL) -> String?
+    /// The version a bundle on disk declares, read the way discovery reads
+    /// the installed app's so the rollback check compares like with like.
+    typealias ReadBundleVersion = @Sendable (_ bundle: URL) -> String?
+    /// Whether a bundle is validly signed by an Apple-issued certificate
+    /// belonging to this team — not merely carrying its Team ID.
+    typealias IsSignedByTeam = @Sendable (_ bundle: URL, _ teamIdentifier: String) -> Bool
     /// Whether an app with this bundle ID is currently running.
     typealias IsRunning = @Sendable (_ bundleID: String) -> Bool
     /// Asks the app to quit; returns whether it actually exited.
@@ -66,6 +72,8 @@ struct UpdateInstaller: Sendable {
     private let extract: Extract
     private let readSignature: ReadSignature
     private let readBundleIdentifier: ReadBundleIdentifier
+    private let readBundleVersion: ReadBundleVersion
+    private let isSignedByTeam: IsSignedByTeam
     private let isRunning: IsRunning
     private let quit: Quit
     private let replace: Replace
@@ -79,6 +87,8 @@ struct UpdateInstaller: Sendable {
         extract: @escaping Extract,
         readSignature: @escaping ReadSignature,
         readBundleIdentifier: @escaping ReadBundleIdentifier = { _ in nil },
+        readBundleVersion: @escaping ReadBundleVersion = { _ in nil },
+        isSignedByTeam: @escaping IsSignedByTeam = { _, _ in false },
         isRunning: @escaping IsRunning,
         quit: @escaping Quit,
         replace: @escaping Replace,
@@ -89,6 +99,8 @@ struct UpdateInstaller: Sendable {
         self.extract = extract
         self.readSignature = readSignature
         self.readBundleIdentifier = readBundleIdentifier
+        self.readBundleVersion = readBundleVersion
+        self.isSignedByTeam = isSignedByTeam
         self.isRunning = isRunning
         self.quit = quit
         self.replace = replace
@@ -169,15 +181,25 @@ struct UpdateInstaller: Sendable {
             }
 
             let replacement = try await extract(archive)
+            let installed = readSignature(update.bundleURL)
             let decision = UpdateInstallGate.decide(
                 feedURL: feedURL,
                 signature: signature,
-                installed: readSignature(update.bundleURL),
+                installed: installed,
                 downloaded: readSignature(replacement),
+                // Checked against the *installed* app's team: the download's
+                // own claim is the thing in question.
+                downloadedIsSignedByInstalledTeam: installed?.teamIdentifier.map {
+                    isSignedByTeam(replacement, $0)
+                } ?? false,
                 installedBundleID: update.bundleID,
                 downloadedBundleID: readBundleIdentifier(replacement),
                 installedVersion: update.installedVersion,
-                downloadedVersion: update.latestVersion
+                // Read from the bundle, never `update.latestVersion`. That is
+                // the feed's claim, and Sparkle's signature covers only the
+                // archive bytes — so a hostile feed can replay an older,
+                // genuinely signed archive and simply call it new.
+                downloadedVersion: readBundleVersion(replacement)
             )
             guard case .allow = decision else {
                 if case .deny(let reason) = decision { return .denied(reason) }

@@ -47,6 +47,8 @@ extension UpdateInstaller {
             extract: { archive in try await tools.extractApplication(from: archive) },
             readSignature: { CodeSignatureReader().signature(of: $0) },
             readBundleIdentifier: { Bundle(url: $0)?.bundleIdentifier },
+            readBundleVersion: { UpdateInstallTools.bundleVersion(of: $0) },
+            isSignedByTeam: { CodeSignatureReader().isSigned($0, byTeam: $1) },
             isRunning: { bundleID in
                 !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
             },
@@ -127,6 +129,29 @@ struct UpdateInstallTools: Sendable {
             return "update"
         }
         return "update.\(ext)"
+    }
+
+    // MARK: - Version
+
+    /// The version `bundle` declares: `CFBundleShortVersionString`, falling
+    /// back to `CFBundleVersion`.
+    ///
+    /// The same keys, in the same order, read from the same file as
+    /// `DefaultAppDiscovery` reads the installed app's version — the two
+    /// are compared to decide whether this is a rollback, so they have to
+    /// mean the same thing.
+    static func bundleVersion(of bundle: URL) -> String? {
+        let infoPlistURL = bundle
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist")
+        guard let data = try? Data(contentsOf: infoPlistURL),
+              let plist = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil
+              ) as? [String: Any] else {
+            return nil
+        }
+        return (plist["CFBundleShortVersionString"] as? String)
+            ?? (plist["CFBundleVersion"] as? String)
     }
 
     // MARK: - Extraction

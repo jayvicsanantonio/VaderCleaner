@@ -2,6 +2,7 @@
 // Drives the in-place update install end to end with every collaborator faked — the happy path, each refusal, the ordering that stops before extracting or replacing, and the running-app handling.
 
 import CryptoKit
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -342,6 +343,10 @@ final class UpdateInstallerTests: XCTestCase {
             readBundleIdentifier: { url in
                 url == extracted ? downloadedBundleID : "com.acme.helio"
             },
+            readBundleVersion: { url in url == extracted ? "2.0" : "1.0" },
+            isSignedByTeam: { url, team in
+                team == (url == extracted ? downloadedTeam : "ABCDE12345")
+            },
             isRunning: { _ in running },
             quit: { _ in
                 await recorder.record("quit")
@@ -360,4 +365,117 @@ final class UpdateInstallerTests: XCTestCase {
 private actor Recorder {
     private(set) var events: [String] = []
     func record(_ event: String) { events.append(event) }
+}
+
+/// What the install must establish from the bundle itself rather than take
+/// from the feed. Sparkle's Ed25519 signature covers the archive bytes and
+/// nothing else, so the version an appcast advertises and the developer it
+/// implies are both claims a hostile feed is free to make.
+@Suite
+final class UpdateInstallerProvenanceTests {
+
+    private let directory: URL
+    private let archive: URL
+    private let extracted: URL
+    private let feed = URL(string: "https://example.com/appcast.xml")!
+
+    /// The feed advertises 2.0 over an installed 1.0.
+    private let update = UpdateInfo(
+        appName: "Helio", bundleID: "com.acme.helio",
+        bundleURL: URL(fileURLWithPath: "/Applications/Helio.app"),
+        installedVersion: "1.0", latestVersion: "2.0",
+        source: .sparkle, updateURL: URL(string: "https://example.com/Helio-2.0.zip")!
+    )
+
+    init() throws {
+        directory = try TestHelpers.createTempDirectory()
+        archive = directory.appendingPathComponent("Helio.zip")
+        extracted = directory.appendingPathComponent("Helio.app")
+        try Data("archive bytes".utf8).write(to: archive)
+    }
+
+    deinit {
+        TestHelpers.tearDownTempDirectory(directory)
+    }
+
+    /// The replay: an old archive, still carrying its genuine signature,
+    /// served under a newer version number. What the bundle says it is has
+    /// to win over what the feed calls it, or the gate's rollback check
+    /// guards nothing.
+    @Test(arguments: ["1.0", "0.9"])
+    func install_refusesABundleNoNewerThanInstalledWhateverTheFeedClaims(bundleVersion: String) async {
+        let recorder = Recorder()
+
+        let outcome = await install(with: makeInstaller(recorder: recorder, bundleVersion: bundleVersion))
+
+        #expect(outcome == .denied(.notNewer))
+        #expect(await !recorder.events.contains("replace"))
+    }
+
+    /// A bundle that declares no version gives no evidence it is newer.
+    @Test
+    func install_refusesABundleThatDeclaresNoVersion() async {
+        let recorder = Recorder()
+
+        let outcome = await install(with: makeInstaller(recorder: recorder, bundleVersion: nil))
+
+        #expect(outcome == .denied(.notNewer))
+        #expect(await !recorder.events.contains("replace"))
+    }
+
+    /// The forgery: a bundle whose signature claims the installed app's
+    /// Team ID, but which no Apple-issued certificate for that team signed.
+    /// Team IDs are public, so matching one proves nothing on its own.
+    @Test
+    func install_refusesABundleNotSignedByTheInstalledTeam() async {
+        let recorder = Recorder()
+
+        let outcome = await install(with: makeInstaller(recorder: recorder, signedByInstalledTeam: false))
+
+        #expect(outcome == .denied(.teamIdentifierMismatch))
+        #expect(await !recorder.events.contains("replace"))
+    }
+
+    /// The fakes answer only for the replacement bundle and the installed
+    /// app's team, so this passes only when the installer asks about the
+    /// right bundle. Checking the installed app against its own team would
+    /// always succeed and prove nothing.
+    @Test
+    func install_proceedsWhenTheReplacementProvesBothItsVersionAndItsSigner() async {
+        let recorder = Recorder()
+
+        let outcome = await install(with: makeInstaller(recorder: recorder))
+
+        #expect(outcome == .installed)
+        #expect(await recorder.events.contains("replace"))
+    }
+
+    // MARK: - Fixtures
+
+    private func install(with installer: UpdateInstaller) async -> UpdateInstallOutcome {
+        await installer.install(update, feedURL: feed, edSignature: nil, publicEDKey: nil)
+    }
+
+    private func makeInstaller(
+        recorder: Recorder,
+        bundleVersion: String? = "2.0",
+        signedByInstalledTeam: Bool = true
+    ) -> UpdateInstaller {
+        let archive = archive
+        let extracted = extracted
+        return UpdateInstaller(
+            download: { _ in archive },
+            extract: { _ in extracted },
+            readSignature: { _ in BundleCodeSignature(teamIdentifier: "ABCDE12345", isValid: true) },
+            readBundleIdentifier: { _ in "com.acme.helio" },
+            readBundleVersion: { url in url == extracted ? bundleVersion : nil },
+            isSignedByTeam: { url, team in
+                url == extracted && team == "ABCDE12345" && signedByInstalledTeam
+            },
+            isRunning: { _ in false },
+            quit: { _ in true },
+            replace: { _, _ in await recorder.record("replace") },
+            relaunch: { _ in }
+        )
+    }
 }
