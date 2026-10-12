@@ -10,6 +10,11 @@ import Foundation
 /// and `"<path>: <reason> ERROR"` for files it couldn't read. Only the
 /// `FOUND` lines are threats; everything else (including the
 /// `----- SCAN SUMMARY -----` block) is ignored.
+///
+/// clamscan doesn't escape newlines in paths, so a filename can split its
+/// record across lines and forge a `FOUND` line for any path it likes. A
+/// parsed threat is a claim, not a verdict — `ClamAVScanner` re-scans each
+/// one before reporting it.
 enum ClamAVOutputParser {
 
     /// Suffix every infected line ends with. clamscan signature names never

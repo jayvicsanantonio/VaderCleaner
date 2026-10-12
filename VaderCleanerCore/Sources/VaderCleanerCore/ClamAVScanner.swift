@@ -37,6 +37,10 @@ struct ClamAVScanner {
     /// `clamscan` with its own DB layout.
     typealias DatabaseDirectoryProvider = @Sendable () -> URL?
 
+    /// Whether the item at a URL is itself a regular file — not a directory,
+    /// and not a symlink, whatever it points at.
+    typealias RegularFileProbe = @Sendable (URL) -> Bool
+
     /// Directory-path regexes (clamscan's `--exclude-dir` flavour) that
     /// the scanner should skip. Walking these on a developer machine
     /// dominates scan time while contributing ~zero detection value:
@@ -104,6 +108,7 @@ struct ClamAVScanner {
     private let excludedDirectories: [String]
     private let excludedFiles: [String]
     private let progressThrottleInterval: TimeInterval
+    private let isRegularFile: RegularFileProbe
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "ClamAVScanner")
 
@@ -114,7 +119,8 @@ struct ClamAVScanner {
             ClamAVScanner.defaultDatabaseDirectoryProvider,
         excludedDirectories: [String] = ClamAVScanner.defaultExcludedDirectories,
         excludedFiles: [String] = [],
-        progressThrottleInterval: TimeInterval = 0.1
+        progressThrottleInterval: TimeInterval = 0.1,
+        isRegularFile: @escaping RegularFileProbe = ClamAVScanner.defaultRegularFileProbe
     ) {
         self.detector = detector
         self.runner = runner
@@ -122,6 +128,7 @@ struct ClamAVScanner {
         self.excludedDirectories = excludedDirectories
         self.excludedFiles = excludedFiles
         self.progressThrottleInterval = progressThrottleInterval
+        self.isRegularFile = isRegularFile
     }
 
     /// Production default: the writable DB directory the bundled
@@ -132,6 +139,12 @@ struct ClamAVScanner {
         try? BundledClamAVRuntime().databaseDirectory()
     }
 
+    /// Production default: reads the item's own type, so a symlink reports as
+    /// a symlink rather than as whatever it points at.
+    static let defaultRegularFileProbe: RegularFileProbe = { url in
+        (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+    }
+
     /// Scans `paths` recursively, reporting infected files only. `progress`
     /// receives a streamed `clamscan` output line together with the running
     /// count of files checked so far — `clamscan` prints one line per file, so
@@ -140,9 +153,12 @@ struct ClamAVScanner {
     /// the source, so a fast clean stretch reports the real total rather than
     /// the number of throttled updates.
     ///
+    /// A reported file is only returned once a second, targeted run confirms
+    /// it — see `verifiedThreats`.
+    ///
     /// `clamscan` exits 0 when nothing is found and 1 when at least one
     /// infection is found — both are *successful* scans. Only exit code 2
-    /// (a hard error) or an unreachable binary throws.
+    /// (a hard error), from either run, or an unreachable binary throws.
     func scan(
         paths: [URL],
         options: ScanOptions = ScanOptions(),
@@ -159,39 +175,41 @@ struct ClamAVScanner {
         // `--database` must point at the directory our bundled freshclam
         // populates; the bundled clamscan's compiled-in default is the
         // Homebrew Cellar path, which won't exist on a user machine.
-        var arguments: [String] = []
+        var sharedArguments: [String] = []
         if let database = databaseDirectoryProvider() {
-            arguments.append("--database=\(database.path)")
+            sharedArguments.append("--database=\(database.path)")
         }
         // `--exclude-dir` accepts a Perl-compatible regex per flag —
         // pass each pattern separately so clamscan combines them with
         // OR semantics. Listed before the scan targets so the override
         // is unambiguous.
         for pattern in excludedDirectories {
-            arguments.append("--exclude-dir=\(pattern)")
+            sharedArguments.append("--exclude-dir=\(pattern)")
         }
         // `--exclude-dir` only skips directories, so a single ignored *file*
         // needs `--exclude`, which takes the same regex flavour against the
         // candidate file path.
         for pattern in excludedFiles {
-            arguments.append("--exclude=\(pattern)")
+            sharedArguments.append("--exclude=\(pattern)")
+        }
+        // clamscan inspects mail and archives by default, so only emit the
+        // disabling flags when the user has turned an option off — keeping the
+        // default argument list (and its tests) unchanged.
+        var contentArguments: [String] = []
+        if !options.scanMail {
+            contentArguments.append("--scan-mail=no")
+        }
+        if !options.scanArchives {
+            contentArguments.append("--scan-archive=no")
         }
         // `--infected` (a.k.a. `-i`) suppresses the `: OK` lines that
         // make up >99% of clamscan's output on a clean machine — we
         // *want* those lines so the UI has a steady progress signal.
         // `ClamAVOutputParser.parseLine` already filters down to the
         // ` FOUND` suffix, so non-infection lines never become threats.
-        arguments.append(contentsOf: ["--recursive", "--no-summary"])
-        // clamscan inspects mail and archives by default, so only emit the
-        // disabling flags when the user has turned an option off — keeping the
-        // default argument list (and its tests) unchanged.
-        if !options.scanMail {
-            arguments.append("--scan-mail=no")
-        }
-        if !options.scanArchives {
-            arguments.append("--scan-archive=no")
-        }
-        arguments.append(contentsOf: paths.map(\.path))
+        // A line is not a file, though: `verifiedThreats` covers the gap.
+        let arguments = sharedArguments + ["--recursive", "--no-summary"]
+            + contentArguments + paths.map(\.path)
 
         let collector = ThreatCollector()
         let throttle = ProgressThrottle(interval: progressThrottleInterval)
@@ -226,9 +244,88 @@ struct ClamAVScanner {
             progress(lastLine, counter.count)
         }
 
-        // 0 = clean, 1 = virus(es) found, 2 = error. Anything else (or a
-        // negative signal status) is a failure we surface rather than
-        // silently report "no threats".
+        try requireSuccessfulExit(status)
+
+        return try await verifiedThreats(
+            collector.snapshot(),
+            scanRoots: paths,
+            binary: binary,
+            flags: sharedArguments + ["--no-summary"] + contentArguments
+        )
+    }
+
+    /// Keeps only the reported threats a second, targeted run confirms.
+    ///
+    /// clamscan prints each path verbatim, newlines included, so a file named
+    /// `thesis.docx: Win.Trojan.Fake-1 FOUND\ny` under a directory named
+    /// `x\n` (and a mirror of a victim's path) plants a well-formed FOUND line
+    /// for a clean file of the attacker's choosing. `--infected` would not
+    /// help: the planted file can itself be genuinely infected. So a reported
+    /// path is trusted only when:
+    ///
+    /// - it lies within one of the scan roots, so a forged line can't reach a
+    ///   file the scan never covered — a path under `/Library`, say, which
+    ///   removal would hand to the root helper;
+    /// - it is a regular file, the only thing clamscan reports. A single file
+    ///   named `: Win.Trojan.Fake-1 FOUND\nb` forges a verdict for its own
+    ///   directory, which re-scanning lists again, and removing a directory is
+    ///   recursive;
+    /// - clamscan, handed the file by name, reports it FOUND again. A path
+    ///   parsed from one line holds no newline, so this run prints exactly one
+    ///   line per file and can't be forged; its verdict replaces whatever the
+    ///   full scan's line claimed.
+    ///
+    /// Every candidate goes in one run, since loading the signature database
+    /// dominates the cost of starting clamscan.
+    private func verifiedThreats(
+        _ reported: [MalwareThreat],
+        scanRoots: [URL],
+        binary: URL,
+        flags: [String]
+    ) async throws -> [MalwareThreat] {
+        var candidates: [String] = []
+        var seen = Set<String>()
+        for threat in reported where seen.insert(threat.filePath.path).inserted {
+            if Self.isWithin(threat.filePath, roots: scanRoots), isRegularFile(threat.filePath) {
+                candidates.append(threat.filePath.path)
+            }
+        }
+
+        var confirmed: [MalwareThreat] = []
+        if !candidates.isEmpty {
+            let candidateSet = Set(candidates)
+            let collector = ThreatCollector()
+            let status = try await runner(binary, flags + candidates) { line in
+                if let threat = ClamAVOutputParser.parseLine(line),
+                   candidateSet.contains(threat.filePath.path) {
+                    collector.append(threat)
+                }
+            }
+            try requireSuccessfulExit(status)
+            confirmed = collector.snapshot()
+        }
+
+        let discarded = seen.count - confirmed.count
+        if discarded > 0 {
+            log.notice("Discarded \(discarded, privacy: .public) clamscan verdict(s) a re-scan did not confirm")
+        }
+        return confirmed
+    }
+
+    /// Whether `url` is one of `roots` or lies beneath one. Compared by path
+    /// component after resolving `.` and `..`, so `/Users/me/Downloads-old`
+    /// isn't taken for a child of `/Users/me/Downloads`.
+    private static func isWithin(_ url: URL, roots: [URL]) -> Bool {
+        let components = url.absoluteURL.standardizedFileURL.pathComponents
+        return roots.contains { root in
+            components.starts(with: root.absoluteURL.standardizedFileURL.pathComponents)
+        }
+    }
+
+    /// 0 = clean, 1 = virus(es) found, 2 = error. Anything else (or a
+    /// negative signal status) is a failure we surface rather than
+    /// silently report "no threats".
+    private func requireSuccessfulExit(_ status: Int32) throws {
         guard status == 0 || status == 1 else {
             log.error("clamscan exited with status \(status, privacy: .public)")
             throw NSError(
@@ -238,8 +335,6 @@ struct ClamAVScanner {
                     "clamscan exited with status \(status)"]
             )
         }
-
-        return collector.snapshot()
     }
 
     // MARK: - Production collaborator

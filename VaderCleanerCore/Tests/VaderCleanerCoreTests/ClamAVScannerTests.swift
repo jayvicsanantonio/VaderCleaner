@@ -389,14 +389,17 @@ final class ClamAVScannerTests: XCTestCase {
         // run hermetically — the production defaults reach into the
         // user's home and Application Support, which would couple the
         // tests to the host filesystem. `progressThrottleInterval = 0`
-        // means every line passes through, which most tests want.
+        // means every line passes through, which most tests want. The
+        // fixture paths don't exist on disk, so every one stands in for a
+        // regular file the verification re-scan may name.
         return ClamAVScanner(
             detector: detector,
             runner: runner,
             databaseDirectoryProvider: { databaseDirectory },
             excludedDirectories: excludedDirectories ?? [],
             excludedFiles: excludedFiles,
-            progressThrottleInterval: progressThrottleInterval
+            progressThrottleInterval: progressThrottleInterval,
+            isRegularFile: { _ in true }
         )
     }
 }
