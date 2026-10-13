@@ -18,7 +18,14 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
-    ENABLE_HARDENED_RUNTIME: NO
+    # On so the helper's code-signing pin means something: without it dyld
+    # honours DYLD_INSERT_LIBRARIES in the genuine team-signed app, and the
+    # injected code runs as a client the root helper accepts. Library
+    # validation then refuses any dylib not signed by Apple or this team.
+    # The bundled ClamAV tools sign with their own entitlements
+    # (Scripts/clamav.entitlements), and CoreLocation needs the location
+    # entitlement in VaderCleaner.entitlements to read the Wi-Fi name.
+    ENABLE_HARDENED_RUNTIME: YES
     # The Stage-ClamAV and ad-hoc-sign run-script phases read Vendor/clamav and
     # run from Scripts/ — paths a script sandbox denies, which fails the build
     # with "Operation not permitted". Pin sandboxing off so Xcode's "update to
