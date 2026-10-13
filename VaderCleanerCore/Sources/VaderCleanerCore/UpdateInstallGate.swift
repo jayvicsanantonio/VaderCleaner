@@ -35,9 +35,11 @@ public enum InstallDenial: Hashable, Sendable {
     /// of ad-hoc builds.
     case noInstalledTeamIdentifier
     /// The download is signed by a different developer than the app it
-    /// would replace.
+    /// would replace — including a signature that merely claims the
+    /// developer's Team ID without an Apple-issued certificate behind it.
     case teamIdentifierMismatch
-    /// The download isn't actually newer.
+    /// The download isn't actually newer, by the version its own bundle
+    /// declares rather than the one the feed advertises.
     case notNewer
 }
 
@@ -78,10 +80,11 @@ enum UpdateInstallGate {
         signature: AppcastSignatureResult,
         installed: BundleCodeSignature?,
         downloaded: BundleCodeSignature?,
+        downloadedIsSignedByInstalledTeam: Bool,
         installedBundleID: String,
         downloadedBundleID: String?,
         installedVersion: String,
-        downloadedVersion: String
+        downloadedVersion: String?
     ) -> InstallDecision {
         // A plain-HTTP feed can be rewritten wholesale in transit, which
         // includes swapping the signature for one matching a hostile
@@ -101,12 +104,24 @@ enum UpdateInstallGate {
         guard downloaded.teamIdentifier == installedTeam else {
             return .deny(.teamIdentifierMismatch)
         }
+        // The Team ID compared above is only what the download's signature
+        // claims, and it was validated against no requirement — a
+        // self-signed certificate passes that, and its leaf can name any
+        // team, since Team IDs are public. Continuity holds only once a
+        // requirement anchored to Apple's CA confirms that an Apple-issued
+        // certificate for the installed team did the signing.
+        guard downloadedIsSignedByInstalledTeam else {
+            return .deny(.teamIdentifierMismatch)
+        }
         guard downloadedBundleID == installedBundleID else {
             return .deny(.bundleIdentifierMismatch)
         }
         // Blocks a rollback: a hostile host can only serve genuine builds,
         // so pinning the user to an older one is the attack left to it.
-        guard VersionComparator.isNewer(version: downloadedVersion, than: installedVersion) else {
+        // `downloadedVersion` is the bundle's own, from an Info.plist its
+        // signature seals, so a version that can't be read proves nothing.
+        guard let downloadedVersion,
+              VersionComparator.isNewer(version: downloadedVersion, than: installedVersion) else {
             return .deny(.notNewer)
         }
         return .allow

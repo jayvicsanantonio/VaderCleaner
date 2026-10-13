@@ -1,38 +1,42 @@
 // UpdateInstallGateTests.swift
 // Exercises the auto-install decision — every denial path, the ordering that makes an insecure feed decide first, and the identity continuity that holds even when the feed is fully attacker-controlled.
 
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
+private let https = URL(string: "https://example.com/appcast.xml")!
+private let signed = BundleCodeSignature(teamIdentifier: "ABCDE12345", isValid: true)
+
+/// Every input defaulted to the permitting case, so each test varies
+/// exactly the one thing it is about.
+private func decide(
+    feedURL: URL?? = nil,
+    signature: AppcastSignatureResult = .valid,
+    installed: BundleCodeSignature?? = nil,
+    downloaded: BundleCodeSignature?? = nil,
+    downloadedIsSignedByInstalledTeam: Bool = true,
+    installedBundleID: String = "com.acme.helio",
+    downloadedBundleID: String? = "com.acme.helio",
+    installedVersion: String = "1.0",
+    downloadedVersion: String? = "2.0"
+) -> InstallDecision {
+    UpdateInstallGate.decide(
+        feedURL: feedURL ?? https,
+        signature: signature,
+        installed: installed ?? signed,
+        downloaded: downloaded ?? signed,
+        downloadedIsSignedByInstalledTeam: downloadedIsSignedByInstalledTeam,
+        installedBundleID: installedBundleID,
+        downloadedBundleID: downloadedBundleID,
+        installedVersion: installedVersion,
+        downloadedVersion: downloadedVersion
+    )
+}
+
 final class UpdateInstallGateTests: XCTestCase {
 
-    private let https = URL(string: "https://example.com/appcast.xml")!
     private let http = URL(string: "http://example.com/appcast.xml")!
-    private let signed = BundleCodeSignature(teamIdentifier: "ABCDE12345", isValid: true)
-
-    /// Every input defaulted to the permitting case, so each test varies
-    /// exactly the one thing it is about.
-    private func decide(
-        feedURL: URL?? = nil,
-        signature: AppcastSignatureResult = .valid,
-        installed: BundleCodeSignature?? = nil,
-        downloaded: BundleCodeSignature?? = nil,
-        installedBundleID: String = "com.acme.helio",
-        downloadedBundleID: String? = "com.acme.helio",
-        installedVersion: String = "1.0",
-        downloadedVersion: String = "2.0"
-    ) -> InstallDecision {
-        UpdateInstallGate.decide(
-            feedURL: feedURL ?? https,
-            signature: signature,
-            installed: installed ?? signed,
-            downloaded: downloaded ?? signed,
-            installedBundleID: installedBundleID,
-            downloadedBundleID: downloadedBundleID,
-            installedVersion: installedVersion,
-            downloadedVersion: downloadedVersion
-        )
-    }
 
     // MARK: - Allowing
 
@@ -129,5 +133,27 @@ final class UpdateInstallGateTests: XCTestCase {
         for version in ["1.0", "0.9"] {
             XCTAssertEqual(decide(downloadedVersion: version), .deny(.notNewer))
         }
+    }
+}
+
+/// The two facts a hostile feed must not be able to vouch for: who signed
+/// the download, and which version it is.
+@Suite
+struct UpdateInstallGateProvenanceTests {
+
+    /// The Team ID the gate compares is the download's own claim, and Team
+    /// IDs are public. A bundle that claims the installed team but isn't
+    /// signed by an Apple-issued certificate for it is a forgery, however
+    /// well the claim matches.
+    @Test
+    func decide_deniesAMatchingTeamIdentifierThatAppleDoesNotVouchFor() {
+        #expect(decide(downloadedIsSignedByInstalledTeam: false) == .deny(.teamIdentifierMismatch))
+    }
+
+    /// The version is read from the bundle, not the feed. A bundle whose
+    /// version can't be read gives no evidence that it is newer.
+    @Test
+    func decide_deniesADownloadWhoseVersionCannotBeRead() {
+        #expect(decide(downloadedVersion: nil) == .deny(.notNewer))
     }
 }
