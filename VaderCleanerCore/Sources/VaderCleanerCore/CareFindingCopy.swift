@@ -442,7 +442,7 @@ public enum CareFindingCopy {
             )
         case .threats:
             return String.localizedStringWithFormat(
-                String(localized: "Removes %d threats", bundle: .module, comment: "Run confirmation line for malware threats."),
+                String(localized: "Permanently removes %d threats", bundle: .module, comment: "Run confirmation line for malware threats (irreversible)."),
                 count
             )
         case .appUpdates:

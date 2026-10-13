@@ -34,6 +34,10 @@ import Testing
         #expect(CareFindingCopy.metric(for: finding) == metric)
     }
 
+    @Test func threatRunConfirmationLineUsesThePackageStringsdict() {
+        #expect(CareFindingCopy.runConfirmationLine(for: .threats, bytes: 0, count: 1) == "Permanently removes 1 threat")
+    }
+
     @Test func verdictDetailUsesThePackageStringsdict() {
         // One actionable finding, so the detail reaches its count branch.
         let junk = ScannedFile(

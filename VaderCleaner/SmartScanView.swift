@@ -65,7 +65,7 @@ struct SmartScanView: View {
             .animation(VaderMotion.surface, value: phaseTransitionID)
             // The run-confirmation sheet floats over the whole feed (not inside
             // the transition host) so it can't be swept by the phase crossfade,
-            // and only appears for a run that permanently deletes junk.
+            // and only appears for a run that permanently deletes junk or threats.
             .overlay {
                 if viewModel.isConfirmingRun {
                     RunConfirmationSheet(
