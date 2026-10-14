@@ -1064,10 +1064,12 @@ public final class SmartScanViewModel {
     }
 
     /// The findings whose action always bypasses the Trash: junk cleanup
-    /// (macOS rebuilds it). The confirmation sheet flags these as irreversible
+    /// (macOS rebuilds it) and browser privacy (`BrowserPrivacyRemover`
+    /// deletes rows from the browsers' databases and removes their cache and
+    /// session files). The confirmation sheet flags these as irreversible
     /// whatever is selected. Threats are not listed because they depend on
     /// where each one lives; `permanentDeleteCount(for:)` counts them.
-    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup]
+    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup, .browserPrivacy]
 
     /// How many of a finding's selected items its action would delete for
     /// good rather than move to the Trash. `MalwareThreatRemover` sends a
@@ -1199,8 +1201,9 @@ public final class SmartScanViewModel {
 
     /// The disc's tap entry point. Runs immediately when nothing irreversible
     /// is included, but raises the confirmation sheet first when the pass would
-    /// permanently delete junk or a threat under a protected path — the steps
-    /// the Trash can't undo. A no-op unless the results feed has work to do.
+    /// permanently delete junk, a threat under a protected path, or browser
+    /// data — the steps the Trash can't undo. A no-op unless the results feed
+    /// has work to do.
     public func requestRun() async {
         // A re-check in flight means the plan is missing the findings it is
         // re-scanning; running against that would act on half a picture.

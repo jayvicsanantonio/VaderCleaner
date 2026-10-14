@@ -5,11 +5,11 @@ import SwiftUI
 import VaderCleanerCore
 
 /// A modal card over the results feed that confirms a Run pass which would
-/// permanently delete junk or a malware threat under a protected path. It
-/// appears only for that irreversible case (runs with only Trash-safe work
-/// skip it), so it stays a one-glance check rather than a dialog on every
-/// Fix. Lists each action in feed order and marks the permanent ones, then
-/// offers Cancel or Fix.
+/// permanently delete junk, a malware threat under a protected path, or
+/// browser data. It appears only for that irreversible case (runs with only
+/// Trash-safe work skip it), so it stays a one-glance check rather than a
+/// dialog on every Fix. Lists each action in feed order and marks the
+/// permanent ones, then offers Cancel or Fix.
 struct RunConfirmationSheet: View {
     let itemCount: Int
     let lines: [SmartScanViewModel.RunActionLine]

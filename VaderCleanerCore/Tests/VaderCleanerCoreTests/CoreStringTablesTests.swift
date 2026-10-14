@@ -42,6 +42,10 @@ import Testing
         #expect(CareFindingCopy.runConfirmationLine(for: .threats, bytes: 0, count: 1, permanentCount: permanentCount) == line)
     }
 
+    @Test func browserPrivacyRunConfirmationLineUsesThePackageStringsdict() {
+        #expect(CareFindingCopy.runConfirmationLine(for: .browserPrivacy, bytes: 0, count: 1) == "Permanently clears 1 browser data item")
+    }
+
     @Test func verdictDetailUsesThePackageStringsdict() {
         // One actionable finding, so the detail reaches its count branch.
         let junk = ScannedFile(
