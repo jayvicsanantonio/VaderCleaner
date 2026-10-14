@@ -6,7 +6,7 @@ import os.log
 
 /// Moves user files to the Trash on behalf of every section that offers a
 /// "remove these files" action (Smart Scan, Applications, Space Lens, My
-/// Clutter).
+/// Clutter, Malware Removal).
 ///
 /// This exists because each of those sections previously carried its own copy
 /// of the same `NSWorkspace.recycle` continuation wrapper, and the copies had

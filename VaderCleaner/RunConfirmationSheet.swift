@@ -1,14 +1,15 @@
 // RunConfirmationSheet.swift
-// The lightweight confirmation shown when the Fix disc is tapped and the run includes a permanent delete — it lists what will happen and flags the one irreversible step before anything runs.
+// The lightweight confirmation shown when the Fix disc is tapped and the run includes a permanent delete — it lists what will happen and flags the irreversible steps before anything runs.
 
 import SwiftUI
 import VaderCleanerCore
 
 /// A modal card over the results feed that confirms a Run pass which would
-/// permanently delete junk. It appears only for that irreversible case (runs
-/// with only Trash-safe work skip it), so it stays a one-glance check rather
-/// than a dialog on every Fix. Lists each action in feed order and marks the
-/// permanent one, then offers Cancel or Fix.
+/// permanently delete junk or a malware threat under a protected path. It
+/// appears only for that irreversible case (runs with only Trash-safe work
+/// skip it), so it stays a one-glance check rather than a dialog on every
+/// Fix. Lists each action in feed order and marks the permanent ones, then
+/// offers Cancel or Fix.
 struct RunConfirmationSheet: View {
     let itemCount: Int
     let lines: [SmartScanViewModel.RunActionLine]
@@ -85,9 +86,8 @@ struct RunConfirmationSheet: View {
     }
 }
 
-/// One action line: a dot, the description, and — for the permanent junk
-/// delete — a warm tint and a "Permanent" tag so the irreversible step reads
-/// at a glance.
+/// One action line: a dot, the description, and — for a permanent delete — a
+/// warm tint and a "Permanent" tag so the irreversible step reads at a glance.
 private struct RunConfirmationRow: View {
     let line: SmartScanViewModel.RunActionLine
 

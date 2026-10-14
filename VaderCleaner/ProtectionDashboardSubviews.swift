@@ -140,10 +140,10 @@ struct ProtectionMalwareTile: View {
             return String(localized: "Review the detected threats and remove them to stay protected.",
                           comment: "Malware tile subtitle when threats are found.")
         case .removing:
-            return String(localized: "Deleting the infected files.",
+            return String(localized: "Removing the infected files.",
                           comment: "Malware tile subtitle while removing.")
         case .done:
-            return String(localized: "The infected files have been deleted.",
+            return String(localized: "The infected files have been removed.",
                           comment: "Malware tile subtitle after removal.")
         case .failed(let message):
             return message

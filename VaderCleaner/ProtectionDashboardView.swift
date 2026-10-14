@@ -115,8 +115,12 @@ struct ProtectionDashboardView: View {
                     Task { await malware.removeThreats() }
                 }
             } message: {
-                Text(String(localized: "The infected files will be permanently deleted. This cannot be undone.",
-                            comment: "Body of the malware removal confirmation alert."))
+                // Remove All acts on every detected threat, so the body
+                // answers for all of them: Trash, or a permanent delete for
+                // any under a protected path.
+                if case .results(let threats) = malware.phase {
+                    Text(threats.removalConfirmationMessage)
+                }
             }
             .alert(
                 String(localized: "Remove these items?",

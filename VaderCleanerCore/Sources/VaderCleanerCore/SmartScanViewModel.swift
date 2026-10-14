@@ -56,8 +56,8 @@ public final class SmartScanViewModel {
     }
 
     /// One row of the run-confirmation sheet: the plain-language description of
-    /// what a finding's action will do, and whether it is the irreversible
-    /// (permanent junk delete) step so the sheet can mark it.
+    /// what a finding's action will do, and whether it is an irreversible
+    /// (permanent delete) step so the sheet can mark it.
     public struct RunActionLine: Identifiable, Equatable {
         let kind: CareFinding.Kind
         public let text: String
@@ -1063,11 +1063,30 @@ public final class SmartScanViewModel {
         }
     }
 
-    /// Whether the pending Run pass includes a permanent delete. Junk cleanup
-    /// is the only action that bypasses the Trash (macOS rebuilds it), so it
-    /// is the only thing the confirmation sheet needs to flag as irreversible.
+    /// The findings whose action always bypasses the Trash: junk cleanup
+    /// (macOS rebuilds it). The confirmation sheet flags these as irreversible
+    /// whatever is selected. Threats are not listed because they depend on
+    /// where each one lives; `permanentDeleteCount(for:)` counts them.
+    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup]
+
+    /// How many of a finding's selected items its action would delete for
+    /// good rather than move to the Trash. `MalwareThreatRemover` sends a
+    /// threat in the user's own folders to the Trash, but one under a
+    /// protected path can only be deleted, by the helper.
+    private func permanentDeleteCount(for kind: CareFinding.Kind) -> Int {
+        if kind == .threats { return selectedThreats.count(where: \.removalIsPermanent) }
+        return Self.permanentDeleteKinds.contains(kind) ? selectionCount(for: kind) : 0
+    }
+
+    /// The detected threats the user has left checked.
+    private var selectedThreats: [MalwareThreat] {
+        guard case .threats(let threats)? = currentPlan?.finding(.threats)?.payload else { return [] }
+        return threats.filter { threatSelection.contains($0.filePath) }
+    }
+
+    /// Whether the pending Run pass includes a permanent delete.
     var runIncludesPermanentDelete: Bool {
-        willExecute(.junkCleanup)
+        CareFinding.Kind.allCases.contains { willExecute($0) && permanentDeleteCount(for: $0) > 0 }
     }
 
     /// Bytes a Run would free from one finding's current selection. The feed's
@@ -1180,8 +1199,8 @@ public final class SmartScanViewModel {
 
     /// The disc's tap entry point. Runs immediately when nothing irreversible
     /// is included, but raises the confirmation sheet first when the pass would
-    /// permanently delete junk — the one step the Trash can't undo. A no-op
-    /// unless the results feed has work to do.
+    /// permanently delete junk or a threat under a protected path — the steps
+    /// the Trash can't undo. A no-op unless the results feed has work to do.
     public func requestRun() async {
         // A re-check in flight means the plan is missing the findings it is
         // re-scanning; running against that would act on half a picture.
@@ -1207,19 +1226,21 @@ public final class SmartScanViewModel {
 
     /// One line per finding the pending run would act on, in feed order — the
     /// body of the confirmation sheet. Each says what will happen to the chosen
-    /// items; the permanent one is flagged so the sheet can mark it.
+    /// items; the permanent ones are flagged so the sheet can mark them.
     public var runActionSummary: [RunActionLine] {
         rankedFindings
             .filter { willExecute($0.kind) }
             .map { finding in
-                RunActionLine(
+                let permanentCount = permanentDeleteCount(for: finding.kind)
+                return RunActionLine(
                     kind: finding.kind,
                     text: CareFindingCopy.runConfirmationLine(
                         for: finding.kind,
                         bytes: selectedBytes(for: finding.kind),
-                        count: selectionCount(for: finding.kind)
+                        count: selectionCount(for: finding.kind),
+                        permanentCount: permanentCount
                     ),
-                    isPermanent: finding.kind == .junkCleanup
+                    isPermanent: permanentCount > 0
                 )
             }
     }
@@ -1726,7 +1747,7 @@ extension SmartScanViewModel {
             )
         )
         let detector = ClamAVDetector()
-        let threatRemover = MalwareThreatRemover()
+        let threatRemover = MalwareThreatRemover(recycle: { await UserFileRecycler.recycle($0, context: "Smart Scan") })
         let privacyRemover = BrowserPrivacyRemover(pathProvider: DefaultBrowserDataPathProvider())
 
         return SmartScanViewModel(

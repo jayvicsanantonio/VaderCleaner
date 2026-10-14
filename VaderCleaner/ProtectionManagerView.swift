@@ -61,8 +61,7 @@ struct ProtectionManagerView: View {
                 Button(String(localized: "Cancel", comment: "Cancel removal."), role: .cancel) {}
                 Button(String(localized: "Remove", comment: "Confirm removal."), role: .destructive) { performRemove() }
             } message: {
-                Text(String(localized: "The selected items will be permanently deleted. This cannot be undone.",
-                            comment: "Protection Manager removal confirmation body."))
+                Text(confirmMessage)
             }
             .alert(
                 String(localized: "Quit \(blockedBrowser?.displayName ?? "") first", comment: "Running-browser block title."),
@@ -313,6 +312,18 @@ struct ProtectionManagerView: View {
         String(localized: "Remove selected items?", comment: "Removal confirmation title.")
     }
 
+    /// Privacy data is deleted outright; threats go to the Trash unless one
+    /// sits under a protected path, which the message then warns about.
+    private var confirmMessage: String {
+        switch section {
+        case .privacy:
+            return String(localized: "The selected items will be permanently deleted. This cannot be undone.",
+                          comment: "Protection Manager removal confirmation body.")
+        case .malware:
+            return threats.filter { selectedThreats.contains($0.id) }.removalConfirmationMessage
+        }
+    }
+
     private func performRemove() {
         switch section {
         case .privacy:
@@ -496,6 +507,15 @@ private struct MalwareResultsPane: View {
     @Binding var selectedThreats: Set<String>
     let accent: Color
 
+    /// Shared by the clean and the results states, so both say where removed
+    /// threats go.
+    private var paneDescription: String {
+        String(
+            localized: "Select the infected files to remove. They go to the Trash, except files in system folders, which are deleted permanently.",
+            comment: "Threats pane description."
+        )
+    }
+
     var body: some View {
         if threats.isEmpty {
             // A clean Mac shows the same centered icon + title + description
@@ -504,7 +524,7 @@ private struct MalwareResultsPane: View {
             VStack(spacing: 0) {
                 PaneHeading(
                     title: String(localized: "Detected Threats", comment: "Threats pane title."),
-                    description: String(localized: "Select the infected files to remove. Removal is permanent.", comment: "Threats pane description.")
+                    description: paneDescription
                 )
                 ManagerEmptyState(
                     icon: "checkmark.shield.fill",
@@ -520,7 +540,7 @@ private struct MalwareResultsPane: View {
                 VStack(spacing: 0) {
                     PaneHeading(
                         title: String(localized: "Detected Threats", comment: "Threats pane title."),
-                        description: String(localized: "Select the infected files to remove. Removal is permanent.", comment: "Threats pane description.")
+                        description: paneDescription
                     )
                     ManagerSelectMenu(
                         any: !selectedThreats.isEmpty,
