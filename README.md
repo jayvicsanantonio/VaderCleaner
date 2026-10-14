@@ -102,7 +102,7 @@ Every tool that runs a scan — Smart Scan, System Junk, Large & Old Files, Spac
 
 - Checks whether ClamAV is installed; if not, it guides you to set it up.
 - Scans your home folder, automatically refreshing the malware signature database if it's more than a day old.
-- Lists any threats by name and location, and removes them only after you confirm.
+- Lists any threats by name and location, and removes them only after you confirm. Infected files in your own folders go to the Trash, so a false alarm can be put back; files in protected system folders can only be deleted permanently, and the confirmation says so.
 - Shows the date of your last scan and the last database update.
 
 > **Note:** ClamAV is a free, separate tool that VaderCleaner uses but does not bundle. See the [developer section](#optional-enabling-the-malware-scanner-clamav) for how to install it. Without ClamAV, every other feature still works normally.

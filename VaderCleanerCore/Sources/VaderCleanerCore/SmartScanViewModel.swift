@@ -1063,15 +1063,30 @@ public final class SmartScanViewModel {
         }
     }
 
-    /// The findings whose action bypasses the Trash: junk cleanup (macOS
-    /// rebuilds it) and threat removal (`MalwareThreatRemover` deletes infected
-    /// files outright, protected paths through the helper). These are the
-    /// steps the confirmation sheet flags as irreversible.
-    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup, .threats]
+    /// The findings whose action always bypasses the Trash: junk cleanup
+    /// (macOS rebuilds it). The confirmation sheet flags these as irreversible
+    /// whatever is selected. Threats are not listed because they depend on
+    /// where each one lives; `permanentDeleteCount(for:)` counts them.
+    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup]
+
+    /// How many of a finding's selected items its action would delete for
+    /// good rather than move to the Trash. `MalwareThreatRemover` sends a
+    /// threat in the user's own folders to the Trash, but one under a
+    /// protected path can only be deleted, by the helper.
+    private func permanentDeleteCount(for kind: CareFinding.Kind) -> Int {
+        if kind == .threats { return selectedThreats.count(where: \.removalIsPermanent) }
+        return Self.permanentDeleteKinds.contains(kind) ? selectionCount(for: kind) : 0
+    }
+
+    /// The detected threats the user has left checked.
+    private var selectedThreats: [MalwareThreat] {
+        guard case .threats(let threats)? = currentPlan?.finding(.threats)?.payload else { return [] }
+        return threats.filter { threatSelection.contains($0.filePath) }
+    }
 
     /// Whether the pending Run pass includes a permanent delete.
     var runIncludesPermanentDelete: Bool {
-        Self.permanentDeleteKinds.contains { willExecute($0) }
+        CareFinding.Kind.allCases.contains { willExecute($0) && permanentDeleteCount(for: $0) > 0 }
     }
 
     /// Bytes a Run would free from one finding's current selection. The feed's
@@ -1184,8 +1199,8 @@ public final class SmartScanViewModel {
 
     /// The disc's tap entry point. Runs immediately when nothing irreversible
     /// is included, but raises the confirmation sheet first when the pass would
-    /// permanently delete junk or threats — the steps the Trash can't undo. A
-    /// no-op unless the results feed has work to do.
+    /// permanently delete junk or a threat under a protected path — the steps
+    /// the Trash can't undo. A no-op unless the results feed has work to do.
     public func requestRun() async {
         // A re-check in flight means the plan is missing the findings it is
         // re-scanning; running against that would act on half a picture.
@@ -1216,14 +1231,16 @@ public final class SmartScanViewModel {
         rankedFindings
             .filter { willExecute($0.kind) }
             .map { finding in
-                RunActionLine(
+                let permanentCount = permanentDeleteCount(for: finding.kind)
+                return RunActionLine(
                     kind: finding.kind,
                     text: CareFindingCopy.runConfirmationLine(
                         for: finding.kind,
                         bytes: selectedBytes(for: finding.kind),
-                        count: selectionCount(for: finding.kind)
+                        count: selectionCount(for: finding.kind),
+                        permanentCount: permanentCount
                     ),
-                    isPermanent: Self.permanentDeleteKinds.contains(finding.kind)
+                    isPermanent: permanentCount > 0
                 )
             }
     }
@@ -1730,7 +1747,7 @@ extension SmartScanViewModel {
             )
         )
         let detector = ClamAVDetector()
-        let threatRemover = MalwareThreatRemover()
+        let threatRemover = MalwareThreatRemover(recycle: { await UserFileRecycler.recycle($0, context: "Smart Scan") })
         let privacyRemover = BrowserPrivacyRemover(pathProvider: DefaultBrowserDataPathProvider())
 
         return SmartScanViewModel(

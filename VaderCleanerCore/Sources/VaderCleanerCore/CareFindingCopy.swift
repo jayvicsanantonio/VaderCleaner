@@ -426,9 +426,12 @@ public enum CareFindingCopy {
 
     /// One plain-language line for the run-confirmation sheet, describing what
     /// this finding's action will do to the chosen items. Junk names its size
-    /// and says "permanently" — it is the only step the Trash can't undo;
-    /// everything else is phrased as a restorable move to the Trash.
-    static func runConfirmationLine(for kind: CareFinding.Kind, bytes: Int64, count: Int) -> String {
+    /// and says "permanently", since the Trash can't undo it. Threats split on
+    /// `permanentCount`, how many of the `count` chosen can't go to the Trash:
+    /// those in the user's folders are moved there, those under protected
+    /// paths are deleted. Everything else is phrased as a restorable move to
+    /// the Trash.
+    static func runConfirmationLine(for kind: CareFinding.Kind, bytes: Int64, count: Int, permanentCount: Int = 0) -> String {
         switch kind {
         case .junkCleanup:
             return String.localizedStringWithFormat(
@@ -440,10 +443,27 @@ public enum CareFindingCopy {
                 String(localized: "Moves %d duplicate copies to the Trash", bundle: .module, comment: "Run confirmation line for duplicates."),
                 count
             )
-        case .threats:
+        case .threats where permanentCount == 0:
             return String.localizedStringWithFormat(
-                String(localized: "Permanently removes %d threats", bundle: .module, comment: "Run confirmation line for malware threats (irreversible)."),
+                String(localized: "Moves %d threats to the Trash", bundle: .module, comment: "Run confirmation line for malware threats that all go to the Trash."),
                 count
+            )
+        case .threats where permanentCount == count:
+            return String.localizedStringWithFormat(
+                String(localized: "Permanently removes %d threats", bundle: .module, comment: "Run confirmation line for malware threats that are all under protected paths (irreversible)."),
+                count
+            )
+        case .threats:
+            // Some go to the Trash and some can't, so there are always at
+            // least two in all and the plural reads correctly.
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "Removes %d threats, %d of them permanently",
+                    bundle: .module,
+                    comment: "Run confirmation line for malware threats: total chosen, then how many are under protected paths and can't go to the Trash."
+                ),
+                count,
+                permanentCount
             )
         case .appUpdates:
             return String.localizedStringWithFormat(

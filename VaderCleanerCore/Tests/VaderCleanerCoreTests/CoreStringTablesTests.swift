@@ -34,8 +34,12 @@ import Testing
         #expect(CareFindingCopy.metric(for: finding) == metric)
     }
 
-    @Test func threatRunConfirmationLineUsesThePackageStringsdict() {
-        #expect(CareFindingCopy.runConfirmationLine(for: .threats, bytes: 0, count: 1) == "Permanently removes 1 threat")
+    @Test(arguments: [
+        (0, "Moves 1 threat to the Trash"),
+        (1, "Permanently removes 1 threat"),
+    ])
+    func threatRunConfirmationLineUsesThePackageStringsdict(permanentCount: Int, line: String) {
+        #expect(CareFindingCopy.runConfirmationLine(for: .threats, bytes: 0, count: 1, permanentCount: permanentCount) == line)
     }
 
     @Test func verdictDetailUsesThePackageStringsdict() {
