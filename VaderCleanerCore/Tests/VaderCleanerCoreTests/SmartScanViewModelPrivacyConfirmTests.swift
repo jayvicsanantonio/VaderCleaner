@@ -1,5 +1,5 @@
 // SmartScanViewModelPrivacyConfirmTests.swift
-// Tests that a Run which would clear browser-privacy data raises the confirmation sheet first, and that leaving every category unchecked keeps Trash-safe work on one tap.
+// Tests that a Run which would clear browser-privacy data raises the confirmation sheet first, counts the records it will clear, and that leaving every category unchecked keeps Trash-safe work on one tap.
 
 import Foundation
 import Testing
@@ -166,7 +166,33 @@ import Testing
 
         let privacyLine = try #require(summary.first { $0.kind == .browserPrivacy })
         #expect(privacyLine.isPermanent, "the sheet must mark browser-data clearing as irreversible")
-        #expect(privacyLine.text == "Permanently clears 2 browser data items")
+        #expect(privacyLine.text == "Permanently clears 42 browser data items", "12 cookies and 30 cached files")
         #expect(summary.first { $0.kind == .duplicates }?.isPermanent == false, "duplicates still go to the Trash")
+    }
+
+    /// Each checked row clears its whole category, so the line counts the
+    /// records the Review row showed ("12 items"), never the one row checked.
+    @Test func privacyLineCountsTheRecordsInACheckedCategory() async throws {
+        let vm = await scannedViewModel(plan: Self.privacyOnlyPlan)
+        vm.toggleBrowserPrivacy(Self.cookies)
+
+        let privacyLine = try #require(vm.runActionSummary.first { $0.kind == .browserPrivacy })
+        #expect(privacyLine.text == "Permanently clears 12 browser data items")
+    }
+
+    @Test func privacyLineCountsEachBrowserOnlyForItsOwnCheckedCategories() async throws {
+        let twoBrowsers = Self.plan(
+            [CareFinding(payload: .browserPrivacy([
+                BrowserPrivacySummary(browser: .safari, counts: [.cookies: 12, .cachedFiles: 30]),
+                BrowserPrivacySummary(browser: .chrome, counts: [.cookies: 5, .cachedFiles: 7]),
+            ]))],
+            units: [.browserPrivacy]
+        )
+        let vm = await scannedViewModel(plan: twoBrowsers)
+        vm.toggleBrowserPrivacy(Self.cookies)
+        vm.toggleBrowserPrivacy(BrowserPrivacyKey(browser: .chrome, category: .cachedFiles))
+
+        let privacyLine = try #require(vm.runActionSummary.first { $0.kind == .browserPrivacy })
+        #expect(privacyLine.text == "Permanently clears 19 browser data items", "Safari's 12 cookies and Chrome's 7 cached files")
     }
 }

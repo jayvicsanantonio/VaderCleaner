@@ -1086,6 +1086,20 @@ public final class SmartScanViewModel {
         return threats.filter { threatSelection.contains($0.filePath) }
     }
 
+    /// The count a finding's confirmation line reports. Browser privacy is
+    /// checked a whole category at a time, so its line counts the records in
+    /// the checked categories (each Review row's "N items") rather than the
+    /// rows checked.
+    private func confirmationCount(for kind: CareFinding.Kind) -> Int {
+        guard kind == .browserPrivacy,
+              case .browserPrivacy(let summaries)? = currentPlan?.finding(.browserPrivacy)?.payload else {
+            return selectionCount(for: kind)
+        }
+        return browserPrivacySelection.reduce(0) { total, key in
+            total + (summaries.first { $0.browser == key.browser }?.counts[key.category] ?? 0)
+        }
+    }
+
     /// Whether the pending Run pass includes a permanent delete.
     var runIncludesPermanentDelete: Bool {
         CareFinding.Kind.allCases.contains { willExecute($0) && permanentDeleteCount(for: $0) > 0 }
@@ -1240,7 +1254,7 @@ public final class SmartScanViewModel {
                     text: CareFindingCopy.runConfirmationLine(
                         for: finding.kind,
                         bytes: selectedBytes(for: finding.kind),
-                        count: selectionCount(for: finding.kind),
+                        count: confirmationCount(for: finding.kind),
                         permanentCount: permanentCount
                     ),
                     isPermanent: permanentCount > 0
