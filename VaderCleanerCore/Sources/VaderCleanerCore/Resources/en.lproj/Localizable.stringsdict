@@ -50,6 +50,22 @@
             <string>%d threats</string>
         </dict>
     </dict>
+    <key>Permanently clears %d browser data items</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>Permanently clears %#@items@</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d browser data item</string>
+            <key>other</key>
+            <string>%d browser data items</string>
+        </dict>
+    </dict>
     <key>%d login items</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>

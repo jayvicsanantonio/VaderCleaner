@@ -512,7 +512,7 @@ public enum CareFindingCopy {
             )
         case .browserPrivacy:
             return String.localizedStringWithFormat(
-                String(localized: "Clears %d browser data items", bundle: .module, comment: "Run confirmation line for browser privacy."),
+                String(localized: "Permanently clears %d browser data items", bundle: .module, comment: "Run confirmation line for browser privacy (irreversible)."),
                 count
             )
         case .loginItems, .lowDiskSpace, .extensions, .backgroundItems:

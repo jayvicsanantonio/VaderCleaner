@@ -1064,10 +1064,12 @@ public final class SmartScanViewModel {
     }
 
     /// The findings whose action always bypasses the Trash: junk cleanup
-    /// (macOS rebuilds it). The confirmation sheet flags these as irreversible
+    /// (macOS rebuilds it) and browser privacy (`BrowserPrivacyRemover`
+    /// deletes rows from the browsers' databases and removes their cache and
+    /// session files). The confirmation sheet flags these as irreversible
     /// whatever is selected. Threats are not listed because they depend on
     /// where each one lives; `permanentDeleteCount(for:)` counts them.
-    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup]
+    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup, .browserPrivacy]
 
     /// How many of a finding's selected items its action would delete for
     /// good rather than move to the Trash. `MalwareThreatRemover` sends a
@@ -1082,6 +1084,20 @@ public final class SmartScanViewModel {
     private var selectedThreats: [MalwareThreat] {
         guard case .threats(let threats)? = currentPlan?.finding(.threats)?.payload else { return [] }
         return threats.filter { threatSelection.contains($0.filePath) }
+    }
+
+    /// The count a finding's confirmation line reports. Browser privacy is
+    /// checked a whole category at a time, so its line counts the records in
+    /// the checked categories (each Review row's "N items") rather than the
+    /// rows checked.
+    private func confirmationCount(for kind: CareFinding.Kind) -> Int {
+        guard kind == .browserPrivacy,
+              case .browserPrivacy(let summaries)? = currentPlan?.finding(.browserPrivacy)?.payload else {
+            return selectionCount(for: kind)
+        }
+        return browserPrivacySelection.reduce(0) { total, key in
+            total + (summaries.first { $0.browser == key.browser }?.counts[key.category] ?? 0)
+        }
     }
 
     /// Whether the pending Run pass includes a permanent delete.
@@ -1199,8 +1215,9 @@ public final class SmartScanViewModel {
 
     /// The disc's tap entry point. Runs immediately when nothing irreversible
     /// is included, but raises the confirmation sheet first when the pass would
-    /// permanently delete junk or a threat under a protected path — the steps
-    /// the Trash can't undo. A no-op unless the results feed has work to do.
+    /// permanently delete junk, a threat under a protected path, or browser
+    /// data — the steps the Trash can't undo. A no-op unless the results feed
+    /// has work to do.
     public func requestRun() async {
         // A re-check in flight means the plan is missing the findings it is
         // re-scanning; running against that would act on half a picture.
@@ -1237,7 +1254,7 @@ public final class SmartScanViewModel {
                     text: CareFindingCopy.runConfirmationLine(
                         for: finding.kind,
                         bytes: selectedBytes(for: finding.kind),
-                        count: selectionCount(for: finding.kind),
+                        count: confirmationCount(for: finding.kind),
                         permanentCount: permanentCount
                     ),
                     isPermanent: permanentCount > 0
