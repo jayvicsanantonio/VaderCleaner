@@ -24,35 +24,36 @@ public struct LoginItem: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Surfaces and toggles login items through `SMAppService`.
+/// Surfaces login items through `SMAppService`.
 ///
 /// macOS exposes no public API to *enumerate* login items registered by other
 /// applications — `SMAppService` can only report the status of the host app's
 /// own registration (`SMAppService.mainApp`). Third-party "open at login"
 /// agents physically live in `~/Library/LaunchAgents` and are surfaced by
 /// `LaunchAgentManager` instead. This manager therefore covers exactly what
-/// `SMAppService` can truthfully report: the host app itself. Collaborators
-/// are injected as closures so tests never mutate real login-item state.
+/// `SMAppService` can truthfully report: the host app itself. The status is
+/// injected as a closure so tests never read real login-item state.
+///
+/// It only reads. Registering or unregistering the host app goes through
+/// `PreferencesStore` — its `launchAtLogin` setter, or `setLaunchAtLogin(_:)`
+/// for a caller that shows its own error — which writes to launchd off the
+/// main actor one change at a time and reverts the toggle when a write fails.
 struct LoginItemsManager: Sendable {
 
     typealias StatusProvider = @Sendable () -> SMAppService.Status
-    typealias SetEnabledHandler = @Sendable (Bool) throws -> Void
 
     private let displayName: String
     private let identifier: String
     private let statusProvider: StatusProvider
-    private let setEnabledHandler: SetEnabledHandler
 
     init(
         displayName: String,
         identifier: String,
-        statusProvider: @escaping StatusProvider,
-        setEnabledHandler: @escaping SetEnabledHandler
+        statusProvider: @escaping StatusProvider
     ) {
         self.displayName = displayName
         self.identifier = identifier
         self.statusProvider = statusProvider
-        self.setEnabledHandler = setEnabledHandler
     }
 
     /// The host app's login item, reflecting the live `SMAppService` status so
@@ -72,25 +73,18 @@ struct LoginItemsManager: Sendable {
             )
         ]
     }
-
-    /// Registers or unregisters the host app as a login item.
-    func setEnabled(_ enabled: Bool, for item: LoginItem) throws {
-        try setEnabledHandler(enabled)
-    }
 }
 
 extension LoginItemsManager {
 
-    /// Production manager bound to `SMAppService.mainApp` via the existing
-    /// idempotent `LoginItemManager` wrapper, so toggling here behaves exactly
-    /// like the Preferences "Launch at Login" control.
+    /// Production manager reading the live status of `SMAppService.mainApp`,
+    /// the same registration the Preferences "Launch at Login" control writes.
     static func live() -> LoginItemsManager {
         LoginItemsManager(
             displayName: Bundle.main.infoDictionary?["CFBundleName"] as? String
                 ?? "VaderCleaner",
             identifier: Bundle.main.bundleIdentifier ?? "com.personal.VaderCleaner",
-            statusProvider: { SMAppService.mainApp.status },
-            setEnabledHandler: { try LoginItemManager.setEnabled($0) }
+            statusProvider: { SMAppService.mainApp.status }
         )
     }
 }
