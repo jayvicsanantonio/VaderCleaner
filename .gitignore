@@ -27,6 +27,9 @@ Icon?
 .Trashes
 
 # Xcode-generated
+# The project itself is XcodeGen output from project.yml; `xcodegen generate`
+# recreates it, and its root group is named after the checkout folder.
+VaderCleaner.xcodeproj/
 *.moved-aside
 *.hmap
 *.xcarchive
