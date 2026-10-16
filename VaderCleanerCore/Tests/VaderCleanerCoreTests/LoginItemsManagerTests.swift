@@ -1,5 +1,5 @@
 // LoginItemsManagerTests.swift
-// Drives LoginItemsManager through injected SMAppService status/handler closures so no real login-item registration is touched.
+// Drives LoginItemsManager through an injected SMAppService status closure so no real login-item registration is touched.
 
 import XCTest
 import ServiceManagement
@@ -11,8 +11,7 @@ final class LoginItemsManagerTests: XCTestCase {
         let manager = LoginItemsManager(
             displayName: "VaderCleaner",
             identifier: "com.personal.VaderCleaner",
-            statusProvider: { .enabled },
-            setEnabledHandler: { _ in }
+            statusProvider: { .enabled }
         )
 
         let items = manager.items()
@@ -28,8 +27,7 @@ final class LoginItemsManagerTests: XCTestCase {
         let manager = LoginItemsManager(
             displayName: "VaderCleaner",
             identifier: "com.personal.VaderCleaner",
-            statusProvider: { .notRegistered },
-            setEnabledHandler: { _ in }
+            statusProvider: { .notRegistered }
         )
 
         XCTAssertFalse(manager.items().first?.isEnabled == true)
@@ -39,8 +37,7 @@ final class LoginItemsManagerTests: XCTestCase {
         let manager = LoginItemsManager(
             displayName: "VaderCleaner",
             identifier: "com.personal.VaderCleaner",
-            statusProvider: { .requiresApproval },
-            setEnabledHandler: { _ in }
+            statusProvider: { .requiresApproval }
         )
 
         let item = manager.items().first
@@ -52,33 +49,5 @@ final class LoginItemsManagerTests: XCTestCase {
         // it so the view can show a "finish in System Settings" hint.
         XCTAssertTrue(item?.isEnabled == true)
         XCTAssertTrue(item?.requiresApproval == true)
-    }
-
-    func test_setEnabled_forwardsRequestedStateToHandler() throws {
-        let received = TestBox<Bool?>(nil)
-        let manager = LoginItemsManager(
-            displayName: "VaderCleaner",
-            identifier: "com.personal.VaderCleaner",
-            statusProvider: { .enabled },
-            setEnabledHandler: { received.value = $0 }
-        )
-
-        let item = try XCTUnwrap(manager.items().first)
-        try manager.setEnabled(false, for: item)
-
-        XCTAssertEqual(received.value, false)
-    }
-
-    func test_setEnabled_propagatesHandlerError() {
-        struct Boom: Error {}
-        let manager = LoginItemsManager(
-            displayName: "VaderCleaner",
-            identifier: "com.personal.VaderCleaner",
-            statusProvider: { .enabled },
-            setEnabledHandler: { _ in throw Boom() }
-        )
-
-        let item = LoginItem(id: "x", name: "x", isEnabled: true)
-        XCTAssertThrowsError(try manager.setEnabled(true, for: item))
     }
 }
