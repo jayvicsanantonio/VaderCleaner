@@ -22,6 +22,14 @@ regenerate:
 xcodegen generate
 ```
 
+ClamAV's binaries aren't tracked either. Stage them into the gitignored
+`Vendor/clamav/` once per clone or worktree, before the first build — the
+"Stage bundled ClamAV" build phase fails without them:
+
+```bash
+Scripts/bundle-clamav.sh
+```
+
 Build:
 
 ```bash
