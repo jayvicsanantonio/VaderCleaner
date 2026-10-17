@@ -35,9 +35,19 @@ Stack: SwiftUI, Swift 6 language mode, deployment target macOS 26.
 You need Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 (`brew install xcodegen`).
 
-**The `.xcodeproj` is generated.** Never edit it by hand, and never add files
-through Xcode's "New File" dialog expecting them to stick. Add the file to the
-right directory, then:
+ClamAV ships inside the app, but its binaries aren't in git. Stage them into
+the gitignored `Vendor/clamav/` once per clone or worktree, before the first
+build — the "Stage bundled ClamAV" build phase fails without them:
+
+```bash
+Scripts/bundle-clamav.sh
+```
+
+**The `.xcodeproj` is generated, and not tracked in git.** A fresh clone has
+none until you generate it, and it needs generating again whenever you add or
+remove a file. Never edit it by hand, and never add files through Xcode's "New
+File" dialog expecting them to stick. Add the file to the right directory,
+then:
 
 ```bash
 xcodegen generate

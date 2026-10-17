@@ -233,17 +233,23 @@ VaderCleaner is a native **Swift + SwiftUI** macOS application.
 ### Requirements
 
 - **Xcode** with the **macOS 26 SDK**
+- **[XcodeGen](https://github.com/yonaskolb/XcodeGen)** — the Xcode project is generated from `project.yml`
 - **macOS 26.0** deployment target (`MACOSX_DEPLOYMENT_TARGET = 26.0`)
-- **Swift 5.9** (`SWIFT_VERSION = 5.9`)
-- **No third-party package dependencies.** There is no Swift Package Manager manifest or `Package.resolved` — the project builds with the system SDK only. (App update checking parses other apps' App Store and Sparkle *appcast feeds*; it does **not** embed the Sparkle framework.)
+- **Swift 6** language mode (`SWIFT_VERSION = 6.0`)
+- **No third-party Swift packages.** The only package is the local `VaderCleanerCore/`, listed under `packages:` in `project.yml`, so there is no `Package.resolved` and the code builds against the system SDK alone. The one third-party component is ClamAV, which ships as prebuilt binaries — see [the ClamAV section](#optional-enabling-the-malware-scanner-clamav). (App update checking parses other apps' App Store and Sparkle *appcast feeds*; it does **not** embed the Sparkle framework.)
 
 ### Get the code
 
 ```bash
 git clone https://github.com/jayvicsanantonio/VaderCleaner.git
 cd VaderCleaner
+brew install xcodegen
+Scripts/bundle-clamav.sh   # once per clone, before the first build
+xcodegen generate
 open VaderCleaner.xcodeproj
 ```
+
+`VaderCleaner.xcodeproj` isn't in git: XcodeGen generates it from `project.yml`. Run `xcodegen generate` again after adding or removing a file, and never edit the project by hand — the next generate overwrites it.
 
 ### Project layout
 
@@ -255,7 +261,7 @@ VaderCleanerCore/        Swift package with the UI-free core — view models, sc
 VaderCleanerHelper/      Privileged helper daemon (XPC) for root-level operations
 VaderCleanerTests/       Unit tests that need the app — views, the asset catalog, notifications
 VaderCleanerUITests/     End-to-end UI tests (XCUITest)
-VaderCleaner.xcodeproj/  Xcode project
+project.yml              XcodeGen spec that generates VaderCleaner.xcodeproj
 ```
 
 The app follows a straightforward SwiftUI pattern: one `*View` and one `*ViewModel` per feature, with scanning/cleanup logic isolated in dedicated service types so it can be unit-tested without the UI. Everything that doesn't draw lives in the `VaderCleanerCore` package, which the app links.
@@ -293,13 +299,11 @@ These are handled by **`VaderCleanerHelper`**, a separate privileged daemon the 
 
 ### Optional: enabling the malware scanner (ClamAV)
 
-The Malware Removal and Smart Scan malware checks use **ClamAV**, which is not bundled. Install it (for example via Homebrew) to enable that feature:
+The Malware Removal and Smart Scan malware checks use **ClamAV**, which is bundled inside the app. The binaries aren't in git: `Scripts/bundle-clamav.sh` downloads the Homebrew bottles for ClamAV and the libraries it links, verifies their checksums, rewrites them to load from inside the app, and stages the result in the gitignored `Vendor/clamav/`. It doesn't need Homebrew installed.
 
-```bash
-brew install clamav
-```
+The app's **Stage bundled ClamAV** build phase (`Scripts/stage-clamav.sh`) copies `Vendor/clamav/` into the built app, and fails the build if that folder is missing — which is why [Get the code](#get-the-code) runs the script once before the first build. [`Vendor/README.md`](Vendor/README.md) covers what the script produces and when to re-run it.
 
-VaderCleaner detects `clamscan`/`freshclam` on your `PATH`, refreshes the signature database when stale, and degrades gracefully if ClamAV is absent — every other feature is unaffected.
+VaderCleaner looks for `clamscan`/`freshclam` inside the app first, with a Homebrew install (`/opt/homebrew` or `/usr/local`) only as a developer fallback. It refreshes the signature database when it is more than a day old, and degrades gracefully if ClamAV is absent — every other feature is unaffected.
 
 ### Running the tests
 
