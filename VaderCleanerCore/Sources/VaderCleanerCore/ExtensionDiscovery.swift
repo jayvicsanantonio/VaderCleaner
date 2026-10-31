@@ -164,7 +164,8 @@ struct BrowserExtensionDiscovery: ExtensionDiscovering {
                 at: extensionsDir, includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             )) ?? []
-            for extDir in extIDs {
+            // `Temp` is Chromium's own scratch folder for installs in progress.
+            for extDir in extIDs where extDir.lastPathComponent != "Temp" {
                 let versionDirs = (try? fileManager.contentsOfDirectory(
                     at: extDir, includingPropertiesForKeys: nil,
                     options: [.skipsHiddenFiles]
@@ -183,7 +184,8 @@ struct BrowserExtensionDiscovery: ExtensionDiscovering {
                     bundleID: extDir.lastPathComponent,
                     type: .chromeExtension,
                     isEnabled: true,
-                    size: ExtensionArtifactSizer.size(at: extDir, fileManager: fileManager)
+                    size: ExtensionArtifactSizer.size(at: extDir, fileManager: fileManager),
+                    profile: profile.lastPathComponent
                 ))
             }
         }
@@ -223,22 +225,52 @@ struct BrowserExtensionDiscovery: ExtensionDiscovering {
                 at: extensionsDir, includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             )) ?? []
+            let addonNames = Self.firefoxAddonNames(in: profile)
+            // Firefox names profile folders `<salt>.<name>`.
+            let profileName = profile.lastPathComponent
+                .split(separator: ".", maxSplits: 1).last.map(String.init)
             for entry in entries {
                 let isXPI = entry.pathExtension.lowercased() == "xpi"
                 var isDir: ObjCBool = false
                 fileManager.fileExists(atPath: entry.path, isDirectory: &isDir)
                 guard isXPI || isDir.boolValue else { continue }
+                let addonID = entry.deletingPathExtension().lastPathComponent
                 items.append(ExtensionItem(
-                    name: entry.deletingPathExtension().lastPathComponent,
+                    name: addonNames[addonID] ?? addonNames[entry.lastPathComponent] ?? addonID,
                     path: entry,
-                    bundleID: entry.deletingPathExtension().lastPathComponent,
+                    bundleID: addonID,
                     type: .firefoxExtension,
                     isEnabled: true,
-                    size: ExtensionArtifactSizer.size(at: entry, fileManager: fileManager)
+                    size: ExtensionArtifactSizer.size(at: entry, fileManager: fileManager),
+                    profile: profileName
                 ))
             }
         }
         return items
+    }
+}
+
+// MARK: - Firefox names
+
+private extension BrowserExtensionDiscovery {
+
+    /// Add-on ID → display name from a profile's `extensions.json`. The files
+    /// on disk are named only by ID, often a raw GUID, and reading the name out
+    /// of an `.xpi` would mean unpacking it.
+    static func firefoxAddonNames(in profile: URL) -> [String: String] {
+        guard let data = try? Data(contentsOf: profile.appendingPathComponent("extensions.json")),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let addons = json["addons"] as? [[String: Any]] else {
+            return [:]
+        }
+        var names: [String: String] = [:]
+        for addon in addons {
+            guard let id = addon["id"] as? String,
+                  let locale = addon["defaultLocale"] as? [String: Any],
+                  let name = locale["name"] as? String, !name.isEmpty else { continue }
+            names[id] = name
+        }
+        return names
     }
 }
 

@@ -11,22 +11,39 @@ enum MachOCPUType {
     static let arm64: UInt32  = 0x0100_000C
 }
 
-/// Decides whether a set of executable architectures is runnable on the
-/// current macOS. `arm64` runs natively on Apple Silicon; `x86_64` runs
+/// Decides whether a set of executable architectures is runnable on this Mac.
+/// `arm64` runs natively on Apple Silicon, and only there; `x86_64` runs
 /// natively on Intel and under Rosetta 2 on Apple Silicon. Anything with only
 /// 32-bit Intel (`i386`) or PowerPC slices can't launch on a modern macOS.
+///
+/// `x86_64` counts on Apple Silicon even when Rosetta isn't installed yet:
+/// macOS offers to install it when such an app launches, so the app still works
+/// and must not be offered for removal.
 enum UnsupportedAppClassifier {
 
-    /// Architectures the current macOS can run.
-    static let runnableCPUTypes: Set<UInt32> = [MachOCPUType.x86_64, MachOCPUType.arm64]
+    /// Architectures this Mac can run. Asks the hardware rather than checking
+    /// `#if arch`, which describes this process: the universal build's x86_64
+    /// slice under Rosetta would otherwise call every arm64-only app unrunnable
+    /// and offer to trash it.
+    static let runnableCPUTypes = runnableTypes(hostHasARM64: hostHasARM64())
+
+    static func runnableTypes(hostHasARM64: Bool) -> Set<UInt32> {
+        hostHasARM64 ? [MachOCPUType.x86_64, MachOCPUType.arm64] : [MachOCPUType.x86_64]
+    }
+
+    private static func hostHasARM64() -> Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout.size(ofValue: value)
+        return sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0 && value == 1
+    }
 
     /// True when the executable has architectures *and none of them* is
     /// runnable. An empty/unknown list returns `false` — we never flag an app
     /// we couldn't actually read, biasing toward false negatives so a parse
     /// miss never offers a working app for removal.
-    static func isUnsupported(cpuTypes: [UInt32]) -> Bool {
+    static func isUnsupported(cpuTypes: [UInt32], runnable: Set<UInt32> = runnableCPUTypes) -> Bool {
         guard !cpuTypes.isEmpty else { return false }
-        return Set(cpuTypes).isDisjoint(with: runnableCPUTypes)
+        return Set(cpuTypes).isDisjoint(with: runnable)
     }
 }
 
@@ -121,6 +138,18 @@ struct DefaultUnsupportedAppScanner: UnsupportedAppScanning {
             log.debug("Unsupported-app scan flagged \(unsupported.count, privacy: .public) app(s)")
             return unsupported
         }.value
+    }
+
+    /// - Parameter excluding: paths from the user's Ignore List. An app at or
+    ///   beneath one of these is never reported, so it isn't offered for removal.
+    func scan(apps: [AppInfo], excluding exclusions: [URL]) async -> [UnsupportedApp] {
+        let excludedPaths = exclusions.map(PathExclusionMatcher.canonicalize)
+        return await scan(apps: apps.filter {
+            !PathExclusionMatcher.isExcluded(
+                path: PathExclusionMatcher.canonicalize($0.bundleURL),
+                by: excludedPaths
+            )
+        })
     }
 
     /// Default provider: read the first 64 KB of the app's main executable

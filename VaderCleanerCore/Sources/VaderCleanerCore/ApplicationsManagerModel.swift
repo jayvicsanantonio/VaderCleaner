@@ -63,6 +63,38 @@ public enum ManagerListState: Equatable, Sendable {
     case content
 }
 
+/// How much of a list is selected, for the "Select:" menu's label.
+public enum ManagerBulkSelectState: Equatable, Sendable {
+    case none
+    case some
+    case all
+}
+
+/// Why a manager list has nothing to show. Each pane's all-clear message is a
+/// claim about the whole Mac, so it must not answer for a search with no hits.
+public enum ManagerEmptyReason: Equatable, Sendable {
+    case noSearchMatches
+    case nothingSelected
+    case nothingFound
+}
+
+/// The outcome of a finished removal, for the manager's result banner. Removal
+/// happens away from any screen of its own, so without this a failure leaves
+/// nothing behind but a row that didn't go away.
+public struct ManagerNotice: Equatable, Sendable {
+    public let message: String
+    public let isError: Bool
+    /// The failure was the privileged helper being unreachable, so the banner
+    /// can offer to reinstall it rather than leave the user to retry.
+    public let offersHelperReinstall: Bool
+
+    init(message: String, isError: Bool, offersHelperReinstall: Bool = false) {
+        self.message = message
+        self.isError = isError
+        self.offersHelperReinstall = offersHelperReinstall
+    }
+}
+
 /// Stateless derivations over the installed-app list. Kept separate from the
 /// view so the facet counts, filtering, and ordering are unit-testable without
 /// SwiftUI — the same split as `MyClutterManagerModel`.
@@ -137,6 +169,33 @@ public enum ApplicationsManagerModel {
     public static func listState(isLoading: Bool, isEmpty: Bool) -> ManagerListState {
         guard isEmpty else { return .content }
         return isLoading ? .loading : .empty
+    }
+
+    /// The "Select:" label. Counts every row in the list rather than the rows
+    /// a search left visible, because Remove acts on all of them.
+    public static func bulkSelectState(selected: Int, total: Int) -> ManagerBulkSelectState {
+        guard selected > 0 else { return .none }
+        return selected >= total ? .all : .some
+    }
+
+    /// Why a list came up empty.
+    public static func emptyReason(search: String, showsOnlySelected: Bool) -> ManagerEmptyReason {
+        if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .noSearchMatches }
+        return showsOnlySelected ? .nothingSelected : .nothingFound
+    }
+
+    /// Up to `limit` names for a confirmation or result banner, then how many
+    /// more there are. A destructive confirmation has to say what it acts on,
+    /// because a selection made earlier may be hidden by the current search.
+    public static func nameSummary(_ names: [String], limit: Int = 5) -> String {
+        let shown = names.prefix(limit).joined(separator: ", ")
+        let remaining = names.count - limit
+        guard remaining > 0 else { return shown }
+        return String(
+            localized: "\(shown), and \(remaining) more",
+            bundle: .module,
+            comment: "List of names cut short; the names shown, then how many others."
+        )
     }
 
     /// Count of App Store vs. non-App-Store apps, off `AppInfo.isAppStore`.

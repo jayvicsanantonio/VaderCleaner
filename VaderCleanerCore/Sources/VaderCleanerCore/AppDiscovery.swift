@@ -121,7 +121,7 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
                     guard let info = Self.parseBundle(at: entry, fileManager: fileManager, lastUsedDate: lastUsedDate) else {
                         continue
                     }
-                    if !includingSystemApps, info.bundleID.hasPrefix("com.apple.") {
+                    if !includingSystemApps, Self.isSystemApp(info) {
                         continue
                     }
                     // Dedup by bundle URL path — two roots may surface the
@@ -138,6 +138,16 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
         }.value
     }
 
+    /// Whether an app came with the OS rather than being installed by the user.
+    /// The `com.apple.` prefix alone goes too far: Pages, Keynote, GarageBand,
+    /// and Xcode are Apple's but are the user's to keep or remove. The App Store
+    /// receipt marks all but a directly downloaded Xcode, which is named here.
+    static func isSystemApp(_ info: AppInfo) -> Bool {
+        info.bundleID.hasPrefix("com.apple.")
+            && !info.isAppStore
+            && info.bundleID != "com.apple.dt.Xcode"
+    }
+
     /// Parses `Info.plist` for a single `.app` bundle. Returns `nil` when
     /// `CFBundleIdentifier` is missing — without a bundle ID we can't find
     /// associated files later, so the row would be useless to the user.
@@ -146,7 +156,14 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
         fileManager: FileManager,
         lastUsedDate: @Sendable (String) -> Date? = { DefaultUnusedAppScanner.spotlightLastUsedDate(atPath: $0) }
     ) -> AppInfo? {
-        let infoPlistURL = url
+        // An iOS app installed on the Mac has no `Contents`: a `WrappedBundle`
+        // link at the top points at the real bundle, whose `Info.plist` sits at
+        // its root. These only ever come from the App Store.
+        let wrappedInfoPlistURL = url
+            .appendingPathComponent("WrappedBundle", isDirectory: true)
+            .appendingPathComponent("Info.plist")
+        let isWrappedIOSApp = fileManager.fileExists(atPath: wrappedInfoPlistURL.path)
+        let infoPlistURL = isWrappedIOSApp ? wrappedInfoPlistURL : url
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Info.plist")
         guard let data = try? Data(contentsOf: infoPlistURL) else { return nil }
@@ -174,7 +191,7 @@ struct DefaultAppDiscovery: AppDiscovering, Sendable {
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("_MASReceipt", isDirectory: true)
             .appendingPathComponent("receipt")
-        let isAppStore = fileManager.fileExists(atPath: receipt.path)
+        let isAppStore = isWrappedIOSApp || fileManager.fileExists(atPath: receipt.path)
 
         // A single Spotlight index read — cheap enough to resolve inline on the
         // discovery pass, so the list shows and sorts by last-opened without a

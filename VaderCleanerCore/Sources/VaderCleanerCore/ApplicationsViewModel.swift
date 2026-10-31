@@ -204,6 +204,8 @@ public final class ApplicationsViewModel {
     /// batch), so the return is the success set — mirroring
     /// `MyClutterViewModel`'s deleter.
     public typealias RecycleFiles = @Sendable ([URL]) async -> Set<URL>
+    /// Measures the files a partly removed leftover group still holds.
+    public typealias MeasureFiles = @Sendable ([URL]) async -> Int64
 
     public private(set) var phase: Phase = .idle
 
@@ -226,6 +228,16 @@ public final class ApplicationsViewModel {
     private(set) var leftoverSelection: Set<String> = []
     /// True while a leftover recycle batch is in flight.
     private(set) var isRemovingLeftovers = false
+    /// How many items the last removal couldn't move to the Trash. Their rows
+    /// stay put, which on its own reads as the button having done nothing.
+    private(set) var removalFailureCount = 0
+    /// Apps trashed from the Unsupported pane but not yet passed on, so the panes
+    /// keeping their own app list can drop them. `forgetApps(_:)` doesn't add
+    /// to it: see `AppUninstallerViewModel.removedAppIDs`.
+    public private(set) var removedAppIDs: Set<String> = []
+    /// Apps removed elsewhere while a scan is running. The scan may have already
+    /// discovered them, so they're taken out of its results when it lands.
+    @ObservationIgnored private var appsForgottenDuringScan: Set<String> = []
 
     @ObservationIgnored private let discoverApps: DiscoverApps
     @ObservationIgnored private let checkUpdates: CheckUpdates
@@ -234,6 +246,7 @@ public final class ApplicationsViewModel {
     @ObservationIgnored private let scanUnusedApps: ScanUnusedApps
     @ObservationIgnored private let scanLeftovers: ScanLeftovers
     @ObservationIgnored private let recycleFiles: RecycleFiles
+    @ObservationIgnored private let measureFiles: MeasureFiles
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "ApplicationsViewModel")
 
@@ -248,7 +261,8 @@ public final class ApplicationsViewModel {
         scanUnsupportedApps: @escaping ScanUnsupportedApps,
         scanUnusedApps: @escaping ScanUnusedApps,
         scanLeftovers: @escaping ScanLeftovers,
-        recycleFiles: @escaping RecycleFiles
+        recycleFiles: @escaping RecycleFiles,
+        measureFiles: @escaping MeasureFiles = ApplicationsViewModel.measureOnDisk
     ) {
         self.discoverApps = discoverApps
         self.checkUpdates = checkUpdates
@@ -257,6 +271,17 @@ public final class ApplicationsViewModel {
         self.scanUnusedApps = scanUnusedApps
         self.scanLeftovers = scanLeftovers
         self.recycleFiles = recycleFiles
+        self.measureFiles = measureFiles
+    }
+
+    /// Default `MeasureFiles`: the shared size walk, off the main actor. A stored
+    /// closure, as `ClamAVScanner.defaultRunner` is. Passing a static async func
+    /// here instead aborted the process under Xcode 26.6's concurrency runtime
+    /// with "freed pointer was not the last allocation".
+    public nonisolated static let measureOnDisk: MeasureFiles = { urls in
+        await Task.detached(priority: .userInitiated) {
+            urls.reduce(Int64(0)) { $0 + PathSizer.size(at: $1, fileManager: .default) }
+        }.value
     }
 
     // MARK: - Scan
@@ -280,6 +305,8 @@ public final class ApplicationsViewModel {
         installationFileSelection = []
         unsupportedAppSelection = []
         leftoverSelection = []
+        removalFailureCount = 0
+        appsForgottenDuringScan = []
 
         do {
             // The installer scan is independent of app discovery, so run it
@@ -309,6 +336,8 @@ public final class ApplicationsViewModel {
                 unusedApps: unused,
                 leftovers: leftovers
             ))
+            forgetApps(appsForgottenDuringScan)
+            appsForgottenDuringScan = []
         } catch {
             // Privacy: errors may include user-specific paths.
             log.error("Applications scan failed: \(String(describing: error), privacy: .private)")
@@ -320,10 +349,61 @@ public final class ApplicationsViewModel {
     /// Returns to idle from a terminal phase so the user can start over from
     /// the intro screen.
     func reset() {
+        scanGeneration &+= 1
         phase = .idle
         installationFileSelection = []
         unsupportedAppSelection = []
         leftoverSelection = []
+    }
+
+    // MARK: - Staying in step with the other panes
+
+    /// Drops apps removed elsewhere from every count this result holds, so the
+    /// dashboard and the manager's panes agree with the disk.
+    public func forgetApps(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        if phase == .scanning { appsForgottenDuringScan.formUnion(ids) }
+        guard case .results(var current) = phase else { return }
+        current.installedApps.removeAll { ids.contains($0.id) }
+        current.unusedApps.removeAll { ids.contains($0.app.id) }
+        current.unsupportedApps.removeAll { ids.contains($0.app.id) }
+        current.availableUpdates.removeAll { ids.contains($0.id) }
+        phase = .results(current)
+        unsupportedAppSelection = unsupportedAppSelection.filter { !ids.contains($0.path) }
+    }
+
+    /// Hands over the apps trashed since the last call. See
+    /// `AppUninstallerViewModel.consumeRemovedAppIDs()`.
+    public func consumeRemovedAppIDs() -> Set<String> {
+        defer { removedAppIDs = [] }
+        return removedAppIDs
+    }
+
+    /// Adopts the Updater's list once it has run its own check. It is the one
+    /// the user acts on, so the Updates card has to match it.
+    public func setAvailableUpdates(_ updates: [UpdateInfo]) {
+        guard case .results(var current) = phase, current.availableUpdates != updates else { return }
+        current.availableUpdates = updates
+        phase = .results(current)
+    }
+
+    // MARK: - Removal outcome
+
+    /// What the manager's result banner should say about the last removal.
+    public var notice: ManagerNotice? {
+        guard removalFailureCount > 0 else { return nil }
+        return ManagerNotice(
+            message: String(
+                localized: "\(removalFailureCount) couldn't be moved to the Trash. You may not have permission to remove them.",
+                bundle: .module,
+                comment: "Result banner when items stayed behind; how many."
+            ),
+            isError: true
+        )
+    }
+
+    public func dismissNotice() {
+        removalFailureCount = 0
     }
 
     // MARK: - Installation files selection
@@ -380,6 +460,7 @@ public final class ApplicationsViewModel {
         isRemovingInstallationFiles = true
         let removed = await recycleFiles(targets.map(\.url))
         isRemovingInstallationFiles = false
+        removalFailureCount = targets.count - removed.count
 
         // The recycle hop is async; only rewrite the payload if we are still
         // showing the same kind of results (a `reset()` / rescan during the
@@ -439,11 +520,13 @@ public final class ApplicationsViewModel {
         isRemovingUnsupportedApps = true
         let removed = await recycleFiles(targets.map(\.app.bundleURL))
         isRemovingUnsupportedApps = false
+        removalFailureCount = targets.count - removed.count
 
         guard case .results(var current) = phase else { return }
         current.unsupportedApps.removeAll { removed.contains($0.app.bundleURL) }
         phase = .results(current)
         unsupportedAppSelection.subtract(removed)
+        removedAppIDs.formUnion(targets.filter { removed.contains($0.app.bundleURL) }.map(\.app.id))
     }
 
     // Unused apps are scanned here (the dashboard tile counts them and the
@@ -496,7 +579,18 @@ public final class ApplicationsViewModel {
         guard !targets.isEmpty, !isRemovingLeftovers else { return }
 
         isRemovingLeftovers = true
-        let removed = await recycleFiles(targets.flatMap { $0.urls })
+        let targetURLs = targets.flatMap { $0.urls }
+        let removed = await recycleFiles(targetURLs)
+        removalFailureCount = targetURLs.count - removed.count
+        // Measured rather than subtracted: the scan's total is all a group
+        // knows, and what's left is what the row should now claim.
+        var remainingBytes: [String: Int64] = [:]
+        for group in targets {
+            let surviving = group.urls.filter { !removed.contains($0) }
+            if !surviving.isEmpty, surviving.count != group.urls.count {
+                remainingBytes[group.bundleID] = await measureFiles(surviving)
+            }
+        }
         isRemovingLeftovers = false
 
         guard case .results(var current) = phase else { return }
@@ -509,7 +603,7 @@ public final class ApplicationsViewModel {
                 bundleID: group.bundleID,
                 displayName: group.displayName,
                 urls: survivingURLs,
-                totalBytes: group.totalBytes
+                totalBytes: remainingBytes[group.bundleID] ?? group.totalBytes
             )
         }
         phase = .results(current)
@@ -523,14 +617,14 @@ public final class ApplicationsViewModel {
 extension ApplicationsViewModel {
 
     /// Builds a view-model wired to the real `DefaultAppDiscovery` and
-    /// `UpdateProbe.liveDirectUpdates` — the same collaborators
-    /// `AppUpdaterViewModel.live` uses, including the Homebrew ownership map
-    /// and the skipped-version records, so the dashboard's update count
-    /// matches the updater list it opens.
+    /// `UpdateProbe.liveDashboardUpdates` — the same collaborators
+    /// `AppUpdaterViewModel.live` uses, including the Homebrew ownership map,
+    /// brew's outdated casks, and the skipped-version records, so the
+    /// dashboard's update count matches the updater list it opens.
     /// - Parameter exclusions: the user's Ignore List. Snapshotted per scan (as
-    ///   in every other section) and applied to the installer, unused-app and
-    ///   leftover passes, which previously ignored it entirely. `nil` keeps the
-    ///   previous unfiltered behaviour for previews.
+    ///   in every other section) and applied to the installer, unsupported,
+    ///   unused-app and leftover passes. `nil` keeps the unfiltered behaviour
+    ///   for previews.
     @MainActor
     public static func live(exclusions: ExclusionsStore? = nil) -> ApplicationsViewModel {
         let excludedURLs: @Sendable () async -> [URL] = { [weak exclusions] in
@@ -551,13 +645,13 @@ extension ApplicationsViewModel {
             // read from `brew` at probe-construction time, and a cask
             // installed since launch must be recognised on the next scan.
             checkUpdates: { apps in
-                await UpdateProbe.liveDirectUpdates(for: apps)
+                await UpdateProbe.liveDashboardUpdates(for: apps)
             },
             scanInstallationFiles: {
                 await installerScanner.scan(excluding: await excludedURLs())
             },
             scanUnsupportedApps: { apps in
-                await unsupportedScanner.scan(apps: apps)
+                await unsupportedScanner.scan(apps: apps, excluding: await excludedURLs())
             },
             scanUnusedApps: { apps in
                 await unusedScanner.scan(apps: apps, excluding: await excludedURLs())
@@ -573,13 +667,6 @@ extension ApplicationsViewModel {
             }
         )
     }
-
-    /// Default deleter: move each installer to the user's Trash via
-    /// `NSWorkspace.recycle` (restorable) and return the set of URLs that
-    /// actually moved. `NSWorkspace.recycle` Trashes what it can and reports an
-    /// error only when the whole batch fails, so the success set comes from the
-    /// returned original→Trash URL map. Marked `nonisolated` so the batch runs
-    /// off the main actor.
 }
 
 // MARK: - ScanCoordinating

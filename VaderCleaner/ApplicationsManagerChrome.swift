@@ -123,6 +123,100 @@ struct ApplicationsManagerEmptyState: View {
     }
 }
 
+extension ApplicationsManagerEmptyState {
+    /// An empty state that answers for why the list is empty. `detail` is the
+    /// pane's own all-clear, used only when nothing is hiding any rows.
+    init(reason: ManagerEmptyReason, icon: String, title: String, detail: String) {
+        switch reason {
+        case .noSearchMatches:
+            self.init(
+                icon: "magnifyingglass",
+                title: title,
+                detail: String(localized: "Nothing here matches your search.", comment: "Manager empty state when a search finds nothing.")
+            )
+        case .nothingSelected:
+            self.init(
+                icon: icon,
+                title: title,
+                detail: String(localized: "Nothing is selected.", comment: "Manager empty state for an empty Selected facet.")
+            )
+        case .nothingFound:
+            self.init(icon: icon, title: title, detail: detail)
+        }
+    }
+}
+
+/// Takes the place of a list that couldn't be loaded. An empty list here says
+/// nothing about what's on the Mac, so it must not look like an all-clear.
+struct ApplicationsManagerFailureState: View {
+    let title: String
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 44)).foregroundStyle(.orange)
+            Text(title).font(.title2.weight(.semibold))
+            Text(message).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button(String(localized: "Try Again", comment: "Retry a list that failed to load."), action: onRetry)
+                .accessibilityIdentifier("applications.manager.tryAgain")
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The manager's result banner, above the footer: what the last removal did.
+struct ApplicationsManagerNoticeBanner: View {
+    let notice: ManagerNotice
+    let onDismiss: () -> Void
+    var onReinstallHelper: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: notice.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(notice.isError ? Color.orange : Color.green)
+            Text(notice.message).font(.callout).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("applications.manager.notice")
+            Spacer(minLength: 8)
+            if notice.offersHelperReinstall, let onReinstallHelper {
+                Button(String(localized: "Reinstall Helper", comment: "Recovery action when the privileged helper is unreachable."), action: onReinstallHelper)
+            }
+            Button(String(localized: "Dismiss", comment: "Dismiss a result banner."), action: onDismiss)
+        }
+        .padding(.horizontal, 24).padding(.vertical, 10)
+    }
+}
+
+/// The "Select: All / None" control above a checkbox list. "All" means the rows
+/// on screen, so it can never reach further than what the user can see.
+struct ApplicationsManagerBulkSelectMenu: View {
+    let state: ManagerBulkSelectState
+    let onSelectAll: () -> Void
+    let onSelectNone: () -> Void
+
+    private var label: String {
+        switch state {
+        case .none: return String(localized: "None", comment: "None selected.")
+        case .some: return String(localized: "Some", comment: "Some selected.")
+        case .all:  return String(localized: "All", comment: "All selected.")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
+            Menu {
+                Button(String(localized: "All", comment: "Select all."), action: onSelectAll)
+                Button(String(localized: "None", comment: "Deselect all."), action: onSelectNone)
+            } label: {
+                Text(label).foregroundStyle(.tint)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+        }
+    }
+}
+
 /// The right pane's loading spinner while the app list is still discovering.
 struct ApplicationsManagerLoadingPane: View {
     var body: some View {

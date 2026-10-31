@@ -1,9 +1,26 @@
 // ClamAVScanner.swift
 // Runs clamscan over the requested paths, streams progress line by line, and returns the parsed list of detected threats.
 
+import CryptoKit
 import Foundation
 import Synchronization
 import os.log
+
+/// The engine can't be trusted to scan anything.
+enum ClamAVEngineError: LocalizedError, Equatable {
+    case selfTestFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .selfTestFailed:
+            return String(
+                localized: "The malware engine failed its self-test, so nothing was scanned. Reinstall VaderCleaner to restore it.",
+                bundle: .module,
+                comment: "Scan failure when clamscan can't detect a known test sample."
+            )
+        }
+    }
+}
 
 /// Scans paths for malware with `clamscan` and returns the matches.
 ///
@@ -102,6 +119,9 @@ struct ClamAVScanner {
         "/Movies/"
     ]
 
+    /// The name `verifyEngineDetects` gives its throwaway signature.
+    static let selfTestSignatureName = "VaderCleaner.Engine.SelfTest"
+
     private let detector: ClamAVDetector
     private let runner: ScanRunner
     private let databaseDirectoryProvider: DatabaseDirectoryProvider
@@ -109,6 +129,7 @@ struct ClamAVScanner {
     private let excludedFiles: [String]
     private let progressThrottleInterval: TimeInterval
     private let isRegularFile: RegularFileProbe
+    private let selfTestsEngine: Bool
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "ClamAVScanner")
 
@@ -120,7 +141,8 @@ struct ClamAVScanner {
         excludedDirectories: [String] = ClamAVScanner.defaultExcludedDirectories,
         excludedFiles: [String] = [],
         progressThrottleInterval: TimeInterval = 0.1,
-        isRegularFile: @escaping RegularFileProbe = ClamAVScanner.defaultRegularFileProbe
+        isRegularFile: @escaping RegularFileProbe = ClamAVScanner.defaultRegularFileProbe,
+        selfTestsEngine: Bool = true
     ) {
         self.detector = detector
         self.runner = runner
@@ -129,6 +151,7 @@ struct ClamAVScanner {
         self.excludedFiles = excludedFiles
         self.progressThrottleInterval = progressThrottleInterval
         self.isRegularFile = isRegularFile
+        self.selfTestsEngine = selfTestsEngine
     }
 
     /// Production default: the writable DB directory the bundled
@@ -158,7 +181,8 @@ struct ClamAVScanner {
     ///
     /// `clamscan` exits 0 when nothing is found and 1 when at least one
     /// infection is found — both are *successful* scans. Only exit code 2
-    /// (a hard error), from either run, or an unreachable binary throws.
+    /// (a hard error), from either run, an unreachable binary, or an engine
+    /// that fails `verifyEngineDetects` throws.
     func scan(
         paths: [URL],
         options: ScanOptions = ScanOptions(),
@@ -170,6 +194,10 @@ struct ClamAVScanner {
                 code: -1,
                 userInfo: [NSLocalizedDescriptionKey: "ClamAV is not installed"]
             )
+        }
+
+        if selfTestsEngine {
+            try await verifyEngineDetects(binary: binary)
         }
 
         // `--database` must point at the directory our bundled freshclam
@@ -252,6 +280,51 @@ struct ClamAVScanner {
             binary: binary,
             flags: sharedArguments + ["--no-summary"] + contentArguments
         )
+    }
+
+    /// Proves clamscan can detect something before trusting it to say a Mac is
+    /// clean, by scanning a sample against a throwaway one-line database.
+    ///
+    /// A broken engine doesn't announce itself. Linked against OpenSSL 4.1,
+    /// clamscan fails every hash, prints `<file>: OK`, and exits 0: exactly what
+    /// a clean scan looks like. Its complaints go to stderr, but reading them
+    /// instead wouldn't be safe. Paths reach that output verbatim, newlines
+    /// included (see `verifiedThreats`), so a planted filename could forge an
+    /// engine error and switch off malware scanning, and a real per-file error
+    /// mustn't fail a whole scan anyway. A detection can't be forged like that:
+    /// the sample's path is ours and nothing else is in the directory.
+    private func verifyEngineDetects(binary: URL) async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("VaderCleanerEngineSelfTest-\(UUID().uuidString)", isDirectory: true)
+        let database = directory.appendingPathComponent("db", isDirectory: true)
+        try fileManager.createDirectory(at: database, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let sample = directory.appendingPathComponent("sample")
+        let payload = Data("VaderCleaner engine self-test".utf8)
+        try payload.write(to: sample)
+        let md5 = Insecure.MD5.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        try Data("\(md5):\(payload.count):\(Self.selfTestSignatureName)\n".utf8)
+            .write(to: database.appendingPathComponent("selftest.hdb"))
+
+        let collector = ThreatCollector()
+        let status = try await runner(
+            binary,
+            ["--database=\(database.path)", "--no-summary", sample.path]
+        ) { line in
+            if let threat = ClamAVOutputParser.parseLine(line) {
+                collector.append(threat)
+            }
+        }
+
+        let detected = collector.snapshot().contains {
+            $0.filePath.path == sample.path && $0.threatName.hasPrefix(Self.selfTestSignatureName)
+        }
+        guard status == 1, detected else {
+            log.error("clamscan failed its engine self-test (exit \(status, privacy: .public))")
+            throw ClamAVEngineError.selfTestFailed
+        }
     }
 
     /// Keeps only the reported threats a second, targeted run confirms.

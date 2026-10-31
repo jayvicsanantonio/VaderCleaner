@@ -73,6 +73,26 @@ public final class ExtensionsManagerViewModel {
         }
     }
 
+    /// The removal failure to show in the manager's result banner.
+    public var notice: ManagerNotice? {
+        guard case .failed(.removing, let message) = phase else { return nil }
+        return ManagerNotice(message: message, isError: true)
+    }
+
+    /// The discovery failure's message. An empty list here says nothing about
+    /// what's installed, so the pane shows this instead of its empty state.
+    public var loadFailureMessage: String? {
+        guard case .failed(.loading, let message) = phase else { return nil }
+        return message
+    }
+
+    /// Whether removing `ids` deletes anything outright. The privileged helper
+    /// can't reach the user's Trash, so system-wide plug-ins don't get one, and
+    /// the confirmation has to say so.
+    public func includesPermanentRemoval(_ ids: Set<ExtensionItem.ID>) -> Bool {
+        items.contains { ids.contains($0.id) && SystemJunkDeleter.requiresHelper(path: $0.path.path) }
+    }
+
     // MARK: - Actions
 
     /// Runs discovery and lands `.ready` (or `.failed(.loading)`).
@@ -154,7 +174,7 @@ public final class ExtensionsManagerViewModel {
 
     /// Returns the VM to `.ready` after a `.failed` phase so the user can
     /// retry without re-running discovery.
-    func dismissResult() {
+    public func dismissResult() {
         phase = .ready
     }
 
@@ -185,24 +205,44 @@ extension ExtensionsManagerViewModel {
                 return await safari + browser + mail + internet
             },
             remove: { item in
-                try await Self.removeItem(item)
+                try await Self.removeItem(
+                    item,
+                    recycle: { await UserFileRecycler.recycle($0, context: "Extensions") },
+                    deleteViaHelper: { path in
+                        try await Self.helperCall { helper, done in
+                            helper.deleteFiles([path], reply: done)
+                        }
+                    }
+                )
             }
         )
     }
 
     /// Routes removal by privilege need. User-writable paths (`~/Library/…`)
-    /// are removed in-process. Paths under `/Library` or `/System` (system
-    /// Mail bundles, system internet plug-ins) go through the privileged
-    /// helper via the batched `deleteFiles(_:)`.
-    private nonisolated static func removeItem(_ item: ExtensionItem) async throws {
+    /// go to the Trash, so a change of heart is recoverable. Paths under
+    /// `/Library` or `/System` (system Mail bundles, system internet plug-ins)
+    /// go through the privileged helper via the batched `deleteFiles(_:)`,
+    /// which deletes them outright.
+    nonisolated static func removeItem(
+        _ item: ExtensionItem,
+        recycle: @Sendable ([URL]) async -> Set<URL>,
+        deleteViaHelper: @Sendable (String) async throws -> Void
+    ) async throws {
         let path = item.path.path
         guard SystemJunkDeleter.requiresHelper(path: path) else {
-            try FileManager.default.removeItem(at: item.path)
+            let moved = await recycle([item.path])
+            guard moved.contains(where: { $0.path == path }) else {
+                throw CocoaError(.fileWriteNoPermission, userInfo: [
+                    NSLocalizedDescriptionKey: String(
+                        localized: "\(item.name) couldn't be moved to the Trash.",
+                        bundle: .module,
+                        comment: "Extension removal failure; the extension's name."
+                    )
+                ])
+            }
             return
         }
-        try await helperCall { helper, done in
-            helper.deleteFiles([path], reply: done)
-        }
+        try await deleteViaHelper(path)
     }
 
     /// Bridges a reply-block helper call to async/throwing. See `HelperCall`

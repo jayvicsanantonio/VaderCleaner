@@ -71,6 +71,16 @@ struct ApplicationsManagerView: View {
     @State private var inspectingAppID: AppInfo.ID?
     /// Confirmation for the footer's batch uninstall (the checkbox selection).
     @State private var showUninstallConfirmation = false
+    /// The footer removal awaiting confirmation. Every one of them moves files,
+    /// and the list a selection was made from may be hidden by a search by now.
+    @State private var pendingRemoval: PendingRemoval?
+
+    private enum PendingRemoval {
+        case installers
+        case leftovers
+        case unsupported
+        case extensions
+    }
 
     // The filtered, sorted uninstaller list, memoized so a checkbox toggle
     // re-renders the rows without re-running the O(n log n) filter + sort over
@@ -138,6 +148,14 @@ struct ApplicationsManagerView: View {
                 paneContent
             }
             Divider().opacity(0.4)
+            if let activeNotice {
+                ApplicationsManagerNoticeBanner(
+                    notice: activeNotice,
+                    onDismiss: dismissActiveNotice,
+                    onReinstallHelper: { Task { await uninstallerViewModel.reinstallHelper() } }
+                )
+                Divider().opacity(0.4)
+            }
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -171,7 +189,9 @@ struct ApplicationsManagerView: View {
             await homebrewViewModel.checkUpdatesIfNeeded()
             updaterViewModel.setHomebrewOutdated(homebrewViewModel.outdated)
         }
-        .task(id: uninstallerViewModel.apps.map(\.id)) { await uninstallerViewModel.loadListMetrics() }
+        .task(id: uninstallerViewModel.apps.map(\.id) + ["\(uninstallerViewModel.listMetricsEpoch)"]) {
+            await uninstallerViewModel.loadListMetrics()
+        }
         // Warm the shared icon cache for every roster this manager renders.
         // The cache never loads on a miss — `icon(for:)` returns the generic
         // placeholder until a preload lands — so without these the rows only
@@ -191,17 +211,42 @@ struct ApplicationsManagerView: View {
         } message: {
             Text(uninstallConfirmationMessage)
         }
+        .alert(
+            pendingRemoval.map(removalTitle) ?? "",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            ),
+            presenting: pendingRemoval
+        ) { removal in
+            Button(String(localized: "Cancel", comment: "Cancel a removal confirmation."), role: .cancel) {}
+            Button(removalConfirmLabel(removal), role: .destructive) {
+                Task { await perform(removal) }
+            }
+        } message: { removal in
+            Text(removalMessage(removal))
+        }
+        // A selection can't outlive its row: a stale entry keeps the footer's
+        // Update enabled and counting something that's no longer on offer.
+        .onChange(of: updaterViewModel.availableUpdates.map(\.id)) { _, ids in
+            updateSelection.formIntersection(ids)
+        }
         // A retained manager (kept alive by its host between opens) re-aims
         // its panes on each open: a fresh instance resolves `destination` in
-        // `init`, but a kept-alive one must follow it explicitly. Only the
-        // three deep-link selections reset — other facets and the checkbox
-        // selections survive, as they do across pane switches within one open.
+        // `init`, but a kept-alive one must follow it explicitly. A card names
+        // a place to land, so anything that could hide what's there resets
+        // with it — the drill-in, the search, the other panes' facets. The
+        // checkbox selections survive.
         .onChange(of: isPresented) { _, presented in
             guard presented else { return }
             let (pane, facet, leftoverSection) = Self.resolve(destination)
             self.pane = pane
             self.uninstallerFacet = facet
             self.leftoverSection = leftoverSection
+            self.updaterFacet = .all
+            self.extensionsFacet = .all
+            self.inspectingAppID = nil
+            self.search = ""
         }
     }
 
@@ -385,14 +430,14 @@ struct ApplicationsManagerView: View {
             actionFooter(
                 summary: homebrewUpgradeSummary,
                 actionLabel: String(localized: "Update", comment: "Footer action upgrading the selected Homebrew packages."),
-                enabled: !selectedHomebrewUpgradeNames.isEmpty && !homebrewViewModel.isBusy,
+                enabled: !selectedHomebrewUpgrades.isEmpty && !homebrewViewModel.isBusy,
                 identifier: "applications.manager.homebrew.upgrade"
-            ) { Task { await homebrewViewModel.upgrade(.some(selectedHomebrewUpgradeNames)) } }
+            ) { Task { await homebrewViewModel.upgrade(.items(selectedHomebrewUpgrades)) } }
         case .updater:
             actionFooter(
                 summary: updaterSummary,
                 actionLabel: String(localized: "Update", comment: "Footer action applying updates."),
-                enabled: !updateSelection.isEmpty,
+                enabled: canUpdateSelection,
                 identifier: "applications.manager.update"
             ) { Task { await updateSelected() } }
         case .leftovers:
@@ -401,21 +446,21 @@ struct ApplicationsManagerView: View {
                 actionLabel: String(localized: "Remove", comment: "Footer action removing the selected leftover items."),
                 enabled: leftoverCanRemove,
                 identifier: "applications.manager.remove"
-            ) { Task { await removeSelectedLeftovers() } }
+            ) { pendingRemoval = leftoverSection == .installers ? .installers : .leftovers }
         case .extensions:
             actionFooter(
                 summary: extensionsSummary,
                 actionLabel: String(localized: "Remove", comment: "Footer action removing the selected extensions."),
                 enabled: !extensionSelection.isEmpty && extensionsManagerViewModel.phase != .removing,
                 identifier: "applications.manager.extensions.remove"
-            ) { Task { await removeSelectedExtensions() } }
+            ) { pendingRemoval = .extensions }
         case .unsupported:
             actionFooter(
                 summary: unsupportedSummary,
                 actionLabel: String(localized: "Move to Trash", comment: "Footer action removing the selected unsupported apps."),
                 enabled: viewModel.canRemoveUnsupportedApps,
                 identifier: "applications.manager.unsupported.remove"
-            ) { Task { await viewModel.deleteSelectedUnsupportedApps() } }
+            ) { pendingRemoval = .unsupported }
         }
     }
 
@@ -424,11 +469,21 @@ struct ApplicationsManagerView: View {
         homebrewViewModel.inventory.filter { homebrewUninstallSelection.contains($0.id) }
     }
 
-    /// The selected outdated brew package names to upgrade, excluding pinned.
-    private var selectedHomebrewUpgradeNames: [String] {
+    /// The selected outdated brew packages to upgrade, excluding pinned.
+    private var selectedHomebrewUpgrades: [BrewOutdatedItem] {
         homebrewViewModel.outdated
             .filter { homebrewUpdateSelection.contains($0.id) && !$0.isPinned }
-            .map(\.name)
+    }
+
+    /// Whether Update has something to do and nothing in its way. Brew refuses
+    /// to run two operations at once, so a selection that needs brew waits for
+    /// it rather than having those rows quietly dropped from the batch.
+    private var canUpdateSelection: Bool {
+        guard !updateSelection.isEmpty, updaterViewModel.installingIDs.isEmpty else { return false }
+        let needsHomebrew = updaterViewModel.availableUpdates.contains {
+            updateSelection.contains($0.id) && $0.source == .homebrew
+        }
+        return !(needsHomebrew && homebrewViewModel.isBusy)
     }
 
     private var homebrewUninstallSummary: String {
@@ -443,7 +498,7 @@ struct ApplicationsManagerView: View {
     }
 
     private var homebrewUpgradeSummary: String {
-        let count = selectedHomebrewUpgradeNames.count
+        let count = selectedHomebrewUpgrades.count
         guard count > 0 else {
             return String(localized: "No Packages Selected", comment: "Homebrew updater footer, nothing selected.")
         }
@@ -460,14 +515,23 @@ struct ApplicationsManagerView: View {
     private func updateSelected() async {
         let selected = updaterViewModel.availableUpdates.filter { updateSelection.contains($0.id) }
         let plan = updaterViewModel.updatePlan(for: selected)
+        // The batch is underway, so the footer goes back to empty: each row
+        // now says for itself how it's getting on.
+        updateSelection.subtract(selected.map(\.id))
         if !plan.openable.isEmpty {
             await updaterViewModel.update(plan.openable)
         }
-        // Guarded because brew refuses to run two operations at once; the
-        // Homebrew facet's own footer shares the same view model.
-        if !plan.homebrewTokens.isEmpty, !homebrewViewModel.isBusy {
-            await homebrewViewModel.upgrade(.some(plan.homebrewTokens))
+        guard !plan.homebrewTokens.isEmpty else { return }
+        // `canUpdateSelection` holds this back while brew is busy, but the
+        // installs above can take long enough for the Homebrew facet's own
+        // footer to have started something since. Those rows go back to being
+        // selected rather than quietly dropping out of the batch.
+        guard !homebrewViewModel.isBusy else {
+            let stillOffered = Set(updaterViewModel.availableUpdates.map(\.id))
+            updateSelection.formUnion(selected.filter { $0.source == .homebrew }.map(\.id).filter(stillOffered.contains))
+            return
         }
+        await homebrewViewModel.upgrade(.casks(plan.homebrewTokens))
     }
 
     /// Removes every selected extension, dropping each from the selection.
@@ -523,7 +587,6 @@ struct ApplicationsManagerView: View {
             Spacer()
             Button(actionLabel, action: action)
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
                 .disabled(!enabled)
                 .accessibilityIdentifier(identifier)
         }
@@ -543,6 +606,9 @@ struct ApplicationsManagerView: View {
     // MARK: - Derived values
 
     private var uninstallSummary: String {
+        if uninstallerViewModel.phase == .uninstalling {
+            return String(localized: "Uninstalling…", comment: "Uninstaller footer while a batch runs.")
+        }
         let selection = uninstallerViewModel.uninstallSelection
         guard !selection.isEmpty else {
             return String(localized: "No Applications Selected", comment: "Uninstaller footer, nothing selected.")
@@ -552,7 +618,10 @@ struct ApplicationsManagerView: View {
             String(localized: "%lld Applications Selected", comment: "Uninstaller footer selected count."),
             Int64(selection.count)
         )
-        return "\(count)  ·  \(byteText(bytes))"
+        // The measured size is the bundles alone. Associated files aren't sized
+        // until the uninstall looks them up.
+        let plus = String(localized: "plus associated files", comment: "Uninstaller footer, after the selected apps' size.")
+        return "\(count)  ·  \(byteText(bytes)) \(plus)"
     }
 
     private var leftoverSummary: String {
@@ -585,24 +654,108 @@ struct ApplicationsManagerView: View {
         }
     }
 
-    private func removeSelectedLeftovers() async {
-        switch leftoverSection {
-        case .installers:    await viewModel.deleteSelectedInstallationFiles()
-        case .leftoverFiles: await viewModel.deleteSelectedLeftovers()
-        }
-    }
-
     private var uninstallConfirmationTitle: String {
         String(localized: "Move the selected apps and their data to Trash?", comment: "Batch uninstall confirmation title.")
     }
 
     private var uninstallConfirmationMessage: String {
-        String(localized: "The selected applications and their associated files will be moved to the Trash. You can restore them until you empty it.", comment: "Batch uninstall confirmation message.")
+        let names = ApplicationsManagerModel.nameSummary(
+            uninstallerViewModel.apps
+                .filter { uninstallerViewModel.isInUninstallSelection($0.id) }
+                .map(\.name)
+        )
+        return String(localized: "\(names) and their associated files will go to the Trash, where you can restore them until you empty it. An app that can't be moved to the Trash, such as one from the App Store, is permanently deleted instead.", comment: "Batch uninstall confirmation message; the app names.")
     }
 
     // MARK: - Formatting
 
     private func byteText(_ bytes: Int64) -> String {
         ApplicationsManagerChrome.byteText(bytes)
+    }
+}
+
+private extension ApplicationsManagerView {
+
+    // MARK: - Removal
+
+    /// The result banner for the visible pane.
+    private var activeNotice: ManagerNotice? {
+        switch pane {
+        case .uninstaller:              return uninstallerViewModel.notice
+        case .extensions:               return extensionsManagerViewModel.notice
+        case .leftovers, .unsupported:  return viewModel.notice
+        case .updater:                  return nil
+        }
+    }
+
+    private func dismissActiveNotice() {
+        switch pane {
+        case .uninstaller:              uninstallerViewModel.dismissResult()
+        case .extensions:               extensionsManagerViewModel.dismissResult()
+        case .leftovers, .unsupported:  viewModel.dismissNotice()
+        case .updater:                  break
+        }
+    }
+
+    private func perform(_ removal: PendingRemoval) async {
+        switch removal {
+        case .installers:  await viewModel.deleteSelectedInstallationFiles()
+        case .leftovers:   await viewModel.deleteSelectedLeftovers()
+        case .unsupported: await viewModel.deleteSelectedUnsupportedApps()
+        case .extensions:  await removeSelectedExtensions()
+        }
+    }
+
+    /// Names the action only when it's true of everything selected: system-wide
+    /// plug-ins are deleted outright, whatever else is in the selection.
+    private func removalConfirmLabel(_ removal: PendingRemoval) -> String {
+        if removal == .extensions, extensionsManagerViewModel.includesPermanentRemoval(extensionSelection) {
+            return String(localized: "Remove", comment: "Confirm a removal that includes permanent deletions.")
+        }
+        return String(localized: "Move to Trash", comment: "Confirm moving the selected items to the Trash.")
+    }
+
+    private func removalTitle(_ removal: PendingRemoval) -> String {
+        switch removal {
+        case .installers:
+            return String(localized: "Move the selected installers to the Trash?", comment: "Installers removal confirmation title.")
+        case .leftovers:
+            return String(localized: "Move the selected leftovers to the Trash?", comment: "Leftovers removal confirmation title.")
+        case .unsupported:
+            return String(localized: "Move the selected apps to the Trash?", comment: "Unsupported removal confirmation title.")
+        case .extensions:
+            return String(localized: "Remove the selected extensions?", comment: "Extensions removal confirmation title.")
+        }
+    }
+
+    private func removalMessage(_ removal: PendingRemoval) -> String {
+        switch removal {
+        case .installers:
+            let names = ApplicationsManagerModel.nameSummary(
+                result.installationFiles.filter(viewModel.isInstallationFileSelected).map(\.name)
+            )
+            return String(localized: "\(names) will go to the Trash, where you can restore them until you empty it.", comment: "Installers removal confirmation; the file names.")
+        case .leftovers:
+            let names = ApplicationsManagerModel.nameSummary(
+                result.leftovers.filter(viewModel.isLeftoverSelected).map(\.bundleID)
+            )
+            return String(localized: "\(names) will go to the Trash. These look like support files from apps you've removed. If something stops working, restore them from the Trash.", comment: "Leftovers removal confirmation; the bundle IDs.")
+        case .unsupported:
+            let names = ApplicationsManagerModel.nameSummary(
+                result.unsupportedApps.filter(viewModel.isUnsupportedAppSelected).map(\.app.name)
+            )
+            return String(localized: "\(names) will go to the Trash, where you can restore them until you empty it. Only the apps themselves move; use the Uninstaller to remove their files too.", comment: "Unsupported removal confirmation; the app names.")
+        case .extensions:
+            let names = ApplicationsManagerModel.nameSummary(
+                extensionsManagerViewModel.items.filter { extensionSelection.contains($0.id) }.map(\.name)
+            )
+            let base = String(
+                localized: "\(names) will go to the Trash. A browser may download an extension again if it still has it on record; removing it inside the browser stops that.",
+                comment: "Extensions removal confirmation; the extension names."
+            )
+            guard extensionsManagerViewModel.includesPermanentRemoval(extensionSelection) else { return base }
+            let permanent = String(localized: "System-wide plug-ins can't go to the Trash, so they are permanently deleted.", comment: "Extensions removal confirmation, when system plug-ins are selected.")
+            return "\(base) \(permanent)"
+        }
     }
 }

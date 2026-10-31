@@ -345,6 +345,75 @@ extension UpdateProbe {
         return await probe.directUpdates(for: apps, declined: declined, onProgress: onProgress)
     }
 
+    /// The live list behind the Applications dashboard's Updates card: direct
+    /// updates plus the outdated casks the Updater merges in. Without the casks
+    /// the card undercounts, and disappears when casks are all there is.
+    ///
+    /// `brew outdated` runs against the local metadata. The networked
+    /// `brew update` stays with the Homebrew surface; the dashboard adopts the
+    /// Updater's list once that has run.
+    static func liveDashboardUpdates(for apps: [AppInfo]) async -> [UpdateInfo] {
+        let results = await live().outcomes(for: apps)
+        let outdated = await liveOutdated()
+        let declined = await MainActor.run { UpdateSuppressionSnapshot.current() }
+        return combinedUpdates(results: results, outdated: outdated, declined: declined)
+    }
+
+    /// Every offerable update from a probe's results and brew's outdated list,
+    /// minus what the user declined, sorted by name.
+    static func combinedUpdates(
+        results: [UpdateProbeResult],
+        outdated: [BrewOutdatedItem],
+        declined: UpdateSuppressionSnapshot
+    ) -> [UpdateInfo] {
+        let managed = UpdateCoverage(results: results).homebrewManaged
+        return (updates(in: results) + homebrewRows(managed: managed, outdated: outdated))
+            .filter { !declined.suppresses($0) }
+            .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+    }
+
+    /// One row per cask-owned app that brew says is outdated. Casks only: a
+    /// formula can share a cask's name, and matching on the name alone reports
+    /// the formula's version against the wrong app. Pinned packages are
+    /// deliberately held back, so they aren't offered.
+    static func homebrewRows(
+        managed: [HomebrewManagedApp],
+        outdated: [BrewOutdatedItem]
+    ) -> [UpdateInfo] {
+        let outdatedByToken = Dictionary(
+            outdated.filter { $0.kind == .cask && !$0.isPinned }.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return managed.compactMap { managed -> UpdateInfo? in
+            // A cask brew considers current, or one that installs no app,
+            // contributes nothing.
+            guard let item = outdatedByToken[managed.token] else { return nil }
+            return UpdateInfo(
+                appName: managed.app.name,
+                bundleID: managed.app.bundleID,
+                bundleURL: managed.app.bundleURL,
+                // The bundle's own version is what is actually installed;
+                // brew's record can lag for casks that self-update.
+                installedVersion: managed.app.version ?? item.installedVersion,
+                latestVersion: item.candidateVersion,
+                source: .homebrew,
+                updateURL: nil,
+                homebrewToken: managed.token
+            )
+        }
+    }
+
+    /// Brew's outdated list, or nothing when brew is absent or can't answer. A
+    /// count that comes up short here is corrected when the Updater runs.
+    private static func liveOutdated() async -> [BrewOutdatedItem] {
+        guard let brewURL = DefaultBrewLocator().locate(),
+              let result = try? await DefaultBrewRunner(brewURL: brewURL).runCapturing(["outdated", "--json=v2"]),
+              result.terminationStatus == 0 else {
+            return []
+        }
+        return (try? BrewOutputParser.parseOutdatedJSON(Data(result.standardOutput.utf8))) ?? []
+    }
+
     /// Live skip classifier. An app the probe could not query either ships
     /// its own updater (Keystone, Squirrel) or has none at all, and only
     /// the second is worth the user's attention.

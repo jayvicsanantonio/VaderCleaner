@@ -22,6 +22,9 @@ struct ExtensionsPaneView: View {
     @Binding var facet: ExtensionsFacet
     @Binding var selection: Set<ExtensionItem.ID>
     @Binding var displayed: [ExtensionItem]
+    /// Read once when the list appears: without Full Disk Access the Safari
+    /// folder can't be read, which looks exactly like having no Safari extensions.
+    @State private var hasFullDiskAccess = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -102,6 +105,11 @@ struct ExtensionsPaneView: View {
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+            if !hasFullDiskAccess, !extensionsManagerViewModel.items.isEmpty {
+                Text(safariAccessNote)
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding(.horizontal, 24).padding(.bottom, 8)
+            }
             list
         }
     }
@@ -137,35 +145,58 @@ struct ExtensionsPaneView: View {
         // both branches — otherwise an initially empty `displayed` would pin the
         // empty state and never recompute into the list.
         Group {
-            if ApplicationsManagerModel.listState(
+            if displayed.isEmpty, let message = extensionsManagerViewModel.loadFailureMessage {
+                ApplicationsManagerFailureState(
+                    title: String(localized: "Couldn't list your extensions", comment: "Extensions load failure title."),
+                    message: message,
+                    onRetry: { Task { await extensionsManagerViewModel.refresh() } }
+                )
+            } else if ApplicationsManagerModel.listState(
                 isLoading: extensionsManagerViewModel.phase == .loading,
                 isEmpty: displayed.isEmpty
             ) == .loading {
                 ApplicationsManagerLoadingPane()
             } else if displayed.isEmpty {
                 ApplicationsManagerEmptyState(
+                    reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: facet == .selected),
                     icon: "puzzlepiece.extension",
                     title: String(localized: "Extensions", comment: "Extensions empty-state title."),
-                    detail: String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
+                    detail: nothingFoundDetail
                 )
                 .accessibilityIdentifier("applications.manager.extensions.empty")
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        ForEach(displayed) { item in
-                            row(item)
+                // One view, so the hooks on the enclosing Group fire once.
+                VStack(alignment: .leading, spacing: 0) {
+                    ApplicationsManagerBulkSelectMenu(
+                        state: ApplicationsManagerModel.bulkSelectState(
+                            selected: selection.count,
+                            total: extensionsManagerViewModel.items.count
+                        ),
+                        onSelectAll: { selection = Set(displayed.map(\.id)) },
+                        onSelectNone: { selection = [] }
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24).padding(.bottom, 8)
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(displayed) { item in
+                                row(item)
+                            }
                         }
+                        .padding(.horizontal, 24).padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 24).padding(.vertical, 12)
+                    .accessibilityIdentifier("applications.manager.extensions.list")
                 }
-                .accessibilityIdentifier("applications.manager.extensions.list")
             }
         }
-        .onAppear { recompute() }
+        .onAppear {
+            hasFullDiskAccess = PrivacyPermissionChecker.hasFullDiskAccess()
+            recompute()
+        }
         .onChange(of: facet) { _, _ in recompute() }
         .onChange(of: search) { _, _ in recompute() }
         .onChange(of: sort) { _, _ in recompute() }
-        .onChange(of: extensionsManagerViewModel.items.map(\.id)) { _, _ in recompute() }
+        .onChange(of: extensionsManagerViewModel.items) { _, _ in recompute() }
         // The selection only changes the visible list under the Selected facet.
         .onChange(of: selection) { _, _ in
             if facet == .selected { recompute() }
@@ -183,7 +214,7 @@ struct ExtensionsPaneView: View {
                 .frame(width: 32)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                Text(localizedExtensionType(item.type)).font(.caption).foregroundStyle(.secondary)
+                Text(rowDetail(item)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             SmartInsightsSparkle(itemTitle: item.name, accent: ApplicationsManagerChrome.accent, topic: .appExtension)
@@ -193,6 +224,23 @@ struct ExtensionsPaneView: View {
         .padding(12)
         .managerRowCard()
         .accessibilityIdentifier("applications.manager.extensions.row.\(item.id.path)")
+    }
+
+    private var safariAccessNote: String {
+        String(localized: "Safari extensions can't be read without Full Disk Access.", comment: "Extensions note when Full Disk Access is missing.")
+    }
+
+    private var nothingFoundDetail: String {
+        let found = String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
+        return hasFullDiskAccess ? found : "\(found)\n\(safariAccessNote)"
+    }
+
+    /// The category, plus the browser profile when there is one, so the same
+    /// extension in two profiles doesn't read as a duplicate.
+    private func rowDetail(_ item: ExtensionItem) -> String {
+        let type = localizedExtensionType(item.type)
+        guard let profile = item.profile else { return type }
+        return "\(type)  ·  \(profile)"
     }
 
     private func symbol(_ type: ExtensionType) -> String {

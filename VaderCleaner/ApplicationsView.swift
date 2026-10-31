@@ -46,6 +46,8 @@ struct ApplicationsView: View {
     /// handed back to the dashboard as top padding so only the manager
     /// extends under the title bar.
     @State private var paneTopInset: CGFloat = 0
+    /// The dashboard's one-click leftovers removal, awaiting confirmation.
+    @State private var showLeftoverRemovalConfirmation = false
 
     /// The results surface's screens: the dashboard grid, or the full Manager
     /// opened on a specific destination. Every card's Review button deep-links
@@ -90,6 +92,62 @@ struct ApplicationsView: View {
                     await preloadHomebrew()
                 }
             }
+            // Each pane keeps its own copy of the app list, so a removal in one
+            // has to reach the others or they go on listing a deleted app. Tasks
+            // rather than `onChange`, so one that landed while this section was
+            // off screen is picked up when it comes back.
+            .task(id: uninstallerViewModel.removedAppIDs) {
+                let removed = uninstallerViewModel.consumeRemovedAppIDs()
+                viewModel.forgetApps(removed)
+                updaterViewModel.forgetApps(removed)
+            }
+            .task(id: viewModel.removedAppIDs) {
+                let removed = viewModel.consumeRemovedAppIDs()
+                uninstallerViewModel.forgetApps(removed)
+                updaterViewModel.forgetApps(removed)
+            }
+            // The Updater's list is the one the user acts on, so once it has
+            // run the dashboard's card follows it.
+            .task(id: updaterViewModel.availableUpdates) {
+                if updaterViewModel.phase == .ready {
+                    viewModel.setAvailableUpdates(updaterViewModel.availableUpdates)
+                }
+            }
+            .onChange(of: homebrewViewModel.completedUninstallCount) { _, _ in
+                Task { await reloadAfterHomebrewUninstall() }
+            }
+            .onChange(of: updaterViewModel.completedInstallCount) { _, _ in
+                // The update changed the app's version and size.
+                Task { await uninstallerViewModel.refresh() }
+            }
+    }
+
+    /// A cask takes its app with it, which the Uninstaller's discovery pass
+    /// can't know about until it looks again.
+    private func reloadAfterHomebrewUninstall() async {
+        let before = Set(uninstallerViewModel.apps.map(\.id))
+        await uninstallerViewModel.loadApps()
+        let gone = before.subtracting(uninstallerViewModel.apps.map(\.id))
+        viewModel.forgetApps(gone)
+        updaterViewModel.forgetApps(gone)
+    }
+
+    /// Re-runs the scan and refreshes whichever lists have already loaded. Ones
+    /// that haven't load fresh when the manager first opens. The dashboard is
+    /// where a rescan lands, because the manager is rebuilt when results arrive.
+    private func rescan() {
+        detail = .dashboard
+        viewModel.beginScan()
+        if uninstallerViewModel.phase != .idle {
+            Task { await uninstallerViewModel.refresh() }
+        }
+        if updaterViewModel.phase != .idle {
+            Task { await updaterViewModel.checkForUpdates() }
+        }
+        if extensionsManagerViewModel.phase != .idle {
+            Task { await extensionsManagerViewModel.refresh() }
+        }
+        Task { await homebrewViewModel.refresh() }
     }
 
     /// Coarse marker of the scan phase, so `onChange` fires on scan start and
@@ -158,12 +216,8 @@ struct ApplicationsView: View {
                 onOpenUnused: { openManager(.unused) },
                 onOpenUpdates: { openManager(.updater) },
                 onOpenLeftovers: { openManager(.leftovers) },
-                onRemoveLeftovers: {
-                    // The card's action is deliberately whole-payload; now
-                    // that select-all is scoped, that has to be stated.
-                    viewModel.selectAllLeftovers(ids: Set(result.leftovers.map(\.bundleID)))
-                    Task { await viewModel.deleteSelectedLeftovers() }
-                }
+                onRemoveLeftovers: { showLeftoverRemovalConfirmation = true },
+                onRescan: rescan
             )
             // Generous top and bottom insets so the section breathes above the
             // hero and below the cards rather than running into the window edges.
@@ -190,8 +244,35 @@ struct ApplicationsView: View {
                 onBack: { detail = .dashboard }
             )
         }
+        .alert(
+            String(localized: "Move all leftovers to the Trash?", comment: "Dashboard leftovers removal confirmation title."),
+            isPresented: $showLeftoverRemovalConfirmation
+        ) {
+            Button(String(localized: "Cancel", comment: "Cancel the dashboard leftovers removal."), role: .cancel) {}
+            Button(String(localized: "Review", comment: "Open the leftovers list instead of removing them.")) {
+                openManager(.leftovers)
+            }
+            Button(String(localized: "Move to Trash", comment: "Confirm the dashboard leftovers removal."), role: .destructive) {
+                removeAllLeftovers(result)
+            }
+        } message: {
+            let names = ApplicationsManagerModel.nameSummary(result.leftovers.map(\.bundleID))
+            let size = formattedFileBytes(result.leftoversTotalBytes)
+            Text(String(localized: "\(names), \(size) in all. These look like support files from apps you've removed. If something stops working, restore them from the Trash.", comment: "Dashboard leftovers removal confirmation; the bundle IDs and total size."))
+        }
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
+    }
+
+    /// The card's action is deliberately whole-payload; now that select-all is
+    /// scoped, that has to be stated. Anything left behind is explained on the
+    /// Leftovers pane, since the dashboard has nowhere to say it.
+    private func removeAllLeftovers(_ result: ApplicationsScanResult) {
+        viewModel.selectAllLeftovers(ids: Set(result.leftovers.map(\.bundleID)))
+        Task {
+            await viewModel.deleteSelectedLeftovers()
+            if viewModel.notice != nil { openManager(.leftovers) }
+        }
     }
 
     /// Anchors the zoom to the button (or failing that, the click) being

@@ -78,8 +78,12 @@ public struct UninstallConfirmation: Equatable, Sendable {
 
 /// Which packages an upgrade action targets. `.all` upgrades everything
 /// outdated except pinned formulae; `.some` upgrades exactly the named
-/// packages.
+/// packages, taking a name brew lists as both kinds to mean the formula;
+/// `.items` upgrades exactly these rows, each as the kind it is; `.casks`
+/// upgrades these tokens as casks.
 public enum UpgradeSelection: Equatable, Sendable {
     case all
     case some([String])
+    case items([BrewOutdatedItem])
+    case casks([String])
 }

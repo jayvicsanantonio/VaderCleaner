@@ -32,7 +32,7 @@ struct UnsupportedPaneView: View {
         VStack(alignment: .leading, spacing: 0) {
             ApplicationsManagerPaneHeader(
                 title: String(localized: "Unsupported", comment: "Unsupported pane title."),
-                description: String(localized: "These apps won't run on this version of macOS — their code is built only for older architectures.", comment: "Unsupported pane description.")
+                description: String(localized: "These apps won't run on this version of macOS — their code isn't built for this Mac's processor.", comment: "Unsupported pane description.")
             )
             ScrollView {
                 VStack(spacing: 4) {
@@ -83,23 +83,18 @@ struct UnsupportedPaneView: View {
                 Text(String(localized: "Move apps that can't run on this Mac to the Trash. Only the app bundle is removed here; full cleanup is available in the Uninstaller.", comment: "Unsupported list description."))
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
-                    Menu {
-                        Button(String(localized: "All", comment: "Select all.")) {
-                            viewModel.selectAllUnsupportedApps(
-                                ids: Set(displayedApps.map(\.app.bundleURL.path))
-                            )
-                        }
-                        Button(String(localized: "None", comment: "Deselect all.")) { viewModel.clearUnsupportedAppSelection() }
-                    } label: {
-                        Text(result.unsupportedApps.contains(where: viewModel.isUnsupportedAppSelected)
-                             ? String(localized: "Some", comment: "Some selected.")
-                             : String(localized: "None", comment: "None selected."))
-                        .foregroundStyle(.tint)
-                    }
-                    .menuStyle(.borderlessButton).fixedSize()
-                }
+                ApplicationsManagerBulkSelectMenu(
+                    state: ApplicationsManagerModel.bulkSelectState(
+                        selected: result.unsupportedApps.filter(viewModel.isUnsupportedAppSelected).count,
+                        total: result.unsupportedApps.count
+                    ),
+                    onSelectAll: {
+                        viewModel.selectAllUnsupportedApps(
+                            ids: Set(displayedApps.map(\.app.bundleURL.path))
+                        )
+                    },
+                    onSelectNone: { viewModel.clearUnsupportedAppSelection() }
+                )
                 .padding(.top, 4)
             }
             .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
@@ -121,6 +116,13 @@ struct UnsupportedPaneView: View {
                 detail: String(localized: "Every installed app can run on this version of macOS.", comment: "Unsupported empty-state detail.")
             )
             .accessibilityIdentifier("applications.manager.unsupported.empty")
+        } else if displayedApps.isEmpty {
+            ApplicationsManagerEmptyState(
+                reason: .noSearchMatches,
+                icon: "checkmark.seal.fill",
+                title: String(localized: "Unsupported", comment: "Unsupported empty-state title."),
+                detail: ""
+            )
         } else {
             ScrollView {
                 LazyVStack(spacing: 10) {
@@ -158,7 +160,7 @@ struct UnsupportedPaneView: View {
     private func reasonText(_ entry: UnsupportedApp) -> String {
         switch entry.reason {
         case .incompatibleArchitecture:
-            return String(localized: "Won't run on this macOS — built for an older architecture", comment: "Reason label for an unsupported app with no runnable architecture.")
+            return String(localized: "Won't run on this Mac — not built for its processor", comment: "Reason label for an unsupported app with no runnable architecture.")
         }
     }
 }

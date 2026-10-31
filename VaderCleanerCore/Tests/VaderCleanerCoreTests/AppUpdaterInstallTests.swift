@@ -103,7 +103,7 @@ final class AppUpdaterInstallTests: XCTestCase {
             },
             checkSparkle: { _ in .skipped },
             classifyUnchecked: { _ in .unmonitored },
-            install: { _, _, _ in await attempted.increment(); return .installed },
+            install: { _, _, _, _ in await attempted.increment(); return .installed },
             opener: { _ in }
         )
         await vm.checkForUpdates()
@@ -136,7 +136,7 @@ final class AppUpdaterInstallTests: XCTestCase {
             },
             classifyUnchecked: { _ in .unmonitored },
             install: outcome.map { result -> AppUpdaterViewModel.Install in
-                { _, _, _ in
+                { _, _, _, _ in
                     await onInstallAttempt?()
                     return result
                 }

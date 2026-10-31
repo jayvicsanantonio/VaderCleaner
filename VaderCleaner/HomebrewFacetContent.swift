@@ -88,7 +88,13 @@ struct HomebrewUninstallContent: View {
     @ViewBuilder
     private var list: some View {
         let items = filtered
-        if items.isEmpty {
+        if case .failed = viewModel.phase, viewModel.inventory.isEmpty {
+            ApplicationsManagerFailureState(
+                title: String(localized: "Couldn't read your Homebrew packages", comment: "Homebrew inventory failure title."),
+                message: String(localized: "Try again, or run brew list in Terminal to see what's wrong.", comment: "Homebrew inventory failure detail."),
+                onRetry: { Task { await viewModel.refresh() } }
+            )
+        } else if items.isEmpty {
             ApplicationsManagerEmptyState(
                 icon: "shippingbox",
                 title: String(localized: "Homebrew", comment: "Homebrew empty title."),
@@ -178,10 +184,17 @@ struct HomebrewOutdatedContent: View {
     private var list: some View {
         if isLoadingUpdates {
             HomebrewChrome.centered { ProgressView(String(localized: "Checking for updates…", comment: "Homebrew update-check progress.")) }
+        } else if case .failed = viewModel.phase, viewModel.outdated.isEmpty {
+            ApplicationsManagerFailureState(
+                title: String(localized: "Couldn't check for Homebrew updates", comment: "Homebrew outdated failure title."),
+                message: String(localized: "Try again, or run brew outdated in Terminal to see what's wrong.", comment: "Homebrew outdated failure detail."),
+                onRetry: { Task { await viewModel.refresh() } }
+            )
         } else {
             let items = filtered
             if items.isEmpty {
                 ApplicationsManagerEmptyState(
+                    reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: false),
                     icon: "arrow.down.circle",
                     title: String(localized: "Homebrew", comment: "Homebrew updates empty title."),
                     detail: String(localized: "Every Homebrew package is up to date.", comment: "Homebrew updates empty detail.")

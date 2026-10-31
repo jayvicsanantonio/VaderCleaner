@@ -6,6 +6,22 @@ import Foundation
 import Observation
 import os.log
 
+/// Why an app was refused before anything was moved.
+enum AppUninstallRefusal: LocalizedError {
+    case appIsRunning(name: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .appIsRunning(let name):
+            return String(
+                localized: "\(name) is running. Quit it, then try again.",
+                bundle: .module,
+                comment: "Uninstall refusal for an app that is currently running."
+            )
+        }
+    }
+}
+
 /// Drives the App Uninstaller feature view (load apps → select → uninstall → done).
 ///
 /// Like `PrivacyViewModel` and `SystemJunkViewModel`, all collaborators are
@@ -76,8 +92,19 @@ public final class AppUninstallerViewModel {
     /// Forces a clean re-registration of the privileged helper and points the
     /// user at the approval UI. Injected so tests don't touch `SMAppService`.
     public typealias ReinstallHelper = @Sendable () async -> Void
+    /// Whether this exact copy of the app is running. Moving a running app's
+    /// bundle leaves the process alive against files it can no longer find.
+    public typealias AppIsRunning = @Sendable (_ app: AppInfo) -> Bool
 
     public private(set) var phase: Phase = .idle
+    /// Apps the last batch couldn't remove. A batch that removed anything lands
+    /// in `.complete`, so this is what keeps a partial failure visible.
+    private(set) var batchFailedAppNames: [String] = []
+    /// Apps uninstalled but not yet passed on, so the panes that keep their own
+    /// copy of the app list can drop them; see `consumeRemovedAppIDs()`. Holds
+    /// only what this view model removed: `forgetApps(_:)` doesn't add to it, or
+    /// two panes telling each other about the same app would never settle.
+    public private(set) var removedAppIDs: Set<AppInfo.ID> = []
     public private(set) var apps: [AppInfo] = []
     private(set) var selectedAppID: AppInfo.ID?
     private(set) var associatedFiles: [AssociatedFile] = []
@@ -109,6 +136,10 @@ public final class AppUninstallerViewModel {
     /// gives the sort a single settle at the end rather than reordering the
     /// whole list on every chunk.
     public private(set) var listMetricsRevision: Int = 0
+    /// Bumped by `refresh()`, which discards the measured sizes. The app roster
+    /// usually comes back the same, so the manager keys its measuring task on
+    /// this too, or nothing would measure them again.
+    public private(set) var listMetricsEpoch: Int = 0
 
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let findFiles: FindFiles
@@ -116,6 +147,7 @@ public final class AppUninstallerViewModel {
     @ObservationIgnored private let measureListMetrics: MeasureListMetrics
     @ObservationIgnored private let recycle: Recycle
     @ObservationIgnored private let reinstallHelperService: ReinstallHelper
+    @ObservationIgnored private let appIsRunning: AppIsRunning
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "AppUninstallerViewModel")
 
@@ -139,7 +171,8 @@ public final class AppUninstallerViewModel {
         measureSize: @escaping MeasureSize = { _ in 0 },
         measureListMetrics: @escaping MeasureListMetrics = { _ in AsyncStream { $0.finish() } },
         recycle: @escaping Recycle,
-        reinstallHelper: @escaping ReinstallHelper = {}
+        reinstallHelper: @escaping ReinstallHelper = {},
+        appIsRunning: @escaping AppIsRunning = { _ in false }
     ) {
         self.discover = discover
         self.findFiles = findFiles
@@ -147,6 +180,7 @@ public final class AppUninstallerViewModel {
         self.measureListMetrics = measureListMetrics
         self.recycle = recycle
         self.reinstallHelperService = reinstallHelper
+        self.appIsRunning = appIsRunning
     }
 
     // MARK: - Public surface
@@ -194,6 +228,76 @@ public final class AppUninstallerViewModel {
         }
     }
 
+    /// What the manager's result banner should say about the last uninstall,
+    /// or `nil` when there is nothing to report.
+    public var notice: ManagerNotice? {
+        switch phase {
+        case .complete(let bytesFreed, let permanentRemoval):
+            let freed = formattedFileBytes(bytesFreed)
+            if !batchFailedAppNames.isEmpty {
+                let names = ApplicationsManagerModel.nameSummary(batchFailedAppNames)
+                let partial = String(
+                    localized: "Freed \(freed), but couldn't uninstall \(names). Check that they aren't running, then try again.",
+                    bundle: .module,
+                    comment: "Result banner when a batch uninstall partly failed; freed size and app names."
+                )
+                guard permanentRemoval else { return ManagerNotice(message: partial, isError: true) }
+                let permanent = String(
+                    localized: "An app that couldn't go to the Trash was permanently deleted and can't be restored.",
+                    bundle: .module,
+                    comment: "Added to the partial-failure banner when an uninstall permanently deleted an app."
+                )
+                return ManagerNotice(message: "\(partial) \(permanent)", isError: true)
+            }
+            return ManagerNotice(
+                message: permanentRemoval
+                    ? String(
+                        localized: "Freed \(freed). An app that couldn't go to the Trash was permanently deleted and can't be restored.",
+                        bundle: .module,
+                        comment: "Result banner when an uninstall permanently deleted an app; freed size."
+                    )
+                    : String(
+                        localized: "Moved to the Trash. Freed \(freed).",
+                        bundle: .module,
+                        comment: "Result banner after a successful uninstall; freed size."
+                    ),
+                isError: false
+            )
+        case .failed(.uninstalling, let message, let helperConnectionIssue):
+            return ManagerNotice(
+                message: message,
+                isError: true,
+                offersHelperReinstall: helperConnectionIssue
+            )
+        default:
+            return nil
+        }
+    }
+
+    /// The discovery failure's message, when the app list couldn't be loaded.
+    /// An empty list here means nothing about what's installed, so the pane
+    /// shows this rather than its all-clear empty state.
+    public var loadFailureMessage: String? {
+        guard case .failed(.loading, let message, _) = phase else { return nil }
+        return message
+    }
+
+    /// The apps the Uninstaller may offer. VaderCleaner is left out: trashing
+    /// the running app, helper included, isn't an uninstall anyone can finish
+    /// from inside it.
+    nonisolated static func uninstallableApps(_ apps: [AppInfo], selfBundleID: String?) -> [AppInfo] {
+        apps.filter { $0.bundleID != selfBundleID }
+    }
+
+    /// Whether another installed copy shares `app`'s bundle ID. Support files
+    /// are named for the bundle ID, so they belong to every copy: they go only
+    /// with the last one. `leaving` names copies on their way out in this batch.
+    private func hasAnotherCopy(of app: AppInfo, leaving: Set<AppInfo.ID> = []) -> Bool {
+        apps.contains {
+            $0.bundleID == app.bundleID && $0.id != app.id && !leaving.contains($0.id)
+        }
+    }
+
     // MARK: - Actions
 
     /// Initial load — populates `apps` and lands in `.ready` (or `.failed`).
@@ -205,6 +309,7 @@ public final class AppUninstallerViewModel {
             let result = try await discover(includes)
             guard self.loadGeneration == generation else { return }
             self.apps = result
+            self.uninstallSelection.formIntersection(result.map(\.id))
             // Restore selection if the previously-selected app still exists,
             // otherwise drop it so the right-hand panel collapses to its
             // empty state.
@@ -226,6 +331,27 @@ public final class AppUninstallerViewModel {
             self.phase = .failed(stage: .loading,
                                  message: error.localizedDescription,
                                  helperConnectionIssue: false)
+        }
+    }
+
+    /// Reloads the app list and marks everything measured from the old one for
+    /// measuring again. An app can change size or contents without its path
+    /// changing, so the session caches are only good until something asks for
+    /// fresh data. `listSizes` stays until each new size lands: a list being
+    /// refreshed keeps showing its rows rather than blanking them.
+    public func refresh() async {
+        measuredListMetricApps = []
+        associatedFilesCache = [:]
+        bundleSizeCache = [:]
+        listMetricsEpoch &+= 1
+        // A lookup already running read the old disk. Dropped here, or its result
+        // would land in the cache just cleared and be served as fresh.
+        selectGeneration += 1
+        await loadApps()
+        if let selected = selectedAppID {
+            select(selected)
+        } else {
+            isLoadingAssociatedFiles = false
         }
     }
 
@@ -283,7 +409,12 @@ public final class AppUninstallerViewModel {
         // back to "loading" for an app the user has already inspected.
         selectedAppBundleSize = bundleSizeCache[appID]
 
-        if let cachedFiles = associatedFilesCache[appID] {
+        let filesAreShared = hasAnotherCopy(of: app)
+        if filesAreShared {
+            // Another copy still needs these files, so none are on offer.
+            associatedFiles = []
+            isLoadingAssociatedFiles = false
+        } else if let cachedFiles = associatedFilesCache[appID] {
             associatedFiles = cachedFiles
             isLoadingAssociatedFiles = false
             // Bundle-size measurement may still be outstanding even when
@@ -299,7 +430,7 @@ public final class AppUninstallerViewModel {
         let bundleURL = app.bundleURL
         let findFiles = findFiles
         let measureSize = measureSize
-        let needsFiles = associatedFilesCache[appID] == nil
+        let needsFiles = !filesAreShared && associatedFilesCache[appID] == nil
         let needsSize = bundleSizeCache[appID] == nil
 
         if needsFiles {
@@ -340,9 +471,10 @@ public final class AppUninstallerViewModel {
     /// Whether the destructive uninstall button should be enabled for
     /// the currently selected app. False while the associated-files
     /// scan is in flight — confirming early would only Trash the bundle
-    /// and leave residual user data behind.
+    /// and leave residual user data behind — and while a batch is running,
+    /// which owns the phase and may be working through this same app.
     public var canUninstallSelectedApp: Bool {
-        selectedApp != nil && !isLoadingAssociatedFiles
+        selectedApp != nil && !isLoadingAssociatedFiles && phase != .uninstalling
     }
 
     /// Uninstall the currently-selected app. Routes the bundle URL plus
@@ -351,7 +483,14 @@ public final class AppUninstallerViewModel {
     /// still in flight — confirming early would Trash only the bundle
     /// and leave residual user data behind.
     public func uninstall() async {
-        guard let app = selectedApp, !isLoadingAssociatedFiles else { return }
+        guard let app = selectedApp, canUninstallSelectedApp else { return }
+        batchFailedAppNames = []
+        guard !appIsRunning(app) else {
+            phase = .failed(stage: .uninstalling,
+                            message: AppUninstallRefusal.appIsRunning(name: app.name).localizedDescription,
+                            helperConnectionIssue: false)
+            return
+        }
         let associatedURLs = associatedFiles.map { $0.url }
         phase = .uninstalling
         do {
@@ -362,12 +501,8 @@ public final class AppUninstallerViewModel {
             // authoritative sum of what it actually removed — we do NOT fall
             // back to a planned/optimistic total, since that would claim
             // "X MB freed" when the recycler reports 0.
-            apps.removeAll(where: { $0.id == app.id })
-            selectedAppID = nil
-            associatedFiles = []
-            selectedAppBundleSize = nil
-            associatedFilesCache.removeValue(forKey: app.id)
-            bundleSizeCache.removeValue(forKey: app.id)
+            forgetApps([app.id])
+            removedAppIDs.insert(app.id)
             phase = .complete(bytesFreed: outcome.bytesFreed,
                               permanentRemoval: outcome.bundlePermanentlyRemoved)
         } catch {
@@ -390,7 +525,7 @@ public final class AppUninstallerViewModel {
     /// helper-connection failure, then reloads the app list so the user can
     /// retry the uninstall. Invoked by the "Reinstall Helper" action on the
     /// failure screen.
-    func reinstallHelper() async {
+    public func reinstallHelper() async {
         await reinstallHelperService()
         await loadApps()
     }
@@ -398,8 +533,43 @@ public final class AppUninstallerViewModel {
     /// Returns the VM to `.ready` after a complete / failed phase so the
     /// user can pick another app to uninstall without restarting the
     /// discovery scan.
-    func dismissResult() {
+    public func dismissResult() {
+        batchFailedAppNames = []
         phase = .ready
+    }
+
+    /// Everything the view model remembers about apps that have been removed:
+    /// the row, its checkbox, its measured size, and the inspector if it was
+    /// showing one. A stale selection entry would keep the footer's Uninstall
+    /// enabled with nothing behind it; a stale size would be reused verbatim
+    /// if the app came back.
+    public func forgetApps(_ ids: Set<AppInfo.ID>) {
+        let removedBundleIDs = Set(apps.filter { ids.contains($0.id) }.map(\.bundleID))
+        apps.removeAll { ids.contains($0.id) }
+        uninstallSelection.subtract(ids)
+        measuredListMetricApps.subtract(ids)
+        for id in ids {
+            listSizes.removeValue(forKey: id)
+            associatedFilesCache.removeValue(forKey: id)
+            bundleSizeCache.removeValue(forKey: id)
+        }
+        if let selected = selectedAppID, ids.contains(selected) {
+            selectedAppID = nil
+            associatedFiles = []
+            selectedAppBundleSize = nil
+        } else if let selected = selectedApp, removedBundleIDs.contains(selected.bundleID) {
+            // The inspector held back this app's support files because another
+            // copy shared them. That copy may have been the one that just left.
+            select(selected.id)
+        }
+    }
+
+    /// Hands over the apps removed since the last call, for passing to the other
+    /// panes. Taken rather than read, so a record can't be lost to a reload that
+    /// finishes first, or applied twice to an app that has since been reinstalled.
+    public func consumeRemovedAppIDs() -> Set<AppInfo.ID> {
+        defer { removedAppIDs = [] }
+        return removedAppIDs
     }
 
     // MARK: - Multi-select (Applications Manager)
@@ -420,12 +590,12 @@ public final class AppUninstallerViewModel {
 
     /// Check exactly the supplied apps (e.g. the rows currently in view after a
     /// facet filter). Single write so SwiftUI observes one publish.
-    func selectAllForUninstall(_ ids: [AppInfo.ID]) {
+    public func selectAllForUninstall(_ ids: [AppInfo.ID]) {
         uninstallSelection = Set(ids)
     }
 
     /// Uncheck everything — single-write counterpart to `selectAllForUninstall`.
-    func clearUninstallSelection() {
+    public func clearUninstallSelection() {
         uninstallSelection = []
     }
 
@@ -450,13 +620,22 @@ public final class AppUninstallerViewModel {
         if case .uninstalling = phase { return }
 
         phase = .uninstalling
+        batchFailedAppNames = []
         var totalBytesFreed: Int64 = 0
         var anyPermanentRemoval = false
         var removedIDs: Set<AppInfo.ID> = []
+        var failedNames: [String] = []
         var lastError: Error?
 
         for app in targets {
-            let associatedURLs = await findFiles(app.bundleID).map { $0.url }
+            guard !appIsRunning(app) else {
+                failedNames.append(app.name)
+                lastError = AppUninstallRefusal.appIsRunning(name: app.name)
+                continue
+            }
+            let associatedURLs = hasAnotherCopy(of: app, leaving: removedIDs)
+                ? []
+                : await findFiles(app.bundleID).map { $0.url }
             do {
                 let outcome = try await recycle(app.bundleURL, associatedURLs)
                 totalBytesFreed += outcome.bytesFreed
@@ -465,22 +644,14 @@ public final class AppUninstallerViewModel {
             } catch {
                 // Privacy: errors may include user-specific paths.
                 log.error("Batch uninstall of \(app.bundleID, privacy: .public) failed: \(String(describing: error), privacy: .private)")
+                failedNames.append(app.name)
                 lastError = error
             }
         }
 
-        apps.removeAll { removedIDs.contains($0.id) }
-        uninstallSelection.subtract(removedIDs)
-        for id in removedIDs {
-            associatedFilesCache.removeValue(forKey: id)
-            bundleSizeCache.removeValue(forKey: id)
-        }
-        // If the inspector was showing a now-removed app, collapse it.
-        if let selected = selectedAppID, removedIDs.contains(selected) {
-            selectedAppID = nil
-            associatedFiles = []
-            selectedAppBundleSize = nil
-        }
+        forgetApps(removedIDs)
+        removedAppIDs.formUnion(removedIDs)
+        batchFailedAppNames = failedNames
 
         if removedIDs.isEmpty, let lastError {
             phase = .failed(
@@ -521,7 +692,10 @@ extension AppUninstallerViewModel {
         let discovery = DefaultAppDiscovery()
         return AppUninstallerViewModel(
             discover: { includingSystemApps in
-                try await discovery.installedApps(includingSystemApps: includingSystemApps)
+                uninstallableApps(
+                    try await discovery.installedApps(includingSystemApps: includingSystemApps),
+                    selfBundleID: Bundle.main.bundleIdentifier
+                )
             },
             findFiles: { [weak exclusions] bundleID in
                 let excluded = await MainActor.run {
@@ -569,6 +743,13 @@ extension AppUninstallerViewModel {
             reinstallHelper: {
                 await HelperRegistration.reregister()
                 await HelperRegistration.openLoginItemsSettings()
+            },
+            // By bundle URL, not just ID: quitting one copy shouldn't be a
+            // condition of removing another.
+            appIsRunning: { app in
+                NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).contains {
+                    $0.bundleURL?.standardizedFileURL == app.bundleURL.standardizedFileURL
+                }
             }
         )
     }
@@ -594,8 +775,31 @@ extension AppUninstallerViewModel {
                     sizes(for: urls)
                 }.value
             },
-            exists: { FileManager.default.fileExists(atPath: $0) }
+            exists: { FileManager.default.fileExists(atPath: $0) },
+            unloadLaunchAgents: { urls in
+                await Task.detached(priority: .userInitiated) {
+                    for url in urls {
+                        // Not `-w`: this isn't disabling the job, and if the
+                        // move fails the agent should come back at next login.
+                        try? LaunchAgentManager.defaultLaunchctl(["unload", url.path])
+                    }
+                }.value
+            },
+            bundleNeedsHelper: { needsHelperToRemove($0) },
+            helperIsReachable: {
+                await HelperReachability().probe(timeout: HelperReachability.preflightTimeout)
+            }
         )
+    }
+
+    /// Whether moving this bundle is beyond the user's own permissions: moving a
+    /// directory takes write access to it and to its parent, which a root-owned
+    /// bundle (an App Store install, a pkg install) doesn't give. A bundle
+    /// that's already gone needs nothing.
+    nonisolated static func needsHelperToRemove(_ bundleURL: URL, fileManager: FileManager = .default) -> Bool {
+        guard fileManager.fileExists(atPath: bundleURL.path) else { return false }
+        return !fileManager.isWritableFile(atPath: bundleURL.path)
+            || !fileManager.isWritableFile(atPath: bundleURL.deletingLastPathComponent().path)
     }
 
     /// Pure orchestration of the recycle → privileged-escalation → byte-credit
@@ -603,8 +807,14 @@ extension AppUninstallerViewModel {
     /// tested without `NSWorkspace` or a live XPC helper.
     ///
     /// Steps:
+    ///   0. If only the helper can remove the bundle, make sure it answers
+    ///      first. Everything below moves the app's support files, so finding
+    ///      out at step 3 would leave an installed app stripped of them.
     ///   1. Snapshot sizes *before* anything moves — a Trashed or deleted path
-    ///      no longer stats, so we couldn't credit it afterwards.
+    ///      no longer stats, so we couldn't credit it afterwards. Launch agents
+    ///      are unloaded here too: a job launchd still holds keeps running
+    ///      after its plist has gone. Daemons are out of reach, since unloading
+    ///      one needs root; they stop at the next restart.
     ///   2. Move everything via `recycle` (`NSWorkspace` → the user's Trash).
     ///      User-owned residue lands here and stays restorable.
     ///   3. Anything still on disk afterwards is a path the user lacked
@@ -626,10 +836,24 @@ extension AppUninstallerViewModel {
         // function's main-actor isolation and run the bundle walk on the
         // main thread anyway. Sendable + async makes the snapshot hop off.
         sizeFor: @Sendable (_ urls: [URL]) async -> [String: Int64],
-        exists: (_ path: String) -> Bool
+        exists: (_ path: String) -> Bool,
+        unloadLaunchAgents: (_ plists: [URL]) async -> Void = { _ in },
+        bundleNeedsHelper: (_ bundleURL: URL) -> Bool = { _ in false },
+        helperIsReachable: () async -> Bool = { true }
     ) async throws -> RecycleOutcome {
+        if bundleNeedsHelper(bundleURL), await !helperIsReachable() {
+            throw HelperConnectionError.unavailable
+        }
+
         let allURLs = [bundleURL] + associatedURLs
         let sizesByPath = await sizeFor(allURLs)
+
+        let launchAgents = associatedURLs.filter {
+            $0.deletingLastPathComponent().lastPathComponent == "LaunchAgents"
+        }
+        if !launchAgents.isEmpty {
+            await unloadLaunchAgents(launchAgents)
+        }
 
         let (moved, recycleError) = await recycle(allURLs)
 

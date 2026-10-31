@@ -123,6 +123,12 @@ struct UninstallerPaneView: View {
             )
         } else if let id = inspectingAppID {
             appDetail(id)
+        } else if uninstallerViewModel.apps.isEmpty, let message = uninstallerViewModel.loadFailureMessage {
+            ApplicationsManagerFailureState(
+                title: String(localized: "Couldn't list your applications", comment: "Uninstaller load failure title."),
+                message: message,
+                onRetry: { Task { await uninstallerViewModel.loadApps() } }
+            )
         } else if ApplicationsManagerModel.listState(
             isLoading: uninstallerViewModel.phase == .loading,
             isEmpty: uninstallerViewModel.apps.isEmpty
@@ -131,6 +137,15 @@ struct UninstallerPaneView: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+                ApplicationsManagerBulkSelectMenu(
+                    state: ApplicationsManagerModel.bulkSelectState(
+                        selected: uninstallerViewModel.uninstallSelection.count,
+                        total: uninstallerViewModel.apps.count
+                    ),
+                    onSelectAll: { uninstallerViewModel.selectAllForUninstall(displayedApps.map(\.id)) },
+                    onSelectNone: { uninstallerViewModel.clearUninstallSelection() }
+                )
+                .padding(.horizontal, 24).padding(.bottom, 8)
                 list
             }
         }
@@ -164,6 +179,7 @@ struct UninstallerPaneView: View {
         Group {
             if displayedApps.isEmpty {
                 ApplicationsManagerEmptyState(
+                    reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: facet == .selected),
                     icon: "checkmark.seal.fill",
                     title: String(localized: "Uninstaller", comment: "Uninstaller empty-state title."),
                     detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Uninstaller empty-state detail.")
@@ -186,7 +202,7 @@ struct UninstallerPaneView: View {
         .onChange(of: facet) { _, _ in recompute() }
         .onChange(of: search) { _, _ in recompute() }
         .onChange(of: sort) { _, _ in recompute() }
-        .onChange(of: uninstallerViewModel.apps.map(\.id)) { _, _ in recompute() }
+        .onChange(of: uninstallerViewModel.apps) { _, _ in recompute() }
         // The measured metrics land asynchronously; recompute the order once
         // when they do so a size/date sort settles to its final arrangement.
         .onChange(of: uninstallerViewModel.listMetricsRevision) { _, _ in recompute() }
@@ -239,7 +255,7 @@ struct UninstallerPaneView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left").foregroundStyle(.tint)
-                        Text(String(localized: "All Applications", comment: "Back to the full uninstaller list."))
+                        Text(rightPaneTitle)
                     }
                 }
                 .buttonStyle(.plain)
@@ -293,7 +309,7 @@ private struct SingleUninstallConfirmationAlert: ViewModifier {
     }
 
     private var message: String {
-        String(localized: "The application and its associated files will be moved to the Trash. You can restore them until you empty it.", comment: "Single uninstall confirmation message.")
+        String(localized: "The application and its associated files will go to the Trash, where you can restore them until you empty it. An app that can't be moved to the Trash, such as one from the App Store, is permanently deleted instead.", comment: "Single uninstall confirmation message.")
     }
 
     func body(content: Content) -> some View {
