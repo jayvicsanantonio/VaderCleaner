@@ -399,7 +399,8 @@ final class ClamAVScannerTests: XCTestCase {
             excludedDirectories: excludedDirectories ?? [],
             excludedFiles: excludedFiles,
             progressThrottleInterval: progressThrottleInterval,
-            isRegularFile: { _ in true }
+            isRegularFile: { _ in true },
+            selfTestsEngine: false
         )
     }
 }

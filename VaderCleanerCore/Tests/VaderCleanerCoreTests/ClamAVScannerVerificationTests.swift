@@ -233,7 +233,8 @@ struct ClamAVScannerVerificationTests {
             excludedDirectories: excludedDirectories,
             excludedFiles: excludedFiles,
             progressThrottleInterval: 0,
-            isRegularFile: isRegularFile
+            isRegularFile: isRegularFile,
+            selfTestsEngine: false
         )
     }
 }

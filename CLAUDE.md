@@ -294,6 +294,15 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   are gated on its presence.
 - ClamAV is **bundled** (staged by `Scripts/stage-clamav.sh`), with Homebrew
   prefixes only as a developer fallback.
+- The bundled ClamAV is **pinned to a bottle built against `openssl@3`**
+  (`PINNED_CLAMAV_SHA256` in `Scripts/bundle-clamav.sh`). On OpenSSL 4.1 every
+  scan logs a hash error and reports infected files as `OK`, while `--version`
+  still works, so don't follow Homebrew to `openssl@4` until
+  [ClamAV PR 1873](https://github.com/Cisco-Talos/clamav/pull/1873) ships. The
+  script's detection smoke test fails the stage if a bundle can't detect, and it
+  warns when a newer ClamAV is out. `ClamAVScanner` runs the same kind of check
+  before every scan, so a broken engine fails the scan instead of reading as a
+  clean Mac.
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
 
