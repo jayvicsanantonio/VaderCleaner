@@ -271,8 +271,11 @@ public final class ApplicationsViewModel {
         self.measureFiles = measureFiles
     }
 
-    /// Default `MeasureFiles`: the shared size walk, off the main actor.
-    public nonisolated static func measureOnDisk(_ urls: [URL]) async -> Int64 {
+    /// Default `MeasureFiles`: the shared size walk, off the main actor. A stored
+    /// closure, as `ClamAVScanner.defaultRunner` is. Passing a static async func
+    /// here instead aborted the process under Xcode 26.6's concurrency runtime
+    /// with "freed pointer was not the last allocation".
+    public nonisolated static let measureOnDisk: MeasureFiles = { urls in
         await Task.detached(priority: .userInitiated) {
             urls.reduce(Int64(0)) { $0 + PathSizer.size(at: $1, fileManager: .default) }
         }.value
