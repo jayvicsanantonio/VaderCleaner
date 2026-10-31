@@ -79,18 +79,6 @@ struct ApplicationsManagerPaneSyncTests {
         #expect(vm.removedAppIDs == [a.id])
     }
 
-    @Test("a fresh scan starts a new removal record")
-    func scanClearsRemovedIDs() async {
-        let a = app("A", id: "com.acme.a")
-        let entry = UnsupportedApp(app: a, reason: .incompatibleArchitecture)
-        let vm = scanVM(apps: [a], unsupported: [entry])
-        await vm.scan()
-        vm.toggleUnsupportedApp(entry)
-        await vm.deleteSelectedUnsupportedApps()
-        await vm.scan()
-        #expect(vm.removedAppIDs.isEmpty)
-    }
-
     @Test("the dashboard's update list can follow the Updater's")
     func dashboardFollowsUpdater() async throws {
         let a = app("A", id: "com.acme.a")

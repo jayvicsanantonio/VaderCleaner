@@ -21,14 +21,21 @@ enum MachOCPUType {
 /// and must not be offered for removal.
 enum UnsupportedAppClassifier {
 
-    /// Architectures this Mac can run.
-    static let runnableCPUTypes: Set<UInt32> = {
-        #if arch(x86_64)
-        [MachOCPUType.x86_64]
-        #else
-        [MachOCPUType.x86_64, MachOCPUType.arm64]
-        #endif
-    }()
+    /// Architectures this Mac can run. Asks the hardware rather than checking
+    /// `#if arch`, which describes this process: the universal build's x86_64
+    /// slice under Rosetta would otherwise call every arm64-only app unrunnable
+    /// and offer to trash it.
+    static let runnableCPUTypes = runnableTypes(hostHasARM64: hostHasARM64())
+
+    static func runnableTypes(hostHasARM64: Bool) -> Set<UInt32> {
+        hostHasARM64 ? [MachOCPUType.x86_64, MachOCPUType.arm64] : [MachOCPUType.x86_64]
+    }
+
+    private static func hostHasARM64() -> Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout.size(ofValue: value)
+        return sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0 && value == 1
+    }
 
     /// True when the executable has architectures *and none of them* is
     /// runnable. An empty/unknown list returns `false` — we never flag an app

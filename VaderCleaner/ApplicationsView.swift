@@ -97,12 +97,14 @@ struct ApplicationsView: View {
             // rather than `onChange`, so one that landed while this section was
             // off screen is picked up when it comes back.
             .task(id: uninstallerViewModel.removedAppIDs) {
-                viewModel.forgetApps(uninstallerViewModel.removedAppIDs)
-                updaterViewModel.forgetApps(uninstallerViewModel.removedAppIDs)
+                let removed = uninstallerViewModel.consumeRemovedAppIDs()
+                viewModel.forgetApps(removed)
+                updaterViewModel.forgetApps(removed)
             }
             .task(id: viewModel.removedAppIDs) {
-                uninstallerViewModel.forgetApps(viewModel.removedAppIDs)
-                updaterViewModel.forgetApps(viewModel.removedAppIDs)
+                let removed = viewModel.consumeRemovedAppIDs()
+                uninstallerViewModel.forgetApps(removed)
+                updaterViewModel.forgetApps(removed)
             }
             // The Updater's list is the one the user acts on, so once it has
             // run the dashboard's card follows it.

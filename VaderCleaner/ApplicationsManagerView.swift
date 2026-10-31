@@ -220,7 +220,7 @@ struct ApplicationsManagerView: View {
             presenting: pendingRemoval
         ) { removal in
             Button(String(localized: "Cancel", comment: "Cancel a removal confirmation."), role: .cancel) {}
-            Button(String(localized: "Move to Trash", comment: "Confirm moving the selected items to the Trash."), role: .destructive) {
+            Button(removalConfirmLabel(removal), role: .destructive) {
                 Task { await perform(removal) }
             }
         } message: { removal in
@@ -521,12 +521,17 @@ struct ApplicationsManagerView: View {
         if !plan.openable.isEmpty {
             await updaterViewModel.update(plan.openable)
         }
+        guard !plan.homebrewTokens.isEmpty else { return }
         // `canUpdateSelection` holds this back while brew is busy, but the
         // installs above can take long enough for the Homebrew facet's own
-        // footer to have started something since.
-        if !plan.homebrewTokens.isEmpty, !homebrewViewModel.isBusy {
-            await homebrewViewModel.upgrade(.casks(plan.homebrewTokens))
+        // footer to have started something since. Those rows go back to being
+        // selected rather than quietly dropping out of the batch.
+        guard !homebrewViewModel.isBusy else {
+            let stillOffered = Set(updaterViewModel.availableUpdates.map(\.id))
+            updateSelection.formUnion(selected.filter { $0.source == .homebrew }.map(\.id).filter(stillOffered.contains))
+            return
         }
+        await homebrewViewModel.upgrade(.casks(plan.homebrewTokens))
     }
 
     /// Removes every selected extension, dropping each from the selection.
@@ -699,6 +704,15 @@ private extension ApplicationsManagerView {
         case .unsupported: await viewModel.deleteSelectedUnsupportedApps()
         case .extensions:  await removeSelectedExtensions()
         }
+    }
+
+    /// Names the action only when it's true of everything selected: system-wide
+    /// plug-ins are deleted outright, whatever else is in the selection.
+    private func removalConfirmLabel(_ removal: PendingRemoval) -> String {
+        if removal == .extensions, extensionsManagerViewModel.includesPermanentRemoval(extensionSelection) {
+            return String(localized: "Remove", comment: "Confirm a removal that includes permanent deletions.")
+        }
+        return String(localized: "Move to Trash", comment: "Confirm moving the selected items to the Trash.")
     }
 
     private func removalTitle(_ removal: PendingRemoval) -> String {

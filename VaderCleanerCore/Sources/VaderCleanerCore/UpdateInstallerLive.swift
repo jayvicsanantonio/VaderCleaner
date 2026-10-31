@@ -87,6 +87,9 @@ struct UpdateInstallTools: Sendable {
         self.onDownloadProgress = onDownloadProgress
     }
 
+    /// How long a disk image gets to detach before it's left to the system.
+    private static let detachTimeout: Duration = .seconds(30)
+
     /// Gives up on a server that goes quiet for a minute, while a large download
     /// that keeps moving may take as long as it needs.
     static func defaultSessionConfiguration() -> URLSessionConfiguration {
@@ -206,8 +209,17 @@ struct UpdateInstallTools: Sendable {
             return copied
         }
         // Awaited rather than fired off: the working directory is removed as
-        // soon as the attempt ends, and that walk mustn't meet a live mount.
-        try? await run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
+        // soon as the attempt ends, and that walk mustn't meet a live mount. A
+        // task of its own, so a Cancel that stopped the copy can't stop the
+        // detach too, and bounded, so a stuck hdiutil can't hold up the install.
+        let tools = self
+        await Task.detached {
+            try? await tools.run(
+                "/usr/bin/hdiutil",
+                ["detach", mountPoint.path, "-force"],
+                timeout: Self.detachTimeout
+            )
+        }.value
         return try copied.get()
     }
 
@@ -234,15 +246,29 @@ struct UpdateInstallTools: Sendable {
     /// still holds (see CLAUDE.md and `DefaultBrewRunnerTests`). With no
     /// pipe there is no reader and no EOF to miss — we only need the exit
     /// status, so nothing is given up by not capturing output.
-    private func run(_ launchPath: String, _ arguments: [String]) async throws {
+    ///
+    /// Cancelling the task or passing `timeout` terminates the tool, and the
+    /// non-zero exit that follows throws as any other failure does.
+    func run(_ launchPath: String, _ arguments: [String], timeout: Duration? = nil) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            process.terminationHandler = { _ in continuation.resume() }
+        let watchdog = timeout.map { limit in
+            Task {
+                try? await Task.sleep(for: limit)
+                if !Task.isCancelled, process.isRunning { process.terminate() }
+            }
+        }
+        defer { watchdog?.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                process.terminationHandler = { _ in continuation.resume() }
+            }
+        } onCancel: {
+            if process.isRunning { process.terminate() }
         }
         guard process.terminationStatus == 0 else {
             throw UpdateInstallError.toolFailed((launchPath as NSString).lastPathComponent)
@@ -380,6 +406,22 @@ private final class CappedDownloadDelegate: NSObject, URLSessionDownloadDelegate
         } catch {
             failure = error
         }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard request.url?.scheme?.lowercased() == "https" else {
+            failure = UpdateDownloadInsecureRedirect()
+            task.cancel()
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {

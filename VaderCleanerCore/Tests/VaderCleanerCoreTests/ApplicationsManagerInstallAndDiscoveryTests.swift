@@ -84,11 +84,21 @@ struct ApplicationsManagerInstallTests {
 private final class StubDownloadProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var statusCode = 200
     nonisolated(unsafe) static var body = Data()
+    nonisolated(unsafe) static var redirectTo: URL?
 
     override static func canInit(with request: URLRequest) -> Bool { true }
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
     override func startLoading() {
+        if let target = Self.redirectTo, request.url != target {
+            let redirect = HTTPURLResponse(
+                url: request.url!, statusCode: 302, httpVersion: nil,
+                headerFields: ["Location": target.absoluteString]
+            )!
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: redirect)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         let response = HTTPURLResponse(
             url: request.url!, statusCode: Self.statusCode, httpVersion: nil, headerFields: nil
         )!
@@ -138,6 +148,34 @@ struct UpdateDownloadLimitTests {
             .download(URL(string: "https://example.com/a.zip")!)
         #expect(file.lastPathComponent == "update.zip")
         #expect(try Data(contentsOf: file).count == 50)
+    }
+
+    @Test("a redirect to plain http is refused before any bytes land")
+    func insecureRedirectRefused() async {
+        StubDownloadProtocol.statusCode = 200
+        StubDownloadProtocol.body = Data(count: 10)
+        StubDownloadProtocol.redirectTo = URL(string: "http://example.com/a.zip")
+        defer { StubDownloadProtocol.redirectTo = nil }
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(throws: UpdateDownloadInsecureRedirect.self) {
+            _ = try await tools(limit: 100, directory: directory)
+                .download(URL(string: "https://example.com/a.zip")!)
+        }
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("update.zip").path))
+    }
+
+    @Test("a redirect that stays on https is followed")
+    func secureRedirectFollowed() async throws {
+        StubDownloadProtocol.statusCode = 200
+        StubDownloadProtocol.body = Data(count: 10)
+        StubDownloadProtocol.redirectTo = URL(string: "https://cdn.example.com/a.zip")
+        defer { StubDownloadProtocol.redirectTo = nil }
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = try await tools(limit: 100, directory: directory)
+            .download(URL(string: "https://example.com/a.zip")!)
+        #expect(try Data(contentsOf: file).count == 10)
     }
 
     @Test("an HTTP error isn't treated as a downloaded archive")
@@ -235,6 +273,16 @@ struct ApplicationsManagerDiscoveryTests {
         #expect(UnsupportedAppClassifier.isUnsupported(cpuTypes: [MachOCPUType.arm64], runnable: intel))
         #expect(!UnsupportedAppClassifier.isUnsupported(cpuTypes: [MachOCPUType.arm64], runnable: appleSilicon))
         #expect(!UnsupportedAppClassifier.isUnsupported(cpuTypes: [MachOCPUType.x86_64], runnable: appleSilicon))
+    }
+
+    @Test("the Mac's own hardware decides, even for a process under Rosetta")
+    func runnableTypesFollowHardware() {
+        #expect(UnsupportedAppClassifier.runnableTypes(hostHasARM64: true) == [MachOCPUType.arm64, MachOCPUType.x86_64])
+        #expect(UnsupportedAppClassifier.runnableTypes(hostHasARM64: false) == [MachOCPUType.x86_64])
+        #expect(UnsupportedAppClassifier.runnableCPUTypes.contains(MachOCPUType.x86_64))
+        #if arch(arm64)
+        #expect(UnsupportedAppClassifier.runnableCPUTypes.contains(MachOCPUType.arm64))
+        #endif
     }
 
     @Test("name summaries cut off and say how many more")

@@ -231,10 +231,13 @@ public final class ApplicationsViewModel {
     /// How many items the last removal couldn't move to the Trash. Their rows
     /// stay put, which on its own reads as the button having done nothing.
     private(set) var removalFailureCount = 0
-    /// Apps trashed from the Unsupported pane since the last scan, so the panes
+    /// Apps trashed from the Unsupported pane but not yet passed on, so the panes
     /// keeping their own app list can drop them. `forgetApps(_:)` doesn't add
     /// to it: see `AppUninstallerViewModel.removedAppIDs`.
     public private(set) var removedAppIDs: Set<String> = []
+    /// Apps removed elsewhere while a scan is running. The scan may have already
+    /// discovered them, so they're taken out of its results when it lands.
+    @ObservationIgnored private var appsForgottenDuringScan: Set<String> = []
 
     @ObservationIgnored private let discoverApps: DiscoverApps
     @ObservationIgnored private let checkUpdates: CheckUpdates
@@ -302,7 +305,8 @@ public final class ApplicationsViewModel {
         installationFileSelection = []
         unsupportedAppSelection = []
         leftoverSelection = []
-        removedAppIDs = []
+        removalFailureCount = 0
+        appsForgottenDuringScan = []
 
         do {
             // The installer scan is independent of app discovery, so run it
@@ -332,6 +336,8 @@ public final class ApplicationsViewModel {
                 unusedApps: unused,
                 leftovers: leftovers
             ))
+            forgetApps(appsForgottenDuringScan)
+            appsForgottenDuringScan = []
         } catch {
             // Privacy: errors may include user-specific paths.
             log.error("Applications scan failed: \(String(describing: error), privacy: .private)")
@@ -355,13 +361,22 @@ public final class ApplicationsViewModel {
     /// Drops apps removed elsewhere from every count this result holds, so the
     /// dashboard and the manager's panes agree with the disk.
     public func forgetApps(_ ids: Set<String>) {
-        guard !ids.isEmpty, case .results(var current) = phase else { return }
+        guard !ids.isEmpty else { return }
+        if phase == .scanning { appsForgottenDuringScan.formUnion(ids) }
+        guard case .results(var current) = phase else { return }
         current.installedApps.removeAll { ids.contains($0.id) }
         current.unusedApps.removeAll { ids.contains($0.app.id) }
         current.unsupportedApps.removeAll { ids.contains($0.app.id) }
         current.availableUpdates.removeAll { ids.contains($0.id) }
         phase = .results(current)
         unsupportedAppSelection = unsupportedAppSelection.filter { !ids.contains($0.path) }
+    }
+
+    /// Hands over the apps trashed since the last call. See
+    /// `AppUninstallerViewModel.consumeRemovedAppIDs()`.
+    public func consumeRemovedAppIDs() -> Set<String> {
+        defer { removedAppIDs = [] }
+        return removedAppIDs
     }
 
     /// Adopts the Updater's list once it has run its own check. It is the one

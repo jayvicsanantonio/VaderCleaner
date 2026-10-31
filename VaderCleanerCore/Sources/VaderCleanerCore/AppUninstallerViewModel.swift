@@ -100,10 +100,10 @@ public final class AppUninstallerViewModel {
     /// Apps the last batch couldn't remove. A batch that removed anything lands
     /// in `.complete`, so this is what keeps a partial failure visible.
     private(set) var batchFailedAppNames: [String] = []
-    /// Apps uninstalled since the last load, so the panes that keep their own
-    /// copy of the app list can drop them. Holds only what this view model
-    /// removed: `forgetApps(_:)` doesn't add to it, or two panes telling each
-    /// other about the same app would never settle.
+    /// Apps uninstalled but not yet passed on, so the panes that keep their own
+    /// copy of the app list can drop them; see `consumeRemovedAppIDs()`. Holds
+    /// only what this view model removed: `forgetApps(_:)` doesn't add to it, or
+    /// two panes telling each other about the same app would never settle.
     public private(set) var removedAppIDs: Set<AppInfo.ID> = []
     public private(set) var apps: [AppInfo] = []
     private(set) var selectedAppID: AppInfo.ID?
@@ -236,14 +236,18 @@ public final class AppUninstallerViewModel {
             let freed = formattedFileBytes(bytesFreed)
             if !batchFailedAppNames.isEmpty {
                 let names = ApplicationsManagerModel.nameSummary(batchFailedAppNames)
-                return ManagerNotice(
-                    message: String(
-                        localized: "Freed \(freed), but couldn't uninstall \(names). Check that they aren't running, then try again.",
-                        bundle: .module,
-                        comment: "Result banner when a batch uninstall partly failed; freed size and app names."
-                    ),
-                    isError: true
+                let partial = String(
+                    localized: "Freed \(freed), but couldn't uninstall \(names). Check that they aren't running, then try again.",
+                    bundle: .module,
+                    comment: "Result banner when a batch uninstall partly failed; freed size and app names."
                 )
+                guard permanentRemoval else { return ManagerNotice(message: partial, isError: true) }
+                let permanent = String(
+                    localized: "An app that couldn't go to the Trash was permanently deleted and can't be restored.",
+                    bundle: .module,
+                    comment: "Added to the partial-failure banner when an uninstall permanently deleted an app."
+                )
+                return ManagerNotice(message: "\(partial) \(permanent)", isError: true)
             }
             return ManagerNotice(
                 message: permanentRemoval
@@ -306,7 +310,6 @@ public final class AppUninstallerViewModel {
             guard self.loadGeneration == generation else { return }
             self.apps = result
             self.uninstallSelection.formIntersection(result.map(\.id))
-            self.removedAppIDs = []
             // Restore selection if the previously-selected app still exists,
             // otherwise drop it so the right-hand panel collapses to its
             // empty state.
@@ -331,9 +334,11 @@ public final class AppUninstallerViewModel {
         }
     }
 
-    /// Reloads the app list and throws away everything measured from the old
-    /// one. An app can change size or contents without its path changing, so
-    /// the session caches are only good until something asks for fresh data.
+    /// Reloads the app list and marks everything measured from the old one for
+    /// measuring again. An app can change size or contents without its path
+    /// changing, so the session caches are only good until something asks for
+    /// fresh data. `listSizes` stays until each new size lands: a list being
+    /// refreshed keeps showing its rows rather than blanking them.
     public func refresh() async {
         measuredListMetricApps = []
         associatedFilesCache = [:]
@@ -531,6 +536,7 @@ public final class AppUninstallerViewModel {
     /// enabled with nothing behind it; a stale size would be reused verbatim
     /// if the app came back.
     public func forgetApps(_ ids: Set<AppInfo.ID>) {
+        let removedBundleIDs = Set(apps.filter { ids.contains($0.id) }.map(\.bundleID))
         apps.removeAll { ids.contains($0.id) }
         uninstallSelection.subtract(ids)
         measuredListMetricApps.subtract(ids)
@@ -543,7 +549,19 @@ public final class AppUninstallerViewModel {
             selectedAppID = nil
             associatedFiles = []
             selectedAppBundleSize = nil
+        } else if let selected = selectedApp, removedBundleIDs.contains(selected.bundleID) {
+            // The inspector held back this app's support files because another
+            // copy shared them. That copy may have been the one that just left.
+            select(selected.id)
         }
+    }
+
+    /// Hands over the apps removed since the last call, for passing to the other
+    /// panes. Taken rather than read, so a record can't be lost to a reload that
+    /// finishes first, or applied twice to an app that has since been reinstalled.
+    public func consumeRemovedAppIDs() -> Set<AppInfo.ID> {
+        defer { removedAppIDs = [] }
+        return removedAppIDs
     }
 
     // MARK: - Multi-select (Applications Manager)

@@ -393,7 +393,7 @@ struct UpdaterPaneView: View {
                         .accessibilityIdentifier("applications.manager.updater.cancel.\(info.bundleID)")
                     }
                 } else if let failure = updaterViewModel.installFailures[info.id] {
-                    Text(String(localized: "Downloaded — couldn't install it automatically: \(failure)", comment: "Install fallback when an in-place install broke; the reason."))
+                    Text(String(localized: "Couldn't install it automatically, so its download link was opened: \(failure)", comment: "Install fallback when an in-place install broke; the reason."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

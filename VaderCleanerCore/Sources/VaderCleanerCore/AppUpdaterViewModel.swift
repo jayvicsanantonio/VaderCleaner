@@ -106,6 +106,9 @@ public final class AppUpdaterViewModel {
     /// The last check's per-app results, kept so a removed app can be taken out
     /// of the coverage without another round of network requests.
     @ObservationIgnored private var lastResults: [UpdateProbeResult] = []
+    /// Apps removed while a check is running. It may have already discovered
+    /// them, so they're taken out of its results when it lands.
+    @ObservationIgnored private var appsForgottenDuringCheck: Set<String> = []
     /// Installs in flight, so one can be cancelled from its row.
     @ObservationIgnored private var installTasks: [UpdateInfo.ID: Task<UpdateInstallOutcome, Never>] = [:]
     /// Apps Homebrew owns, from the last check's coverage.
@@ -165,8 +168,9 @@ public final class AppUpdaterViewModel {
                 classifyUnchecked: classifyUnchecked,
                 resolveHomebrewToken: { ownership.owner(of: $0)?.token }
             )
-            let results = await probe.outcomes(for: apps)
+            let probed = await probe.outcomes(for: apps)
             guard self.checkGeneration == generation else { return }
+            let results = probed.filter { !appsForgottenDuringCheck.contains($0.app.id) }
 
             var updates: [UpdateInfo] = []
             var anyReachable = false
@@ -246,6 +250,7 @@ public final class AppUpdaterViewModel {
     /// Takes removed apps out of the list and the coverage.
     public func forgetApps(_ ids: Set<String>) {
         guard !ids.isEmpty else { return }
+        if phase == .checking { appsForgottenDuringCheck.formUnion(ids) }
         lastResults.removeAll { ids.contains($0.app.id) }
         coverage = UpdateCoverage(results: lastResults)
         homebrewManaged = coverage.homebrewManaged
@@ -337,6 +342,8 @@ public final class AppUpdaterViewModel {
         guard let install, info.source == .sparkle else { return false }
         installingIDs.insert(info.id)
         let id = info.id
+        installFailures[id] = nil
+        installFallbacks[id] = nil
         defer {
             installingIDs.remove(id)
             installProgress[id] = nil
@@ -428,6 +435,7 @@ public final class AppUpdaterViewModel {
     }
 
     private func beginCheck() -> Int {
+        appsForgottenDuringCheck = []
         checkGeneration += 1
         return checkGeneration
     }

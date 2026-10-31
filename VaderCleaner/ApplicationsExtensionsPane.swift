@@ -22,6 +22,9 @@ struct ExtensionsPaneView: View {
     @Binding var facet: ExtensionsFacet
     @Binding var selection: Set<ExtensionItem.ID>
     @Binding var displayed: [ExtensionItem]
+    /// Read once when the list appears: without Full Disk Access the Safari
+    /// folder can't be read, which looks exactly like having no Safari extensions.
+    @State private var hasFullDiskAccess = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -102,6 +105,11 @@ struct ExtensionsPaneView: View {
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             ApplicationsManagerPaneHeader(title: rightPaneTitle, description: rightPaneDescription)
+            if !hasFullDiskAccess, !extensionsManagerViewModel.items.isEmpty {
+                Text(safariAccessNote)
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding(.horizontal, 24).padding(.bottom, 8)
+            }
             list
         }
     }
@@ -181,7 +189,10 @@ struct ExtensionsPaneView: View {
                 }
             }
         }
-        .onAppear { recompute() }
+        .onAppear {
+            hasFullDiskAccess = PrivacyPermissionChecker.hasFullDiskAccess()
+            recompute()
+        }
         .onChange(of: facet) { _, _ in recompute() }
         .onChange(of: search) { _, _ in recompute() }
         .onChange(of: sort) { _, _ in recompute() }
@@ -215,13 +226,13 @@ struct ExtensionsPaneView: View {
         .accessibilityIdentifier("applications.manager.extensions.row.\(item.id.path)")
     }
 
-    /// Without Full Disk Access the Safari folder can't be read, which looks
-    /// exactly like having no Safari extensions.
+    private var safariAccessNote: String {
+        String(localized: "Safari extensions can't be read without Full Disk Access.", comment: "Extensions note when Full Disk Access is missing.")
+    }
+
     private var nothingFoundDetail: String {
         let found = String(localized: "No browser extensions or plug-ins were found.", comment: "Extensions empty-state detail.")
-        guard !PrivacyPermissionChecker.hasFullDiskAccess() else { return found }
-        let access = String(localized: "Safari extensions can't be read without Full Disk Access.", comment: "Extensions empty-state note when Full Disk Access is missing.")
-        return "\(found)\n\(access)"
+        return hasFullDiskAccess ? found : "\(found)\n\(safariAccessNote)"
     }
 
     /// The category, plus the browser profile when there is one, so the same

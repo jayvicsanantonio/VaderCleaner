@@ -171,8 +171,10 @@ struct ApplicationsManagerRegressionTests {
     // MARK: Leftovers and scan
 
     @Test("a partly recycled leftover group stops claiming the bytes it freed")
-    func partialLeftoverTotal() async {
-        let kept = URL(fileURLWithPath: "/tmp/kept")
+    func partialLeftoverTotal() async throws {
+        let kept = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data(count: 7).write(to: kept)
+        defer { try? FileManager.default.removeItem(at: kept) }
         let gone = URL(fileURLWithPath: "/tmp/gone")
         let vm = ApplicationsViewModel(
             discoverApps: { [] },
@@ -191,7 +193,7 @@ struct ApplicationsManagerRegressionTests {
         await vm.deleteSelectedLeftovers()
         guard case .results(let after) = vm.phase else { Issue.record("no results"); return }
         #expect(after.leftovers.count == 1)
-        #expect(after.leftovers[0].totalBytes < 100)
+        #expect(after.leftovers[0].totalBytes == 7)
     }
 
     @Test("reset during a scan drops the scan's late result")
@@ -377,6 +379,7 @@ struct ApplicationsManagerRegressionTests {
         await gate.open()
         await first.value
         await second.value
+        #expect(installs.value == 1)
     }
 }
 

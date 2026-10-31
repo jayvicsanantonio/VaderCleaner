@@ -138,6 +138,9 @@ public final class HomebrewViewModel {
         } catch {
             log.error("Homebrew inventory load failed: \(String(describing: error), privacy: .private)")
             inventory = []
+            // With no inventory, nothing says these are still installed, and the
+            // Updater reads this list to offer upgrades.
+            outdated = []
             let message = Self.message(for: error)
             lastOperationError = message
             phase = .failed(message: message)

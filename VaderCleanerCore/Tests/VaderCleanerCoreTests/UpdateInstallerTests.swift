@@ -46,6 +46,48 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(events, ["download", "extract", "quit", "replace", "relaunch", "cleanup"])
     }
 
+    /// Cancel can land during the seconds a quit takes. The swap must not
+    /// happen, and the app the user was using must come back.
+    func test_install_cancelDuringQuitStopsTheSwapAndRelaunches() async throws {
+        let recorder = Recorder()
+        let installer = makeInstaller(recorder: recorder, running: true, onQuit: {
+            withUnsafeCurrentTask { $0?.cancel() }
+        })
+        let info = update()
+        let signature = try validSignature()
+        let feed = httpsFeed
+        let key = publicKey
+
+        let outcome = await Task {
+            await installer.install(info, feedURL: feed, edSignature: signature, publicEDKey: key)
+        }.value
+
+        guard case .failed = outcome else {
+            XCTFail("expected a failed install, got \(outcome)")
+            return
+        }
+        let events = await recorder.events
+        XCTAssertFalse(events.contains("replace"))
+        XCTAssertTrue(events.contains("relaunch"))
+    }
+
+    /// An insecure redirect is a refusal with its own explanation, not a breakage.
+    func test_install_insecureRedirectIsDenied() async throws {
+        let recorder = Recorder()
+        let installer = makeInstaller(
+            recorder: recorder,
+            running: false,
+            downloadError: UpdateDownloadInsecureRedirect()
+        )
+
+        let outcome = await installer.install(
+            update(), feedURL: httpsFeed,
+            edSignature: try validSignature(), publicEDKey: publicKey
+        )
+
+        XCTAssertEqual(outcome, .denied(.insecureDownload))
+    }
+
     /// An app the user had closed must not be launched by updating it.
     func test_install_doesNotRelaunchAnAppThatWasNotRunning() async throws {
         let recorder = Recorder()
@@ -318,6 +360,7 @@ final class UpdateInstallerTests: XCTestCase {
         recorder: Recorder,
         running: Bool,
         quitSucceeds: Bool = true,
+        onQuit: @escaping @Sendable () -> Void = {},
         downloadedTeam: String = "ABCDE12345",
         downloadedBundleID: String = "com.acme.helio",
         downloadError: Error? = nil
@@ -350,6 +393,7 @@ final class UpdateInstallerTests: XCTestCase {
             isRunning: { _ in running },
             quit: { _ in
                 await recorder.record("quit")
+                onQuit()
                 return quitSucceeds
             },
             replace: { _, _ in await recorder.record("replace") },

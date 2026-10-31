@@ -23,6 +23,11 @@ struct UpdateDownloadTooLarge: Error {
     let reportedBytes: Int64?
 }
 
+/// Raised by `UpdateInstallTools.download` when an https enclosure redirects to
+/// anything else. Checking the URL the feed named means nothing if the bytes can
+/// then come from somewhere an attacker on the network can rewrite.
+struct UpdateDownloadInsecureRedirect: Error {}
+
 /// Installs a downloaded update over the app it replaces.
 ///
 /// Every collaborator is injected, so the whole flow — including every
@@ -214,6 +219,9 @@ struct UpdateInstaller: Sendable {
             // and its own copy rather than a raw error string.
             log.error("Update download exceeded the size ceiling")
             return .denied(.downloadTooLarge)
+        } catch is UpdateDownloadInsecureRedirect {
+            log.error("Update download redirected to an insecure URL")
+            return .denied(.insecureDownload)
         } catch {
             // Privacy: error text embeds the offending path verbatim.
             log.error("Update install failed: \(String(describing: error), privacy: .private)")
@@ -231,6 +239,12 @@ struct UpdateInstaller: Sendable {
             // it in a half-updated state, so a refusal to quit stops the
             // install rather than forcing it.
             return .failed("The app is still running and could not be quit.")
+        }
+        // Quitting takes seconds, and Cancel can land during it. Stop before the
+        // swap, and put back the app the user was using.
+        if Task.isCancelled {
+            if wasRunning { await relaunch(update.bundleURL) }
+            return .failed("The install was cancelled.")
         }
         do {
             try await replace(replacement, update.bundleURL)
