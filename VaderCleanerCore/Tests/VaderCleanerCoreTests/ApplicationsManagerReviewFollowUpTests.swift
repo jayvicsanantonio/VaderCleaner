@@ -100,6 +100,63 @@ struct ApplicationsManagerReviewFollowUpTests {
         #expect(await pollUntil { !vm.associatedFilesByCategory.isEmpty && !vm.isLoadingAssociatedFiles })
     }
 
+    @Test("refreshing restarts the inspector's lookup and drops the one in flight")
+    func refreshRestartsInspectorLookup() async throws {
+        let target = app("A", id: "com.acme.a")
+        let oldFile = URL(fileURLWithPath: "/Users/x/Library/Caches/old")
+        let newFile = URL(fileURLWithPath: "/Users/x/Library/Caches/new")
+        let gate = RegressionGate()
+        let lookups = RegressionBox(0)
+        let vm = AppUninstallerViewModel(
+            discover: { _ in [target] },
+            findFiles: { _ in
+                lookups.mutate { $0 += 1 }
+                if lookups.value == 1 {
+                    await gate.wait()
+                    return [AssociatedFile(url: oldFile, sizeBytes: 1, category: .cache)]
+                }
+                return [AssociatedFile(url: newFile, sizeBytes: 1, category: .cache)]
+            },
+            recycle: { _, _ in noRecycle }
+        )
+        await vm.loadApps()
+        vm.select(target.id)
+        #expect(await pollUntil { lookups.value == 1 })
+
+        await vm.refresh()
+        #expect(await pollUntil { lookups.value == 2 && !vm.isLoadingAssociatedFiles })
+        await gate.open()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(vm.associatedFilesByCategory.flatMap(\.1).map(\.url) == [newFile])
+
+        // The session cache has to hold the new result too.
+        vm.select(nil)
+        vm.select(target.id)
+        #expect(vm.associatedFilesByCategory.flatMap(\.1).map(\.url) == [newFile])
+    }
+
+    @Test("a refresh that loses the inspected app doesn't leave it loading")
+    func refreshLosingSelectedAppStopsLoading() async {
+        let target = app("A", id: "com.acme.a")
+        let gate = RegressionGate()
+        let roster = RegressionBox([target])
+        let vm = AppUninstallerViewModel(
+            discover: { _ in roster.value },
+            findFiles: { _ in
+                await gate.wait()
+                return []
+            },
+            recycle: { _, _ in noRecycle }
+        )
+        await vm.loadApps()
+        vm.select(target.id)
+        #expect(vm.isLoadingAssociatedFiles)
+        roster.value = []
+        await vm.refresh()
+        #expect(!vm.isLoadingAssociatedFiles)
+        await gate.open()
+    }
+
     @Test("an app removed during an update check doesn't come back with its results")
     func removalDuringCheckIsExcluded() async {
         let target = app("A", id: "com.acme.a")

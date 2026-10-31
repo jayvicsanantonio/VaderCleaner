@@ -344,7 +344,15 @@ public final class AppUninstallerViewModel {
         associatedFilesCache = [:]
         bundleSizeCache = [:]
         listMetricsEpoch &+= 1
+        // A lookup already running read the old disk. Dropped here, or its result
+        // would land in the cache just cleared and be served as fresh.
+        selectGeneration += 1
         await loadApps()
+        if let selected = selectedAppID {
+            select(selected)
+        } else {
+            isLoadingAssociatedFiles = false
+        }
     }
 
     /// Reloads the app list with the current `includesSystemApps` setting.
