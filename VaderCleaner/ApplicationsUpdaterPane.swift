@@ -192,6 +192,7 @@ struct UpdaterPaneView: View {
         }
         if entries.isEmpty {
             ApplicationsManagerEmptyState(
+                reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: false),
                 icon: "clock.arrow.circlepath",
                 title: rightPaneTitle,
                 detail: String(localized: "You haven't skipped any updates.", comment: "Skipped empty-state detail.")
@@ -201,7 +202,9 @@ struct UpdaterPaneView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(entries) { info in
-                        row(info)
+                        // No checkbox: Update acts on what's on offer, and these
+                        // are set aside until "Stop Skipping" puts them back.
+                        row(info, selectable: false)
                     }
                 }
                 .padding(.horizontal, 24).padding(.vertical, 12)
@@ -225,6 +228,7 @@ struct UpdaterPaneView: View {
         }
         if filtered.isEmpty {
             ApplicationsManagerEmptyState(
+                reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: false),
                 icon: "checkmark.shield",
                 title: rightPaneTitle,
                 detail: emptyDetail
@@ -307,39 +311,61 @@ struct UpdaterPaneView: View {
                 isEmpty: displayed.isEmpty
             ) == .loading {
                 ApplicationsManagerLoadingPane()
+            } else if displayed.isEmpty, case .failed(let message) = updaterViewModel.phase {
+                ApplicationsManagerFailureState(
+                    title: String(localized: "Couldn't check for updates", comment: "Updater check failure title."),
+                    message: message,
+                    onRetry: { Task { await updaterViewModel.checkForUpdates() } }
+                )
             } else if displayed.isEmpty {
                 ApplicationsManagerEmptyState(
+                    reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: facet == .selected),
                     icon: "arrow.down.circle",
                     title: String(localized: "Updater", comment: "Updater empty-state title."),
                     detail: String(localized: "There are no items to clean or fix in this area.\nEverything is in order.", comment: "Updater empty-state detail.")
                 )
                 .accessibilityIdentifier("applications.manager.updater.empty")
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        ForEach(displayed) { info in
-                            row(info)
+                // One view, so the hooks on the enclosing Group fire once.
+                VStack(alignment: .leading, spacing: 0) {
+                    ApplicationsManagerBulkSelectMenu(
+                        state: ApplicationsManagerModel.bulkSelectState(
+                            selected: selection.count,
+                            total: updaterViewModel.availableUpdates.count
+                        ),
+                        onSelectAll: { selection = Set(displayed.map(\.id)) },
+                        onSelectNone: { selection = [] }
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24).padding(.bottom, 8)
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(displayed) { info in
+                                row(info)
+                            }
                         }
+                        .padding(.horizontal, 24).padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 24).padding(.vertical, 12)
+                    .accessibilityIdentifier("applications.manager.updater.list")
                 }
-                .accessibilityIdentifier("applications.manager.updater.list")
             }
         }
         .onAppear { recompute() }
         .onChange(of: facet) { _, _ in recompute() }
         .onChange(of: search) { _, _ in recompute() }
-        .onChange(of: updaterViewModel.availableUpdates.map(\.id)) { _, _ in recompute() }
+        .onChange(of: updaterViewModel.availableUpdates) { _, _ in recompute() }
         // The selection only changes the visible list under the Selected facet.
         .onChange(of: selection) { _, _ in
             if facet == .selected { recompute() }
         }
     }
 
-    private func row(_ info: UpdateInfo) -> some View {
+    private func row(_ info: UpdateInfo, selectable: Bool = true) -> some View {
         HStack(spacing: 12) {
-            ApplicationsManagerCheckbox(selected: selection.contains(info.id)) {
-                if selection.contains(info.id) { selection.remove(info.id) } else { selection.insert(info.id) }
+            if selectable {
+                ApplicationsManagerCheckbox(selected: selection.contains(info.id)) {
+                    if selection.contains(info.id) { selection.remove(info.id) } else { selection.insert(info.id) }
+                }
             }
             Image(nsImage: iconCache.icon(for: info.bundleURL))
                 .resizable().frame(width: 32, height: 32)
@@ -350,10 +376,29 @@ struct UpdaterPaneView: View {
                 // matters. The summary is already length-capped upstream;
                 // the tooltip carries whatever the two lines cut off.
                 if updaterViewModel.installingIDs.contains(info.id) {
-                    Text(String(localized: "Downloading and installing…", comment: "Update row status during an in-place install."))
+                    HStack(spacing: 8) {
+                        if let progress = updaterViewModel.installProgress[info.id] {
+                            ProgressView(value: progress).frame(width: 120)
+                        }
+                        Text(String(localized: "Downloading and installing…", comment: "Update row status during an in-place install."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("applications.manager.updater.installing.\(info.bundleID)")
+                        Button(String(localized: "Cancel", comment: "Cancels an in-place update install.")) {
+                            updaterViewModel.cancelInstall(info.id)
+                        }
+                        .font(.caption)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tint)
+                        .accessibilityIdentifier("applications.manager.updater.cancel.\(info.bundleID)")
+                    }
+                } else if let failure = updaterViewModel.installFailures[info.id] {
+                    Text(String(localized: "Downloaded — couldn't install it automatically: \(failure)", comment: "Install fallback when an in-place install broke; the reason."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("applications.manager.updater.installing.\(info.bundleID)")
+                        .lineLimit(2)
+                        .help(failure)
+                        .accessibilityIdentifier("applications.manager.updater.failure.\(info.bundleID)")
                 } else if let reason = updaterViewModel.installFallbacks[info.id] {
                     // Say why we downloaded instead of installing. Doing
                     // something other than what the button said, silently,

@@ -23,6 +23,8 @@ struct ApplicationsDashboardView: View {
     /// One-click removal for the App Leftovers card's Remove button — selects
     /// every leftover group and moves it to the Trash.
     let onRemoveLeftovers: () -> Void
+    /// Re-runs the scan and refreshes the manager's lists.
+    let onRescan: () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
@@ -66,16 +68,26 @@ struct ApplicationsDashboardView: View {
             .multilineTextAlignment(.center)
             .foregroundStyle(.white)
 
-            Button(action: onOpenManage) {
-                Text(String(
-                    localized: "Manage My Applications",
-                    comment: "Button that opens the full installed-apps management (uninstaller) list."
-                ))
-                .padding(.horizontal, 8)
+            HStack(spacing: 10) {
+                Button(action: onOpenManage) {
+                    Text(String(
+                        localized: "Manage My Applications",
+                        comment: "Button that opens the full installed-apps management (uninstaller) list."
+                    ))
+                    .padding(.horizontal, 8)
+                }
+                .accessibilityIdentifier("applications.manageMyApplications")
+                Button(action: onRescan) {
+                    Text(String(
+                        localized: "Scan Again",
+                        comment: "Button that re-runs the Applications scan from the dashboard."
+                    ))
+                    .padding(.horizontal, 8)
+                }
+                .accessibilityIdentifier("applications.scanAgain")
             }
             .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
-            .accessibilityIdentifier("applications.manageMyApplications")
         }
     }
 
@@ -398,7 +410,7 @@ struct ApplicationsDashboardView: View {
             )
         }
         return String(
-            localized: "These apps won't run on this version of macOS — their code is built only for older architectures.",
+            localized: "These apps won't run on this version of macOS — their code isn't built for this Mac's processor.",
             comment: "Applications Unsupported card detail when some are found."
         )
     }

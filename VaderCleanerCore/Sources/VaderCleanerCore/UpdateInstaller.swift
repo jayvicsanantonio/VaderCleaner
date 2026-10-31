@@ -58,10 +58,10 @@ struct UpdateInstaller: Sendable {
     /// Whether a bundle is validly signed by an Apple-issued certificate
     /// belonging to this team — not merely carrying its Team ID.
     typealias IsSignedByTeam = @Sendable (_ bundle: URL, _ teamIdentifier: String) -> Bool
-    /// Whether an app with this bundle ID is currently running.
-    typealias IsRunning = @Sendable (_ bundleID: String) -> Bool
-    /// Asks the app to quit; returns whether it actually exited.
-    typealias Quit = @Sendable (_ bundleID: String) async -> Bool
+    /// Whether the copy of the app being updated is currently running.
+    typealias IsRunning = @Sendable (_ update: UpdateInfo) -> Bool
+    /// Asks that copy to quit; returns whether it actually exited.
+    typealias Quit = @Sendable (_ update: UpdateInfo) async -> Bool
     /// Swaps `replacement` into `installed`'s place.
     typealias Replace = @Sendable (_ replacement: URL, _ installed: URL) async throws -> Void
     typealias Relaunch = @Sendable (_ bundle: URL) async -> Void
@@ -206,6 +206,8 @@ struct UpdateInstaller: Sendable {
                 return .denied(.downloadNotValidlySigned)
             }
 
+            // The last moment a cancel can still be honoured whole.
+            try Task.checkCancellation()
             return await swap(replacement, into: update)
         } catch is UpdateDownloadTooLarge {
             // A deliberate refusal, not a breakage — it gets the denial path
@@ -223,8 +225,8 @@ struct UpdateInstaller: Sendable {
     /// if it had been running — an update shouldn't launch something the
     /// user had closed.
     private func swap(_ replacement: URL, into update: UpdateInfo) async -> UpdateInstallOutcome {
-        let wasRunning = isRunning(update.bundleID)
-        if wasRunning, await quit(update.bundleID) == false {
+        let wasRunning = isRunning(update)
+        if wasRunning, await quit(update) == false {
             // Replacing a bundle out from under a running process leaves
             // it in a half-updated state, so a refusal to quit stops the
             // install rather than forcing it.

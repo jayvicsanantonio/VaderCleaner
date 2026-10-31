@@ -31,9 +31,15 @@ public final class AppUpdaterViewModel {
     /// shells out to `brew`, so it is loaded once per check and the probe
     /// consults the resulting map synchronously.
     public typealias LoadCaskOwnership = @Sendable () async -> CaskOwnershipMap
-    /// Installs an update in place. Returns the outcome so the caller can
-    /// fall back to a download when the install is refused.
-    public typealias Install = @Sendable (_ update: UpdateInfo, _ feedURL: URL?, _ publicEDKey: String?) async -> UpdateInstallOutcome
+    /// Installs an update in place, reporting download progress from 0 to 1.
+    /// Returns the outcome so the caller can fall back to a download when the
+    /// install is refused.
+    public typealias Install = @Sendable (
+        _ update: UpdateInfo,
+        _ feedURL: URL?,
+        _ publicEDKey: String?,
+        _ onProgress: @escaping @Sendable (Double) -> Void
+    ) async -> UpdateInstallOutcome
     /// Reads the installed bundle's Sparkle feed URL and public key.
     public typealias ReadSigningInputs = @Sendable (_ bundleURL: URL) -> (feedURL: URL?, publicEDKey: String?)
     /// Whether the user has opted into in-place installs. Read per attempt
@@ -60,6 +66,13 @@ public final class AppUpdaterViewModel {
     /// row can explain that it fell back to a download rather than
     /// silently doing something different from what the button said.
     public private(set) var installFallbacks: [UpdateInfo.ID: InstallDenial] = [:]
+    /// What went wrong with an in-place install that broke rather than being
+    /// refused. It also falls back to a download, and the row says why.
+    public private(set) var installFailures: [UpdateInfo.ID: String] = [:]
+    /// Download progress from 0 to 1 for installs that have reported any.
+    public private(set) var installProgress: [UpdateInfo.ID: Double] = [:]
+    /// Bumped when an install lands, so the app list can re-read what changed.
+    public private(set) var completedInstallCount = 0
 
     @ObservationIgnored private let discover: Discover
     @ObservationIgnored private let checkAppStore: CheckAppStore
@@ -90,6 +103,11 @@ public final class AppUpdaterViewModel {
     @ObservationIgnored private var checkGeneration: Int = 0
     /// Updates from the probe (App Store and Sparkle), post-suppression.
     @ObservationIgnored private var directUpdates: [UpdateInfo] = []
+    /// The last check's per-app results, kept so a removed app can be taken out
+    /// of the coverage without another round of network requests.
+    @ObservationIgnored private var lastResults: [UpdateProbeResult] = []
+    /// Installs in flight, so one can be cancelled from its row.
+    @ObservationIgnored private var installTasks: [UpdateInfo.ID: Task<UpdateInstallOutcome, Never>] = [:]
     /// Apps Homebrew owns, from the last check's coverage.
     @ObservationIgnored private var homebrewManaged: [HomebrewManagedApp] = []
     /// Brew's outdated list, supplied by the view — `HomebrewViewModel`
@@ -169,6 +187,7 @@ public final class AppUpdaterViewModel {
                     break
                 }
             }
+            self.lastResults = results
             self.coverage = UpdateCoverage(results: results)
 
             updates = withholdDeclinedUpdates(from: updates, installedIn: apps)
@@ -195,6 +214,7 @@ public final class AppUpdaterViewModel {
             // Privacy: errors may include user-specific paths.
             log.error("App Updater discovery failed: \(String(describing: error), privacy: .private)")
             guard self.checkGeneration == generation else { return }
+            self.lastResults = []
             self.directUpdates = []
             self.homebrewManaged = []
             self.availableUpdates = []
@@ -221,6 +241,22 @@ public final class AppUpdaterViewModel {
     public func setHomebrewOutdated(_ items: [BrewOutdatedItem]) {
         homebrewOutdated = items
         rebuildAvailableUpdates()
+    }
+
+    /// Takes removed apps out of the list and the coverage.
+    public func forgetApps(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        lastResults.removeAll { ids.contains($0.app.id) }
+        coverage = UpdateCoverage(results: lastResults)
+        homebrewManaged = coverage.homebrewManaged
+        directUpdates.removeAll { ids.contains($0.id) }
+        rebuildAvailableUpdates()
+    }
+
+    /// Stops an in-place install. A cancelled install doesn't fall back to a
+    /// download: the user just asked for it to stop.
+    public func cancelInstall(_ id: UpdateInfo.ID) {
+        installTasks[id]?.cancel()
     }
 
     /// How a batch of updates must be applied. Brew rows are upgraded in
@@ -273,6 +309,9 @@ public final class AppUpdaterViewModel {
             await opener(Self.appStoreUpdatesURL)
         }
         for info in infos where info.source != .appStore {
+            // Already underway from an earlier press. A second run would
+            // download it again and swap the bundle out from under the first.
+            guard !installingIDs.contains(info.id) else { continue }
             // Homebrew rows have no URL by construction — they are
             // upgraded in place via `updatePlan(for:)`, never opened.
             guard let url = info.updateURL else { continue }
@@ -297,24 +336,44 @@ public final class AppUpdaterViewModel {
         guard isAutoInstallEnabled() else { return false }
         guard let install, info.source == .sparkle else { return false }
         installingIDs.insert(info.id)
-        defer { installingIDs.remove(info.id) }
+        let id = info.id
+        defer {
+            installingIDs.remove(id)
+            installProgress[id] = nil
+            installTasks[id] = nil
+        }
 
         let inputs = readSigningInputs(info.bundleURL)
-        switch await install(info, inputs.feedURL, inputs.publicEDKey) {
+        let onProgress: @Sendable (Double) -> Void = { [weak self] fraction in
+            Task { @MainActor [weak self] in
+                guard let self, self.installingIDs.contains(id) else { return }
+                self.installProgress[id] = fraction
+            }
+        }
+        let task = Task { await install(info, inputs.feedURL, inputs.publicEDKey, onProgress) }
+        installTasks[id] = task
+        let outcome = await task.value
+        if task.isCancelled, outcome != .installed { return true }
+
+        switch outcome {
         case .installed:
             // Remove from the source, or the next rebuild resurrects an update
             // that has already been applied.
             directUpdates.removeAll { $0.id == info.id }
             rebuildAvailableUpdates()
             installFallbacks[info.id] = nil
+            installFailures[info.id] = nil
+            completedInstallCount += 1
             return true
         case .denied(let reason):
             installFallbacks[info.id] = reason
+            installFailures[info.id] = nil
             return false
-        case .failed:
+        case .failed(let message):
             // Distinct from a denial: nothing was refused, something
             // broke. Either way the download still works.
             installFallbacks[info.id] = nil
+            installFailures[info.id] = message
             return false
         }
     }
@@ -353,38 +412,17 @@ public final class AppUpdaterViewModel {
     /// a single name-sorted list, so ordering is stable across checks and
     /// the two sources are indistinguishable to the user.
     private func rebuildAvailableUpdates() {
-        let outdatedByToken = Dictionary(
-            homebrewOutdated.filter { !$0.isPinned }.map { ($0.name, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let brewRows = homebrewManaged.compactMap { managed -> UpdateInfo? in
-            // A cask brew considers current, or one that installs no app,
-            // contributes nothing.
-            guard let item = outdatedByToken[managed.token] else { return nil }
-            return UpdateInfo(
-                appName: managed.app.name,
-                bundleID: managed.app.bundleID,
-                bundleURL: managed.app.bundleURL,
-                // The bundle's own version is what is actually installed;
-                // brew's record can lag for casks that self-update.
-                installedVersion: managed.app.version ?? item.installedVersion,
-                latestVersion: item.candidateVersion,
-                source: .homebrew,
-                updateURL: nil,
-                homebrewToken: managed.token
-            )
-        }
+        let brewRows = UpdateProbe.homebrewRows(managed: homebrewManaged, outdated: homebrewOutdated)
         // The one place either list is written. `declined` applies to both
         // sources: filtering only the brew rows meant a skipped *direct* update
         // was re-offered by the next rebuild, landing it in the available list
         // and the skipped facet at the same time.
         let declined = suppression?.snapshot() ?? UpdateSuppressionSnapshot()
-        let offered = (directUpdates + brewRows).filter { !declined.suppresses($0) }
-        availableUpdates = offered
+        let everything = directUpdates + brewRows
+        availableUpdates = everything
+            .filter { !declined.suppresses($0) }
             .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
-        // Skipped stays scoped to the direct updates, as before: a suppressed
-        // brew row is withheld from the offer but is brew's to re-surface.
-        skippedUpdates = directUpdates
+        skippedUpdates = everything
             .filter { declined.suppresses($0) }
             .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
     }
@@ -416,10 +454,10 @@ extension AppUpdaterViewModel {
             checkSparkle: UpdateProbe.liveSparkleCheck(),
             loadCaskOwnership: { await ownershipLoader.load() },
             suppression: UpdateSuppressionStore(),
-            install: { update, feedURL, publicEDKey in
+            install: { update, feedURL, publicEDKey, onProgress in
                 // A fresh installer per attempt: each owns its own scratch
                 // directory and removes it when done.
-                await UpdateInstaller.live().install(
+                await UpdateInstaller.live(onDownloadProgress: onProgress).install(
                     update,
                     feedURL: feedURL,
                     edSignature: update.edSignature,

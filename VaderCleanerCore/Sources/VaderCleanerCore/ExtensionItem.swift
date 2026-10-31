@@ -53,6 +53,10 @@ public struct ExtensionItem: Identifiable, Hashable, Sendable {
     let isEnabled: Bool
     /// Recursive byte size of the artifact, used for the row's size label.
     public let size: Int64
+    /// The browser profile it's installed in, so the same extension in two
+    /// profiles reads as two things rather than a duplicate. `nil` outside
+    /// browsers.
+    public var profile: String?
 
     public var id: URL { path }
 }

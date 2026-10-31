@@ -79,7 +79,9 @@ struct LeftoversPaneView: View {
                 title: String(localized: "Unused DMG Files", comment: "Installers list title."),
                 description: String(localized: "Save space by removing unneeded DMGs or other installation files of applications.", comment: "Installers list description."),
                 rows: result.installationFiles.map { file in
-                    DisplayRow(id: file.url.path, name: file.name, bytes: file.sizeBytes,
+                    DisplayRow(id: file.url.path, name: file.name,
+                               detail: file.url.deletingLastPathComponent().path,
+                               bytes: file.sizeBytes,
                                selected: viewModel.isInstallationFileSelected(file),
                                toggle: { viewModel.toggleInstallationFile(file) })
                 },
@@ -92,7 +94,9 @@ struct LeftoversPaneView: View {
                 title: String(localized: "Leftover Files", comment: "Leftover files list title."),
                 description: String(localized: "Support files left behind by apps you've removed.", comment: "Leftover files list description."),
                 rows: result.leftovers.map { group in
-                    DisplayRow(id: group.bundleID, name: group.displayName, bytes: group.totalBytes,
+                    DisplayRow(id: group.bundleID, name: group.displayName,
+                               detail: group.bundleID,
+                               bytes: group.totalBytes,
                                selected: viewModel.isLeftoverSelected(group),
                                toggle: { viewModel.toggleLeftover(group) })
                 },
@@ -108,6 +112,9 @@ struct LeftoversPaneView: View {
     private struct DisplayRow: Identifiable {
         let id: String
         let name: String
+        /// What the name alone can't say. A group's name is the last piece of a
+        /// bundle ID ("Agent"), which is no basis for deleting anything.
+        let detail: String
         let bytes: Int64
         let selected: Bool
         let toggle: () -> Void
@@ -146,27 +153,21 @@ struct LeftoversPaneView: View {
                 Text(title).font(.title3.weight(.semibold))
                 Text(description).font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    Text(String(localized: "Select:", comment: "Manager bulk-select label.")).foregroundStyle(.secondary)
-                    Menu {
-                        Button(String(localized: "All", comment: "Select all.")) {
-                            // The rows on screen, not the whole payload.
-                            onSelectAll(Set(prepared(rows).map(\.id)))
-                        }
-                        Button(String(localized: "None", comment: "Deselect all.")) { onSelectNone() }
-                    } label: {
-                        Text(rows.contains(where: \.selected)
-                             ? String(localized: "Some", comment: "Some selected.")
-                             : String(localized: "None", comment: "None selected."))
-                        .foregroundStyle(.tint)
-                    }
-                    .menuStyle(.borderlessButton).fixedSize()
-                }
+                ApplicationsManagerBulkSelectMenu(
+                    state: ApplicationsManagerModel.bulkSelectState(
+                        selected: unpreparedRows.filter(\.selected).count,
+                        total: unpreparedRows.count
+                    ),
+                    // The rows on screen, not the whole payload.
+                    onSelectAll: { onSelectAll(Set(rows.map(\.id))) },
+                    onSelectNone: onSelectNone
+                )
                 .padding(.top, 4)
             }
             .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
             if rows.isEmpty {
                 ApplicationsManagerEmptyState(
+                    reason: ApplicationsManagerModel.emptyReason(search: search, showsOnlySelected: false),
                     icon: "checkmark.seal.fill",
                     title: String(localized: "Nothing to remove", comment: "Empty leftovers list."),
                     detail: String(localized: "There are no items in this area.", comment: "Empty leftovers detail.")
@@ -182,7 +183,10 @@ struct LeftoversPaneView: View {
                                 } else {
                                     Image(systemName: "folder.badge.minus").font(.system(size: 18)).foregroundStyle(.secondary).frame(width: 28)
                                 }
-                                Text(row.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(row.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                                    Text(row.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                }
                                 Spacer(minLength: 8)
                                 SmartInsightsSparkle(itemTitle: row.name, accent: ApplicationsManagerChrome.accent, topic: .fileOrFolder)
                                 Text(ApplicationsManagerChrome.byteText(row.bytes)).font(.callout.weight(.semibold)).foregroundStyle(.secondary)

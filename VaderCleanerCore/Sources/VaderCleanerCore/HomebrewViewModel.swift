@@ -66,6 +66,9 @@ public final class HomebrewViewModel {
     /// Set after a successful uninstall so the view can offer the autoremove +
     /// cleanup sweep as a continuation of the same flow.
     private(set) var postUninstallSweepAvailable = false
+    /// Bumped when an uninstall removes something. A cask takes its app with
+    /// it, and the Uninstaller's list comes from a separate discovery pass.
+    public private(set) var completedUninstallCount = 0
 
     typealias MakeRunner = @Sendable (URL) -> BrewRunning
 
@@ -77,6 +80,10 @@ public final class HomebrewViewModel {
     /// Guards `checkUpdatesIfNeeded` so entering the Updater's Homebrew facet
     /// runs the (network) update check at most once per session.
     @ObservationIgnored private var hasCheckedUpdates = false
+    /// Whether the inventory has ever loaded. An update check after a failed
+    /// load would land `.ready` over the failure, leaving an empty inventory
+    /// that reads as "no packages" with nothing to say otherwise.
+    @ObservationIgnored private var hasLoadedInventory = false
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "HomebrewViewModel")
 
@@ -86,7 +93,9 @@ public final class HomebrewViewModel {
     init(
         locator: BrewLocating,
         makeRunner: @escaping MakeRunner,
-        stallTimeout: TimeInterval = 120
+        // Long: this SIGTERMs brew, and a from-source build or a large cask
+        // download can go many minutes without printing a line.
+        stallTimeout: TimeInterval = 900
     ) {
         self.locator = locator
         self.makeRunner = makeRunner
@@ -124,12 +133,26 @@ public final class HomebrewViewModel {
         self.runner = runner
         do {
             inventory = try await Self.loadInventory(runner: runner)
+            hasLoadedInventory = true
             phase = .ready
         } catch {
             log.error("Homebrew inventory load failed: \(String(describing: error), privacy: .private)")
             inventory = []
-            phase = .failed(message: Self.message(for: error))
+            let message = Self.message(for: error)
+            lastOperationError = message
+            phase = .failed(message: message)
         }
+    }
+
+    /// Reloads the inventory and re-runs the update check, whatever happened
+    /// last time — the path back from a failure, and what a rescan uses.
+    public func refresh() async {
+        guard !isBusy else { return }
+        lastOperationError = nil
+        hasCheckedUpdates = false
+        hasLoadedInventory = false
+        await load()
+        await checkUpdatesIfNeeded()
     }
 
     /// Loads the inventory only if it hasn't started yet — used when a Homebrew
@@ -191,7 +214,9 @@ public final class HomebrewViewModel {
             phase = .ready
         } catch {
             log.error("Homebrew outdated check failed: \(String(describing: error), privacy: .private)")
-            phase = .failed(message: Self.message(for: error))
+            let message = Self.message(for: error)
+            lastOperationError = message
+            phase = .failed(message: message)
         }
     }
 
@@ -200,7 +225,7 @@ public final class HomebrewViewModel {
     /// re-hit the network. Requires the inventory to have loaded first so a
     /// runner exists.
     public func checkUpdatesIfNeeded() async {
-        guard !hasCheckedUpdates, runner != nil, !isBusy else { return }
+        guard !hasCheckedUpdates, hasLoadedInventory, runner != nil, !isBusy else { return }
         await checkUpdates()
         if case .ready = phase { hasCheckedUpdates = true }
     }
@@ -223,19 +248,44 @@ public final class HomebrewViewModel {
         // Pinned formulae are held back from upgrades whether the caller asked
         // for all outdated or an explicit selection.
         let pinnedNames = Set(outdated.filter(\.isPinned).map(\.name))
-        let names: [String]
+        // Split by kind because plain `brew upgrade <name>` treats a name both
+        // kinds share as the formula, and would leave the cask outdated.
+        let formulae: [String]
+        let casks: [String]
+        func split(_ items: [BrewOutdatedItem]) -> (formulae: [String], casks: [String]) {
+            let eligible = items.filter { !$0.isPinned }
+            return (eligible.filter { $0.kind == .formula }.map(\.name),
+                    eligible.filter { $0.kind == .cask }.map(\.name))
+        }
         switch selection {
         case .all:
-            names = outdated.filter { !$0.isPinned }.map(\.name)
+            (formulae, casks) = split(outdated)
+        case .items(let items):
+            (formulae, casks) = split(items)
+        case .casks(let tokens):
+            (formulae, casks) = ([], tokens)
         case .some(let selected):
-            names = selected.filter { !pinnedNames.contains($0) }
+            let requested = selected.filter { !pinnedNames.contains($0) }
+            let formulaNames = Set(outdated.filter { $0.kind == .formula }.map(\.name))
+            let caskNames = Set(outdated.filter { $0.kind == .cask }.map(\.name))
+            casks = requested.filter { caskNames.contains($0) && !formulaNames.contains($0) }
+            formulae = requested.filter { !casks.contains($0) }
         }
-        guard !names.isEmpty else { return }
+        guard !formulae.isEmpty || !casks.isEmpty else { return }
 
         lastOperationError = nil
-        let status = await stream(.upgrade, arguments: ["upgrade"] + names)
-        recordFailureIfNeeded(status, verb: "upgrade")
+        var stopped = false
+        if !formulae.isEmpty {
+            let status = await stream(.upgrade, arguments: ["upgrade"] + formulae)
+            recordFailureIfNeeded(status, verb: "upgrade")
+            stopped = status == nil || manualHandling != nil
+        }
+        if !casks.isEmpty, !stopped {
+            let status = await stream(.upgrade, arguments: ["upgrade", "--cask"] + casks)
+            recordFailureIfNeeded(status, verb: "upgrade")
+        }
         if let runner {
+            inventory = (try? await Self.loadInventory(runner: runner)) ?? inventory
             do {
                 try await reloadOutdated(runner: runner)
             } catch {
@@ -309,18 +359,37 @@ public final class HomebrewViewModel {
         // Record each step's result independently so a formula failure can't be
         // masked by a later cask success (and vice versa).
         var allSucceeded = true
+        var anySucceeded = false
+        // A `nil` status means cancelled or never ran. Cancel has to mean the
+        // whole request, not just the step that happened to be running.
+        var stopped = false
         if !formulae.isEmpty {
             let status = await stream(.uninstall, arguments: ["uninstall"] + formulae)
             recordFailureIfNeeded(status, verb: "uninstall")
             if status != 0 { allSucceeded = false }
+            if status == 0 { anySucceeded = true }
+            stopped = status == nil
         }
-        if !casks.isEmpty, manualHandling == nil {
+        if !casks.isEmpty, !stopped, manualHandling == nil {
             let status = await stream(.uninstall, arguments: ["uninstall", "--cask"] + casks)
             recordFailureIfNeeded(status, verb: "uninstall")
             if status != 0 { allSucceeded = false }
+            if status == 0 { anySucceeded = true }
         }
 
-        if let runner { inventory = (try? await Self.loadInventory(runner: runner)) ?? inventory }
+        if let runner {
+            inventory = (try? await Self.loadInventory(runner: runner)) ?? inventory
+            // The Updater reads this list too, so a removed package left in it
+            // would keep offering an upgrade for something no longer installed.
+            do {
+                try await reloadOutdated(runner: runner)
+            } catch {
+                log.error("Post-uninstall outdated reload failed: \(String(describing: error), privacy: .private)")
+                let installed = Set(inventory.map(\.id))
+                outdated.removeAll { !installed.contains($0.id) }
+            }
+        }
+        if anySucceeded { completedUninstallCount += 1 }
         // Only offer the cleanup sweep when every requested removal succeeded and
         // nothing was routed to Terminal or cancelled.
         postUninstallSweepAvailable = allSucceeded && manualHandling == nil

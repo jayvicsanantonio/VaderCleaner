@@ -1,6 +1,7 @@
 // AppLeftoverScanner.swift
 // Walks the standard ~/Library support roots and flags reverse-DNS bundle-ID entries that belong to no installed app — the orphaned files an uninstalled app left behind.
 
+import AppKit
 import Foundation
 import os.log
 
@@ -15,8 +16,14 @@ import os.log
 ///     human-named folders like "Google" are ignored;
 ///   - Apple (`com.apple.*`) and app-group (`group.*`) IDs are never flagged;
 ///   - an entry is treated as belonging to an installed app if its ID matches
-///     an installed bundle ID *or* is a sub-ID of one (e.g. a helper/XPC
-///     service `com.acme.App.Helper` under installed `com.acme.App`).
+///     an installed bundle ID, is a sub-ID of one (e.g. a helper/XPC service
+///     `com.acme.App.Helper` under installed `com.acme.App`), or is the base ID
+///     of one (`com.acme.App` under installed `com.acme.App.Pro`);
+///   - Launch Services gets a say, because discovery only walks the standard
+///     app folders and an app can be installed anywhere;
+///   - updaters and frameworks that several apps share are never flagged: no
+///     app of that name exists to be uninstalled, and the ones using them need
+///     them.
 /// Removal stays opt-in and routes to the Trash (restorable).
 struct DefaultAppLeftoverScanner: Sendable {
 
@@ -38,15 +45,22 @@ struct DefaultAppLeftoverScanner: Sendable {
     /// but `.default` is documented thread-safe and test fixtures are
     /// single-threaded, so the isolation is opted out of per property.
     nonisolated(unsafe) private let fileManager: FileManager
+    /// Whether Launch Services knows an app with this bundle ID. Injected so
+    /// tests aren't at the mercy of what the host machine has installed.
+    private let isRegisteredApp: @Sendable (String) -> Bool
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "AppLeftoverScanner")
 
     init(
         roots: [(url: URL, kind: RootKind)] = DefaultAppLeftoverScanner.defaultRoots(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        isRegisteredApp: @escaping @Sendable (String) -> Bool = { bundleID in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil
+        }
     ) {
         self.roots = roots
         self.fileManager = fileManager
+        self.isRegisteredApp = isRegisteredApp
     }
 
     static func defaultRoots(
@@ -72,6 +86,7 @@ struct DefaultAppLeftoverScanner: Sendable {
         let roots = roots
         let fileManager = fileManager
         let log = log
+        let isRegisteredApp = isRegisteredApp
         let excludedPaths = exclusions.map(PathExclusionMatcher.canonicalize)
         return await Task.detached(priority: .userInitiated) {
             // Aggregate every matching URL under its bundle ID, preserving a
@@ -96,7 +111,9 @@ struct DefaultAppLeftoverScanner: Sendable {
                     ) else { continue }
                     guard Self.looksLikeBundleID(bundleID),
                           !Self.isSystemBundleID(bundleID),
-                          !Self.isCoveredByInstalled(bundleID, installed: installedBundleIDs) else {
+                          !Self.isSharedInfrastructure(bundleID),
+                          !Self.isCoveredByInstalled(bundleID, installed: installedBundleIDs),
+                          !isRegisteredApp(bundleID) else {
                         continue
                     }
                     if urlsByBundleID[bundleID] == nil { order.append(bundleID) }
@@ -163,12 +180,49 @@ struct DefaultAppLeftoverScanner: Sendable {
         string.hasPrefix("com.apple.") || string.hasPrefix("group.")
     }
 
-    /// Whether the candidate belongs to an installed app — either an exact
-    /// match, or a sub-ID of an installed app (a helper/XPC service like
-    /// `com.acme.App.Helper` under installed `com.acme.App`).
+    /// Updaters, crash reporters, and frameworks that write under an ID of their
+    /// own on behalf of whichever apps embed them, plus VaderCleaner itself.
+    /// Lowercased, and matched on a component boundary.
+    private static let sharedInfrastructurePrefixes = [
+        "com.google.keystone",
+        "com.google.googleupdater",
+        "com.google.softwareupdate",
+        "com.microsoft.autoupdate",
+        "com.microsoft.office",
+        "com.microsoft.shared",
+        "com.adobe.acc",
+        "com.adobe.crashreporter",
+        "com.github.electron",
+        "com.crashlytics",
+        "com.plausiblelabs",
+        "io.sentry",
+        "org.sparkle-project",
+        "com.personal.vadercleaner",
+    ]
+
+    /// `com.microsoft.autoupdate2` is why this also accepts a version suffix.
+    static func isSharedInfrastructure(_ string: String) -> Bool {
+        let candidate = string.lowercased()
+        return sharedInfrastructurePrefixes.contains { prefix in
+            guard candidate.hasPrefix(prefix) else { return false }
+            let rest = candidate.dropFirst(prefix.count)
+            return rest.first.map { $0 == "." || $0.isNumber } ?? true
+        }
+    }
+
+    /// Whether the candidate belongs to an installed app — an exact match, a
+    /// sub-ID of an installed app (a helper/XPC service like
+    /// `com.acme.App.Helper` under installed `com.acme.App`), or the base ID of
+    /// one (`com.acme.App` under installed `com.acme.App.Pro`). Ignores case,
+    /// as Launch Services does.
     static func isCoveredByInstalled(_ candidate: String, installed: Set<String>) -> Bool {
-        if installed.contains(candidate) { return true }
-        return installed.contains { candidate.hasPrefix($0 + ".") }
+        let candidate = candidate.lowercased()
+        return installed.contains { installedID in
+            let installedID = installedID.lowercased()
+            return candidate == installedID
+                || candidate.hasPrefix(installedID + ".")
+                || installedID.hasPrefix(candidate + ".")
+        }
     }
 
     // MARK: - Sizing
