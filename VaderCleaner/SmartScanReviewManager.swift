@@ -301,11 +301,7 @@ struct SmartScanReviewManager: View {
                     Button(option.label) { sort = option }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Sort by:", comment: "Label preceding the sort option on a Smart Scan Manager."))
-                        .foregroundStyle(.secondary)
-                    Text(sort.label).foregroundStyle(.tint)
-                }
+                ManagerSortLabel(value: sort.label)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()

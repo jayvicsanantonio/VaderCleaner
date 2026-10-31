@@ -161,9 +161,7 @@ struct ProtectionManagerView: View {
                 Menu {
                     ForEach(Sort.allCases) { option in Button(option.label) { sort = option } }
                 } label: {
-                    // One Text, because a borderless Menu draws only the first
-                    // view of a compound label and the current sort went missing.
-                    Text("\(Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)) \(Text(sort.label).foregroundStyle(.tint))")
+                    ManagerSortLabel(value: sort.label)
                 }
                 .menuStyle(.borderlessButton).fixedSize()
                 .accessibilityIdentifier("protection.manager.sort")

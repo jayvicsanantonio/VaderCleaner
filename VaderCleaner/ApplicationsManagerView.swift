@@ -285,10 +285,7 @@ struct ApplicationsManagerView: View {
                         Button(option.label) { sort = option }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                        Text(effectiveSort.label).foregroundStyle(.tint)
-                    }
+                    ManagerSortLabel(value: effectiveSort.label)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
