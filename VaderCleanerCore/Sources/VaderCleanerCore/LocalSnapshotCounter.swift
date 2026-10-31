@@ -8,7 +8,7 @@ import Foundation
 /// `tmutil` or depending on the host's snapshot state.
 struct LocalSnapshotCounter: Sendable {
 
-    typealias ListSnapshots = @Sendable () -> String
+    typealias ListSnapshots = @Sendable () -> String?
 
     private let listSnapshots: ListSnapshots
 
@@ -16,18 +16,19 @@ struct LocalSnapshotCounter: Sendable {
         self.listSnapshots = listSnapshots
     }
 
-    /// The number of local snapshots. `tmutil` prints one
-    /// `com.apple.TimeMachine.<date>.local` line per snapshot under a header.
-    func count() -> Int {
-        listSnapshots()
+    /// The number of local snapshots, or `nil` when they couldn't be listed.
+    /// `tmutil` prints one `com.apple.TimeMachine.<date>.local` line per snapshot
+    /// under a header.
+    func count() -> Int? {
+        listSnapshots()?
             .split(whereSeparator: \.isNewline)
             .filter { $0.contains("com.apple.TimeMachine") }
             .count
     }
 
-    /// Runs `/usr/bin/tmutil listlocalsnapshots /` and returns its stdout, or an
-    /// empty string if the command can't be run.
-    static func defaultListSnapshots() -> String {
+    /// Runs `/usr/bin/tmutil listlocalsnapshots /` and returns its stdout, or
+    /// `nil` if the command can't be run, fails, or its output can't be read.
+    static func defaultListSnapshots() -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tmutil")
         process.arguments = ["listlocalsnapshots", "/"]
@@ -37,7 +38,7 @@ struct LocalSnapshotCounter: Sendable {
         do {
             try process.run()
         } catch {
-            return ""
+            return nil
         }
         // Drain the pipe before waiting: if `tmutil`'s output exceeded the pipe
         // buffer, waiting first would deadlock (the process blocks writing while
@@ -46,6 +47,7 @@ struct LocalSnapshotCounter: Sendable {
         // unexpected disconnect.
         let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
-        return String(data: data, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }

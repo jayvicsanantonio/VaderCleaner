@@ -1,5 +1,5 @@
 // PerformanceDashboardSubviews.swift
-// Performance dashboard (hero + Login Items / Background Items summary cards) and the Performance Manager opened from "View All Tasks" — checkbox lists with Select / search / Sort and a destructive Remove, plus the maintenance-task list.
+// Performance dashboard (hero + Login Items / Background Items summary cards) and the Performance Manager opened from "View All Tasks" — checkbox lists with Select / search and a destructive Remove, plus the maintenance-task list.
 
 import AppKit
 import SwiftUI
@@ -59,7 +59,7 @@ struct PerformanceDashboardView: View {
         if maintenanceTasksDue > 0 {
             real.append(RankedTile(payload: .maintenance, urgency: .attention, reclaimableBytes: 0))
         }
-        let reassurance = Self.reassurancePool.map { content in
+        let reassurance = Self.reassurance(forFindingCount: real.count).map { content in
             RankedTile(payload: Tile.reassurance(content), urgency: .reassurance, reclaimableBytes: 0)
         }
         return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
@@ -162,6 +162,13 @@ struct PerformanceDashboardView: View {
         }
     }
 
+    /// The "all good" cards available for backfilling. "Running Smoothly" says
+    /// nothing needs attention, which is only true with no findings at all; it
+    /// must not sit beside a card asking for a review.
+    static func reassurance(forFindingCount count: Int) -> [ReassuranceContent] {
+        count == 0 ? reassurancePool : reassurancePool.filter { $0.id != "performance.tuned" }
+    }
+
     /// Ordered pool of "all good" cards, drawn from in order when fewer than two
     /// categories have anything to review so backfilling never repeats a card.
     private static let reassurancePool: [ReassuranceContent] = [
@@ -185,24 +192,28 @@ struct PerformanceDashboardView: View {
         ),
     ]
 
-    private var loginItemsTitle: String {
+    private var loginItemsTitle: String { Self.loginItemsTitle(count: loginItemCount) }
+    private var backgroundItemsTitle: String { Self.backgroundItemsTitle(count: backgroundItemCount) }
+    private var maintenanceTitle: String { Self.maintenanceTitle(count: maintenanceTasksDue) }
+
+    static func loginItemsTitle(count: Int) -> String {
         String.localizedStringWithFormat(
             String(localized: "You Have %lld Login Items", comment: "Login Items summary card title; %lld is the count."),
-            loginItemCount
+            count
         )
     }
 
-    private var backgroundItemsTitle: String {
+    static func backgroundItemsTitle(count: Int) -> String {
         String.localizedStringWithFormat(
             String(localized: "%lld Background Items Found", comment: "Background Items summary card title; %lld is the count."),
-            backgroundItemCount
+            count
         )
     }
 
-    private var maintenanceTitle: String {
+    static func maintenanceTitle(count: Int) -> String {
         String.localizedStringWithFormat(
             String(localized: "%lld Maintenance Tasks Recommended", comment: "Maintenance summary card title; %lld is the count."),
-            maintenanceTasksDue
+            count
         )
     }
 }
@@ -305,16 +316,18 @@ struct AppIconCluster: View {
 
 /// The standalone Performance Manager (opened from "View All Tasks" or a
 /// dashboard card's "Review"), styled like the Cleanup Manager: a white,
-/// light-mode card with the magenta accent, a Back / search / Sort-by header, a
-/// left navigation (Login Items / Background Items / Maintenance Tasks), and a
+/// light-mode card with the magenta accent, a Back / search header, a left
+/// navigation (Login Items / Background Items / Maintenance Tasks), and a
 /// detail pane. Login Items and Background Items are checkbox lists with a
 /// `Select:` menu and a destructive **Remove** footer; Maintenance Tasks keeps
 /// its multi-select **Run** bar.
 ///
 /// Remove is backed by what macOS truthfully allows (`removeSelected`): a login
-/// item is unregistered, a user launch agent's plist is deleted. macOS‑managed
-/// daemons can't be enumerated/removed via `SMAppService`, so they are noted but
-/// never offered for removal — matching the reference's third‑party list.
+/// item is unregistered, a user launch agent is stopped and its plist moved to
+/// the Trash. Items installed for all users live in launchd's privileged domain,
+/// so they are listed for review but never offered for removal. Selected rows a
+/// search is hiding are out of reach of every bulk action
+/// (`PerformanceManagerListing`), so what the footer counts is what gets acted on.
 struct PerformanceTaskCatalogView: View {
 
     /// The three panes the left navigation switches between.
@@ -324,31 +337,34 @@ struct PerformanceTaskCatalogView: View {
         case backgroundItems
     }
 
-    /// Which pane is shown. Bound to the owning view so the selection survives
-    /// the "Working…" remount and so a dashboard card can open a specific pane.
+    /// Which pane is shown. Bound to the owning view so a dashboard card can open
+    /// a specific pane.
     @Binding var pane: Pane
-    /// Selected maintenance-task ids, bound to the owning view so the selection
-    /// persists across the progress screen and a completed run.
+    /// Selected maintenance-task ids, bound to the owning view so the Maintenance
+    /// card's Review can preselect what is due.
     @Binding var selectedTaskIDs: Set<String>
     let tasks: [MaintenanceTask]
+    /// Ids of the tasks due to run again, marked on their rows.
+    let dueTaskIDs: Set<String>
     let results: [String: String]
     let loginItems: [LoginItem]
     let userAgents: [LaunchAgent]
     let systemAgents: [LaunchAgent]
     let onRunSelected: ([MaintenanceTask]) -> Void
     /// Removes the current selection: `loginItemIDs` are unregistered and
-    /// `agentIDs` (user agents only) have their plists deleted.
+    /// `agentIDs` (user agents only) are stopped and moved to the Trash.
     let onRemoveSelected: (_ loginItemIDs: Set<String>, _ agentIDs: Set<String>) -> Void
+    let onSetAgentEnabled: (LaunchAgent, Bool) -> Void
+    let onOpenLoginItemsSettings: () -> Void
     let onBack: () -> Void
 
     /// Checkbox selection for the Login Items and Background Items panes. Held
-    /// here (not on the owning view) because it is a within-manager concern that
-    /// is consumed the moment Remove runs and the panes reload.
+    /// here (not on the owning view) because it is a within-manager concern. Rows
+    /// that leave the list leave the selection, so after a Remove what is still
+    /// ticked is exactly what failed, ready for a retry.
     @State private var selectedLoginIDs: Set<String> = []
     @State private var selectedAgentIDs: Set<String> = []
     @State private var search = ""
-    // The manager's items carry no byte size, so Name is the meaningful default.
-    @State private var sort: ManagerSort = .name
     @State private var confirmRemove = false
 
     // The Login Items and Background Items rows, mapped once from the inputs and
@@ -357,6 +373,7 @@ struct PerformanceTaskCatalogView: View {
     // real cost; recompute only when the underlying items change.
     @State private var loginManagerItems: [ManagerItem] = []
     @State private var agentManagerItems: [ManagerItem] = []
+    @State private var systemAgentManagerItems: [ManagerItem] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -382,9 +399,14 @@ struct PerformanceTaskCatalogView: View {
         .onAppear {
             recomputeLoginManagerItems()
             recomputeAgentManagerItems()
+            recomputeSystemAgentManagerItems()
         }
         .onChange(of: loginItems) { _, _ in recomputeLoginManagerItems() }
         .onChange(of: userAgents) { _, _ in recomputeAgentManagerItems() }
+        .onChange(of: systemAgents) { _, _ in recomputeSystemAgentManagerItems() }
+        // A search belongs to the list it was typed over, so it never carries
+        // into another pane and turns that one up empty.
+        .onChange(of: pane) { _, _ in search = "" }
         .alert(
             String(localized: "Remove the selected items?", comment: "Title of the Performance Manager remove confirmation."),
             isPresented: $confirmRemove
@@ -402,7 +424,10 @@ struct PerformanceTaskCatalogView: View {
 
     private var header: some View {
         HStack(spacing: 16) {
-            Button(action: onBack) {
+            Button {
+                search = ""
+                onBack()
+            } label: {
                 // HStack(Image, Text) rather than Label so the control surfaces
                 // reliably in XCUITest.
                 HStack(spacing: 4) {
@@ -429,21 +454,6 @@ struct PerformanceTaskCatalogView: View {
                 .frame(width: 140)
                 .accessibilityIdentifier("performance.manager.search")
             }
-
-            Menu {
-                ForEach(ManagerSort.allCases) { option in
-                    Button(option.label) { sort = option }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Sort by:", comment: "Label preceding the sort option on the Performance Manager."))
-                        .foregroundStyle(.secondary)
-                    Text(sort.label).foregroundStyle(.tint)
-                }
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityIdentifier("performance.manager.sort")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
@@ -495,8 +505,7 @@ struct PerformanceTaskCatalogView: View {
                     comment: "Performance Manager Login Items pane description."
                 ),
                 items: loginManagerItems,
-                selection: $selectedLoginIDs,
-                footnote: nil
+                selection: $selectedLoginIDs
             )
         case .backgroundItems:
             itemListPane(
@@ -508,20 +517,14 @@ struct PerformanceTaskCatalogView: View {
                 ),
                 items: agentManagerItems,
                 selection: $selectedAgentIDs,
-                footnote: systemAgents.isEmpty ? nil : String.localizedStringWithFormat(
-                    String(
-                        localized: "%lld more items are managed by macOS and can be changed only in System Settings.",
-                        comment: "Note under the Background Items list explaining the macOS-managed daemons aren't removable here."
-                    ),
-                    systemAgents.count
-                )
+                reviewOnlyItems: systemAgentManagerItems
             )
         }
     }
 
     /// A checkbox list pane (Login Items / Background Items), laid out like the
     /// Maintenance Tasks pane: a heading, a one-line description, a `Select:`
-    /// menu, the card rows, and an optional footnote.
+    /// menu, the card rows, and any rows that are listed for review only.
     @ViewBuilder
     private func itemListPane(
         paneKey: String,
@@ -529,23 +532,20 @@ struct PerformanceTaskCatalogView: View {
         description: String,
         items: [ManagerItem],
         selection: Binding<Set<String>>,
-        footnote: String?
+        reviewOnlyItems: [ManagerItem] = []
     ) -> some View {
-        let allIDs = items.map(\.id)
-        let displayed = filteredSorted(items)
+        let displayed = PerformanceManagerListing.items(items, matching: search)
+        let displayedReviewOnly = PerformanceManagerListing.items(reviewOnlyItems, matching: search)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text(title).font(.title3.weight(.semibold))
                 Text(description)
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                selectRow(paneKey: paneKey, allIDs: allIDs, selection: selection)
-                if displayed.isEmpty {
-                    Text(String(localized: "Nothing to review", comment: "Empty state in a Performance Manager pane."))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 48)
-                } else {
+                selectRow(paneKey: paneKey, visibleIDs: displayed.map(\.id), selection: selection)
+                if displayed.isEmpty && displayedReviewOnly.isEmpty {
+                    emptyState(isFiltering: !search.isEmpty)
+                } else if !displayed.isEmpty {
                     // Lazy because the background-items pane is as long as the
                     // machine says: `launchctl list` runs to several hundred
                     // entries on a developer's Mac, and an eagerly-built stack
@@ -557,15 +557,14 @@ struct PerformanceTaskCatalogView: View {
                                 item: item,
                                 isSelected: selection.wrappedValue.contains(item.id),
                                 identifier: "performance.manager.\(paneKey).item.\(item.id)",
+                                control: control(for: item),
                                 onToggle: { toggle(item.id, in: selection) }
                             )
                         }
                     }
                 }
-                if let footnote {
-                    Text(footnote)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if !displayedReviewOnly.isEmpty {
+                    reviewOnlySection(paneKey: paneKey, items: displayedReviewOnly)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -573,23 +572,91 @@ struct PerformanceTaskCatalogView: View {
         }
     }
 
-    /// The `Select:` bulk-select menu, scoped to the pane's items.
-    private func selectRow(paneKey: String, allIDs: [String], selection: Binding<Set<String>>) -> some View {
-        let selectedCount = allIDs.reduce(0) { $0 + (selection.wrappedValue.contains($1) ? 1 : 0) }
+    private func emptyState(isFiltering: Bool) -> some View {
+        Text(isFiltering
+            ? String(localized: "Nothing matches your search", comment: "Empty state in a Performance Manager pane when a search hides every row.")
+            : String(localized: "Nothing to review", comment: "Empty state in a Performance Manager pane."))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48)
+    }
+
+    /// The items installed for all users. VaderCleaner can't safely remove what
+    /// another app put in launchd's privileged domain, but they are real and
+    /// running, so they're shown rather than just counted, with the place macOS
+    /// lets them be changed.
+    private func reviewOnlySection(paneKey: String, items: [ManagerItem]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "Installed for All Users", comment: "Heading above the Background Items VaderCleaner lists but doesn't remove."))
+                .font(.headline)
+                .padding(.top, 8)
+            HStack(spacing: 12) {
+                Text(String(
+                    localized: "These were installed by other apps. You can turn them off in System Settings, or remove them by uninstalling the app they came with.",
+                    comment: "Explains the Background Items VaderCleaner lists but doesn't remove."
+                ))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button(String(localized: "Open System Settings", comment: "Opens System Settings to Login Items & Extensions from the Performance Manager."), action: onOpenLoginItemsSettings)
+                    .accessibilityIdentifier("performance.manager.\(paneKey).openSettings")
+            }
+            LazyVStack(spacing: 10) {
+                ForEach(items) { item in
+                    PerformanceItemRow(
+                        item: item,
+                        isSelected: false,
+                        identifier: "performance.manager.\(paneKey).reviewOnly.\(item.id)",
+                        control: .none,
+                        onToggle: {}
+                    )
+                }
+            }
+        }
+    }
+
+    /// The control a row carries beyond its checkbox: an on/off switch for a user
+    /// agent with a job to run, and a way to finish a pending login item.
+    private func control(for item: ManagerItem) -> PerformanceItemRow.Control {
+        if let agent = userAgents.first(where: { $0.id == item.id }) {
+            // An orphaned plist defines nothing to run, so its switch would be dead.
+            guard !agent.isOrphaned else { return .none }
+            return .toggle(
+                isOn: agent.isEnabled,
+                identifier: "performance.manager.agentToggle.\(agent.label)",
+                action: { onSetAgentEnabled(agent, $0) }
+            )
+        }
+        if loginItems.first(where: { $0.id == item.id })?.requiresApproval == true {
+            return .openSettings(action: onOpenLoginItemsSettings)
+        }
+        return .none
+    }
+
+    /// The `Select:` bulk-select menu, scoped to the rows on screen.
+    private func selectRow(paneKey: String, visibleIDs: [String], selection: Binding<Set<String>>) -> some View {
+        let selectedCount = PerformanceManagerListing.actionableSelection(
+            selection.wrappedValue, visibleIDs: visibleIDs
+        ).count
         return HStack(spacing: 8) {
             Text(String(localized: "Select:", comment: "Label before the bulk-select menu on the Performance Manager."))
                 .foregroundStyle(.secondary)
             Menu {
                 Button(String(localized: "Select All", comment: "Bulk-select every item in the pane.")) {
-                    selection.wrappedValue.formUnion(allIDs)
+                    selection.wrappedValue = PerformanceManagerListing.selectingAll(
+                        in: selection.wrappedValue, visibleIDs: visibleIDs
+                    )
                 }
-                .disabled(selectedCount == allIDs.count || allIDs.isEmpty)
+                .disabled(selectedCount == visibleIDs.count || visibleIDs.isEmpty)
                 Button(String(localized: "Deselect All", comment: "Bulk-deselect every item in the pane.")) {
-                    allIDs.forEach { selection.wrappedValue.remove($0) }
+                    selection.wrappedValue = PerformanceManagerListing.deselectingAll(
+                        in: selection.wrappedValue, visibleIDs: visibleIDs
+                    )
                 }
                 .disabled(selectedCount == 0)
             } label: {
-                Text(bulkSelectLabel(selected: selectedCount, total: allIDs.count))
+                Text(bulkSelectLabel(selected: selectedCount, total: visibleIDs.count))
                     .foregroundStyle(.tint)
             }
             .menuStyle(.borderlessButton)
@@ -612,15 +679,20 @@ struct PerformanceTaskCatalogView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-                VStack(spacing: 10) {
-                    ForEach(displayedTasks) { task in
-                        PerformanceTaskRow(
-                            task: task,
-                            tint: PerformanceTaskPalette.tint(for: task.kind),
-                            isSelected: selectedTaskIDs.contains(task.id),
-                            result: results[task.id],
-                            onToggle: { toggleTask(task) }
-                        )
+                if displayedTasks.isEmpty {
+                    emptyState(isFiltering: !search.isEmpty)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(displayedTasks) { task in
+                            PerformanceTaskRow(
+                                task: task,
+                                tint: PerformanceTaskPalette.tint(for: task.kind),
+                                isSelected: selectedTaskIDs.contains(task.id),
+                                isDue: dueTaskIDs.contains(task.id),
+                                result: results[task.id],
+                                onToggle: { toggleTask(task) }
+                            )
+                        }
                     }
                 }
             }
@@ -649,10 +721,10 @@ struct PerformanceTaskCatalogView: View {
                 .font(.callout.weight(.medium))
             Spacer()
             Button(String(localized: "Run", comment: "Runs the selected maintenance tasks.")) {
-                onRunSelected(tasks.filter { selectedTaskIDs.contains($0.id) })
+                onRunSelected(tasks.filter { runnableTaskIDs.contains($0.id) })
             }
             .buttonStyle(.vaderProminent)
-            .disabled(selectedTaskIDs.isEmpty)
+            .disabled(runnableTaskIDs.isEmpty)
             .accessibilityIdentifier("performance.runSelected")
         }
         .padding(.horizontal, 24)
@@ -694,6 +766,7 @@ struct PerformanceTaskCatalogView: View {
                 iconPath: iconPath
             )
         }
+        selectedLoginIDs.formIntersection(loginItems.map(\.id))
     }
 
     private func recomputeAgentManagerItems() {
@@ -710,61 +783,74 @@ struct PerformanceTaskCatalogView: View {
                 iconPath: agentIconPath(agent)
             )
         }
+        selectedAgentIDs.formIntersection(userAgents.map(\.id))
+    }
+
+    private func recomputeSystemAgentManagerItems() {
+        systemAgentManagerItems = systemAgents.map { agent in
+            ManagerItem(
+                id: agent.id,
+                title: agent.label,
+                subtitle: agent.programPath ?? agent.path.path,
+                size: nil,
+                sizeText: nil,
+                systemImage: "gearshape",
+                tint: .secondary,
+                usesFileIcon: true,
+                isLocked: true,
+                iconPath: agentIconPath(agent)
+            )
+        }
     }
 
     private func loginSubtitle(_ item: LoginItem) -> String {
         if item.requiresApproval {
             return String(
-                localized: "Pending — approve in System Settings",
+                localized: "Waiting for your approval",
                 comment: "Login-item subtitle when the registration awaits the user's approval."
             )
         }
-        return item.isEnabled
-            ? String(localized: "Enabled", comment: "Login-item subtitle when it opens at login.")
-            : String(localized: "Disabled", comment: "Login-item subtitle when it does not open at login.")
+        return String(localized: "Enabled", comment: "Login-item subtitle when it opens at login.")
     }
 
     /// The icon source for an agent row: its program's app bundle when the
     /// program lives inside one (so updaters show the parent app's icon), else
     /// the plist itself (a generic .plist document icon, as in the reference).
     private func agentIconPath(_ agent: LaunchAgent) -> String {
-        if let program = agent.programPath, let range = program.range(of: ".app") {
-            return String(program[..<range.upperBound])
-        }
-        return agent.path.path
+        agent.appBundlePath ?? agent.path.path
     }
 
     // MARK: - Derived data
 
-    private func filteredSorted(_ items: [ManagerItem]) -> [ManagerItem] {
-        let filtered = search.isEmpty
-            ? items
-            : items.filter { $0.title.localizedCaseInsensitiveContains(search) }
-        switch sort {
-        case .name:
-            return filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .size:
-            // These items carry no byte size, so keep their natural load order.
-            return filtered
-        }
+    private var displayedTasks: [MaintenanceTask] {
+        PerformanceManagerListing.tasks(tasks, matching: search)
     }
 
-    private var displayedTasks: [MaintenanceTask] {
-        let filtered = search.isEmpty
-            ? tasks
-            : tasks.filter { $0.title.localizedCaseInsensitiveContains(search) }
-        switch sort {
-        case .name:
-            return filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .size:
-            return filtered
-        }
+    /// The ticked tasks on screen — what Run reaches.
+    private var runnableTaskIDs: Set<String> {
+        PerformanceManagerListing.actionableSelection(selectedTaskIDs, visibleIDs: displayedTasks.map(\.id))
+    }
+
+    /// The ticked login items on screen — what Remove reaches on that pane.
+    private var removableLoginIDs: Set<String> {
+        PerformanceManagerListing.actionableSelection(
+            selectedLoginIDs,
+            visibleIDs: PerformanceManagerListing.items(loginManagerItems, matching: search).map(\.id)
+        )
+    }
+
+    /// The ticked background items on screen — what Remove reaches on that pane.
+    private var removableAgentIDs: Set<String> {
+        PerformanceManagerListing.actionableSelection(
+            selectedAgentIDs,
+            visibleIDs: PerformanceManagerListing.items(agentManagerItems, matching: search).map(\.id)
+        )
     }
 
     private var currentPaneSelectedCount: Int {
         switch pane {
-        case .loginItems:      return selectedLoginIDs.count
-        case .backgroundItems: return selectedAgentIDs.count
+        case .loginItems:      return removableLoginIDs.count
+        case .backgroundItems: return removableAgentIDs.count
         case .maintenanceTasks: return 0
         }
     }
@@ -788,15 +874,14 @@ struct PerformanceTaskCatalogView: View {
     }
 
     /// Routes the confirmed Remove to the current pane's selection so each pane
-    /// removes exactly what it shows.
+    /// removes exactly what it shows. The selection stays: rows that go take their
+    /// ticks with them, and rows that fail stay ticked for a retry.
     private func performRemove() {
         switch pane {
         case .loginItems:
-            onRemoveSelected(selectedLoginIDs, [])
-            selectedLoginIDs.removeAll()
+            onRemoveSelected(removableLoginIDs, [])
         case .backgroundItems:
-            onRemoveSelected([], selectedAgentIDs)
-            selectedAgentIDs.removeAll()
+            onRemoveSelected([], removableAgentIDs)
         case .maintenanceTasks:
             break
         }
@@ -807,7 +892,7 @@ struct PerformanceTaskCatalogView: View {
     private var tasksSelectedSummary: String {
         String.localizedStringWithFormat(
             String(localized: "%lld Tasks Selected", comment: "Footer count of selected maintenance tasks."),
-            selectedTaskIDs.count
+            runnableTaskIDs.count
         )
     }
 
@@ -820,28 +905,36 @@ struct PerformanceTaskCatalogView: View {
             )
     }
 
+    /// Names what will go as well as how many, so a selection made before a
+    /// search can't surprise anyone.
     private var removeConfirmationMessage: String {
-        let count = currentPaneSelectedCount
         switch pane {
         case .loginItems:
-            return String.localizedStringWithFormat(
+            let summary = String.localizedStringWithFormat(
                 String(
-                    localized: "%lld login item(s) will stop opening at login.",
-                    comment: "Performance Manager remove confirmation for login items."
+                    localized: "%lld login items will stop opening at login:",
+                    comment: "Performance Manager remove confirmation for login items, followed by their names."
                 ),
-                count
+                removableLoginIDs.count
             )
+            return confirmationMessage(summary, items: loginManagerItems, ids: removableLoginIDs)
         case .backgroundItems:
-            return String.localizedStringWithFormat(
+            let summary = String.localizedStringWithFormat(
                 String(
-                    localized: "%lld background item(s) will be permanently removed from disk. This cannot be undone.",
-                    comment: "Performance Manager remove confirmation for background items."
+                    localized: "%lld background items will be stopped and moved to the Trash:",
+                    comment: "Performance Manager remove confirmation for background items, followed by their names."
                 ),
-                count
+                removableAgentIDs.count
             )
+            return confirmationMessage(summary, items: agentManagerItems, ids: removableAgentIDs)
         case .maintenanceTasks:
             return ""
         }
+    }
+
+    private func confirmationMessage(_ summary: String, items: [ManagerItem], ids: Set<String>) -> String {
+        let names = items.filter { ids.contains($0.id) }.map(\.title)
+        return summary + "\n\n" + PerformanceManagerListing.confirmationList(names: names, limit: 8)
     }
 
     private func bulkSelectLabel(selected: Int, total: Int) -> String {
@@ -852,174 +945,5 @@ struct PerformanceTaskCatalogView: View {
             return String(localized: "All", comment: "Bulk-select trigger when everything in the pane is selected.")
         }
         return String(localized: "Some", comment: "Bulk-select trigger when part of the pane is selected.")
-    }
-}
-
-/// One selectable maintenance task — a checkbox, a colourful icon badge, the
-/// task name, an info button explaining what it does, and (after running) the
-/// most recent result line.
-struct PerformanceTaskRow: View {
-    let task: MaintenanceTask
-    let tint: Color
-    let isSelected: Bool
-    let result: String?
-    let onToggle: () -> Void
-
-    private var isCompleted: Bool { result != nil }
-
-    /// Always-present secondary line: the task summary normally, the result once
-    /// it has run. Kept to one line so the row height never changes.
-    private var subtitle: String { result ?? task.summary }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
-                .accessibilityIdentifier("performance.task.checkbox.\(task.kind.rawValue)")
-
-            TaskIconBadge(symbol: task.icon, tint: tint)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(task.title)
-                        .font(.body.weight(.medium))
-                    // Clear success indicator once the task has run.
-                    if isCompleted {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(.green)
-                            .transition(.opacity)
-                            .accessibilityIdentifier("performance.task.done.\(task.kind.rawValue)")
-                    }
-                }
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(isCompleted ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    // The full result/summary is available on hover; the row
-                    // stays one line so its height is stable.
-                    .help(subtitle)
-            }
-
-            Spacer()
-
-            SmartInsightsSparkle(itemTitle: task.title, topic: .maintenanceTask)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { onToggle() }
-        .padding(12)
-        .managerRowCard()
-        .accessibilityIdentifier("performance.task.\(task.kind.rawValue)")
-        .animation(.smooth(duration: 0.25), value: isCompleted)
-    }
-}
-
-/// One selectable Login Items / Background Items card, matching the Maintenance
-/// Tasks row styling: a checkbox, the item's icon (the real Finder icon when it
-/// has one, else a tinted badge), the name with a one-line detail underneath,
-/// and the trailing pink sparkle.
-struct PerformanceItemRow: View {
-    let item: ManagerItem
-    let isSelected: Bool
-    let identifier: String
-    let onToggle: () -> Void
-
-    // Resolved once per icon path rather than on every render: the Finder-icon
-    // lookup is a synchronous NSWorkspace call, and a checkbox toggle re-renders
-    // every row in the pane.
-    @State private var fileIcon: NSImage?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ManagerRowCheckbox(isOn: isSelected, action: onToggle)
-
-            iconView
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.body.weight(.medium))
-                if let subtitle = item.subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        // The full detail (often a long path) stays readable on
-                        // hover; the row stays one line so its height is stable.
-                        .help(subtitle)
-                }
-            }
-
-            Spacer()
-
-            SmartInsightsSparkle(itemTitle: item.title, topic: .loginItem)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { onToggle() }
-        .padding(12)
-        .managerRowCard()
-        .accessibilityIdentifier(identifier)
-        .task(id: item.iconPath ?? item.id) { resolveFileIcon() }
-    }
-
-    @ViewBuilder
-    private var iconView: some View {
-        if item.usesFileIcon, let fileIcon {
-            Image(nsImage: fileIcon)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 38, height: 38)
-        } else {
-            TaskIconBadge(symbol: item.systemImage, tint: item.tint.color)
-        }
-    }
-
-    private func resolveFileIcon() {
-        guard item.usesFileIcon else { return }
-        fileIcon = NSWorkspace.shared.icon(forFile: item.iconPath ?? item.id)
-    }
-}
-
-/// A colourful rounded-square icon badge — the SF Symbol on a per-task tinted
-/// gradient, giving each task a distinct, app-like glyph.
-struct TaskIconBadge: View {
-    let symbol: String
-    let tint: Color
-
-    var body: some View {
-        let fill = tint.deepenedForWhite
-        Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 38, height: 38)
-            .background(
-                LinearGradient(
-                    colors: [fill.opacity(0.95), fill.opacity(0.65)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                in: .rect(cornerRadius: 10)
-            )
-    }
-}
-
-/// Per-task accent colours for the icon badges. Kept in the view layer so the
-/// `MaintenanceTask` model stays free of UI types.
-enum PerformanceTaskPalette {
-    static func tint(for kind: MaintenanceTask.Kind) -> Color {
-        switch kind {
-        case .freeUpRAM:
-            return Color(red: 0.95, green: 0.45, blue: 0.20)
-        case .runMaintenanceScripts:
-            return Color(red: 0.55, green: 0.45, blue: 0.95)
-        case .flushDNS:
-            return Color(red: 0.96, green: 0.62, blue: 0.24)
-        case .reindexSpotlight:
-            return Color(red: 0.95, green: 0.76, blue: 0.20)
-        case .thinTimeMachineSnapshots:
-            return Color(red: 0.96, green: 0.55, blue: 0.30)
-        case .speedUpMail:
-            return Color(red: 0.36, green: 0.62, blue: 0.96)
-        }
     }
 }

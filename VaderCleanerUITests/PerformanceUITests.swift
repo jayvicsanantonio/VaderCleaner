@@ -1,5 +1,5 @@
 // PerformanceUITests.swift
-// End-to-end UI test for Performance — navigates to the section, taps the floating Scan on the unified intro, and asserts the view renders (a ready-state section + its in-content Refresh control) so the sidebar → view-model → view wiring is exercised against the real app process.
+// End-to-end UI test for Performance — navigates to the section, taps the floating Scan on the unified intro, and asserts the view renders (the dashboard + the Performance Manager it opens) so the sidebar → view-model → view wiring is exercised against the real app process.
 
 import XCTest
 

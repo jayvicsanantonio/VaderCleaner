@@ -1,12 +1,13 @@
 // PerformanceView.swift
 // Performance feature view — login items, launch agents (user/system), RAM flush, and system maintenance scripts.
 
+import AppKit
 import SwiftUI
 import VaderCleanerCore
 
 /// Detail view shown when the user selects "Performance" in the sidebar.
-/// Four sections — Login Items, Launch Agents, RAM, Maintenance Scripts —
-/// driven by `PerformanceViewModel`'s state machine.
+/// A dashboard and the Performance Manager behind it — Login Items, Background
+/// Items, Maintenance Tasks — driven by `PerformanceViewModel`'s state machine.
 struct PerformanceView: View {
 
     private var viewModel: PerformanceViewModel
@@ -15,12 +16,12 @@ struct PerformanceView: View {
     /// Toggles the ready surface between the summary dashboard and the full
     /// "View All Tasks" Performance Manager.
     @State private var showAllTasks = false
-    /// Which catalog pane to show. Owned here (not inside the catalog) so it
-    /// survives the brief "Working…" remount and so a recommendation card can
-    /// open the catalog on the matching pane — e.g. Review → Background Items.
+    /// Which catalog pane to show. Owned here (not inside the catalog) so a
+    /// recommendation card can open the catalog on the matching pane — e.g.
+    /// Review → Background Items.
     @State private var catalogPane: PerformanceTaskCatalogView.Pane = .maintenanceTasks
     /// Selected task ids for the catalog's multi-select Run. Owned here so the
-    /// selection persists across the progress screen and a completed run.
+    /// Maintenance card's Review can preselect what is due.
     @State private var selectedTaskIDs: Set<String> = []
     /// Where the manager zoom anchors: the button that opened it, resolved
     /// by `openCatalog`. Also the point Back zooms the manager back into.
@@ -41,33 +42,67 @@ struct PerformanceView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(NavigationSection.performance.title)
+            // ContentView rebuilds this view each time the section is selected,
+            // so this also catches what changed while the user was elsewhere —
+            // an uninstalled app taking its agent with it, for one.
             .task {
                 if viewModel.phase == .idle {
                     await viewModel.refresh()
+                } else {
+                    await viewModel.reloadInBackground()
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await viewModel.reloadInBackground() }
             }
     }
 
-    @ViewBuilder
     private var content: some View {
-        // A multi-task batch flips each task's phase between .working and .ready;
-        // keep the progress screen up for the whole batch so the view doesn't
-        // flicker between progress and the catalog.
+        ZStack {
+            // Stays mounted under the progress and failure screens so an action
+            // doesn't cost the manager its search, selection, and scroll
+            // position. Hidden means disabled too, or Return would still reach
+            // its footer button.
+            if hasLoaded {
+                readyContent
+                    .opacity(showsReadyContent ? 1 : 0)
+                    .disabled(!showsReadyContent)
+                    .accessibilityHidden(!showsReadyContent)
+            }
+            statusContent
+        }
+    }
+
+    /// Whether the lists have loaded, which is when the dashboard can exist.
+    private var hasLoaded: Bool {
+        switch viewModel.phase {
+        case .ready, .working, .failed: return true
+        case .idle, .loading: return false
+        }
+    }
+
+    /// A multi-task batch flips each task's phase between .working and .ready, so
+    /// `isRunningBatch` keeps the progress screen up for the whole batch.
+    private var showsReadyContent: Bool {
+        viewModel.phase == .ready && !viewModel.isRunningBatch
+    }
+
+    @ViewBuilder
+    private var statusContent: some View {
         if viewModel.isRunningBatch {
             PerformanceProgressState(label: workingLabel, identifier: "performance.working")
         } else {
-            phaseContent
+            phaseStatus
         }
     }
 
     @ViewBuilder
-    private var phaseContent: some View {
+    private var phaseStatus: some View {
         switch viewModel.phase {
-        case .idle:
-            // Unreachable: ContentView shows the unified SectionIntroView
-            // while the coordinator reports `.intro` (which `.idle` maps to),
-            // so the detail view is never built in this phase. The arm stays
-            // only to keep the switch exhaustive over `Phase`.
+        case .idle, .ready:
+            // `.idle` is unreachable: ContentView shows the unified
+            // SectionIntroView while the coordinator reports `.intro` (which
+            // `.idle` maps to), so the detail view is never built in this phase.
             EmptyView()
         case .loading:
             PerformanceProgressState(
@@ -82,8 +117,6 @@ struct PerformanceView: View {
                 label: workingLabel,
                 identifier: "performance.working"
             )
-        case .ready:
-            readyContent
         case .failed(let message):
             PerformanceFailedState(
                 message: message,
@@ -130,7 +163,11 @@ struct PerformanceView: View {
                 onViewAllTasks: { openCatalog(pane: .maintenanceTasks) },
                 onReviewLoginItems: { openCatalog(pane: .loginItems) },
                 onReviewBackgroundItems: { openCatalog(pane: .backgroundItems) },
-                onReviewMaintenance: { openCatalog(pane: .maintenanceTasks) }
+                onReviewMaintenance: {
+                    // The card's count leads somewhere: what is due is what's ticked.
+                    selectedTaskIDs = viewModel.dueMaintenanceTaskIDs
+                    openCatalog(pane: .maintenanceTasks)
+                }
             )
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -142,6 +179,7 @@ struct PerformanceView: View {
                 pane: $catalogPane,
                 selectedTaskIDs: $selectedTaskIDs,
                 tasks: viewModel.tasks,
+                dueTaskIDs: viewModel.dueMaintenanceTaskIDs,
                 results: viewModel.taskResults,
                 loginItems: viewModel.loginItems,
                 userAgents: viewModel.userAgents,
@@ -150,6 +188,16 @@ struct PerformanceView: View {
                 onRemoveSelected: { loginIDs, agentIDs in
                     Task { await viewModel.removeSelected(loginItemIDs: loginIDs, agentIDs: agentIDs) }
                 },
+                onSetAgentEnabled: { agent, enabled in
+                    Task {
+                        if enabled {
+                            await viewModel.enable(agent)
+                        } else {
+                            await viewModel.disable(agent)
+                        }
+                    }
+                },
+                onOpenLoginItemsSettings: { viewModel.openLoginItemsSettings() },
                 onBack: { showAllTasks = false }
             )
         }
@@ -163,6 +211,7 @@ struct PerformanceView: View {
         managerAnchor = TriggerAnchor.resolve(in: paneFrame)
         catalogPane = pane
         showAllTasks = true
+        Task { await viewModel.reloadInBackground() }
     }
 }
 

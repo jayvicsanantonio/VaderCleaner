@@ -5,9 +5,7 @@ import Foundation
 
 /// One entry in the maintenance-task catalog. Pure display + classification
 /// metadata; the actual work is performed by the matching runner wired into
-/// `PerformanceViewModel`. Availability that depends on live system state
-/// (e.g. whether local snapshots exist) is decided by the recommendation
-/// engine, not baked in here — the catalog list itself is fixed.
+/// `PerformanceViewModel`. The catalog list itself is fixed.
 public struct MaintenanceTask: Identifiable, Hashable, Sendable {
 
     /// The fixed set of tasks. `requiresHelper` distinguishes privileged tasks
@@ -29,12 +27,13 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
 
     public var id: String { kind.rawValue }
 
-    /// The tasks the "Maintenance Tasks Recommended" card counts and runs — the
-    /// recurring upkeep cocktail. Free up RAM (its own hero card) and Thin Time
-    /// Machine Snapshots (its own card) are surfaced separately, so they are
-    /// excluded here to keep the maintenance card's count and action aligned.
+    /// The tasks the "Maintenance Tasks Recommended" card counts and Smart Scan
+    /// runs — the recurring upkeep cocktail. The rest of the catalog is run on
+    /// demand: Free Up RAM and Thin Time Machine Snapshots answer a specific
+    /// shortage, and Reindex Spotlight erases an index that takes hours to
+    /// rebuild, so nudging anyone to do that weekly would make search worse.
     static let maintenanceCocktailKinds: [Kind] = [
-        .runMaintenanceScripts, .flushDNS, .reindexSpotlight, .speedUpMail
+        .runMaintenanceScripts, .flushDNS, .speedUpMail
     ]
 
     /// The catalog in display order — Free up RAM and Maintenance Scripts first
@@ -77,7 +76,7 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
             kind: .reindexSpotlight,
             title: String(localized: "Reindex Spotlight", bundle: .module, comment: "Maintenance task title."),
             summary: String(
-                localized: "Rebuild the Spotlight index to restore search speed and accuracy.",
+                localized: "Rebuild the search index when Spotlight misses files. Search is slower until it finishes.",
                 bundle: .module,
                 comment: "Maintenance task summary for reindexing Spotlight."
             ),
@@ -88,7 +87,7 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
             kind: .thinTimeMachineSnapshots,
             title: String(localized: "Thin Time Machine Snapshots", bundle: .module, comment: "Maintenance task title."),
             summary: String(
-                localized: "Reclaim disk space from local snapshots without affecting your backups.",
+                localized: "Free space held by local snapshots. Your backup disk isn't touched, but recent local restore points may go.",
                 bundle: .module,
                 comment: "Maintenance task summary for thinning Time Machine snapshots."
             ),

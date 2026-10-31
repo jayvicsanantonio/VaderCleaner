@@ -30,14 +30,12 @@ final class MaintenanceTaskTests: XCTestCase {
         XCTAssertEqual(userLevel, [.speedUpMail])
     }
 
-    func test_maintenanceCocktail_excludesTheTasksWithDedicatedCards() {
-        // Free up RAM (hero) and Thin Time Machine Snapshots (own card) are
-        // surfaced separately, so the cocktail must not double-count them.
-        XCTAssertFalse(MaintenanceTask.maintenanceCocktailKinds.contains(.freeUpRAM))
-        XCTAssertFalse(MaintenanceTask.maintenanceCocktailKinds.contains(.thinTimeMachineSnapshots))
+    func test_maintenanceCocktail_holdsOnlyRoutineUpkeep() {
+        // Freeing RAM, thinning snapshots, and erasing the Spotlight index are
+        // run when something calls for them, never on a weekly nudge.
         XCTAssertEqual(
             Set(MaintenanceTask.maintenanceCocktailKinds),
-            [.runMaintenanceScripts, .flushDNS, .reindexSpotlight, .speedUpMail]
+            [.runMaintenanceScripts, .flushDNS, .speedUpMail]
         )
     }
 }

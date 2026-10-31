@@ -71,7 +71,7 @@ struct DNSCacheFlusher: Sendable {
 
 // MARK: - Spotlight
 
-/// Erases and rebuilds the Spotlight index for the boot volume.
+/// Erases and rebuilds the Spotlight index for the boot volume group.
 struct SpotlightReindexer: Sendable {
     private let runner: PrivilegedTaskRunner
 
@@ -92,21 +92,50 @@ struct SpotlightReindexer: Sendable {
 
 // MARK: - Time Machine
 
-/// Thins local Time Machine snapshots on the boot volume.
+/// Thins local Time Machine snapshots on the boot volume. macOS removes only
+/// what it decides it can, which is often nothing, so the snapshot count before
+/// and after is what the result line reports, when both could be read.
 struct TimeMachineSnapshotThinner: Sendable {
-    private let runner: PrivilegedTaskRunner
+    typealias CountSnapshots = @Sendable () -> Int?
 
-    init(helperProvider: @escaping PrivilegedTaskRunner.HelperProvider = SystemJunkDeleter.defaultHelperProvider) {
+    private let runner: PrivilegedTaskRunner
+    private let countSnapshots: CountSnapshots
+
+    init(
+        helperProvider: @escaping PrivilegedTaskRunner.HelperProvider = SystemJunkDeleter.defaultHelperProvider,
+        countSnapshots: @escaping CountSnapshots = { LocalSnapshotCounter().count() }
+    ) {
         runner = PrivilegedTaskRunner(
             helperProvider: helperProvider,
             invoke: { helper, done in helper.thinTimeMachineSnapshots(reply: done) },
-            successMessage: String(
-                localized: "Thinned local Time Machine snapshots.",
-                bundle: .module,
-                comment: "Result line shown after local Time Machine snapshots are thinned."
-            )
+            successMessage: ""
         )
+        self.countSnapshots = countSnapshots
     }
 
-    func run() async throws -> String { try await runner.run() }
+    func run() async throws -> String {
+        let before = countSnapshots()
+        _ = try await runner.run()
+        guard let before, let after = countSnapshots() else {
+            return String(
+                localized: "Asked macOS to thin local snapshots.",
+                bundle: .module,
+                comment: "Result line after thinning Time Machine snapshots when the snapshots couldn't be counted."
+            )
+        }
+        let removed = before - after
+        guard removed > 0 else {
+            return String(
+                localized: "macOS didn't need to remove any local snapshots.",
+                bundle: .module,
+                comment: "Result line when thinning Time Machine snapshots removed nothing."
+            )
+        }
+        let format = String(
+            localized: "Removed %d local snapshots.",
+            bundle: .module,
+            comment: "Result line after thinning Time Machine snapshots; %d is how many were removed."
+        )
+        return String.localizedStringWithFormat(format, removed)
+    }
 }

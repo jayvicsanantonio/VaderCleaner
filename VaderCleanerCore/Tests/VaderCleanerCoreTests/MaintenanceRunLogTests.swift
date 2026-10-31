@@ -1,6 +1,8 @@
 // MaintenanceRunLogTests.swift
 // Verifies MaintenanceRunLog persists and reads per-task last-run timestamps and reports which tasks are stale.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -57,5 +59,23 @@ final class MaintenanceRunLogTests: XCTestCase {
         let stale = log.staleTaskCount(among: ["a", "b", "c"], now: now)
 
         XCTAssertEqual(stale, 2)
+    }
+}
+
+/// A clock that was wrong when a run was recorded must not keep the task from
+/// ever coming due again.
+@Suite
+struct MaintenanceRunLogClockTests {
+
+    @Test
+    func aRunStampedInTheFutureCountsAsStale() throws {
+        let suiteName = "MaintenanceRunLogClockTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let log = MaintenanceRunLog(defaults: defaults)
+        let now = Date()
+        log.record("flushDNS", at: now.addingTimeInterval(365 * 24 * 60 * 60))
+
+        #expect(log.staleTaskIDs(among: ["flushDNS"], now: now) == ["flushDNS"])
     }
 }

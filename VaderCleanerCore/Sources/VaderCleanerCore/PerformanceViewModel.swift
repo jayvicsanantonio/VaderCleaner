@@ -1,5 +1,5 @@
 // PerformanceViewModel.swift
-// State machine behind the Performance view — loads login items + launch agents + RAM, and drives RAM flush, maintenance scripts, login-item toggle, and agent disable/remove through injected collaborators.
+// State machine behind the Performance view — loads login items + launch agents, and drives RAM flush, maintenance scripts, login-item toggle, and agent enable/disable/remove through injected collaborators.
 
 import Foundation
 import Observation
@@ -39,7 +39,6 @@ public final class PerformanceViewModel {
     public typealias RunMaintenance = @Sendable () async throws -> String
     /// A maintenance task that performs its work and returns a result line.
     public typealias RunTask = @Sendable () async throws -> String
-    public typealias ReadSnapshotCount = @Sendable () async -> Int
 
     public private(set) var phase: Phase = .idle
     public private(set) var loginItems: [LoginItem] = []
@@ -49,11 +48,6 @@ public final class PerformanceViewModel {
     private(set) var ramResult: String?
     private(set) var maintenanceOutput: String?
 
-    /// Count of local Time Machine snapshots, refreshed alongside the rest of
-    /// the section state and fed into the recommendation engine.
-    private(set) var localSnapshotCount: Int = 0
-    /// Curated dashboard cards derived from the current system state.
-    private(set) var recommendations: [PerformanceRecommendation] = []
     /// Most recent result line per task id, surfaced in the task catalog.
     public private(set) var taskResults: [String: String] = [:]
 
@@ -66,10 +60,6 @@ public final class PerformanceViewModel {
     /// doesn't flicker between progress and the catalog as each task's phase
     /// flips `.working`→`.ready`.
     public private(set) var isRunningBatch = false
-    /// Recommendation kinds whose action completed successfully, so the matching
-    /// dashboard tile can show a green check. Cleared on the next refresh, or
-    /// when that tile's action is run again.
-    private(set) var completedRecommendations: Set<PerformanceRecommendation.Kind> = []
 
     /// Set when the current failure is specifically a missing Full Disk Access
     /// (Speed Up Mail), so the failure screen can offer an "Open Settings"
@@ -85,8 +75,8 @@ public final class PerformanceViewModel {
         }
     }
 
-    /// Cocktail task ids that are actually available, for the recommendation
-    /// count and the "Run Tasks" action.
+    /// Cocktail task ids that are actually available, for the dashboard's
+    /// Maintenance card and the tasks its Review preselects.
     private var availableCocktailIDs: [String] {
         tasks
             .filter { MaintenanceTask.maintenanceCocktailKinds.contains($0.kind) }
@@ -108,7 +98,6 @@ public final class PerformanceViewModel {
     @ObservationIgnored private let reindexSpotlightAction: RunTask
     @ObservationIgnored private let thinSnapshotsAction: RunTask
     @ObservationIgnored private let speedUpMailAction: RunTask
-    @ObservationIgnored private let readSnapshotCount: ReadSnapshotCount
     @ObservationIgnored private let runLog: MaintenanceRunLog
     /// Whether `/usr/sbin/periodic` exists — false on macOS 26+, where Apple
     /// removed it, so Run Maintenance Scripts is hidden and never run.
@@ -123,6 +112,16 @@ public final class PerformanceViewModel {
     @ObservationIgnored private var loadGeneration = 0
 
     @ObservationIgnored private var launchAtLoginObserverTask: Task<Void, Never>?
+
+    /// A background reload was asked for but couldn't run or was discarded, so
+    /// one runs as soon as nothing stands in its way.
+    @ObservationIgnored private var reloadIsPending = false
+    /// Guards against overlapping discovery passes, each of which shells out to
+    /// `launchctl` and walks the agent folders.
+    @ObservationIgnored private var isReloadingInBackground = false
+    /// A read started while an agent's state is changing could report the old
+    /// state, so reloads wait for these.
+    @ObservationIgnored private var agentTogglesInFlight = 0
 
     public init(
         loadLoginItems: @escaping LoadLoginItems,
@@ -140,7 +139,6 @@ public final class PerformanceViewModel {
         reindexSpotlight: @escaping RunTask = { "" },
         thinSnapshots: @escaping RunTask = { "" },
         speedUpMail: @escaping RunTask = { "" },
-        readSnapshotCount: @escaping ReadSnapshotCount = { 0 },
         runLog: MaintenanceRunLog = MaintenanceRunLog(),
         maintenanceScriptsAvailable: Bool = true,
         launchAtLoginChanges: AsyncStream<Void>? = nil
@@ -160,7 +158,6 @@ public final class PerformanceViewModel {
         self.reindexSpotlightAction = reindexSpotlight
         self.thinSnapshotsAction = thinSnapshots
         self.speedUpMailAction = speedUpMail
-        self.readSnapshotCount = readSnapshotCount
         self.runLog = runLog
         self.maintenanceScriptsAvailable = maintenanceScriptsAvailable
 
@@ -188,56 +185,71 @@ public final class PerformanceViewModel {
 
     // MARK: - Loading
 
-    /// Loads all four sections concurrently and lands `.ready`. Discovery is
+    /// Loads all three lists concurrently and lands `.ready`. Discovery is
     /// best-effort (missing directories degrade to empty lists), so there is
     /// no load-failure path — action failures are what surface `.failed`.
     public func refresh() async {
         let generation = beginLoad()
+        reloadIsPending = false
         phase = .loading
+        await reloadLists(generation: generation)
+        guard loadGeneration == generation else { return }
+        phase = .ready
+        await runPendingReload()
+    }
 
+    /// Re-reads the lists without leaving `.ready`, so an app uninstalled or an
+    /// agent installed since the last look shows up without the screen flipping
+    /// to a spinner or the manager losing its place. Does nothing before the
+    /// first load. A call that can't run now, because an action or another reload
+    /// is under way, is remembered and served when that finishes.
+    public func reloadInBackground() async {
+        guard canReloadInBackground, !isReloadingInBackground else {
+            reloadIsPending = phase != .idle
+            return
+        }
+        isReloadingInBackground = true
+        defer { isReloadingInBackground = false }
+        repeat {
+            reloadIsPending = false
+            expireOldResults()
+            await reloadLists(generation: beginLoad())
+        } while reloadIsPending && canReloadInBackground
+    }
+
+    private var canReloadInBackground: Bool {
+        phase == .ready && !isRunningBatch && agentTogglesInFlight == 0
+    }
+
+    /// Serves a reload that had to wait, now that whatever held it up is done.
+    private func runPendingReload() async {
+        guard reloadIsPending else { return }
+        await reloadInBackground()
+    }
+
+    /// Fetches the three lists and applies them unless a newer load or an action
+    /// has started since, whose state a slower read must not overwrite. A read
+    /// thrown away that way leaves the lists owing a fresh one.
+    private func reloadLists(generation: Int) async {
         async let login = loadLoginItems()
         async let user = loadUserAgents()
         async let system = loadSystemAgents()
-        async let snapshots = readSnapshotCount()
-        let (loadedLogin, loadedUser, loadedSystem, loadedSnapshots) =
-            await (login, user, system, snapshots)
-        let mem = readMemory()
+        let (loadedLogin, loadedUser, loadedSystem) = await (login, user, system)
 
-        guard loadGeneration == generation else { return }
+        guard loadGeneration == generation else {
+            reloadIsPending = true
+            return
+        }
         loginItems = loadedLogin
         userAgents = loadedUser
         systemAgents = loadedSystem
-        memory = mem
-        localSnapshotCount = loadedSnapshots
-        completedRecommendations.removeAll()
-        rebuildRecommendations()
-        phase = .ready
     }
 
-    // MARK: - Recommendations
-
-    /// Runs the action behind a dashboard recommendation tile and, on success,
-    /// marks that tile complete so the view can show a green check on it. The
-    /// background-items tile only navigates (handled by the view), so it never
-    /// reaches here.
-    func runRecommendation(_ recommendation: PerformanceRecommendation) async {
-        completedRecommendations.remove(recommendation.kind)
-        switch recommendation.kind {
-        case .freeUpRAM:
-            if let task = MaintenanceTask.catalog.first(where: { $0.kind == .freeUpRAM }) {
-                await run(task)
-            }
-        case .maintenanceTasks:
-            await runDueMaintenance()
-        case .thinSnapshots:
-            if let task = MaintenanceTask.catalog.first(where: { $0.kind == .thinTimeMachineSnapshots }) {
-                await run(task)
-            }
-        case .backgroundItems:
-            return
-        }
-        if phase == .ready {
-            completedRecommendations.insert(recommendation.kind)
+    /// Drops result lines old enough that their task has come due again, so a
+    /// green check doesn't claim last month's run is still news.
+    private func expireOldResults() {
+        for id in runLog.staleTaskIDs(among: Array(taskResults.keys)) {
+            taskResults[id] = nil
         }
     }
 
@@ -246,12 +258,21 @@ public final class PerformanceViewModel {
     /// Runs a catalog task. Free up RAM and the maintenance scripts route
     /// through their existing methods (which keep their own result lines and
     /// memory re-read); the newer system tasks run through the shared `perform`
-    /// path. On success the task is stamped in the run log and the
-    /// recommendation cards are rebuilt.
+    /// path. On success the task is stamped in the run log. A task can't start
+    /// over one already running: the helper would run the tool twice at once.
     func run(_ task: MaintenanceTask) async {
+        guard phase != .working else { return }
+        // These run for minutes, and a Mac that idles to sleep part way through
+        // leaves them stalled until it wakes.
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Running a maintenance task"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
         // Name the running action for the progress screen, and clear any prior
-        // FDA-recovery flag so it only reflects this run's outcome.
+        // result and FDA-recovery flag so they only reflect this run's outcome.
         workingTitle = task.title
+        taskResults[task.id] = nil
         failureNeedsFullDiskAccess = false
         switch task.kind {
         case .freeUpRAM:
@@ -270,26 +291,29 @@ public final class PerformanceViewModel {
             await perform(task.kind, action: speedUpMailAction)
         }
         workingTitle = nil
+        await runPendingReload()
     }
 
     /// Shared run path for the system maintenance tasks: drive `.working`, run
-    /// the action, capture its result line, stamp the run log, and rebuild
-    /// recommendations. Surfaces `.failed` on any error.
+    /// the action, capture its result line, and stamp the run log. Surfaces
+    /// `.failed` on any error.
     private func perform(_ kind: MaintenanceTask.Kind, action: RunTask) async {
         phase = .working
         do {
             let result = try await action()
             taskResults[kind.rawValue] = result
             runLog.record(kind.rawValue)
-            localSnapshotCount = await readSnapshotCount()
-            rebuildRecommendations()
             phase = .ready
         } catch {
             log.error("Maintenance task \(kind.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .private)")
             if case MailReindexerError.fullDiskAccessRequired = error {
                 failureNeedsFullDiskAccess = true
+                // Counts as this week's try. Declining the permission is the
+                // user's call, and it shouldn't hold the dashboard's card up
+                // until they change their mind.
+                runLog.record(kind.rawValue)
             }
-            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
+            phase = .failed(message: taskFailureMessage(for: error))
         }
     }
 
@@ -302,50 +326,67 @@ public final class PerformanceViewModel {
             taskResults[kind.rawValue] = result
         }
         runLog.record(kind.rawValue)
-        rebuildRecommendations()
+    }
+
+    /// What a failed task tells the user. A tool's own error is an exit status
+    /// that means nothing to them (it is in the log), and a task that outlives
+    /// the watchdog is usually still working in the helper, so "restart the app"
+    /// would be the wrong advice.
+    private func taskFailureMessage(for error: Error) -> String {
+        let title = workingTitle ?? ""
+        if case HelperConnectionError.timedOut = error {
+            let format = String(
+                localized: "“%@” is taking longer than expected and may still be running. Wait a few minutes before trying again.",
+                bundle: .module,
+                comment: "Failure message when a maintenance task outlives its timeout; %@ is the task title."
+            )
+            return String.localizedStringWithFormat(format, title)
+        }
+        if (error as NSError).domain == HelperErrorDomain.conflict {
+            let format = String(
+                localized: "“%@” is still running from an earlier attempt. Wait a few minutes before trying again.",
+                bundle: .module,
+                comment: "Failure message when the helper refuses a task because its tool is still running; %@ is the task title."
+            )
+            return String.localizedStringWithFormat(format, title)
+        }
+        if (error as NSError).domain == HelperErrorDomain.tool {
+            let format = String(
+                localized: "macOS couldn't finish “%@”. Try again later.",
+                bundle: .module,
+                comment: "Failure message when a system tool behind a maintenance task fails; %@ is the task title."
+            )
+            return String.localizedStringWithFormat(format, title)
+        }
+        return HelperConnectionError.userFacingMessage(for: error)
     }
 
     /// Runs the given tasks in order — the action behind the catalog's
     /// multi-select "Run" bar. Stops at the first failure, which surfaces
     /// `.failed` so the user sees what went wrong.
     public func run(_ tasks: [MaintenanceTask]) async {
+        guard phase != .working, !isRunningBatch else { return }
         // Hold the progress screen for the whole batch so the UI doesn't flicker
         // as each task's phase flips between .working and .ready.
         isRunningBatch = true
-        defer { isRunningBatch = false }
         for task in tasks {
             await run(task)
-            if case .failed = phase { return }
+            if case .failed = phase { break }
         }
+        isRunningBatch = false
+        await runPendingReload()
     }
 
     /// Number of maintenance-cocktail tasks currently due — the count behind the
-    /// dashboard's Maintenance card, scoped to the same tasks `runDueMaintenance()`
-    /// runs so the card and the action always agree.
+    /// dashboard's Maintenance card.
     public var maintenanceTasksDue: Int {
         runLog.staleTaskCount(among: availableCocktailIDs)
     }
 
-    /// Runs every due maintenance-cocktail task (the action behind the
-    /// "Maintenance Tasks Recommended" card), so the card's count and its "Run
-    /// Tasks" action cover the same set.
-    func runDueMaintenance() async {
-        let dueIDs = runLog.staleTaskIDs(among: availableCocktailIDs)
-        let dueTasks = tasks.filter { dueIDs.contains($0.id) }
-        await run(dueTasks)
-    }
-
-    /// Recomputes the curated recommendation cards from current section state.
-    /// The maintenance count is scoped to the cocktail tasks so it matches what
-    /// `runDueMaintenance()` actually runs.
-    private func rebuildRecommendations() {
-        let snapshot = PerformanceSnapshot(
-            memory: memory,
-            localSnapshotCount: localSnapshotCount,
-            backgroundItemCount: loginItems.count + userAgents.count + systemAgents.count,
-            staleTaskCount: runLog.staleTaskCount(among: availableCocktailIDs)
-        )
-        recommendations = PerformanceRecommendationEngine.recommendations(for: snapshot)
+    /// The tasks behind that count, which the card's Review marks and preselects
+    /// so the number on the card leads somewhere.
+    public var dueMaintenanceTaskIDs: Set<String> {
+        Set(runLog.staleTaskIDs(among: availableCocktailIDs))
     }
 
     // MARK: - RAM
@@ -369,7 +410,7 @@ public final class PerformanceViewModel {
             phase = .ready
         } catch {
             log.error("RAM flush failed: \(error.localizedDescription, privacy: .private)")
-            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
+            phase = .failed(message: taskFailureMessage(for: error))
         }
     }
 
@@ -384,7 +425,7 @@ public final class PerformanceViewModel {
             phase = .ready
         } catch {
             log.error("Maintenance scripts failed: \(error.localizedDescription, privacy: .private)")
-            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
+            phase = .failed(message: taskFailureMessage(for: error))
         }
     }
 
@@ -402,13 +443,14 @@ public final class PerformanceViewModel {
             log.error("Login-item toggle failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
+        await runPendingReload()
     }
 
     /// Opens System Settings to the Login Items pane. Used by a row that is
     /// registered but pending the user's approval — macOS grants that approval
     /// only in System Settings, so this is the closest we can get to an in-app
     /// approval: a one-click deep link instead of manual navigation.
-    func openLoginItemsSettings() {
+    public func openLoginItemsSettings() {
         openLoginItemsSettingsAction()
     }
 
@@ -429,29 +471,36 @@ public final class PerformanceViewModel {
 
     /// Loads an agent into launchd. Only user agents have a toggle, so the
     /// row updates in place via `setLoaded` rather than reloading the section.
-    func enable(_ agent: LaunchAgent) async {
+    public func enable(_ agent: LaunchAgent) async {
         await setLoaded(agent, to: true, via: enableAgent)
+        await runPendingReload()
     }
 
     /// Unloads an agent from launchd. Only user agents have a toggle, so the
     /// row updates in place via `setLoaded` rather than reloading the section.
-    func disable(_ agent: LaunchAgent) async {
+    public func disable(_ agent: LaunchAgent) async {
         await setLoaded(agent, to: false, via: disableAgent)
+        await runPendingReload()
     }
 
     /// Toggles a user agent's loaded state with an optimistic, in-place update:
     /// the switch flips immediately and neither a progress screen nor a list
     /// reload disturbs the rest of the section, so only the affected row
-    /// animates. If the launchctl call can't even be spawned the action throws
-    /// and the row is restored to its prior state.
+    /// animates. If launchctl fails or launchd doesn't apply the change the
+    /// action throws and the row is restored to its prior state. Taking a new
+    /// generation drops any reload in flight, whose read predates this change, and
+    /// a fresh one runs after it.
     private func setLoaded(
         _ agent: LaunchAgent,
         to enabled: Bool,
         via action: (LaunchAgent) async throws -> Void
     ) async {
         guard let index = userAgents.firstIndex(where: { $0.id == agent.id }) else { return }
+        _ = beginLoad()
+        agentTogglesInFlight += 1
         let original = userAgents[index]
         userAgents[index] = original.settingEnabled(enabled)
+        defer { agentTogglesInFlight -= 1 }
         do {
             try await action(agent)
         } catch {
@@ -465,67 +514,74 @@ public final class PerformanceViewModel {
         }
     }
 
-    /// Removes an agent's plist. On success the row is dropped; on failure
-    /// the lists are left intact so the user can retry.
-    ///
-    /// System daemons are protected: they live in launchd's privileged domain
-    /// and removing one can break macOS or the app that installed it, so the
-    /// request is refused here regardless of how it was triggered. The UI also
-    /// hides the control for system agents — this guard is the backstop.
-    func remove(_ agent: LaunchAgent) async {
-        guard agent.domain != .system else {
-            log.error("Refused to remove protected system daemon: \(agent.label, privacy: .public)")
-            return
-        }
-        phase = .working
-        do {
-            try await removeAgent(agent)
-            userAgents.removeAll { $0.id == agent.id }
-            systemAgents.removeAll { $0.id == agent.id }
-            phase = .ready
-        } catch {
-            log.error("Agent removal failed: \(error.localizedDescription, privacy: .private)")
-            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
-        }
-    }
-
     /// Removes a multi-selection from the Performance Manager's footer
     /// "Remove": each selected login item is unregistered (the host app's only
-    /// truthful "remove" via `SMAppService`) and each selected *user* agent's
-    /// plist is deleted. System daemons are protected — they live in launchd's
-    /// privileged domain, so a selected `.system` id is ignored here even though
-    /// the UI already withholds the checkbox from them. On success the panes are
-    /// reloaded once so they reflect the new state; any failure surfaces
-    /// `.failed` and leaves the lists for a retry.
+    /// truthful "remove" via `SMAppService`) and each selected *user* agent is
+    /// stopped and its plist moved to the Trash. System daemons are protected —
+    /// they live in launchd's privileged domain, so a selected `.system` id is
+    /// ignored here even though the UI already withholds the checkbox from them.
+    ///
+    /// Every selected item gets its attempt, and the panes reload whatever
+    /// happened, so one stuck item can't strand the rest and the lists never
+    /// claim something still exists after it has gone. Any failure then surfaces
+    /// `.failed`; the items that failed are still listed for a retry.
     public func removeSelected(loginItemIDs: Set<String>, agentIDs: Set<String>) async {
+        guard phase != .working, !isRunningBatch else { return }
+        let generation = beginLoad()
+        reloadIsPending = false
         phase = .working
-        do {
-            for item in loginItems where loginItemIDs.contains(item.id) {
+        let selectedLoginItems = loginItems.filter { loginItemIDs.contains($0.id) }
+        // Only user agents are removable; system daemons are never touched.
+        let selectedAgents = userAgents.filter { agentIDs.contains($0.id) }
+
+        var failures: [Error] = []
+        for item in selectedLoginItems {
+            do {
                 try await setLoginItemEnabled(false, item)
+            } catch {
+                failures.append(error)
             }
-            // Only user agents are removable; system daemons are never touched.
-            for agent in userAgents where agentIDs.contains(agent.id) {
-                try await removeAgent(agent)
-            }
-            async let login = loadLoginItems()
-            async let user = loadUserAgents()
-            async let system = loadSystemAgents()
-            let (loadedLogin, loadedUser, loadedSystem) = await (login, user, system)
-            loginItems = loadedLogin
-            userAgents = loadedUser
-            systemAgents = loadedSystem
-            rebuildRecommendations()
-            phase = .ready
-        } catch {
-            log.error("Batch remove failed: \(error.localizedDescription, privacy: .private)")
-            phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
+        for agent in selectedAgents {
+            do {
+                try await removeAgent(agent)
+            } catch {
+                failures.append(error)
+            }
+        }
+        await reloadLists(generation: generation)
+
+        guard let firstFailure = failures.first else {
+            phase = .ready
+            await runPendingReload()
+            return
+        }
+        log.error("Batch remove failed for \(failures.count, privacy: .public) items: \(firstFailure.localizedDescription, privacy: .private)")
+        let attempted = selectedLoginItems.count + selectedAgents.count
+        phase = .failed(message: removalFailureMessage(
+            firstFailure, failed: failures.count, attempted: attempted
+        ))
+    }
+
+    private func removalFailureMessage(_ error: Error, failed: Int, attempted: Int) -> String {
+        let reason = HelperConnectionError.userFacingMessage(for: error)
+        guard attempted > 1 else { return reason }
+        let format = String(
+            localized: "Couldn't remove %1$lld of %2$lld items. %3$@",
+            bundle: .module,
+            comment: "Failure message after a batch remove; %1$lld failed out of %2$lld attempted, %3$@ is the first reason."
+        )
+        return String.localizedStringWithFormat(format, failed, attempted, reason)
     }
 
     /// Returns the VM to `.ready` after a `.failed` phase so the user can
     /// retry without re-running discovery.
     public func dismissResult() {
+        failureNeedsFullDiskAccess = false
         phase = .ready
+        if reloadIsPending {
+            Task { await runPendingReload() }
+        }
     }
 
     // MARK: - Generations
@@ -542,9 +598,9 @@ extension PerformanceViewModel {
 
     /// Builds a view-model wired to the real login-item / launch-agent /
     /// RAM / maintenance collaborators. Discovery runs off the main actor so
-    /// the filesystem walk and `launchctl list` don't block the UI. RAM
-    /// figures are read from the shared `SystemStatsService` so the
-    /// Performance view and the Health Monitor never disagree.
+    /// the filesystem walk and `launchctl list` don't block the UI. The RAM
+    /// figure in a flush's result line is read from the shared
+    /// `SystemStatsService` so it and the Health Monitor never disagree.
     @MainActor
     public static func live(
         systemStats: SystemStatsService,
@@ -558,7 +614,6 @@ extension PerformanceViewModel {
         let spotlight = SpotlightReindexer()
         let snapshotThinner = TimeMachineSnapshotThinner()
         let mail = MailReindexer()
-        let snapshotCounter = LocalSnapshotCounter()
 
         return PerformanceViewModel(
             loadLoginItems: { loginManager.items() },
@@ -617,15 +672,8 @@ extension PerformanceViewModel {
             reindexSpotlight: { try await spotlight.run() },
             thinSnapshots: { try await snapshotThinner.run() },
             speedUpMail: { try await mail.run() },
-            // Listing snapshots shells out to `tmutil`; keep it off the main
-            // actor so the dashboard refresh never blocks on the process.
-            readSnapshotCount: {
-                await Task.detached(priority: .userInitiated) {
-                    snapshotCounter.count()
-                }.value
-            },
             // `periodic` was removed in macOS 26; when it's absent, Run
-            // Maintenance Scripts is hidden and excluded from "Run Tasks".
+            // Maintenance Scripts is hidden and never counted as due.
             maintenanceScriptsAvailable: FileManager.default.fileExists(atPath: "/usr/sbin/periodic"),
             // Reflect a Preferences-side toggle in this view's row. See
             // the `init` comment for why ordering matters here. The bridge
@@ -716,7 +764,7 @@ extension PerformanceViewModel: ScanCoordinating {
     public func beginScan() {
         // Semantic stretch: Performance has no scan. "Scan" here means
         // "load" — the same `refresh()` the view runs on appear, which
-        // populates login items / agents / memory and drives
+        // populates login items / agents and drives
         // `.idle → .loading → .ready`.
         //
         // `refresh()`'s generation token prevents stale writes but not

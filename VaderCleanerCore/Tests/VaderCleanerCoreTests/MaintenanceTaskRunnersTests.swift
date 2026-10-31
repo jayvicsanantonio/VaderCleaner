@@ -67,25 +67,56 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
 
     // MARK: - Time Machine
 
-    func test_tmThinner_invokesSelectorAndReturnsResult() async throws {
+    func test_tmThinner_invokesSelectorAndReportsWhatItRemoved() async throws {
         let helper = HelperProtocolSpy()
-        let runner = TimeMachineSnapshotThinner(helperProvider: { _ in helper })
+        let counts = TestBox<[Int?]>([3, 1])
+        let runner = TimeMachineSnapshotThinner(
+            helperProvider: { _ in helper },
+            countSnapshots: { counts.value.removeFirst() }
+        )
 
         let output = try await runner.run()
 
         XCTAssertTrue(helper.calledSelectors.contains(.thinTimeMachineSnapshots))
+        XCTAssertTrue(output.contains("2"), "Unexpected result line: \(output)")
+    }
+
+    func test_tmThinner_saysSoWhenNothingWasRemoved() async throws {
+        let runner = TimeMachineSnapshotThinner(
+            helperProvider: { _ in HelperProtocolSpy() },
+            countSnapshots: { 3 }
+        )
+
+        let output = try await runner.run()
+
+        XCTAssertFalse(output.contains("Removed"), "Unexpected result line: \(output)")
         XCTAssertFalse(output.isEmpty)
+    }
+
+    func test_tmThinner_claimsNoCountWhenAListingFails() async throws {
+        for counts in [[nil, 1], [3, nil]] as [[Int?]] {
+            let remaining = TestBox(counts)
+            let runner = TimeMachineSnapshotThinner(
+                helperProvider: { _ in HelperProtocolSpy() },
+                countSnapshots: { remaining.value.removeFirst() }
+            )
+
+            let output = try await runner.run()
+
+            XCTAssertFalse(output.contains("Removed"), "Unexpected result line: \(output)")
+            XCTAssertFalse(output.contains("didn't need"), "Unexpected result line: \(output)")
+        }
     }
 
     func test_tmThinner_throwsWhenHelperRepliesError() async {
         let helper = HelperProtocolSpy()
         helper.setReply(.failure(Boom()), for: .thinTimeMachineSnapshots)
-        let runner = TimeMachineSnapshotThinner(helperProvider: { _ in helper })
+        let runner = TimeMachineSnapshotThinner(helperProvider: { _ in helper }, countSnapshots: { 0 })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
 
     func test_tmThinner_throwsWhenHelperUnavailable() async {
-        let runner = TimeMachineSnapshotThinner(helperProvider: { _ in nil })
+        let runner = TimeMachineSnapshotThinner(helperProvider: { _ in nil }, countSnapshots: { 0 })
         await XCTAssertThrowsErrorAsync(try await runner.run())
     }
 }

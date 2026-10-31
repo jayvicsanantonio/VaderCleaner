@@ -25,6 +25,8 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         attributes: .concurrent
     )
 
+    private let runningExecutables = RunningExecutables()
+
     /// Carries an XPC reply block onto `workQueue`.
     ///
     /// `@unchecked Sendable`, backed by NSXPCConnection's own contract: a
@@ -105,7 +107,14 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     }
 
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {
-        runProcess(executable: "/usr/bin/mdutil", arguments: ["-E", "/"], reply: reply)
+        // The read-only system volume and the writable data volume holding the
+        // user's files keep separate Spotlight stores, so rebuilding only `/`
+        // would leave the index that matters untouched.
+        runProcess(
+            executable: "/usr/bin/mdutil",
+            arguments: ["-E", "/", "/System/Volumes/Data"],
+            reply: reply
+        )
     }
 
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {
@@ -142,8 +151,8 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     /// Runs each command in order and replies with the first failure, or `nil`
     /// once all succeed. A non-zero exit or launch error short-circuits the rest.
     ///
-    /// The sequencing works because `execute` is synchronous: it returns only
-    /// once its command has exited, so the loop below really does run the
+    /// The sequencing works because `HelperToolRunner.execute` is synchronous: it
+    /// returns only once its command is done, so the loop below really does run the
     /// commands one after another. What moved off the XPC delivery queue is
     /// the whole loop, not each command inside it.
     private func runProcesses(
@@ -151,10 +160,17 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         reply: @escaping (Error?) -> Void
     ) {
         let reply = XPCReply(reply)
+        let executables = commands.map(\.executable)
+        let running = runningExecutables
+        guard running.claim(executables) else {
+            reply.send(HelperToolRunner.alreadyRunningError(executables))
+            return
+        }
         workQueue.async {
+            defer { running.release(executables) }
             for command in commands {
-                if let error = Self.execute(executable: command.executable,
-                                            arguments: command.arguments) {
+                if let error = HelperToolRunner.execute(executable: command.executable,
+                                                        arguments: command.arguments) {
                     reply.send(error)
                     return
                 }
@@ -168,35 +184,7 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         arguments: [String],
         reply: @escaping (Error?) -> Void
     ) {
-        let reply = XPCReply(reply)
-        workQueue.async {
-            reply.send(Self.execute(executable: executable, arguments: arguments))
-        }
-    }
-
-    /// Runs one command to completion and returns its failure, if any.
-    ///
-    /// Synchronous on purpose: callers have already hopped onto `workQueue`,
-    /// and `runProcesses` depends on this returning only once the command is
-    /// actually done.
-    private static func execute(executable: String, arguments: [String]) -> Error? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                return NSError(
-                    domain: "com.personal.VaderCleaner.helper",
-                    code: Int(process.terminationStatus),
-                    userInfo: [NSLocalizedDescriptionKey: "\(executable) exited with status \(process.terminationStatus)"]
-                )
-            }
-            return nil
-        } catch {
-            return error
-        }
+        runProcesses(commands: [(executable: executable, arguments: arguments)], reply: reply)
     }
 }
 

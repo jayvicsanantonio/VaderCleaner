@@ -31,12 +31,14 @@ public struct MaintenanceRunLog {
         defaults.set(intervals, forKey: key)
     }
 
-    /// The given ids that are due to run again — never run, or last run longer
-    /// ago than `staleWindow`.
+    /// The given ids that are due to run again — never run, last run longer ago
+    /// than `staleWindow`, or stamped in the future by a clock that was wrong,
+    /// which would otherwise never come due.
     func staleTaskIDs(among ids: [String], now: Date = Date()) -> [String] {
         ids.filter { id in
             guard let last = lastRun(for: id) else { return true }
-            return now.timeIntervalSince(last) > Self.staleWindow
+            let elapsed = now.timeIntervalSince(last)
+            return elapsed > Self.staleWindow || elapsed < 0
         }
     }
 
