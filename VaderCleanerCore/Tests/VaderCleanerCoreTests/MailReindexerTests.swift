@@ -1,5 +1,5 @@
 // MailReindexerTests.swift
-// Verifies MailReindexer locates Mail envelope-index databases, vacuums/reindexes each, and reports clear errors when Mail data is absent or the database is locked.
+// Verifies MailReindexer locates Mail envelope-index databases, vacuums/reindexes each, and reports clear errors when Full Disk Access is missing, Mail is open, or the database is locked.
 
 import XCTest
 @testable import VaderCleanerCore
@@ -14,7 +14,8 @@ final class MailReindexerTests: XCTestCase {
         let vacuumed = TestBox<[URL]>([])
         let runner = MailReindexer(
             locateIndexes: { indexes },
-            vacuumIndex: { vacuumed.value.append($0) }
+            vacuumIndex: { vacuumed.value.append($0) },
+            isMailRunning: { false }
         )
 
         let output = try await runner.run()
@@ -23,15 +24,35 @@ final class MailReindexerTests: XCTestCase {
         XCTAssertFalse(output.isEmpty)
     }
 
-    func test_run_throwsNoMailDataWhenFolderReadableButEmpty() async {
-        let runner = MailReindexer(locateIndexes: { [] }, vacuumIndex: { _ in })
+    /// Having no Mail data is a finished job rather than a failure: throwing
+    /// here would keep the task due forever for anyone who doesn't use Mail.
+    func test_run_reportsNothingToDoWhenFolderReadableButEmpty() async throws {
+        let runner = MailReindexer(
+            locateIndexes: { [] },
+            vacuumIndex: { _ in XCTFail("Nothing to vacuum") },
+            isMailRunning: { false }
+        )
+
+        let output = try await runner.run()
+
+        XCTAssertFalse(output.isEmpty)
+    }
+
+    /// Vacuuming a database another process has open is what the lock error
+    /// used to catch, so it is refused before `sqlite3` is ever started.
+    func test_run_refusesWhileMailIsRunning() async {
+        let runner = MailReindexer(
+            locateIndexes: { [URL(fileURLWithPath: "/tmp/mail/Envelope Index")] },
+            vacuumIndex: { _ in XCTFail("Must not touch the database while Mail is open") },
+            isMailRunning: { true }
+        )
         do {
             _ = try await runner.run()
-            XCTFail("Expected run() to throw when no Mail data is present")
-        } catch MailReindexerError.noMailData {
-            // Expected — readable but nothing to reindex.
+            XCTFail("Expected run() to throw while Mail is open")
+        } catch MailReindexerError.mailIsRunning {
+            // Expected.
         } catch {
-            XCTFail("Expected .noMailData, got \(error)")
+            XCTFail("Expected .mailIsRunning, got \(error)")
         }
     }
 
@@ -40,7 +61,8 @@ final class MailReindexerTests: XCTestCase {
         // Access); run() must propagate it rather than report "no mail".
         let runner = MailReindexer(
             locateIndexes: { throw MailReindexerError.fullDiskAccessRequired },
-            vacuumIndex: { _ in }
+            vacuumIndex: { _ in },
+            isMailRunning: { false }
         )
         do {
             _ = try await runner.run()
@@ -56,7 +78,8 @@ final class MailReindexerTests: XCTestCase {
         struct Locked: Error {}
         let runner = MailReindexer(
             locateIndexes: { [URL(fileURLWithPath: "/tmp/mail/Envelope Index")] },
-            vacuumIndex: { _ in throw Locked() }
+            vacuumIndex: { _ in throw Locked() },
+            isMailRunning: { false }
         )
         do {
             _ = try await runner.run()

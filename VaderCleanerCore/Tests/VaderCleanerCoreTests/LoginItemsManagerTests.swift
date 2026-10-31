@@ -23,14 +23,18 @@ final class LoginItemsManagerTests: XCTestCase {
         XCTAssertFalse(items.first?.requiresApproval == true)
     }
 
-    func test_items_reflectsDisabledStatusFromProvider() {
-        let manager = LoginItemsManager(
-            displayName: "VaderCleaner",
-            identifier: "com.personal.VaderCleaner",
-            statusProvider: { .notRegistered }
-        )
+    /// A host app that isn't registered doesn't open at login, so there is
+    /// nothing to report: counting it would show "1 Login Item" forever.
+    func test_items_isEmptyWhenTheHostAppIsNotRegistered() {
+        for status in [SMAppService.Status.notRegistered, .notFound] {
+            let manager = LoginItemsManager(
+                displayName: "VaderCleaner",
+                identifier: "com.personal.VaderCleaner",
+                statusProvider: { status }
+            )
 
-        XCTAssertFalse(manager.items().first?.isEnabled == true)
+            XCTAssertEqual(manager.items(), [])
+        }
     }
 
     func test_items_requiresApproval_readsAsEnabledAndFlagsApproval() {

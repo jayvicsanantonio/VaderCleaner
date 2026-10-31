@@ -61,9 +61,9 @@ struct CareSeverityContext: Sendable {
     static let none = CareSeverityContext(health: nil, receipts: [], now: .distantPast, declines: [:])
 }
 
-/// Deterministic severity rules, `PerformanceRecommendationEngine`-style: no
-/// state, no I/O, fully unit-testable. Escalation only ever raises a finding
-/// above its kind-derived tier — nothing here can quiet a finding down.
+/// Deterministic severity rules: no state, no I/O, fully unit-testable.
+/// Escalation only ever raises a finding above its kind-derived tier — nothing
+/// here can quiet a finding down.
 enum CareSeverityEngine {
 
     // MARK: - Constants

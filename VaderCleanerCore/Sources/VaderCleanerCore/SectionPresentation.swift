@@ -225,7 +225,7 @@ public struct SectionPresentation {
                     ),
                     SectionFeature(
                         symbol: "gearshape",
-                        title: String(localized: "Launch Agents", bundle: .module, comment: "Performance feature row.")
+                        title: String(localized: "Background Items", bundle: .module, comment: "Performance feature row.")
                     ),
                     SectionFeature(
                         symbol: "memorychip",
@@ -233,7 +233,7 @@ public struct SectionPresentation {
                     ),
                     SectionFeature(
                         symbol: "wrench.and.screwdriver",
-                        title: String(localized: "Maintenance Scripts", bundle: .module, comment: "Performance feature row.")
+                        title: String(localized: "Maintenance Tasks", bundle: .module, comment: "Performance feature row.")
                     ),
                 ]
             )

@@ -1,5 +1,5 @@
 // LaunchAgent.swift
-// Launch-agent / launch-daemon model and manager — discovers plists, reports launchctl-loaded status, and disables or removes them (user in-process, system via the privileged helper).
+// Launch-agent / launch-daemon model and manager — discovers plists, reports launchctl-loaded status, and disables or removes them (a user agent is stopped and moved to the Trash, a system one goes through the privileged helper).
 
 import Foundation
 import os.log
@@ -37,7 +37,19 @@ public struct LaunchAgent: Identifiable, Equatable, Sendable {
     /// `ProgramArguments` to exec — and isn't currently loaded. These are
     /// leftover files (e.g. retired Keystone tombstones) that can never be
     /// toggled on, so the UI offers only removal rather than a dead switch.
-    var isOrphaned: Bool { programPath == nil && !isEnabled }
+    public var isOrphaned: Bool { programPath == nil && !isEnabled }
+
+    /// The app bundle the job's program lives inside, so an updater can show
+    /// its parent app's icon. Matched per path component because a bare
+    /// `.app` substring also appears in `com.apple.helper` and `tool.appdata`.
+    public var appBundlePath: String? {
+        guard let programPath else { return nil }
+        let components = programPath.components(separatedBy: "/")
+        guard let index = components.firstIndex(where: {
+            $0.lowercased().hasSuffix(".app")
+        }) else { return nil }
+        return components[...index].joined(separator: "/")
+    }
 
     /// A copy with `isEnabled` set to `value`. Used for the optimistic,
     /// in-place row update when toggling an agent, so the switch responds
@@ -47,6 +59,31 @@ public struct LaunchAgent: Identifiable, Equatable, Sendable {
             label: label, path: path, programPath: programPath,
             isEnabled: value, domain: domain
         )
+    }
+}
+
+/// Failures `LaunchAgentManager` raises itself, with user-facing messages.
+enum LaunchAgentError: LocalizedError {
+    case couldNotMoveToTrash(label: String)
+    case stateDidNotChange(label: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotMoveToTrash(let label):
+            let format = String(
+                localized: "Couldn't move “%@” to the Trash. Check that you have permission to change it, then try again.",
+                bundle: .module,
+                comment: "Error when a background item's file can't be trashed; %@ is its label."
+            )
+            return String.localizedStringWithFormat(format, label)
+        case .stateDidNotChange(let label):
+            let format = String(
+                localized: "macOS didn't apply the change to “%@”.",
+                bundle: .module,
+                comment: "Error when launchd still reports a background item in its old state; %@ is its label."
+            )
+            return String.localizedStringWithFormat(format, label)
+        }
     }
 }
 
@@ -60,6 +97,15 @@ struct LaunchAgentManager: Sendable {
     typealias LoadedLabelsProvider = @Sendable () -> Set<String>
     typealias LaunchctlRunner = @Sendable (_ arguments: [String]) throws -> Void
     typealias HelperProvider = @Sendable (@escaping @Sendable (Error) -> Void) -> VaderCleanerHelperProtocol?
+    /// Moves files to the Trash and returns the ones that moved.
+    typealias Recycle = @Sendable ([URL]) async -> Set<URL>
+
+    /// The domain of the error `defaultLaunchctl` throws on a non-zero exit,
+    /// whose code is the exit status.
+    static let launchctlErrorDomain = "com.personal.VaderCleaner.LaunchAgentManager"
+    /// `launchctl bootout`'s exit statuses for a job launchd doesn't have
+    /// loaded: "No such process" and "Could not find service".
+    private static let notLoadedExitStatuses: Set<Int> = [3, 113]
 
     private let userAgentsDirectory: URL
     private let systemAgentDirectories: [URL]
@@ -69,6 +115,7 @@ struct LaunchAgentManager: Sendable {
     private let loadedLabels: LoadedLabelsProvider
     private let launchctl: LaunchctlRunner
     private let helperProvider: HelperProvider
+    private let recycle: Recycle
 
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "LaunchAgentManager")
@@ -84,7 +131,8 @@ struct LaunchAgentManager: Sendable {
         fileManager: FileManager = .default,
         loadedLabels: @escaping LoadedLabelsProvider = LaunchAgentManager.defaultLoadedLabels,
         launchctl: @escaping LaunchctlRunner = LaunchAgentManager.defaultLaunchctl,
-        helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider
+        helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider,
+        recycle: @escaping Recycle = { await UserFileRecycler.recycle($0, context: "LaunchAgentManager") }
     ) {
         self.userAgentsDirectory = userAgentsDirectory
         self.systemAgentDirectories = systemAgentDirectories
@@ -92,6 +140,7 @@ struct LaunchAgentManager: Sendable {
         self.loadedLabels = loadedLabels
         self.launchctl = launchctl
         self.helperProvider = helperProvider
+        self.recycle = recycle
     }
 
     // MARK: - Discovery
@@ -132,14 +181,16 @@ struct LaunchAgentManager: Sendable {
             guard fileManager.fileExists(atPath: dir.path) else { continue }
             let entries = (try? fileManager.contentsOfDirectory(
                 at: dir,
-                includingPropertiesForKeys: [.isRegularFileKey],
+                includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             )) ?? []
 
             for entry in entries where entry.pathExtension.lowercased() == "plist" {
                 // A directory named `*.plist` is not a launch agent; only
-                // regular files carry a launchd job definition.
-                let isRegularFile = (try? entry.resourceValues(
+                // regular files carry a launchd job definition. Symlinks are
+                // resolved first, because dotfile managers link agents into
+                // this folder and launchd loads those just the same.
+                let isRegularFile = (try? entry.resolvingSymlinksInPath().resourceValues(
                     forKeys: [.isRegularFileKey]
                 ))?.isRegularFile ?? false
                 guard isRegularFile, seen.insert(entry.path).inserted else { continue }
@@ -180,9 +231,13 @@ struct LaunchAgentManager: Sendable {
     /// (`/var/db/com.apple.xpc.launchd`), so an agent that was previously
     /// disabled there reliably re-registers instead of silently no-opping.
     /// User agents live in the caller's own launchd domain, so this needs no
-    /// privilege escalation.
+    /// privilege escalation. `load` exits 0 even when it fails, so launchd's
+    /// own list decides whether it worked.
     func enable(_ agent: LaunchAgent) throws {
         try launchctl(["load", "-w", agent.path.path])
+        guard loadedLabels().contains(agent.label) else {
+            throw LaunchAgentError.stateDidNotChange(label: agent.label)
+        }
     }
 
     /// Unloads the job from launchd via `launchctl unload -w <path>`. The `-w`
@@ -190,21 +245,46 @@ struct LaunchAgentManager: Sendable {
     /// database (`/var/db/com.apple.xpc.launchd`) so it stays off across logins
     /// rather than reloading on the next session. User agents live in the
     /// caller's own launchd domain, so this needs no privilege escalation.
+    /// `unload` exits 0 even when it fails, so launchd's own list decides
+    /// whether it worked.
     func disable(_ agent: LaunchAgent) throws {
         try launchctl(["unload", "-w", agent.path.path])
+        guard !loadedLabels().contains(agent.label) else {
+            throw LaunchAgentError.stateDidNotChange(label: agent.label)
+        }
     }
 
     // MARK: - Remove
 
-    /// Deletes the plist. User-domain plists are user-writable and removed
-    /// in-process; system-domain plists under `/Library` require root and are
-    /// routed through the privileged helper's `removeLaunchAgent(path:)`.
+    /// Removes a job. A user agent is stopped and its plist moved to the Trash,
+    /// because launchd keeps running a job whose plist is gone until logout,
+    /// and a user who changes their mind can put the file back. Stopping comes
+    /// first so a job that won't stop keeps the plist that describes it. A
+    /// plist that is already gone counts as removed, so a list that has fallen
+    /// behind the disk can't make a retry fail forever. System-domain plists
+    /// under `/Library` require root and are routed through the privileged
+    /// helper's `removeLaunchAgent(path:)`.
     func remove(_ agent: LaunchAgent) async throws {
         switch agent.domain {
         case .user:
-            try fileManager.removeItem(at: agent.path)
+            try stop(agent)
+            guard fileManager.fileExists(atPath: agent.path.path) else { return }
+            guard !(await recycle([agent.path])).isEmpty else {
+                throw LaunchAgentError.couldNotMoveToTrash(label: agent.label)
+            }
         case .system:
             try await removeViaHelper(path: agent.path.path)
+        }
+    }
+
+    /// Boots the job out of the user's launchd domain. A job that isn't loaded
+    /// is already what this asks for.
+    private func stop(_ agent: LaunchAgent) throws {
+        do {
+            try launchctl(["bootout", "gui/\(getuid())/\(agent.label)"])
+        } catch let error as NSError where error.domain == Self.launchctlErrorDomain
+            && Self.notLoadedExitStatuses.contains(error.code) {
+            return
         }
     }
 
@@ -239,7 +319,8 @@ struct LaunchAgentManager: Sendable {
     }
 
     /// The job's executable: the `Program` key, else the first element of
-    /// `ProgramArguments`.
+    /// `ProgramArguments`, else `BundleProgram`, which is relative to the bundle
+    /// that registered the job.
     static func programPath(from plist: [String: Any]) -> String? {
         if let program = plist["Program"] as? String, !program.isEmpty {
             return program
@@ -247,6 +328,9 @@ struct LaunchAgentManager: Sendable {
         if let arguments = plist["ProgramArguments"] as? [String],
            let first = arguments.first, !first.isEmpty {
             return first
+        }
+        if let bundleProgram = plist["BundleProgram"] as? String, !bundleProgram.isEmpty {
+            return bundleProgram
         }
         return nil
     }
@@ -302,7 +386,7 @@ struct LaunchAgentManager: Sendable {
                 ? "launchctl \(arguments.joined(separator: " ")) exited with status \(process.terminationStatus)"
                 : stderr
             throw NSError(
-                domain: "com.personal.VaderCleaner.LaunchAgentManager",
+                domain: LaunchAgentManager.launchctlErrorDomain,
                 code: Int(process.terminationStatus),
                 userInfo: [NSLocalizedDescriptionKey: description]
             )

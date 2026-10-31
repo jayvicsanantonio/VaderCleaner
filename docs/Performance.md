@@ -1,6 +1,6 @@
-# Optimization — User Guide
+# Performance — User Guide
 
-The **Optimization** section keeps your Mac running smoothly by handling routine
+The **Performance** section keeps your Mac running smoothly by handling routine
 upkeep that macOS doesn't always do on its own. Think of it as a tune‑up for your
 computer: a handful of safe, well‑understood maintenance jobs you can run with a
 single click.
@@ -14,7 +14,7 @@ doing and when.
 ## Table of contents
 
 - [How the section is laid out](#how-the-section-is-laid-out)
-- [The recommendation cards](#the-recommendation-cards)
+- [The summary cards](#the-summary-cards)
 - [The tasks, explained](#the-tasks-explained)
   - [Free Up RAM](#free-up-ram)
   - [Run Maintenance Scripts](#run-maintenance-scripts)
@@ -30,26 +30,27 @@ doing and when.
 
 ## How the section is laid out
 
-When you open **Optimization**, you'll see two views:
+When you open **Performance**, you'll see two views:
 
-1. **The dashboard** (the first thing you see). This is a set of *recommendation
-   cards*. The app looks at the current state of your Mac and surfaces the things
-   most worth doing right now — for example, freeing up memory, or thinning old
-   backup snapshots that are taking up space. Each card has a button to act on it.
+1. **The dashboard** (the first thing you see). A set of *summary cards* shows
+   what's worth a look right now, and each card's **Review** button opens the
+   manager at the matching list.
 
-2. **View All Tasks** (a button on the dashboard). This opens the full *catalog*,
-   organized like a control panel with a list on the left:
+2. **The Performance Manager** (**View All Tasks** on the dashboard), organized
+   with a list on the left:
+   - **Login Items** — apps set to open when you log in.
+   - **Background Items** — helper programs that start automatically.
    - **Maintenance Tasks** — every task with a checkbox and a colorful icon. Tick
-     the ones you want, and the bar at the bottom shows how many you've selected
-     and a **Run** button that runs them all together. Each row also has an **info
-     (ⓘ)** button that explains, in a sentence, what the task does.
-   - **Login Items** — apps set to launch when you log in.
-   - **Background Items** — helper programs that start automatically with your Mac.
+     the ones you want, and the bar at the bottom shows how many are selected, with
+     a **Run** button that runs them together.
 
-   Use the catalog when you want to choose tasks yourself rather than follow a
-   recommendation.
+The search field filters the list you're looking at. **Select All**, **Run**, and
+**Remove** only ever reach the rows on screen: anything a search is hiding stays
+out of it, and the footer's count is what will be acted on.
 
-You can move back and forth freely. Nothing runs until you click a button.
+The lists are re-read each time you come back to the section or to the app, so
+something you uninstalled elsewhere doesn't linger. Nothing runs until you click a
+button.
 
 > **A note on permissions.** Most of these tasks change system‑level settings, so
 > macOS requires administrator rights. VaderCleaner performs them through a small,
@@ -59,24 +60,23 @@ You can move back and forth freely. Nothing runs until you click a button.
 
 ---
 
-## The recommendation cards
+## The summary cards
 
-The dashboard chooses what to show based on your Mac's current condition:
+Only the categories with something to look at get a card:
 
-| Card | When it appears | What its button does |
+| Card | When it appears | What **Review** does |
 | --- | --- | --- |
-| **Free Up Your RAM** | Always — it's the main, permanent card | Frees inactive memory |
-| **N Maintenance Tasks Recommended** | When routine tasks haven't run in a while (over a week) | Runs all the due upkeep tasks in one go |
-| **N Background Items Found** | When apps/helpers start automatically with your Mac | Opens the list so you can review them |
-| **Thin Time Machine Snapshots** | When local backup snapshots are using disk space | Reclaims that space |
+| **You Have N Login Items** | VaderCleaner is set to open at login | Opens Login Items |
+| **N Background Items Found** | Apps or helpers start automatically with your Mac | Opens Background Items |
+| **N Maintenance Tasks Recommended** | Routine tasks haven't run in over a week | Opens Maintenance Tasks with the due ones ticked and marked **Due** |
 
-The number on a card (like "3 Maintenance Tasks Recommended") matches exactly what
-its button will do — if it says three tasks, clicking **Run Tasks** runs those
-three.
+The maintenance count covers routine upkeep only: maintenance scripts, flushing DNS,
+and speeding up Mail. The other tasks wait until you have a reason to run them.
+Reindex Spotlight in particular is never recommended on a schedule, because erasing
+the index makes search worse until it's rebuilt.
 
-If your Mac is in good shape, the dashboard may only show the RAM card. That's
-normal — it means there's nothing else worth doing right now. You can still open
-**View All Tasks** to run anything manually.
+If Mail has no data to rebuild, or you've declined Full Disk Access, Speed Up Mail
+stops counting as due for another week rather than holding the card up.
 
 ---
 
@@ -188,6 +188,7 @@ task erases and rebuilds it from scratch.
 
 **Bottom line.** Powerful fix, but disruptive while it works. Only run it when
 search is actually misbehaving, and ideally when you can leave the Mac to finish.
+VaderCleaner won't suggest it; it runs only when you pick it.
 
 ---
 
@@ -203,17 +204,18 @@ space that you can't seem to free up is often these snapshots.
 
 **Pros**
 - Can reclaim a meaningful amount of disk space.
-- **Your real backups are not affected** — only the temporary local copies are
-  thinned, and macOS only removes what it safely can.
+- **Your backup disk is not touched** — only the temporary local copies are
+  thinned, and macOS only removes what it safely can. The result line says how many
+  it removed, which may be none.
 
 **Cons**
-- If you delete a file and then thin snapshots, the short‑term "undo" that local
-  snapshots provide may no longer be available (your proper Time Machine backups
-  still are).
+- **Local snapshots may be your only recent restore points** while your backup disk
+  is away. Once thinned, changes made since the last backup to that disk can't be
+  restored from them.
 - Does nothing if you don't use Time Machine.
 
-**Does this affect my backups or encryption?** No.
-- **Your backups are safe.** This only thins the *local* snapshots stored on your
+**Does this affect my backup disk or encryption?** No.
+- **Your backup disk is safe.** This only thins the *local* snapshots stored on your
   Mac's internal disk. The full backup history on your external or network Time
   Machine drive is never touched — and macOS only removes what it can safely
   remove. Under the hood, this simply asks macOS to reclaim space
@@ -223,9 +225,10 @@ space that you can't seem to free up is often these snapshots.
   backup drive is encrypted, that's a separate disk this task doesn't touch, so its
   encryption is unaffected too.
 
-**Bottom line.** A safe way to recover disk space if you use Time Machine. Your
-backups stay intact and nothing is decrypted — the only cost is losing some very
-recent local "undo" points until macOS makes new snapshots.
+**Bottom line.** A way to recover disk space if you use Time Machine. Your backup
+disk stays intact and nothing is decrypted — the cost is losing recent local restore
+points until macOS makes new snapshots, so back up first if your backup disk has
+been away.
 
 ---
 
@@ -243,8 +246,8 @@ generally feels heavy.
 - Doesn't touch your actual emails — only the behind‑the‑scenes index.
 
 **Cons**
-- **Mail must be closed** while this runs, or it will fail (the database is locked
-  while Mail is open). The app will tell you if that's the case.
+- **Mail must be closed** while this runs. If Mail is open, VaderCleaner asks you to
+  quit it and leaves the database alone.
 - Requires that the app can read your Mail data, which may need **Full Disk Access**
   granted to VaderCleaner in System Settings → Privacy & Security.
 - The first time you reopen Mail afterward, it may take a moment to settle.
@@ -255,29 +258,27 @@ generally feels heavy.
 
 ## Background Items
 
-In **View All Tasks**, below the maintenance tasks, you'll find **Background Items**.
-These are programs that start automatically when you log in or boot your Mac:
+In the Performance Manager, **Background Items** lists programs that start
+automatically, often installed alongside other apps. Too many can slow down startup
+and use resources all day. For the ones installed just for you, you can:
 
-- **Login Items** — apps set to launch at login.
-- **Launch Agents & Daemons** — smaller helper programs (often installed alongside
-  other apps) that run quietly in the background.
+- **Turn one off** with its switch, so it stops running and stays off across logins.
+  Turn it back on the same way. A leftover file with nothing to run has no switch.
+- **Remove** it. VaderCleaner stops it and moves its file to the Trash, so you can
+  put the file back if you change your mind. The confirmation names what will go.
 
-Too many of these can slow down startup and use resources all day. Here you can:
+If something can't be removed, the rest of your selection still goes, and whatever
+failed stays ticked so you can try again.
 
-- **Disable** an item so it stops launching automatically (you can re‑enable it).
-- **Remove** a *user* item entirely (this deletes its startup configuration and
-  can't be undone from here).
-
-**System daemons are protected.** Items in the "Launch Agents & Daemons (System)"
-group belong to macOS itself or to the app that installed them. Removing one can
-break your system or that app, so VaderCleaner does not let you remove them here —
-the **Remove** button is unavailable for them. If you really need to change a
-system daemon, do it through **System Settings** or the app that installed it.
+**Items installed for all users are review‑only.** These are listed under their own
+heading, usually from apps you installed. VaderCleaner doesn't remove them, because
+that can break the app they came with. **Open System Settings** takes you to where
+macOS lets you turn them off; uninstalling the app removes them.
 
 **A word of caution.** Some background items are needed by apps you rely on (for
-example, cloud‑storage syncing or keyboard/mouse utilities). Disabling is reversible
-and the safer choice; removing is permanent. If you're not sure what something is,
-leave it alone or just disable it and see whether anything you use stops working.
+example, cloud‑storage syncing or keyboard/mouse utilities). If you're not sure what
+something is, turn it off rather than removing it, and see whether anything you use
+stops working.
 
 ---
 
@@ -290,16 +291,16 @@ your actual data.
 
 **Do I need to run these regularly?**
 Not really. Most are "run it when you notice a specific problem" tools rather than
-chores. The dashboard will nudge you when something is genuinely worth doing.
+chores. The dashboard nudges you about routine upkeep once it's over a week old.
 
 **Why does it ask for a password or approval?**
 Several tasks change system‑level settings, which macOS protects. VaderCleaner uses
 a small signed helper to do this safely; approving it is a one‑time step.
 
 **Can I undo a task?**
-There's nothing to undo for most of them — they don't remove anything you'd want
-back. Reindex Spotlight and Speed Up Mail simply rebuild their indexes. Removing a
-Background Item is the only action that's permanent.
+There's nothing to undo for most of them. Reindex Spotlight and Speed Up Mail simply
+rebuild their indexes. Thinned snapshots can't be brought back. A removed Background
+Item's file is in the Trash; put it back and it loads again at your next login.
 
 **Is it safe to just click everything?**
 Mostly yes, but two tasks are disruptive *while they run*: **Reindex Spotlight**
@@ -316,6 +317,6 @@ Run those when it's convenient.
 | **Run Maintenance Scripts** | Runs Apple's daily/weekly/monthly housekeeping | Macs that sleep overnight | Mostly invisible benefit | Very low |
 | **Flush DNS Cache** | Clears stale website address lookups | Sites that won't load right | Brief, unnoticeable slowdown after | Very low |
 | **Reindex Spotlight** | Rebuilds the search index | Broken or incomplete search | Slow/degraded search while rebuilding | Low (disruptive) |
-| **Thin Time Machine Snapshots** | Trims local backup snapshots | Recovering disk space | Loses short‑term local "undo" | Low (backups safe) |
+| **Thin Time Machine Snapshots** | Trims local backup snapshots | Recovering disk space | Loses recent local restore points | Low (backup disk untouched) |
 | **Speed Up Mail** | Rebuilds the Mail database | A slow Mail app | Mail must be closed; needs Full Disk Access | Low |
-| **Background Items** | Manage auto‑starting programs | Faster startup, fewer resources | Removing is permanent | Medium (be careful) |
+| **Background Items** | Manage auto‑starting programs | Faster startup, fewer resources | An app may need what you removed | Medium (be careful) |

@@ -2,6 +2,27 @@
 // Entry point for VaderCleanerHelper — the privileged XPC daemon that performs root-level operations.
 
 import Foundation
+import Synchronization
+
+/// The executables with a run in flight. The app's watchdog gives up on a call
+/// long before a wedged tool exits, so retrying from the app must not start a
+/// second `mdutil -E` or `periodic` beside the first.
+final class RunningExecutables: Sendable {
+    private let running = Mutex<Set<String>>([])
+
+    /// Marks `executables` as running, or returns false if any already is.
+    func claim(_ executables: [String]) -> Bool {
+        running.withLock { running in
+            guard running.isDisjoint(with: executables) else { return false }
+            running.formUnion(executables)
+            return true
+        }
+    }
+
+    func release(_ executables: [String]) {
+        running.withLock { $0.subtract(executables) }
+    }
+}
 
 /// NSXPCListener delegate that vends a HelperService for each new XPC connection
 /// and implements the privileged operations defined in VaderCleanerHelperProtocol.
@@ -24,6 +45,8 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         label: "com.personal.VaderCleaner.helper.work",
         attributes: .concurrent
     )
+
+    private let runningExecutables = RunningExecutables()
 
     /// Carries an XPC reply block onto `workQueue`.
     ///
@@ -105,7 +128,14 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     }
 
     func reindexSpotlight(reply: @escaping (Error?) -> Void) {
-        runProcess(executable: "/usr/bin/mdutil", arguments: ["-E", "/"], reply: reply)
+        // The read-only system volume and the writable data volume holding the
+        // user's files keep separate Spotlight stores, so rebuilding only `/`
+        // would leave the index that matters untouched.
+        runProcess(
+            executable: "/usr/bin/mdutil",
+            arguments: ["-E", "/", "/System/Volumes/Data"],
+            reply: reply
+        )
     }
 
     func thinTimeMachineSnapshots(reply: @escaping (Error?) -> Void) {
@@ -151,7 +181,14 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         reply: @escaping (Error?) -> Void
     ) {
         let reply = XPCReply(reply)
+        let executables = commands.map(\.executable)
+        let running = runningExecutables
+        guard running.claim(executables) else {
+            reply.send(Self.alreadyRunningError(executables))
+            return
+        }
         workQueue.async {
+            defer { running.release(executables) }
             for command in commands {
                 if let error = Self.execute(executable: command.executable,
                                             arguments: command.arguments) {
@@ -168,10 +205,15 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         arguments: [String],
         reply: @escaping (Error?) -> Void
     ) {
-        let reply = XPCReply(reply)
-        workQueue.async {
-            reply.send(Self.execute(executable: executable, arguments: arguments))
-        }
+        runProcesses(commands: [(executable: executable, arguments: arguments)], reply: reply)
+    }
+
+    private static func alreadyRunningError(_ executables: [String]) -> Error {
+        NSError(
+            domain: "com.personal.VaderCleaner.helper",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "\(executables.joined(separator: ", ")) is already running"]
+        )
     }
 
     /// Runs one command to completion and returns its failure, if any.

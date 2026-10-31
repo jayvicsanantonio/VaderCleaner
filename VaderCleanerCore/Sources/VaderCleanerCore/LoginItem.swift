@@ -31,8 +31,10 @@ public struct LoginItem: Identifiable, Equatable, Sendable {
 /// own registration (`SMAppService.mainApp`). Third-party "open at login"
 /// agents physically live in `~/Library/LaunchAgents` and are surfaced by
 /// `LaunchAgentManager` instead. This manager therefore covers exactly what
-/// `SMAppService` can truthfully report: the host app itself. The status is
-/// injected as a closure so tests never read real login-item state.
+/// `SMAppService` can truthfully report: the host app itself, and only while it
+/// is registered, since an app that doesn't open at login isn't a login item.
+/// The status is injected as a closure so tests never read real login-item
+/// state.
 ///
 /// It only reads. Registering or unregistering the host app goes through
 /// `PreferencesStore` — its `launchAtLogin` setter, or `setLaunchAtLogin(_:)`
@@ -58,8 +60,10 @@ struct LoginItemsManager: Sendable {
 
     /// The host app's login item, reflecting the live `SMAppService` status so
     /// a change made in System Settings → Login Items is picked up on refresh.
+    /// Empty when the host app isn't registered.
     func items() -> [LoginItem] {
         let status = statusProvider()
+        guard status == .enabled || status == .requiresApproval else { return [] }
         return [
             LoginItem(
                 id: identifier,
@@ -68,7 +72,7 @@ struct LoginItemsManager: Sendable {
                 // it is not active yet; treat it as enabled so a fresh
                 // `register()` — which lands in `.requiresApproval` pending the
                 // user's approval — doesn't snap the toggle back to off.
-                isEnabled: status == .enabled || status == .requiresApproval,
+                isEnabled: true,
                 requiresApproval: status == .requiresApproval
             )
         ]

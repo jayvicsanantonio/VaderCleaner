@@ -139,7 +139,7 @@ final class LaunchAgentManagerTests: XCTestCase {
     func test_disable_invokesLaunchctlUnloadWithAgentPath() throws {
         try writePlist(named: "a.plist", label: "a", program: "/bin/a")
         let captured = TestBox<[String]?>(nil)
-        let manager = makeManager(loaded: ["a"], launchctl: { captured.value = $0 })
+        let manager = makeManager(loaded: [], launchctl: { captured.value = $0 })
         let agent = try XCTUnwrap(manager.userAgents().first)
 
         try manager.disable(agent)
@@ -152,7 +152,7 @@ final class LaunchAgentManagerTests: XCTestCase {
     func test_enable_invokesLaunchctlLoadWithAgentPath() throws {
         try writePlist(named: "a.plist", label: "a", program: "/bin/a")
         let captured = TestBox<[String]?>(nil)
-        let manager = makeManager(loaded: [], launchctl: { captured.value = $0 })
+        let manager = makeManager(loaded: ["a"], launchctl: { captured.value = $0 })
         let agent = try XCTUnwrap(manager.userAgents().first)
 
         try manager.enable(agent)
@@ -163,16 +163,6 @@ final class LaunchAgentManagerTests: XCTestCase {
     }
 
     // MARK: - remove
-
-    func test_remove_userAgentDeletesFileInProcess() async throws {
-        try writePlist(named: "doomed.plist", label: "doomed", program: "/bin/x")
-        let manager = makeManager(loaded: [])
-        let agent = try XCTUnwrap(manager.userAgents().first)
-
-        try await manager.remove(agent)
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: agent.path.path))
-    }
 
     func test_remove_systemAgentRoutesThroughPrivilegedHelper() async throws {
         let systemDir = tempDir.appendingPathComponent("system", isDirectory: true)
@@ -190,7 +180,8 @@ final class LaunchAgentManagerTests: XCTestCase {
             systemAgentDirectories: [systemDir],
             loadedLabels: { [] },
             launchctl: { _ in },
-            helperProvider: { _ in fake }
+            helperProvider: { _ in fake },
+            recycle: { _ in [] }
         )
         let agent = try XCTUnwrap(manager.systemAgents().first)
 
@@ -272,7 +263,8 @@ final class LaunchAgentManagerTests: XCTestCase {
             systemAgentDirectories: [],
             loadedLabels: { loaded },
             launchctl: launchctl,
-            helperProvider: { _ in nil }
+            helperProvider: { _ in nil },
+            recycle: { Set($0) }
         )
     }
 

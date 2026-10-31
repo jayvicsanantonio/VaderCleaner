@@ -1,38 +1,52 @@
 // MailReindexer.swift
-// Rebuilds the Mail "Envelope Index" SQLite databases (VACUUM; REINDEX) to speed up Mail search. Runs at user level — no privileged helper — and distinguishes "no Full Disk Access" from "no Mail data" so the UI can guide the user.
+// Rebuilds the Mail "Envelope Index" SQLite databases (VACUUM; REINDEX) to speed up Mail search. Runs at user level — no privileged helper — refuses while Mail is open, and distinguishes "no Full Disk Access" from "no Mail data" so the UI can guide the user.
 
+import AppKit
 import Foundation
 
 /// Speeds up Mail by compacting and reindexing its envelope-index databases.
-/// The index locator and the per-database vacuum are injected so unit tests
-/// exercise the flow without touching real Mail data or running `sqlite3`.
+/// The index locator, the per-database vacuum, and the Mail-is-open check are
+/// injected so unit tests exercise the flow without touching real Mail data or
+/// running `sqlite3`.
 struct MailReindexer: Sendable {
 
     /// Locates the envelope-index databases. Throwing so it can signal the
     /// difference between "no access" (Full Disk Access missing) and "no mail".
     typealias LocateIndexes = @Sendable () throws -> [URL]
     typealias VacuumIndex = @Sendable (URL) throws -> Void
+    typealias IsMailRunning = @Sendable () -> Bool
 
     private let locateIndexes: LocateIndexes
     private let vacuumIndex: VacuumIndex
+    private let isMailRunning: IsMailRunning
 
     init(
         locateIndexes: @escaping LocateIndexes = MailReindexer.defaultLocateIndexes,
-        vacuumIndex: @escaping VacuumIndex = MailReindexer.defaultVacuumIndex
+        vacuumIndex: @escaping VacuumIndex = MailReindexer.defaultVacuumIndex,
+        isMailRunning: @escaping IsMailRunning = MailReindexer.defaultIsMailRunning
     ) {
         self.locateIndexes = locateIndexes
         self.vacuumIndex = vacuumIndex
+        self.isMailRunning = isMailRunning
     }
 
     /// Vacuums and reindexes every located envelope index. Throws
     /// `.fullDiskAccessRequired` when `~/Library/Mail` can't be read (the common
-    /// case — the app isn't in Full Disk Access), `.noMailData` when Mail simply
-    /// has no databases, and rethrows the first vacuum failure (e.g. Mail is
-    /// open and holding a lock).
+    /// case — the app isn't in Full Disk Access), `.mailIsRunning` while Mail
+    /// has its databases open, and rethrows the first vacuum failure. Having no
+    /// databases is a finished job rather than a failure, so someone who doesn't
+    /// use Mail isn't told this task is due every week forever.
     func run() async throws -> String {
         let indexes = try locateIndexes()
         guard !indexes.isEmpty else {
-            throw MailReindexerError.noMailData
+            return String(
+                localized: "No Mail databases were found to reindex.",
+                bundle: .module,
+                comment: "Result line when MailReindexer finds no envelope-index databases even though it could read the Mail folder."
+            )
+        }
+        guard !isMailRunning() else {
+            throw MailReindexerError.mailIsRunning
         }
         for index in indexes {
             try vacuumIndex(index)
@@ -101,8 +115,13 @@ struct MailReindexer: Sendable {
         return name.hasPrefix("V") && !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
     }
 
+    /// Whether Mail is open, in which case it holds its databases.
+    static func defaultIsMailRunning() -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.mail").isEmpty
+    }
+
     /// Runs `/usr/bin/sqlite3 <index> "VACUUM; REINDEX;"`. Throws on a non-zero
-    /// exit (a locked database while Mail is open is the common case).
+    /// exit.
     static func defaultVacuumIndex(_ index: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
@@ -121,7 +140,7 @@ struct MailReindexer: Sendable {
 /// Failures surfaced by `MailReindexer`, with user-facing messages.
 enum MailReindexerError: LocalizedError {
     case fullDiskAccessRequired
-    case noMailData
+    case mailIsRunning
     case vacuumFailed(path: String, status: Int32)
 
     var errorDescription: String? {
@@ -132,17 +151,17 @@ enum MailReindexerError: LocalizedError {
                 bundle: .module,
                 comment: "Error when MailReindexer can't read ~/Library/Mail because the app lacks Full Disk Access."
             )
-        case .noMailData:
+        case .mailIsRunning:
             return String(
-                localized: "No Mail databases were found to reindex.",
+                localized: "Mail is open. Quit Mail, then try again.",
                 bundle: .module,
-                comment: "Error when MailReindexer finds no envelope-index databases even though it could read the Mail folder."
+                comment: "Error when Speed Up Mail is run while Mail has its databases open."
             )
         case .vacuumFailed:
             return String(
-                localized: "Couldn't reindex Mail. Quit Mail and try again.",
+                localized: "Couldn't rebuild the Mail database. Try again after restarting your Mac.",
                 bundle: .module,
-                comment: "Error when the Mail envelope-index vacuum fails, usually because Mail is open."
+                comment: "Error when the Mail envelope-index vacuum fails with Mail closed."
             )
         }
     }

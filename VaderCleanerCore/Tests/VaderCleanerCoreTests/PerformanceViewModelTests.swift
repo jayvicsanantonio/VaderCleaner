@@ -1,5 +1,5 @@
 // PerformanceViewModelTests.swift
-// Drives the PerformanceViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/remove — through injected fakes.
+// Drives the PerformanceViewModel state machine — load, RAM flush, maintenance scripts, login-item toggle, and agent disable/batch remove — through injected fakes.
 
 import Foundation
 import Testing
@@ -25,8 +25,7 @@ final class PerformanceViewModelTests: XCTestCase {
         let vm = makeViewModel(
             loadLoginItems: { [Self.loginItem(name: "VaderCleaner")] },
             loadUserAgents: { [Self.agent(label: "com.user.a", domain: .user)] },
-            loadSystemAgents: { [Self.agent(label: "com.sys.b", domain: .system)] },
-            readMemory: { MemoryStats(usedBytes: 8, totalBytes: 16) }
+            loadSystemAgents: { [Self.agent(label: "com.sys.b", domain: .system)] }
         )
 
         await vm.refresh()
@@ -35,7 +34,6 @@ final class PerformanceViewModelTests: XCTestCase {
         XCTAssertEqual(vm.loginItems.map(\.name), ["VaderCleaner"])
         XCTAssertEqual(vm.userAgents.map(\.label), ["com.user.a"])
         XCTAssertEqual(vm.systemAgents.map(\.label), ["com.sys.b"])
-        XCTAssertEqual(vm.memory, MemoryStats(usedBytes: 8, totalBytes: 16))
     }
 
     // MARK: - RAM flush
@@ -159,50 +157,6 @@ final class PerformanceViewModelTests: XCTestCase {
         XCTAssertNil(vm.workingTitle, "The progress title clears when the action finishes")
     }
 
-    func test_runRecommendation_marksTileCompletedOnSuccess() async {
-        let freed = TestBox(false)
-        let vm = makeViewModel(flushRAM: { freed.value = true })
-        await vm.refresh()
-
-        await vm.runRecommendation(Self.recommendation(.freeUpRAM))
-
-        XCTAssertTrue(freed.value, "Running the Free Up RAM tile must invoke the RAM flush")
-        XCTAssertTrue(vm.completedRecommendations.contains(.freeUpRAM))
-    }
-
-    func test_runRecommendation_failureDoesNotMarkCompleted() async {
-        struct Boom: Error {}
-        let vm = makeViewModel(flushRAM: { throw Boom() })
-        await vm.refresh()
-
-        await vm.runRecommendation(Self.recommendation(.freeUpRAM))
-
-        XCTAssertFalse(vm.completedRecommendations.contains(.freeUpRAM),
-                       "A failed action must not mark the tile complete")
-    }
-
-    func test_runRecommendation_backgroundItems_isNavigationOnly() async {
-        let flushed = TestBox(false)
-        let vm = makeViewModel(flushRAM: { flushed.value = true })
-        await vm.refresh()
-
-        await vm.runRecommendation(Self.recommendation(.backgroundItems))
-
-        XCTAssertFalse(flushed.value, "The background-items tile only navigates; it runs nothing")
-        XCTAssertFalse(vm.completedRecommendations.contains(.backgroundItems))
-    }
-
-    func test_refresh_clearsCompletedRecommendations() async {
-        let vm = makeViewModel(flushRAM: {})
-        await vm.refresh()
-        await vm.runRecommendation(Self.recommendation(.freeUpRAM))
-        XCTAssertTrue(vm.completedRecommendations.contains(.freeUpRAM))
-
-        await vm.refresh()
-
-        XCTAssertTrue(vm.completedRecommendations.isEmpty, "A refresh clears completed-tile marks")
-    }
-
     func test_tasks_excludeMaintenanceScriptsWhenPeriodicUnavailable() async {
         let vm = makeViewModel(maintenanceScriptsAvailable: false)
         await vm.refresh()
@@ -213,45 +167,6 @@ final class PerformanceViewModelTests: XCTestCase {
         )
         // The other tasks remain.
         XCTAssertTrue(vm.tasks.contains { $0.kind == .flushDNS })
-    }
-
-    func test_runDueMaintenance_skipsMaintenanceScriptsWhenUnavailable() async {
-        let ranScripts = TestBox(false)
-        let ranDNS = TestBox(false)
-        let vm = makeViewModel(
-            runMaintenance: { ranScripts.value = true; return "scripts" },
-            flushDNS: { ranDNS.value = true; return "dns" },
-            maintenanceScriptsAvailable: false
-        )
-        await vm.refresh()
-
-        await vm.runDueMaintenance()
-
-        XCTAssertFalse(ranScripts.value, "The removed periodic task must never be invoked")
-        XCTAssertTrue(ranDNS.value, "The available cocktail tasks still run")
-        XCTAssertEqual(vm.phase, .ready)
-    }
-
-    func test_runDueMaintenance_runsEveryDueCocktailTask() async {
-        // Fresh run log → every cocktail task is due. Each runner records that
-        // it ran; RAM and Thin TM are excluded from the cocktail.
-        let ranScripts = TestBox(false)
-        let ranDNS = TestBox(false)
-        let ranSpotlight = TestBox(false)
-        let ranMail = TestBox(false)
-        let vm = makeViewModel(
-            runMaintenance: { ranScripts.value = true; return "scripts" },
-            flushDNS: { ranDNS.value = true; return "dns" },
-            reindexSpotlight: { ranSpotlight.value = true; return "spotlight" },
-            speedUpMail: { ranMail.value = true; return "mail" }
-        )
-        await vm.refresh()
-
-        await vm.runDueMaintenance()
-
-        XCTAssertTrue(ranScripts.value && ranDNS.value && ranSpotlight.value && ranMail.value,
-                      "runDueMaintenance() must run every due cocktail task")
-        XCTAssertEqual(vm.phase, .ready)
     }
 
     func test_runTasks_runsEverySelectedTaskInOrder() async {
@@ -286,20 +201,6 @@ final class PerformanceViewModelTests: XCTestCase {
             return XCTFail("Expected .failed, got \(vm.phase)")
         }
         XCTAssertFalse(ranSpotlight.value, "A failure must halt the remaining tasks")
-    }
-
-    func test_refresh_buildsRecommendationsFromSystemState() async {
-        let vm = makeViewModel(
-            loadLoginItems: { [Self.loginItem(name: "A")] },
-            readMemory: { MemoryStats(usedBytes: 15, totalBytes: 16) }, // high pressure
-            readSnapshotCount: { 3 }
-        )
-
-        await vm.refresh()
-
-        XCTAssertTrue(vm.recommendations.contains { $0.kind == .freeUpRAM })
-        XCTAssertTrue(vm.recommendations.contains { $0.kind == .backgroundItems })
-        XCTAssertTrue(vm.recommendations.contains { $0.kind == .thinSnapshots })
     }
 
     // MARK: - Login items
@@ -447,7 +348,7 @@ final class PerformanceViewModelTests: XCTestCase {
         XCTAssertEqual(handlerCalls.value, 2, "no duplicated write path")
     }
 
-    // MARK: - Agent disable / remove
+    // MARK: - Agent enable / disable
 
     func test_disableAgent_flipsRowOptimisticallyWithoutReloadingOrWorkingPhase() async {
         let disabled = TestBox<String?>(nil)
@@ -506,55 +407,6 @@ final class PerformanceViewModelTests: XCTestCase {
         guard case .failed = vm.phase else {
             return XCTFail("expected .failed phase, got \(vm.phase)")
         }
-    }
-
-    func test_removeAgent_dropsRowAndReturnsToReady() async {
-        let target = Self.agent(label: "com.user.doomed", domain: .user)
-        let keep = Self.agent(label: "com.user.keep", domain: .user)
-        let vm = makeViewModel(
-            loadUserAgents: { [target, keep] },
-            removeAgent: { _ in }
-        )
-        await vm.refresh()
-
-        await vm.remove(target)
-
-        XCTAssertEqual(vm.phase, .ready)
-        XCTAssertEqual(vm.userAgents.map(\.label), ["com.user.keep"])
-    }
-
-    func test_removeAgent_failureLeavesListIntact() async {
-        struct Boom: Error {}
-        let target = Self.agent(label: "com.user.doomed", domain: .user)
-        let vm = makeViewModel(
-            loadUserAgents: { [target] },
-            removeAgent: { _ in throw Boom() }
-        )
-        await vm.refresh()
-
-        await vm.remove(target)
-
-        guard case .failed = vm.phase else {
-            return XCTFail("Expected .failed, got \(vm.phase)")
-        }
-        XCTAssertEqual(vm.userAgents.map(\.label), ["com.user.doomed"])
-    }
-
-    func test_removeAgent_systemDaemonIsProtectedAndNotRemoved() async {
-        let removeCalled = TestBox(false)
-        let systemDaemon = Self.agent(label: "com.apple.somethingImportant", domain: .system)
-        let vm = makeViewModel(
-            loadSystemAgents: { [systemDaemon] },
-            removeAgent: { _ in removeCalled.value = true }
-        )
-        await vm.refresh()
-
-        await vm.remove(systemDaemon)
-
-        XCTAssertFalse(removeCalled.value, "System daemons must never be removed")
-        XCTAssertEqual(vm.systemAgents.map(\.label), ["com.apple.somethingImportant"],
-                       "The protected system daemon must remain in the list")
-        XCTAssertEqual(vm.phase, .ready)
     }
 
     func test_dismissResult_returnsToReady() async {
@@ -654,7 +506,6 @@ final class PerformanceViewModelTests: XCTestCase {
         reindexSpotlight: @escaping PerformanceViewModel.RunTask = { "" },
         thinSnapshots: @escaping PerformanceViewModel.RunTask = { "" },
         speedUpMail: @escaping PerformanceViewModel.RunTask = { "" },
-        readSnapshotCount: @escaping PerformanceViewModel.ReadSnapshotCount = { 0 },
         runLog: MaintenanceRunLog? = nil,
         maintenanceScriptsAvailable: Bool = true,
         launchAtLoginChanges: AsyncStream<Void>? = nil
@@ -680,7 +531,6 @@ final class PerformanceViewModelTests: XCTestCase {
             reindexSpotlight: reindexSpotlight,
             thinSnapshots: thinSnapshots,
             speedUpMail: speedUpMail,
-            readSnapshotCount: readSnapshotCount,
             runLog: isolatedLog,
             maintenanceScriptsAvailable: maintenanceScriptsAvailable,
             launchAtLoginChanges: launchAtLoginChanges
@@ -689,12 +539,6 @@ final class PerformanceViewModelTests: XCTestCase {
 
     nonisolated private static func task(_ kind: MaintenanceTask.Kind) -> MaintenanceTask {
         MaintenanceTask.catalog.first { $0.kind == kind }!
-    }
-
-    nonisolated private static func recommendation(_ kind: PerformanceRecommendation.Kind) -> PerformanceRecommendation {
-        PerformanceRecommendation(
-            kind: kind, title: "", detail: "", icon: "", actionLabel: "", isHero: kind == .freeUpRAM
-        )
     }
 
     nonisolated private static func loginItem(name: String) -> LoginItem {

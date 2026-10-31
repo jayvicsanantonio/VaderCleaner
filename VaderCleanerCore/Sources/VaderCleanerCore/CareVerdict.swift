@@ -11,10 +11,10 @@ public struct CareVerdict: Equatable {
     let detail: String
 }
 
-/// Deterministic verdict rules, `PerformanceRecommendationEngine`-style: no
-/// state, no I/O, fully unit-testable. The base tier comes from the shared
-/// Health Monitor derivation so Smart Scan and the Health section can never
-/// disagree about the same telemetry; findings then only ever *lower* it.
+/// Deterministic verdict rules: no state, no I/O, fully unit-testable. The base
+/// tier comes from the shared Health Monitor derivation so Smart Scan and the
+/// Health section can never disagree about the same telemetry; findings then
+/// only ever *lower* it.
 public enum CareVerdictEngine {
 
     /// Safe reclaimable bytes above which the Mac stops reading as pristine —

@@ -162,5 +162,21 @@
             <string>%d things</string>
         </dict>
     </dict>
+    <key>Removed %d local snapshots.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>Removed %#@snapshots@.</string>
+        <key>snapshots</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>d</string>
+            <key>one</key>
+            <string>%d local snapshot</string>
+            <key>other</key>
+            <string>%d local snapshots</string>
+        </dict>
+    </dict>
 </dict>
 </plist>

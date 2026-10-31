@@ -52,8 +52,7 @@ the memoized feed order (`:527`) and the Run queue (`:1122`).
 
 ## Model
 
-Three new types, all `Sendable`, all pure — same shape as
-`PerformanceRecommendationEngine`, which is the house pattern for a
+Three new types, all `Sendable`, all pure — the house pattern for a
 deterministic, exhaustively-testable decision core.
 
 ```swift
