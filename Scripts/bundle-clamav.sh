@@ -18,6 +18,19 @@ readonly BOTTLE_TAG="arm64_tahoe"
 # resolves to a Homebrew prefix (system libs in /usr/lib stay system libs).
 readonly FORMULAE=(clamav openssl@3 pcre2 json-c)
 
+# clamav is pinned to the 1.5.4 bottle built against openssl@3, not whatever the
+# index currently serves. Homebrew's 1.5.4_1 links openssl@4, where libclamav's
+# incremental hashing breaks: it fetches an EVP_MD from an OSSL_LIB_CTX it frees
+# before the first update, so every scan logs a hash error and reports infected
+# files as OK, while `--version` works perfectly well. Upstream fix:
+# https://github.com/Cisco-Talos/clamav/pull/1873
+#
+# To move the pin: take the arm64_tahoe sha256 from the formula's bottle block in
+# homebrew-core, set the matching OpenSSL in this file, and let the detection
+# smoke test at the bottom of this script say whether it really works.
+readonly PINNED_CLAMAV_VERSION="1.5.4"
+readonly PINNED_CLAMAV_SHA256="f3d487c09435064df158bc3cac331c43543a9de9a71fb65add0cb7d65d71a0e4"
+
 # Files we keep from each bottle. Everything else (headers, share/, static
 # .a archives, daemon binaries, pkg-config, locale data) is dropped on the
 # floor to keep the .app payload small.
@@ -84,6 +97,7 @@ require_tool python3
 require_tool install_name_tool
 require_tool otool
 require_tool codesign
+require_tool md5
 
 # -----------------------------------------------------------------------------
 # 1. Fetch bottle URL + sha256 from the formulae.brew.sh API.
@@ -95,6 +109,14 @@ require_tool codesign
 
 fetch_bottle_info() {
     local formula="$1"
+    if [[ "${formula}" == "clamav" ]]; then
+        warn_if_clamav_pin_is_behind
+        printf '%s\n' \
+            "${PINNED_CLAMAV_VERSION}" \
+            "https://ghcr.io/v2/homebrew/core/clamav/blobs/sha256:${PINNED_CLAMAV_SHA256}" \
+            "${PINNED_CLAMAV_SHA256}"
+        return
+    fi
     curl --fail --silent --show-error \
         "https://formulae.brew.sh/api/formula/${formula}.json" |
         python3 -c "
@@ -107,6 +129,18 @@ print(data['versions']['stable'])
 print(bottle['url'])
 print(bottle['sha256'])
 "
+}
+
+# A pin stops following security releases, and this is a malware scanner, so say
+# so when one ships. Only a warning: the check needing the network mustn't be
+# what stops a build, and the pinned bottle still works.
+warn_if_clamav_pin_is_behind() {
+    local latest
+    latest="$(curl --fail --silent --show-error \
+        "https://formulae.brew.sh/api/formula/clamav.json" |
+        python3 -c "import json, sys; print(json.load(sys.stdin)['versions']['stable'])")" || return 0
+    [[ "${latest}" == "${PINNED_CLAMAV_VERSION}" ]] ||
+        warn "  clamav is pinned to ${PINNED_CLAMAV_VERSION}, but ${latest} is out. See PINNED_CLAMAV_SHA256."
 }
 
 download_bottle() {
@@ -328,6 +362,30 @@ write_build_info() {
 }
 
 # -----------------------------------------------------------------------------
+# 7. Prove the staged scanner detects something. `--version` loads every dylib
+#    but hashes nothing, so a build whose scans can't work still passes it. This
+#    needs a local one-line database, so it runs offline and in seconds.
+# -----------------------------------------------------------------------------
+
+smoke_test_detection() {
+    local dir="${WORK_DIR}/smoke"
+    mkdir -p "${dir}/db"
+    printf 'VaderCleaner bundled ClamAV smoke test\n' > "${dir}/sample"
+    printf '%s:%s:VaderCleaner.Smoke.Test\n' \
+        "$(md5 -q "${dir}/sample")" \
+        "$(wc -c < "${dir}/sample" | tr -d ' ')" > "${dir}/db/smoke.hdb"
+
+    local output status=0
+    output="$(CVD_CERTS_DIR="${VENDOR_DIR}/certs" "${VENDOR_DIR}/bin/clamscan" \
+        --database="${dir}/db" --no-summary "${dir}/sample" 2>&1)" || status=$?
+    # clamscan exits 1 for "found a virus", which is the passing case here.
+    if [[ "${status}" -ne 1 || "${output}" != *"VaderCleaner.Smoke.Test"*"FOUND"* ]]; then
+        printf '%s\n' "${output}" >&2
+        die "the staged clamscan failed to detect its test signature (exit ${status})"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 
@@ -402,5 +460,6 @@ log "Smoke test"
 # committing to a particular DatabaseDirectory (the app picks one at
 # runtime under ~/Library/Application Support/VaderCleaner/clamav/).
 "${VENDOR_DIR}/bin/freshclam" --config-file=/dev/null --version
+smoke_test_detection
 
 log "Done. Vendor/clamav/ is $(du -sh "${VENDOR_DIR}" | awk '{print $1}')"
