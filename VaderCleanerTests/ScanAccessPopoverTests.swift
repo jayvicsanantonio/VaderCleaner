@@ -2,6 +2,7 @@
 // Pins the Scan-tap Full Disk Access gate: which sections raise the access popover, and the ScanAccessPopover view's accent + callback contract.
 
 import XCTest
+import Testing
 import SwiftUI
 @testable import VaderCleaner
 @testable import VaderCleanerCore
@@ -108,5 +109,28 @@ final class ScanAccessPopoverTests: XCTestCase {
         XCTAssertFalse(fired, "Callback must not fire on construction")
         popover.onScanAnyway()
         XCTAssertTrue(fired, "Triggering Scan Anyway must invoke the supplied callback")
+    }
+}
+
+@MainActor
+@Suite
+struct ScanAccessPopoverRelaunchTests {
+
+    @Test func doesNotOfferARelaunch_unlessToldTo() {
+        // A user who hasn't been to System Settings has nothing to apply yet.
+        let popover = ScanAccessPopover(onOpenSettings: {}, onScanAnyway: {})
+        #expect(!popover.isAwaitingRelaunch)
+    }
+
+    @Test func invokesRelaunchCallback() {
+        var fired = false
+        let popover = ScanAccessPopover(
+            isAwaitingRelaunch: true,
+            onOpenSettings: {},
+            onScanAnyway: {},
+            onRelaunch: { fired = true }
+        )
+        popover.onRelaunch()
+        #expect(fired)
     }
 }

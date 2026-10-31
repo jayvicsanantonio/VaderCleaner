@@ -18,12 +18,11 @@ struct VaderCleanerApp: App {
     /// duplicates each time they tapped the menu bar action.
     static let mainWindowID = "main"
 
-    // App-scope state owned outside the WindowGroup so dismissing the FDA
-    // onboarding sheet (or any future session-wide flag) holds across all
-    // windows the user might open. A per-view @State in ContentView would
+    // App-scope state owned outside the WindowGroup so the Full Disk Access
+    // reading (or any future session-wide flag) holds across all windows the
+    // user might open. A per-view @State in ContentView would
     // be re-created per WindowGroup instance.
     @State private var appState = AppState()
-    @State private var onboardingViewModel = PermissionOnboardingViewModel.live()
     // The first-run flow covers the whole window, so it is owned here rather
     // than by ContentView: closing and reopening the window mid-flow must not
     // restart the tour from step one.
@@ -219,9 +218,9 @@ struct VaderCleanerApp: App {
         // Wire the notification monitor to the same stats + preferences
         // instances the rest of the app sees. The monitor holds the manager
         // strongly via `dispatcher`, and ContentView drives the permission
-        // request through `monitor.requestPermission()` after the FDA
-        // onboarding sheet has settled — so we don't need a separate App-
-        // level reference to the manager.
+        // request through `monitor.requestPermission()` after the first-run
+        // flow has closed — so we don't need a separate App-level reference to
+        // the manager.
         let notificationMonitor = NotificationThresholdMonitor(
             stats: stats,
             preferences: prefs,
@@ -327,7 +326,6 @@ struct VaderCleanerApp: App {
                 smartScanViewModel: smartScanViewModel
             )
                 .environment(appState)
-                .environment(onboardingViewModel)
                 .environment(welcomeViewModel)
                 .environment(preferences)
                 .environment(exclusions)

@@ -122,7 +122,7 @@ struct PerformanceView: View {
                 message: message,
                 onDismiss: { viewModel.dismissResult() },
                 onOpenFullDiskAccess: viewModel.failureNeedsFullDiskAccess
-                    ? { openURL(PermissionOnboardingViewModel.systemSettingsURL) }
+                    ? { openURL(PrivacyPermissionChecker.fullDiskAccessSettingsURL) }
                     : nil
             )
         }

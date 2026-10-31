@@ -165,25 +165,4 @@ final class WelcomeUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["sidebar.smartScan"].waitForExistence(timeout: 10))
         XCTAssertFalse(step("welcome.step.ready").exists)
     }
-
-    func test_finishing_doesNotHandTheUserBackToTheLegacyAccessSheet() {
-        // The flow's access step is the Full Disk Access conversation. Closing
-        // the flow without that permission must not immediately reopen the old
-        // sheet asking for it again — which would also cover the hand-off the
-        // user just chose.
-        launchAsFirstRun()
-        XCTAssertTrue(step("welcome.step.welcome").waitForExistence(timeout: 10))
-
-        app.buttons["welcome.skipTour"].click()
-        XCTAssertTrue(step("welcome.step.access").waitForExistence(timeout: 5))
-        app.buttons["welcome.continue"].click()
-        XCTAssertTrue(step("welcome.step.ready").waitForExistence(timeout: 5))
-
-        app.buttons["welcome.explore"].click()
-        XCTAssertTrue(app.otherElements["sidebar.smartScan"].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.groups["permissionOnboarding"].waitForExistence(timeout: 3),
-            "The legacy Full Disk Access sheet should stay closed for the rest of the session"
-        )
-    }
 }

@@ -39,10 +39,15 @@ struct ScanAccessPopover: View {
 
     /// Section-aware tint applied to the lock symbol and the primary button.
     var accent: Color = .vaderCrimson
+    /// Whether the user has already been to System Settings and this process
+    /// still can't see a grant, which makes a relaunch the useful next step.
+    var isAwaitingRelaunch = false
     /// Opens System Settings on the Full Disk Access pane.
     let onOpenSettings: () -> Void
     /// Dismisses the popover and starts the scan with whatever is accessible.
     let onScanAnyway: () -> Void
+    /// Replaces this process with a new one, so macOS can apply the grant.
+    var onRelaunch: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -57,20 +62,32 @@ struct ScanAccessPopover: View {
                 ))
                     .font(.callout.weight(.semibold))
             }
-            Text(String(
-                localized: "Without it, this scan can only see unprotected files. Grant access for complete results, or scan what's reachable now.",
-                comment: "Body of the Scan access popover, explaining why Full Disk Access matters."
-            ))
+            Text(
+                isAwaitingRelaunch
+                    ? String(
+                        localized: "Switched it on? Relaunch so macOS can apply it, or scan what's reachable now.",
+                        comment: "Body of the Scan access popover once the user has visited the Full Disk Access pane and access isn't detected yet."
+                    )
+                    : String(
+                        localized: "Without it, this scan can only see unprotected files. Grant access for complete results, or scan what's reachable now.",
+                        comment: "Body of the Scan access popover, explaining why Full Disk Access matters."
+                    )
+            )
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(
-                    String(
-                        localized: "Open System Settings",
-                        comment: "Scan access popover button that opens the Full Disk Access pane in System Settings."
-                    ),
-                    action: onOpenSettings
+                    isAwaitingRelaunch
+                        ? String(
+                            localized: "Relaunch",
+                            comment: "Scan access popover button that relaunches the app so a Full Disk Access grant applies."
+                        )
+                        : String(
+                            localized: "Open System Settings",
+                            comment: "Scan access popover button that opens the Full Disk Access pane in System Settings."
+                        ),
+                    action: isAwaitingRelaunch ? onRelaunch : onOpenSettings
                 )
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
@@ -78,7 +95,7 @@ struct ScanAccessPopover: View {
                     // Old Files teal) so the prominent button keeps a legible
                     // white label instead of the system's black-on-bright fill.
                     .tint(accent.deepenedForWhite)
-                    .accessibilityIdentifier("fda.popover.openSettings")
+                    .accessibilityIdentifier(isAwaitingRelaunch ? "fda.popover.relaunch" : "fda.popover.openSettings")
                 Button(
                     String(
                         localized: "Scan Anyway",

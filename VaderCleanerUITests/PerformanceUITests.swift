@@ -26,7 +26,6 @@ final class PerformanceUITests: XCTestCase {
     }
 
     func test_navigateToPerformance_scan_revealsDashboardAndCatalog() throws {
-        dismissOnboardingIfNeeded()
 
         let sidebarRow = app.buttons["sidebar.performance"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
@@ -68,11 +67,4 @@ final class PerformanceUITests: XCTestCase {
     }
 
     // MARK: - Helpers
-
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
-    }
 }

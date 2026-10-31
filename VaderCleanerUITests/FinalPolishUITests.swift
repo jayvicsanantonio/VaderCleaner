@@ -46,7 +46,6 @@ final class FinalPolishUITests: XCTestCase {
 
     /// Launch → every one of the eight sections is present in the sidebar.
     func test_launch_sidebarShowsAllEightSections() throws {
-        dismissOnboardingIfNeeded()
 
         for identifier in sectionIdentifiers {
             let row = app.buttons[identifier].firstMatch
@@ -80,7 +79,6 @@ final class FinalPolishUITests: XCTestCase {
     /// all-clear dashboard or the Extensions pane) would require running a scan
     /// inside the test.
     func test_railRowPosition_isStableAcrossDetailScreens() throws {
-        dismissOnboardingIfNeeded()
 
         let anchor = app.buttons["sidebar.smartScan"].firstMatch
         XCTAssertTrue(anchor.waitForExistence(timeout: 5),
@@ -119,7 +117,6 @@ final class FinalPolishUITests: XCTestCase {
     /// Disk are always available on any Mac (battery/SMART depend on
     /// hardware), so asserting those three is both ≥3 and deterministic.
     func test_navigateToHealthMonitor_showsAtLeastThreeStatCards() throws {
-        dismissOnboardingIfNeeded()
 
         let row = app.buttons["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
@@ -140,7 +137,6 @@ final class FinalPolishUITests: XCTestCase {
     /// verdict and the boot-volume fill bar. Asserts the hero, its status
     /// title, and its disk bar render above the per-metric grid.
     func test_navigateToHealthMonitor_showsMacHealthHero() throws {
-        dismissOnboardingIfNeeded()
 
         let row = app.buttons["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
@@ -163,7 +159,6 @@ final class FinalPolishUITests: XCTestCase {
     /// `ScannableSectionContent` wrapper and `FloatingScanOverlay` stay gated
     /// behind `NavigationSection.isScannable`.
     func test_healthMonitor_isNonScannable_hasNoIntroOrScanButton() throws {
-        dismissOnboardingIfNeeded()
 
         let row = app.buttons["sidebar.healthMonitor"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
@@ -199,7 +194,6 @@ final class FinalPolishUITests: XCTestCase {
     /// reason. Scan correctness itself is covered exhaustively by
     /// `LargeOldFilesScannerTests` / `LargeOldFilesViewModelTests`.
     func test_largeOldFiles_scan_reachesRecognizableState() throws {
-        dismissOnboardingIfNeeded()
 
         let row = app.buttons["sidebar.largeOldFiles"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
@@ -253,7 +247,6 @@ final class FinalPolishUITests: XCTestCase {
     /// must contain at least five rows. This proves the merged Applications
     /// section's scan → dashboard → detail wiring end to end.
     func test_applications_manageOpensUninstallerListWithAtLeastFiveApps() throws {
-        dismissOnboardingIfNeeded()
 
         let row = app.buttons["sidebar.applications"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
@@ -298,7 +291,6 @@ final class FinalPolishUITests: XCTestCase {
     /// Cmd+, opens the Settings scene; every preference tab must be reachable
     /// and the Menu Bar tab must expose its toggle.
     func test_preferences_allFourTabsAreAccessible() throws {
-        dismissOnboardingIfNeeded()
 
         openPreferences()
 
@@ -328,7 +320,6 @@ final class FinalPolishUITests: XCTestCase {
     /// `MenuBarPreferencesTests.test_presence_cannotReachNeither` owns that
     /// invariant, since a picker can't express the combination at all.
     func test_preferences_presencePicker_isWritable() throws {
-        dismissOnboardingIfNeeded()
 
         openPreferences()
         preferenceTab("Menu Bar").click()
@@ -380,16 +371,9 @@ final class FinalPolishUITests: XCTestCase {
         )
     }
 
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
-    }
-
     /// The floating Scan button gates FDA-sensitive sections behind an access
     /// popover when Full Disk Access is missing — which it is on a test host
-    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
+    /// without that grant. Tap "Scan
     /// Anyway" so the scan proceeds and the wiring under test still runs.
     private func proceedPastScanAccessPopoverIfNeeded() {
         let scanAnyway = app.buttons["fda.popover.scanAnyway"]

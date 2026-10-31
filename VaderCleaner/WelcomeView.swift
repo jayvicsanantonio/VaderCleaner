@@ -197,9 +197,27 @@ struct WelcomeView: View {
                         comment: "First-run flow: opens the Full Disk Access pane."
                     )
                 }
-                .buttonStyle(viewModel.hasFullDiskAccess ? AnyButtonStyle(.vaderGlass) : AnyButtonStyle(.vaderWhite))
+                .buttonStyle(
+                    viewModel.hasFullDiskAccess || viewModel.isAwaitingRelaunch
+                        ? AnyButtonStyle(.vaderGlass)
+                        : AnyButtonStyle(.vaderWhite)
+                )
                 .controlSize(.large)
                 .accessibilityIdentifier("welcome.openSystemSettings")
+
+                if viewModel.isAwaitingRelaunch {
+                    Button {
+                        viewModel.relaunch()
+                    } label: {
+                        Text(
+                            "Relaunch",
+                            comment: "First-run flow: relaunches the app so a Full Disk Access grant applies."
+                        )
+                    }
+                    .buttonStyle(.vaderWhite)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("welcome.relaunch")
+                }
 
                 Button {
                     viewModel.advance()
@@ -278,7 +296,8 @@ struct AnyButtonStyle: ButtonStyle {
         viewModel: WelcomeViewModel(
             store: WelcomeStore(defaults: UserDefaults(suiteName: "preview")!),
             fullDiskAccessChecker: { false },
-            openSystemSettings: {}
+            openSystemSettings: {},
+            relaunch: {}
         )
     )
     .frame(width: 1320, height: 720)

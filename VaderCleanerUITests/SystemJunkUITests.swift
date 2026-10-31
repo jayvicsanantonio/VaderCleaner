@@ -43,10 +43,6 @@ final class SystemJunkUITests: XCTestCase {
     /// test does not depend on the scan returning at least one result — an empty
     /// Caches directory on a freshly imaged CI host must not flake.
     func test_navigateToSystemJunk_andScan_revealsPreview() throws {
-        // The Full Disk Access onboarding sheet may be in the way. Dismiss it
-        // through "Continue Without Access" if present so the sidebar is
-        // reachable. The button label comes from `PermissionOnboardingView`.
-        dismissOnboardingIfNeeded()
 
         // Select the sidebar row by its stable accessibility identifier
         // rather than its visible label, so the locator survives restyles.
@@ -118,7 +114,6 @@ final class SystemJunkUITests: XCTestCase {
     /// `SpaceLens` / Large & Old Files siblings already use for the same
     /// unbounded walk.
     func test_systemJunkPreviewPersistsAcrossSidebarNavigation() throws {
-        dismissOnboardingIfNeeded()
 
         let sidebarRow = app.buttons["sidebar.systemJunk"].firstMatch
         XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
@@ -164,16 +159,9 @@ final class SystemJunkUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
-    }
-
     /// The floating Scan button gates FDA-sensitive sections behind an access
     /// popover when Full Disk Access is missing — which it is on a test host
-    /// that dismissed onboarding via "Continue Without Access". Tap "Scan
+    /// without that grant. Tap "Scan
     /// Anyway" so the scan proceeds and the wiring under test still runs.
     private func proceedPastScanAccessPopoverIfNeeded() {
         let scanAnyway = app.buttons["fda.popover.scanAnyway"]

@@ -38,6 +38,12 @@ public final class WelcomeViewModel {
     /// actually going on instead.
     public private(set) var hasVisitedSystemSettings = false
 
+    /// Whether the access step should offer to relaunch: the user has been to
+    /// System Settings and this process still can't see a grant.
+    public var isAwaitingRelaunch: Bool {
+        hasVisitedSystemSettings && !hasFullDiskAccess
+    }
+
     /// Whether the one-time pointer at the floating Scan disc should be on
     /// screen. Raised only for a user who closed the flow without starting a
     /// scan — someone who chose "Run First Smart Scan" can already see the
@@ -52,28 +58,35 @@ public final class WelcomeViewModel {
     @ObservationIgnored private let store: WelcomeStore
     @ObservationIgnored private let fullDiskAccessChecker: () -> Bool
     @ObservationIgnored private let openSystemSettingsAction: () -> Void
+    @ObservationIgnored private let relaunchAction: () -> Void
 
     public init(
         store: WelcomeStore,
         fullDiskAccessChecker: @escaping () -> Bool,
-        openSystemSettings: @escaping () -> Void
+        openSystemSettings: @escaping () -> Void,
+        relaunch: @escaping () -> Void
     ) {
         self.store = store
         self.fullDiskAccessChecker = fullDiskAccessChecker
         self.openSystemSettingsAction = openSystemSettings
+        self.relaunchAction = relaunch
         self.isPresented = !store.hasCompletedWelcome
         self.hasFullDiskAccess = fullDiskAccessChecker()
         self.step = store.resumeStep ?? .first
     }
 
-    /// Production wiring: the real TCC probe and the real System Settings
-    /// deep-link, which is the same URL the standalone FDA sheet uses.
+    /// Production wiring: the real TCC probe, the real System Settings deep-link,
+    /// and the real relaunch. The stored resume step brings the new process back
+    /// to this same step.
     public static func live(store: WelcomeStore = WelcomeStore()) -> WelcomeViewModel {
         WelcomeViewModel(
             store: store,
             fullDiskAccessChecker: { PrivacyPermissionChecker.hasFullDiskAccess() },
             openSystemSettings: {
-                NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
+                NSWorkspace.shared.open(PrivacyPermissionChecker.fullDiskAccessSettingsURL)
+            },
+            relaunch: {
+                Task { @MainActor in await AppRelauncher.relaunch() }
             }
         )
     }
@@ -127,6 +140,12 @@ public final class WelcomeViewModel {
     public func requestFullDiskAccess() {
         hasVisitedSystemSettings = true
         openSystemSettingsAction()
+    }
+
+    /// Replaces this process with a new one, for a user who granted access and
+    /// didn't take the restart macOS offered.
+    public func relaunch() {
+        relaunchAction()
     }
 
     // MARK: Finishing
