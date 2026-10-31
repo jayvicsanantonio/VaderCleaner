@@ -7,7 +7,6 @@ import VaderCleanerCore
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @Environment(PermissionOnboardingViewModel.self) private var onboarding
     @Environment(WelcomeViewModel.self) private var welcome
     @Environment(SystemStatsService.self) private var systemStats
     @Environment(NotificationThresholdMonitor.self) private var notificationMonitor
@@ -375,11 +374,6 @@ struct ContentView: View {
                 welcome.dismissScanHint()
             }
         }
-        .sheet(isPresented: shouldShowOnboarding) {
-            PermissionOnboardingView()
-                .environment(appState)
-                .environment(onboarding)
-        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 appState.refresh()
@@ -390,17 +384,12 @@ struct ContentView: View {
         // (window already open when the menu fired the request).
         .onAppear { applyPendingRoute() }
         .onChange(of: menuRouter.requestedSection) { _, _ in applyPendingRoute() }
-        // Ask for notification permission only after the FDA onboarding has
-        // settled — either the user already has Full Disk Access, or they
-        // dismissed the sheet via "Continue Without Access". Stacking the
-        // notification prompt on top of the FDA sheet would split the user's
-        // attention between two consent dialogs and make it likely they'd
-        // deny notifications without context.
+        // Ask for notification permission only once the first-run flow has
+        // closed. Stacking the notification prompt on top of the flow's Full
+        // Disk Access step would split the user's attention between two consent
+        // dialogs and make it likely they'd deny notifications without context.
         .task { await maybeRequestNotificationPermission() }
-        .onChange(of: appState.hasFullDiskAccess) { _, _ in
-            Task { await maybeRequestNotificationPermission() }
-        }
-        .onChange(of: onboarding.isDismissed) { _, _ in
+        .onChange(of: welcome.isPresented) { _, _ in
             Task { await maybeRequestNotificationPermission() }
         }
         // The window's Health Monitor and dashboards read live stats, so it
@@ -450,15 +439,7 @@ struct ContentView: View {
     /// appear rather than in `init` because the flow is owned at app scope and
     /// outlives any single ContentView instance.
     private func installWelcomeHandoff() {
-        welcome.onFinish = { [smartScanViewModel, scanCompletionNotifier, onboarding] startScan in
-            // The flow's own access step is the FDA conversation, so mark that
-            // conversation as had. Without this the legacy sheet springs up the
-            // instant the flow closes — asking again, in worse words, for the
-            // permission the user just declined, and covering the hand-off they
-            // chose. It also unblocks the notification prompt, which waits on
-            // the same flag.
-            onboarding.dismiss()
-
+        welcome.onFinish = { [smartScanViewModel, scanCompletionNotifier] startScan in
             guard startScan else { return }
             scanCompletionNotifier.armScan(section: .smartScan, coordinator: smartScanViewModel)
             smartScanViewModel.beginScan()
@@ -485,15 +466,13 @@ struct ContentView: View {
     }
 
     /// Idempotent permission-request driver. Fires the system prompt at most
-    /// once per session, and only once the FDA onboarding flow has reached a
-    /// terminal state (granted or explicitly dismissed).
+    /// once per session, and only once the first-run flow has closed.
     private func maybeRequestNotificationPermission() async {
         guard !didRequestNotificationPermission else { return }
         // The first-run flow is asking for Full Disk Access in its own words;
         // a system notification prompt over the top of it would split the
         // user's attention across two consent decisions at once.
         guard !welcome.isPresented else { return }
-        guard appState.hasFullDiskAccess || onboarding.isDismissed else { return }
         didRequestNotificationPermission = true
         await notificationMonitor.requestPermission()
         // Permission has resolved — start the Notifications-pane background
@@ -559,22 +538,6 @@ struct ContentView: View {
                 ProtectionDashboardView(viewModel: protectionDashboardViewModel)
             }
         }
-    }
-
-    /// Shown until either FDA is granted (which the foreground refresh will detect)
-    /// or the user dismisses for the session — either via the explicit "Continue
-    /// Without Access" button or via Esc / programmatic sheet dismissal, both of
-    /// which route through `viewModel.dismiss()` so the sheet stays suppressed.
-    private var shouldShowOnboarding: Binding<Bool> {
-        Binding(
-            // Suppressed while the first-run flow is up: that flow covers the
-            // same ground in its own permission step, and stacking a sheet on
-            // top of it would ask twice.
-            get: { !appState.hasFullDiskAccess && !onboarding.isDismissed && !welcome.isPresented },
-            set: { newValue in
-                if newValue == false { onboarding.dismiss() }
-            }
-        )
     }
 }
 
@@ -648,7 +611,6 @@ private extension AnyTransition {
     )
         .environment(AppState(checker: { true }))
         .environment(SmartScanSettingsStore(defaults: UserDefaults(suiteName: "preview")!))
-        .environment(PermissionOnboardingViewModel.live())
         // Marked complete so the preview shows the main window rather than the
         // first-run flow, which has its own preview.
         .environment({
@@ -657,7 +619,8 @@ private extension AnyTransition {
             return WelcomeViewModel(
                 store: store,
                 fullDiskAccessChecker: { true },
-                openSystemSettings: {}
+                openSystemSettings: {},
+                relaunch: {}
             )
         }())
         .environment(stats)

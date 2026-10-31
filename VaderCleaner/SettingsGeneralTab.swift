@@ -67,9 +67,12 @@ struct GeneralTab: View {
                     AccessStatusRow(
                         symbol: "folder.badge.person.crop",
                         title: "Full Disk Access",
-                        status: SettingsAccessStatus.fullDiskAccess(hasAccess: appState.hasFullDiskAccess),
+                        status: SettingsAccessStatus.fullDiskAccess(
+                            hasAccess: appState.hasFullDiskAccess,
+                            isAwaitingRelaunch: appState.isAwaitingRelaunchForFullDiskAccess
+                        ),
                         isBusy: false,
-                        action: openFullDiskAccessSettings
+                        action: fixFullDiskAccess
                     )
                     AccessStatusRow(
                         symbol: "wrench.adjustable",
@@ -235,8 +238,12 @@ struct GeneralTab: View {
         }
     }
 
-    private func openFullDiskAccessSettings() {
-        NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
+    private func fixFullDiskAccess() {
+        if appState.isAwaitingRelaunchForFullDiskAccess {
+            appState.relaunch()
+        } else {
+            appState.openFullDiskAccessSettings()
+        }
     }
 
     /// Re-registers the helper, then confirms the repair actually took by

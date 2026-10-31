@@ -2,7 +2,6 @@
 // The floating Scan disc for one scannable section — shown only at the `.intro` phase, accent-tinted, and gated behind the Full Disk Access popover when access is missing.
 
 import SwiftUI
-import AppKit
 import VaderCleanerCore
 
 /// The floating Scan button for one scannable section. Observes the coordinator
@@ -62,17 +61,19 @@ struct FloatingScanOverlay<Coordinator: ScanCoordinating>: View {
                 .popover(isPresented: $showFullDiskAccessPrompt, arrowEdge: .top) {
                     ScanAccessPopover(
                         accent: accent,
+                        isAwaitingRelaunch: appState.isAwaitingRelaunchForFullDiskAccess,
                         onOpenSettings: {
                             // Dismiss the popover before handing focus to
                             // System Settings so no stale popover lingers when
                             // the app comes back forward.
                             showFullDiskAccessPrompt = false
-                            NSWorkspace.shared.open(PermissionOnboardingViewModel.systemSettingsURL)
+                            appState.openFullDiskAccessSettings()
                         },
                         onScanAnyway: {
                             showFullDiskAccessPrompt = false
                             startScan()
-                        }
+                        },
+                        onRelaunch: { appState.relaunch() }
                     )
                 }
             }

@@ -34,7 +34,6 @@ final class SmartScanUITests: XCTestCase {
     }
 
     func test_smartScanIsDefaultLanding_revealsIntroScreen() throws {
-        dismissOnboardingIfNeeded()
 
         // Smart Scan is the default selected section, so the unified intro and
         // its floating Scan button should be present without any navigation.
@@ -61,7 +60,6 @@ final class SmartScanUITests: XCTestCase {
     /// the intro into the concurrent checklist. We assert only the
     /// transition, never completion (see the file-level note).
     func test_smartScan_tapScan_entersChecklist() throws {
-        dismissOnboardingIfNeeded()
 
         let scanButton = app.buttons["section.smartScan.scan"]
         XCTAssertTrue(
@@ -99,7 +97,6 @@ final class SmartScanUITests: XCTestCase {
     /// Slow by necessity: the disc only exists on a finished scan with work to
     /// do, and there is no way to seed that state without a mock mode.
     func test_returningToSmartScan_afterLeavingAReviewOpen_restoresTheFixDisc() throws {
-        dismissOnboardingIfNeeded()
 
         let scanButton = app.buttons["section.smartScan.scan"]
         XCTAssertTrue(scanButton.waitForExistence(timeout: 10), "Expected the floating Scan button")
@@ -149,15 +146,6 @@ final class SmartScanUITests: XCTestCase {
             disc.waitForExistence(timeout: 10),
             "The Fix disc must come back on return; without it the scan cannot be run at all"
         )
-    }
-
-    /// Dismisses the Full Disk Access onboarding sheet when the test machine
-    /// hasn't granted FDA, so the intro assertions can run either way.
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
     }
 
     /// The floating Scan button gates FDA-sensitive sections behind an access

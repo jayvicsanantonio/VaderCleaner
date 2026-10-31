@@ -7,6 +7,11 @@ import Foundation
 /// `offerUninstallOnTrash` is on, dispatches a notification offering to remove
 /// the app's leftover files too. The Trash listing is injected so the
 /// new-app diff is unit-testable without a real Trash directory.
+///
+/// Listing runs off the main actor: the Trash can hold enough items to take many
+/// seconds, which would freeze the window every time it is listed. It is
+/// unreadable without Full Disk Access, so that freeze first appears on the
+/// launch after the user grants it.
 @MainActor
 final class TrashedAppMonitor {
 
@@ -20,6 +25,14 @@ final class TrashedAppMonitor {
     /// Apps already seen in the Trash, so only *newly* trashed apps notify.
     private var seen: Set<String> = []
     private var source: DispatchSourceFileSystemObject?
+    private var primeTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+    /// Set when the Trash changes during a listing. A cleanup writes to it
+    /// thousands of times, and overlapping listings could finish out of order
+    /// and replay apps already seen, so changes wait for one follow-up instead.
+    private var needsAnotherPoll = false
+    /// Whether the apps already in the Trash have been recorded.
+    private(set) var hasPrimedBaseline = false
 
     init(
         preferences: PreferencesStore,
@@ -46,8 +59,18 @@ final class TrashedAppMonitor {
     func start() {
         stop()
         // Prime the baseline so apps already in the Trash don't notify on launch.
-        seen = Set(appLister())
+        // Watching starts only once it's in place, so no change can be compared
+        // against an empty baseline.
+        primeTask = Task { [weak self, appLister] in
+            let baseline = await Self.listOffMainActor(using: appLister)
+            guard let self, !Task.isCancelled else { return }
+            self.seen = Set(baseline)
+            self.hasPrimedBaseline = true
+            self.watchTrash()
+        }
+    }
 
+    private func watchTrash() {
         let trash = Self.trashURL()
         let descriptor = open(trash.path, O_EVTONLY)
         guard descriptor >= 0 else { return }
@@ -71,12 +94,35 @@ final class TrashedAppMonitor {
     }
 
     func stop() {
+        primeTask?.cancel()
+        primeTask = nil
+        pollTask?.cancel()
+        pollTask = nil
+        needsAnotherPoll = false
+        hasPrimedBaseline = false
         source?.cancel()
         source = nil
     }
 
-    private func poll() {
-        evaluate(trashedAppNames: appLister())
+    func poll() {
+        guard pollTask == nil else {
+            needsAnotherPoll = true
+            return
+        }
+        pollTask = Task { [weak self, appLister] in
+            let names = await Self.listOffMainActor(using: appLister)
+            guard let self, !Task.isCancelled else { return }
+            self.evaluate(trashedAppNames: names)
+            self.pollTask = nil
+            if self.needsAnotherPoll {
+                self.needsAnotherPoll = false
+                self.poll()
+            }
+        }
+    }
+
+    nonisolated private static func listOffMainActor(using appLister: @escaping AppLister) async -> [String] {
+        await Task.detached(priority: .utility) { appLister() }.value
     }
 
     nonisolated private static func trashURL() -> URL {

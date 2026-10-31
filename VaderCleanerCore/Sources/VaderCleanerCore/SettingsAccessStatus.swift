@@ -25,7 +25,9 @@ public struct AccessStatusDisplay: Equatable {
 /// or `SMAppService`.
 public enum SettingsAccessStatus {
 
-    public static func fullDiskAccess(hasAccess: Bool) -> AccessStatusDisplay {
+    /// `isAwaitingRelaunch` swaps the action for a relaunch once the user has been
+    /// to System Settings, since macOS applies the grant to a new process.
+    public static func fullDiskAccess(hasAccess: Bool, isAwaitingRelaunch: Bool = false) -> AccessStatusDisplay {
         if hasAccess {
             return AccessStatusDisplay(
                 isHealthy: true,
@@ -35,6 +37,21 @@ public enum SettingsAccessStatus {
                     comment: "General settings: Full Disk Access is granted."
                 ),
                 actionTitle: nil
+            )
+        }
+        if isAwaitingRelaunch {
+            return AccessStatusDisplay(
+                isHealthy: false,
+                detail: String(
+                    localized: "Switched it on? Relaunch so macOS can apply it.",
+                    bundle: .module,
+                    comment: "General settings: the user visited the Full Disk Access pane and access isn't detected yet."
+                ),
+                actionTitle: String(
+                    localized: "Relaunch",
+                    bundle: .module,
+                    comment: "General settings: button that relaunches the app so a Full Disk Access grant applies."
+                )
             )
         }
         return AccessStatusDisplay(

@@ -180,15 +180,17 @@ lint suggestions in this repo were unsound and would not have compiled.
   app's own gradients as the tour advances. It is owned at app scope
   (`WelcomeViewModel.live()`) and gated by `WelcomeStore`, which is deliberately
   *not* a `PreferencesStore` property — "Restore Defaults" must not put the user
-  back through onboarding. While it is up, ContentView suppresses the standalone
-  FDA sheet, the notification prompt, and the floating Scan disc; the disc lives
-  in a child panel that draws *above* the window, so any full-window surface has
-  to hold it out via `ScanDiscWindowController.isSuppressed`. Finishing the flow
-  calls `PermissionOnboardingViewModel.dismiss()` — the flow's access step *is*
-  that conversation, so the legacy sheet must not spring open the moment the
-  flow closes, and the notification prompt (which waits on the same flag) must
-  not be stranded for a user who declined Full Disk Access.
+  back through onboarding. While it is up, ContentView suppresses the
+  notification prompt and the floating Scan disc; the disc lives in a child panel
+  that draws *above* the window, so any full-window surface has to hold it out
+  via `ScanDiscWindowController.isSuppressed`.
   See **The `welcome.hasCompleted` flag** below.
+- **Full Disk Access never blocks.** There is deliberately no modal for it: the
+  flow's access step asks once, `ScanAccessPopover` asks at the moment of a scan
+  that needs it, `FullDiskAccessPromptCard` explains an empty result, and the
+  General settings tab shows the state. Once a user has been to System Settings
+  and the reading is still false, each of them offers a relaunch
+  (`AppRelauncher`). See **Detecting Full Disk Access** below.
 - **Smart Scan** runs through `CareScanEngine`, which executes scan units
   concurrently and produces a `CarePlan` of `CareFinding`s carrying safety
   tiers. `SmartScanViewModel` turns that into the checklist, the results feed,
@@ -311,6 +313,28 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   throws if it still can't name one.
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
+
+### Detecting Full Disk Access
+
+`PrivacyPermissionChecker` proves access by opening gated files, and both of its
+macOS-facing values are facts about the installed OS that fail silently when they
+go stale, so `PrivacyPermissionCheckerTests` checks each against the host:
+
+- **The probes must exist.** `~/Library/Application Support/com.apple.TCC/TCC.db`
+  was once the only probe and is gone on current macOS, which made the reading
+  false forever — through "Check Again" and through a restart, with the switch on
+  in System Settings. Reading any one of several files now proves access. Keep
+  them out of other apps' containers, which raise the "access data from other
+  apps" prompt instead of quietly failing.
+- **The Settings link must name a real extension.** The identifier is the bundle
+  ID in `/System/Library/ExtensionKit/Extensions`. An unknown one doesn't error
+  or open the wrong pane; System Settings just stays where it was.
+
+A grant also changes how long code takes, because protected paths stop failing
+instantly. `TrashedAppMonitor` listed the Trash on the main thread, which cost
+nothing without access and froze every launch for over ten seconds with it. So
+never read a protected location on the main actor, and profile startup with the
+grant in place: a build without it can't show this kind of hang.
 
 ### The welcome flow survives the Full Disk Access restart
 

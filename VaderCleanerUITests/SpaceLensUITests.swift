@@ -29,7 +29,6 @@ final class SpaceLensUITests: XCTestCase {
     /// error banner. Any of these proves the view-model is alive and the scan
     /// kicked off — anything else is a wiring regression.
     func test_navigateToSpaceLens_scan_revealsScanningOrExplorer() throws {
-        dismissOnboardingIfNeeded()
         navigateToSpaceLensAndScan()
 
         let appeared = waitForAnySpaceLensState(timeout: 30)
@@ -42,7 +41,6 @@ final class SpaceLensUITests: XCTestCase {
     /// button. Whole-volume scans are slow and need Full Disk Access, so a host
     /// that never reaches ready skips rather than fails.
     func test_readyState_showsListAndReviewControls() throws {
-        dismissOnboardingIfNeeded()
         navigateToSpaceLensAndScan()
 
         let list = app.groups["space-lens.list"]
@@ -74,13 +72,6 @@ final class SpaceLensUITests: XCTestCase {
                       "Expected the floating Scan button on the Space Lens intro")
         floatingScan.click()
         proceedPastScanAccessPopoverIfNeeded()
-    }
-
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
     }
 
     /// The floating Scan button gates FDA-sensitive sections behind an access

@@ -289,7 +289,7 @@ From the command line:
 xcodebuild -project VaderCleaner.xcodeproj -scheme VaderCleaner -configuration Debug build
 ```
 
-For full functionality, grant the app **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access). The in-app onboarding sheet links you straight there.
+For full functionality, grant the app **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access). The welcome flow links you straight there, and so does the prompt on any scan that needs it.
 
 ### The privileged helper
 

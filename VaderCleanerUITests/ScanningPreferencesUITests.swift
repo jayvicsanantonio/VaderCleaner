@@ -22,7 +22,6 @@ final class ScanningPreferencesUITests: XCTestCase {
 
     /// The Scanning tab must be reachable and expose the six domain checkboxes.
     func test_scanningTab_exposesModuleCheckboxes() throws {
-        dismissOnboardingIfNeeded()
         openPreferences()
         preferenceTab("Scanning").click()
 
@@ -37,7 +36,6 @@ final class ScanningPreferencesUITests: XCTestCase {
 
     /// Toggling a module checkbox off must flip its value; restore it afterward.
     func test_scanningTab_toggleModule_flipsControl() throws {
-        dismissOnboardingIfNeeded()
         openPreferences()
         preferenceTab("Scanning").click()
 
@@ -57,7 +55,6 @@ final class ScanningPreferencesUITests: XCTestCase {
     /// Expanding Cleanup reveals its System Junk category checkboxes, which are
     /// writable.
     func test_scanningTab_junkCategory_isWritable() throws {
-        dismissOnboardingIfNeeded()
         openPreferences()
         preferenceTab("Scanning").click()
 
@@ -74,13 +71,6 @@ final class ScanningPreferencesUITests: XCTestCase {
     }
 
     // MARK: - Helpers
-
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
-    }
 
     private func openPreferences() {
         app.typeKey(",", modifierFlags: .command)

@@ -25,7 +25,6 @@ final class HomebrewManagerUITests: XCTestCase {
     /// list to the Homebrew packages, reaching a valid display state; Back
     /// returns to the dashboard.
     func test_applications_uninstallerHomebrewFacetShowsPackages() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -62,7 +61,6 @@ final class HomebrewManagerUITests: XCTestCase {
     /// The Updater pane also exposes a Homebrew facet that reaches a valid
     /// display state.
     func test_applications_updaterHomebrewFacetShowsUpdates() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -97,13 +95,6 @@ final class HomebrewManagerUITests: XCTestCase {
                       "Expected the floating Scan button on the Applications intro")
         scan.click()
         proceedPastScanAccessPopoverIfNeeded()
-    }
-
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
     }
 
     private func proceedPastScanAccessPopoverIfNeeded() {

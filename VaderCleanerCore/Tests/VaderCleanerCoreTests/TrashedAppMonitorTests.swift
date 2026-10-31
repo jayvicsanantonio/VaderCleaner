@@ -1,6 +1,7 @@
 // TrashedAppMonitorTests.swift
-// Verifies the trashed-app monitor notifies only for newly-trashed apps and respects the toggle.
+// Verifies the trashed-app monitor notifies only for newly-trashed apps, respects the toggle, and never lists the Trash on the main thread.
 
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -66,5 +67,111 @@ final class TrashedAppMonitorTests: XCTestCase {
         // A genuinely new app still notifies.
         monitor.evaluate(trashedAppNames: ["Spotify", "Discord"])
         XCTAssertEqual(dispatcher.calls, [.appTrashed(appName: "Discord")])
+    }
+}
+
+/// The Trash can hold enough items that listing it takes many seconds, so these
+/// pin that it never happens on the main thread, and that moving it off doesn't
+/// let a stale listing replay notifications for apps already seen.
+@MainActor
+@Suite
+struct TrashedAppMonitorListingTests {
+
+    private let preferences: PreferencesStore
+    private let dispatcher = StubNotificationDispatcher()
+
+    init() throws {
+        let defaults = try #require(UserDefaults(suiteName: "VaderCleanerTests.TrashedAppListing.\(UUID().uuidString)"))
+        preferences = PreferencesStore(defaults: defaults)
+        preferences.offerUninstallOnTrash = true
+    }
+
+    private func makeMonitor(appLister: @escaping TrashedAppMonitor.AppLister) -> TrashedAppMonitor {
+        TrashedAppMonitor(preferences: preferences, dispatcher: dispatcher, appLister: appLister)
+    }
+
+    @Test func start_listsTheTrashOffTheMainThread() async {
+        let listedOnMain = TestBox<[Bool]>([])
+        let monitor = makeMonitor {
+            listedOnMain.value.append(Thread.isMainThread)
+            return []
+        }
+        defer { monitor.stop() }
+
+        monitor.start()
+
+        #expect(await pollUntil { !listedOnMain.value.isEmpty })
+        #expect(listedOnMain.value == [false])
+    }
+
+    @Test func poll_listsTheTrashOffTheMainThread() async {
+        let listedOnMain = TestBox<[Bool]>([])
+        let monitor = makeMonitor {
+            listedOnMain.value.append(Thread.isMainThread)
+            return []
+        }
+
+        monitor.poll()
+
+        #expect(await pollUntil { !listedOnMain.value.isEmpty })
+        #expect(listedOnMain.value == [false])
+    }
+
+    @Test func start_primesTheBaseline_soAppsAlreadyInTheTrashDoNotNotify() async {
+        let listed = TestBox(0)
+        let monitor = makeMonitor {
+            listed.value += 1
+            return ["Spotify"]
+        }
+        defer { monitor.stop() }
+
+        monitor.start()
+        #expect(await pollUntil { listed.value == 1 })
+        #expect(await pollUntil { monitor.hasPrimedBaseline })
+
+        monitor.evaluate(trashedAppNames: ["Spotify"])
+        #expect(dispatcher.calls.isEmpty)
+    }
+
+    @Test func stop_discardsAListingStillInFlight() async {
+        let gate = CallGate()
+        let monitor = makeMonitor {
+            gate.hold()
+            return ["Spotify"]
+        }
+
+        monitor.start()
+        #expect(await pollUntil { gate.isHolding })
+        monitor.stop()
+        gate.open()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // The abandoned listing must not have become the baseline.
+        monitor.evaluate(trashedAppNames: ["Spotify"])
+        #expect(dispatcher.calls == [.appTrashed(appName: "Spotify")])
+    }
+
+    @Test func changesDuringAListing_coalesceIntoOneFollowUp() async {
+        // A big cleanup writes to the Trash thousands of times. Overlapping
+        // listings could finish out of order and replay apps already seen.
+        let gate = CallGate()
+        let listed = TestBox(0)
+        let monitor = makeMonitor {
+            listed.value += 1
+            if listed.value == 1 { gate.hold() }
+            return ["Spotify"]
+        }
+
+        monitor.poll()
+        #expect(await pollUntil { listed.value == 1 })
+        monitor.poll()
+        monitor.poll()
+        monitor.poll()
+        gate.open()
+
+        #expect(await pollUntil { listed.value == 2 })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(listed.value == 2)
+        #expect(dispatcher.calls == [.appTrashed(appName: "Spotify")])
     }
 }

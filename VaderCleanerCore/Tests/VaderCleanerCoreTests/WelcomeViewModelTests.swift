@@ -35,7 +35,8 @@ final class WelcomeViewModelTests: XCTestCase {
         WelcomeViewModel(
             store: store ?? WelcomeStore(defaults: defaults),
             fullDiskAccessChecker: hasFullDiskAccess,
-            openSystemSettings: openSystemSettings
+            openSystemSettings: openSystemSettings,
+            relaunch: {}
         )
     }
 

@@ -26,7 +26,6 @@ final class ApplicationsUITests: XCTestCase {
     /// scannable section now), with its per-section intro identifier and the
     /// floating Scan button — not a list that auto-loads.
     func test_applications_showsScanIntro() throws {
-        dismissOnboardingIfNeeded()
 
         let row = app.buttons["sidebar.applications"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5),
@@ -49,7 +48,6 @@ final class ApplicationsUITests: XCTestCase {
     /// of the ranked cards now; the old standalone Manage card is gone — Manage
     /// lives behind the header button.
     func test_applications_scanShowsDashboard() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let dashboard = app.descendants(matching: .any)["applications.dashboard"]
@@ -85,7 +83,6 @@ final class ApplicationsUITests: XCTestCase {
     /// nothing to clean up the dashboard shows reassurance backfill cards and
     /// there is no review card to open, which the test accepts.
     func test_applications_recommendationCardOpensReviewAndBackReturns() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let dashboard = app.descendants(matching: .any)["applications.dashboard"]
@@ -135,7 +132,6 @@ final class ApplicationsUITests: XCTestCase {
     /// with its Uninstaller / Updater / Extensions / Leftovers / Unsupported
     /// sub-navigation; switching panes works and Back returns to the dashboard.
     func test_applications_manageOpensManagerCatalog() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -178,7 +174,6 @@ final class ApplicationsUITests: XCTestCase {
     /// screen, and Back returns to the dashboard. (Extensions used to be a
     /// top-level sidebar section; it now lives inside Manage My Applications.)
     func test_applications_manageExtensionsPaneRenders() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -215,7 +210,6 @@ final class ApplicationsUITests: XCTestCase {
     /// dashboard. Whether updates exist depends on the host, so the test accepts
     /// the card's absence — mirroring the other host-dependent guards.
     func test_applications_updatesCardOpensUpdaterPane() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let dashboard = app.descendants(matching: .any)["applications.dashboard"]
@@ -253,7 +247,6 @@ final class ApplicationsUITests: XCTestCase {
     /// and a footer that starts with nothing selected. This drives display
     /// state only — it never presses the destructive Uninstall button.
     func test_applications_uninstallerPaneRendersListAndFooter() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -278,7 +271,6 @@ final class ApplicationsUITests: XCTestCase {
     /// The Leftovers pane renders its Installers / Leftover Files sections and a
     /// Remove footer action (disabled until something is selected).
     func test_applications_leftoversPaneRenders() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -298,7 +290,6 @@ final class ApplicationsUITests: XCTestCase {
     /// The Unsupported pane renders its list (or empty state) and a Move to Trash
     /// footer action, disabled until something is selected.
     func test_applications_unsupportedPaneRenders() throws {
-        dismissOnboardingIfNeeded()
         openApplicationsAndScan()
 
         let manage = app.buttons["applications.manageMyApplications"]
@@ -339,13 +330,6 @@ final class ApplicationsUITests: XCTestCase {
                       "Expected the floating Scan button on the Applications intro")
         scan.click()
         proceedPastScanAccessPopoverIfNeeded()
-    }
-
-    private func dismissOnboardingIfNeeded() {
-        let continueWithout = app.buttons["Continue Without Access"]
-        if continueWithout.waitForExistence(timeout: 2) {
-            continueWithout.click()
-        }
     }
 
     /// Applications is not Full-Disk-Access-gated, so the access popover should

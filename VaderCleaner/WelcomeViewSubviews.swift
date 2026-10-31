@@ -419,10 +419,6 @@ struct WelcomeAccessPanel: View {
 
     private static let grantSteps: [String] = [
         String(localized: "Open System Settings", comment: "First-run flow: Full Disk Access instruction."),
-        String(
-            localized: "Go to Privacy & Security → Full Disk Access",
-            comment: "First-run flow: Full Disk Access instruction."
-        ),
         String(localized: "Switch VaderCleaner on in the list", comment: "First-run flow: Full Disk Access instruction."),
         // macOS applies Full Disk Access only to a process started after the
         // grant, and offers to quit the app to make that happen. Saying so
@@ -443,7 +439,7 @@ struct WelcomeAccessPanel: View {
             // finished in Settings yet; both are answered by the same line.
             if viewModel.hasVisitedSystemSettings, !viewModel.hasFullDiskAccess {
                 Text(
-                    "Already switched it on? macOS applies Full Disk Access when VaderCleaner next opens.",
+                    "Already switched it on? Relaunch so macOS can apply it — you'll come back here.",
                     comment: "First-run flow: explains why access isn't detected yet."
                 )
                 .font(.system(size: 13, weight: .regular))
