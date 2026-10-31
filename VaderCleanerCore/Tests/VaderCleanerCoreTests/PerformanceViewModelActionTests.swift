@@ -72,13 +72,13 @@ final class PerformanceViewModelActionTests {
     @Test
     func removeSelected_isIgnoredWhileAnotherActionRuns() async {
         let agent = Self.agent("com.example.agent")
-        let gate = CallGate()
+        let gate = SuspendingCallGate()
         let removals = TestBox(0)
         let vm = makeViewModel(
             loadUserAgents: { [agent] },
             removeAgent: { _ in removals.value += 1 },
             flushDNS: {
-                gate.hold()
+                await gate.hold()
                 return "ok"
             }
         )
@@ -97,11 +97,11 @@ final class PerformanceViewModelActionTests {
 
     @Test
     func run_isIgnoredWhileAnotherActionRuns() async {
-        let gate = CallGate()
+        let gate = SuspendingCallGate()
         let runs = TestBox(0)
         let vm = makeViewModel(flushDNS: {
             runs.value += 1
-            gate.hold()
+            await gate.hold()
             return "ok"
         })
         await vm.refresh()
@@ -191,6 +191,23 @@ final class PerformanceViewModelActionTests {
     }
 
     @Test
+    func run_saysAToolStillRunningIsNotAFailureOfMacOS() async {
+        let vm = makeViewModel(reindexSpotlight: {
+            throw HelperToolRunner.alreadyRunningError(["/usr/bin/mdutil"])
+        })
+        await vm.refresh()
+
+        await vm.run(Self.task(.reindexSpotlight))
+
+        guard case .failed(let message) = vm.phase else {
+            Issue.record("Expected .failed, got \(vm.phase)")
+            return
+        }
+        #expect(message.contains("still running"))
+        #expect(!message.contains("mdutil"))
+    }
+
+    @Test
     func run_saysATimedOutTaskMayStillBeRunning() async {
         let vm = makeViewModel(reindexSpotlight: { throw HelperConnectionError.timedOut })
         await vm.refresh()
@@ -276,7 +293,7 @@ final class PerformanceViewModelActionTests {
 
     @Test
     func reloadInBackground_doesNothingWhileAnActionRuns() async {
-        let gate = CallGate()
+        let gate = SuspendingCallGate()
         let loads = TestBox(0)
         let vm = makeViewModel(
             loadUserAgents: {
@@ -284,7 +301,7 @@ final class PerformanceViewModelActionTests {
                 return []
             },
             flushDNS: {
-                gate.hold()
+                await gate.hold()
                 return "ok"
             }
         )
@@ -297,17 +314,97 @@ final class PerformanceViewModelActionTests {
         #expect(loads.value == 1)
         gate.open()
         await running.value
+        #expect(loads.value == 2, "the reload it held up runs once the action finishes")
     }
 
     @Test
-    func reloadInBackground_isDiscardedWhenAnAgentIsToggledMidFlight() async {
-        let agent = Self.agent("com.example.agent")
-        let gate = CallGate()
-        let holdNextLoad = TestBox(false)
+    func reloadInBackground_heldUpByABatchRunsOnceWhenTheBatchEnds() async {
+        let gate = SuspendingCallGate()
+        let loads = TestBox(0)
+        let vm = makeViewModel(
+            loadUserAgents: {
+                loads.value += 1
+                return []
+            },
+            flushDNS: {
+                await gate.hold()
+                return "ok"
+            }
+        )
+        await vm.refresh()
+        let batch = Task { await vm.run([Self.task(.flushDNS), Self.task(.reindexSpotlight)]) }
+        #expect(await pollUntil { gate.isHolding })
+
+        await vm.reloadInBackground()
+        gate.open()
+        await batch.value
+
+        #expect(loads.value == 2)
+    }
+
+    @Test
+    func reloadInBackground_heldUpByAFailureRunsWhenItIsDismissed() async {
+        let loads = TestBox(0)
+        let vm = makeViewModel(
+            loadUserAgents: {
+                loads.value += 1
+                return []
+            },
+            flushDNS: { throw Boom() }
+        )
+        await vm.refresh()
+        await vm.run(Self.task(.flushDNS))
+
+        await vm.reloadInBackground()
+        #expect(loads.value == 1)
+
+        vm.dismissResult()
+        #expect(await pollUntil { loads.value == 2 })
+    }
+
+    @Test
+    func reloadInBackground_coalescesCallsThatOverlap() async {
+        let gate = SuspendingCallGate()
+        let holdLoads = TestBox(false)
+        let loads = TestBox(0)
         let vm = makeViewModel(loadUserAgents: {
-            if holdNextLoad.value { gate.hold() }
-            return [agent]
+            loads.value += 1
+            if holdLoads.value { await gate.hold() }
+            return []
         })
+        await vm.refresh()
+        holdLoads.value = true
+        let first = Task { await vm.reloadInBackground() }
+        #expect(await pollUntil { gate.isHolding })
+
+        await vm.reloadInBackground()
+        await vm.reloadInBackground()
+        #expect(loads.value == 2, "overlapping calls must not start their own discovery")
+
+        gate.open()
+        await first.value
+        #expect(loads.value == 3, "one more pass covers everything asked for meanwhile")
+    }
+
+    @Test
+    func reloadInBackground_restartsWhenAnAgentIsToggledMidFlight() async {
+        let agent = Self.agent("com.example.agent")
+        let installedLater = Self.agent("com.example.installedLater")
+        let gate = SuspendingCallGate()
+        let holdNextLoad = TestBox(false)
+        let disabled = TestBox(false)
+        let vm = makeViewModel(
+            loadUserAgents: {
+                // A read that started before the toggle lands reports the old state.
+                let current = agent.settingEnabled(!disabled.value)
+                if holdNextLoad.value {
+                    await gate.hold()
+                    return disabled.value ? [current, installedLater] : [agent]
+                }
+                return [current]
+            },
+            disableAgent: { _ in disabled.value = true }
+        )
         await vm.refresh()
         holdNextLoad.value = true
         let reload = Task { await vm.reloadInBackground() }
@@ -318,6 +415,7 @@ final class PerformanceViewModelActionTests {
         await reload.value
 
         #expect(vm.userAgents.first?.isEnabled == false, "a stale read must not undo the toggle")
+        #expect(vm.userAgents.contains(installedLater), "the discarded read is taken again")
     }
 
     @Test
@@ -352,6 +450,7 @@ final class PerformanceViewModelActionTests {
     private func makeViewModel(
         loadUserAgents: @escaping PerformanceViewModel.LoadAgents = { [] },
         readMemory: @escaping PerformanceViewModel.ReadMemory = { .empty },
+        disableAgent: @escaping PerformanceViewModel.DisableAgent = { _ in },
         removeAgent: @escaping PerformanceViewModel.RemoveAgent = { _ in },
         flushRAM: @escaping PerformanceViewModel.FlushRAM = {},
         flushDNS: @escaping PerformanceViewModel.RunTask = { "" },
@@ -365,7 +464,7 @@ final class PerformanceViewModelActionTests {
             loadSystemAgents: { [] },
             readMemory: readMemory,
             setLoginItemEnabled: { _, _ in },
-            disableAgent: { _ in },
+            disableAgent: disableAgent,
             enableAgent: { _ in },
             removeAgent: removeAgent,
             flushRAM: flushRAM,

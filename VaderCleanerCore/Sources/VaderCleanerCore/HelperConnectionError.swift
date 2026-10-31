@@ -3,13 +3,6 @@
 
 import Foundation
 
-/// Where the privileged helper reports its own failures, as opposed to the
-/// connection to it failing.
-enum HelperErrorDomain {
-    /// The domain of an error from a system tool the helper ran.
-    static let tool = "com.personal.VaderCleaner.helper"
-}
-
 /// Raised when the privileged `VaderCleanerHelper` cannot be reached. Replaces
 /// the ad-hoc `NSError(... "Helper unavailable")` sentinels each helper caller
 /// used to build, so the user-facing copy lives in exactly one place.

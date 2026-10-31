@@ -278,8 +278,13 @@ struct LaunchAgentManager: Sendable {
     }
 
     /// Boots the job out of the user's launchd domain. A job that isn't loaded
-    /// is already what this asks for.
+    /// is already what this asks for. launchd addresses a job by label alone, so
+    /// when another plist shares this one's label the job is left running: it may
+    /// be that plist's, and the user is keeping that one.
     private func stop(_ agent: LaunchAgent) throws {
+        let labelIsShared = agents(in: [userAgentsDirectory], domain: .user, loaded: [])
+            .contains { $0.label == agent.label && $0.id != agent.id }
+        guard !labelIsShared else { return }
         do {
             try launchctl(["bootout", "gui/\(getuid())/\(agent.label)"])
         } catch let error as NSError where error.domain == Self.launchctlErrorDomain

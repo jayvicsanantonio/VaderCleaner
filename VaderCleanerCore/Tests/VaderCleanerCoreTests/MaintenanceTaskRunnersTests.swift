@@ -69,7 +69,7 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
 
     func test_tmThinner_invokesSelectorAndReportsWhatItRemoved() async throws {
         let helper = HelperProtocolSpy()
-        let counts = TestBox([3, 1])
+        let counts = TestBox<[Int?]>([3, 1])
         let runner = TimeMachineSnapshotThinner(
             helperProvider: { _ in helper },
             countSnapshots: { counts.value.removeFirst() }
@@ -91,6 +91,21 @@ final class MaintenanceTaskRunnersTests: XCTestCase {
 
         XCTAssertFalse(output.contains("Removed"), "Unexpected result line: \(output)")
         XCTAssertFalse(output.isEmpty)
+    }
+
+    func test_tmThinner_claimsNoCountWhenAListingFails() async throws {
+        for counts in [[nil, 1], [3, nil]] as [[Int?]] {
+            let remaining = TestBox(counts)
+            let runner = TimeMachineSnapshotThinner(
+                helperProvider: { _ in HelperProtocolSpy() },
+                countSnapshots: { remaining.value.removeFirst() }
+            )
+
+            let output = try await runner.run()
+
+            XCTAssertFalse(output.contains("Removed"), "Unexpected result line: \(output)")
+            XCTAssertFalse(output.contains("didn't need"), "Unexpected result line: \(output)")
+        }
     }
 
     func test_tmThinner_throwsWhenHelperRepliesError() async {

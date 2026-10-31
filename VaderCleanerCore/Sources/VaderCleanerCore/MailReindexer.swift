@@ -64,14 +64,19 @@ struct MailReindexer: Sendable {
     /// Finds the envelope-index databases under `~/Library/Mail`. Mail stores
     /// them per account-format version at `V<n>/MailData/Envelope Index`, so this
     /// looks only at that shallow, known location rather than walking the whole
-    /// (potentially huge) Mail tree. Reading `~/Library/Mail` is gated by Full
-    /// Disk Access: a permission failure there means the app hasn't been
-    /// granted access, which is reported distinctly from "no mail".
+    /// (potentially huge) Mail tree.
     static func defaultLocateIndexes() throws -> [URL] {
-        let mailRoot = FileManager.default
+        try locateIndexes(in: FileManager.default
             .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mail", isDirectory: true)
+            .appendingPathComponent("Library/Mail", isDirectory: true))
+    }
 
+    /// The envelope indexes under `mailRoot`. Reading it is gated by Full Disk
+    /// Access: a permission failure means the app hasn't been granted access,
+    /// which is reported distinctly from "no mail". Only a folder that doesn't
+    /// exist means no mail; any other read failure propagates, so it fails the
+    /// run instead of being recorded as nothing to do.
+    static func locateIndexes(in mailRoot: URL) throws -> [URL] {
         let versionDirs: [URL]
         do {
             versionDirs = try FileManager.default.contentsOfDirectory(
@@ -86,9 +91,8 @@ struct MailReindexer: Sendable {
             // TCC/sandbox denials surface as EPERM or EACCES depending on the
             // API and macOS version — treat both as "needs Full Disk Access".
             throw MailReindexerError.fullDiskAccessRequired
-        } catch {
-            // No Mail folder (never set up) or some other read error — treat as
-            // "nothing to reindex" rather than a permission problem.
+        } catch CocoaError.fileReadNoSuchFile {
+            // No Mail folder: Mail was never set up.
             return []
         }
 

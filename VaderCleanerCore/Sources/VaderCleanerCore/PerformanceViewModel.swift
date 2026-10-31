@@ -113,6 +113,16 @@ public final class PerformanceViewModel {
 
     @ObservationIgnored private var launchAtLoginObserverTask: Task<Void, Never>?
 
+    /// A background reload was asked for but couldn't run or was discarded, so
+    /// one runs as soon as nothing stands in its way.
+    @ObservationIgnored private var reloadIsPending = false
+    /// Guards against overlapping discovery passes, each of which shells out to
+    /// `launchctl` and walks the agent folders.
+    @ObservationIgnored private var isReloadingInBackground = false
+    /// A read started while an agent's state is changing could report the old
+    /// state, so reloads wait for these.
+    @ObservationIgnored private var agentTogglesInFlight = 0
+
     public init(
         loadLoginItems: @escaping LoadLoginItems,
         loadUserAgents: @escaping LoadAgents,
@@ -180,31 +190,56 @@ public final class PerformanceViewModel {
     /// no load-failure path — action failures are what surface `.failed`.
     public func refresh() async {
         let generation = beginLoad()
+        reloadIsPending = false
         phase = .loading
         await reloadLists(generation: generation)
         guard loadGeneration == generation else { return }
         phase = .ready
+        await runPendingReload()
     }
 
     /// Re-reads the lists without leaving `.ready`, so an app uninstalled or an
     /// agent installed since the last look shows up without the screen flipping
     /// to a spinner or the manager losing its place. Does nothing before the
-    /// first load or while an action runs: the action reloads when it finishes.
+    /// first load. A call that can't run now, because an action or another reload
+    /// is under way, is remembered and served when that finishes.
     public func reloadInBackground() async {
-        guard phase == .ready, !isRunningBatch else { return }
-        expireOldResults()
-        await reloadLists(generation: beginLoad())
+        guard canReloadInBackground, !isReloadingInBackground else {
+            reloadIsPending = phase != .idle
+            return
+        }
+        isReloadingInBackground = true
+        defer { isReloadingInBackground = false }
+        repeat {
+            reloadIsPending = false
+            expireOldResults()
+            await reloadLists(generation: beginLoad())
+        } while reloadIsPending && canReloadInBackground
+    }
+
+    private var canReloadInBackground: Bool {
+        phase == .ready && !isRunningBatch && agentTogglesInFlight == 0
+    }
+
+    /// Serves a reload that had to wait, now that whatever held it up is done.
+    private func runPendingReload() async {
+        guard reloadIsPending else { return }
+        await reloadInBackground()
     }
 
     /// Fetches the three lists and applies them unless a newer load or an action
-    /// has started since, whose state a slower read must not overwrite.
+    /// has started since, whose state a slower read must not overwrite. A read
+    /// thrown away that way leaves the lists owing a fresh one.
     private func reloadLists(generation: Int) async {
         async let login = loadLoginItems()
         async let user = loadUserAgents()
         async let system = loadSystemAgents()
         let (loadedLogin, loadedUser, loadedSystem) = await (login, user, system)
 
-        guard loadGeneration == generation else { return }
+        guard loadGeneration == generation else {
+            reloadIsPending = true
+            return
+        }
         loginItems = loadedLogin
         userAgents = loadedUser
         systemAgents = loadedSystem
@@ -256,6 +291,7 @@ public final class PerformanceViewModel {
             await perform(task.kind, action: speedUpMailAction)
         }
         workingTitle = nil
+        await runPendingReload()
     }
 
     /// Shared run path for the system maintenance tasks: drive `.working`, run
@@ -306,6 +342,14 @@ public final class PerformanceViewModel {
             )
             return String.localizedStringWithFormat(format, title)
         }
+        if (error as NSError).domain == HelperErrorDomain.conflict {
+            let format = String(
+                localized: "“%@” is still running from an earlier attempt. Wait a few minutes before trying again.",
+                bundle: .module,
+                comment: "Failure message when the helper refuses a task because its tool is still running; %@ is the task title."
+            )
+            return String.localizedStringWithFormat(format, title)
+        }
         if (error as NSError).domain == HelperErrorDomain.tool {
             let format = String(
                 localized: "macOS couldn't finish “%@”. Try again later.",
@@ -325,11 +369,12 @@ public final class PerformanceViewModel {
         // Hold the progress screen for the whole batch so the UI doesn't flicker
         // as each task's phase flips between .working and .ready.
         isRunningBatch = true
-        defer { isRunningBatch = false }
         for task in tasks {
             await run(task)
-            if case .failed = phase { return }
+            if case .failed = phase { break }
         }
+        isRunningBatch = false
+        await runPendingReload()
     }
 
     /// Number of maintenance-cocktail tasks currently due — the count behind the
@@ -398,6 +443,7 @@ public final class PerformanceViewModel {
             log.error("Login-item toggle failed: \(error.localizedDescription, privacy: .private)")
             phase = .failed(message: HelperConnectionError.userFacingMessage(for: error))
         }
+        await runPendingReload()
     }
 
     /// Opens System Settings to the Login Items pane. Used by a row that is
@@ -427,12 +473,14 @@ public final class PerformanceViewModel {
     /// row updates in place via `setLoaded` rather than reloading the section.
     public func enable(_ agent: LaunchAgent) async {
         await setLoaded(agent, to: true, via: enableAgent)
+        await runPendingReload()
     }
 
     /// Unloads an agent from launchd. Only user agents have a toggle, so the
     /// row updates in place via `setLoaded` rather than reloading the section.
     public func disable(_ agent: LaunchAgent) async {
         await setLoaded(agent, to: false, via: disableAgent)
+        await runPendingReload()
     }
 
     /// Toggles a user agent's loaded state with an optimistic, in-place update:
@@ -440,7 +488,8 @@ public final class PerformanceViewModel {
     /// reload disturbs the rest of the section, so only the affected row
     /// animates. If launchctl fails or launchd doesn't apply the change the
     /// action throws and the row is restored to its prior state. Taking a new
-    /// generation drops any reload in flight, whose read predates this change.
+    /// generation drops any reload in flight, whose read predates this change, and
+    /// a fresh one runs after it.
     private func setLoaded(
         _ agent: LaunchAgent,
         to enabled: Bool,
@@ -448,8 +497,10 @@ public final class PerformanceViewModel {
     ) async {
         guard let index = userAgents.firstIndex(where: { $0.id == agent.id }) else { return }
         _ = beginLoad()
+        agentTogglesInFlight += 1
         let original = userAgents[index]
         userAgents[index] = original.settingEnabled(enabled)
+        defer { agentTogglesInFlight -= 1 }
         do {
             try await action(agent)
         } catch {
@@ -477,6 +528,7 @@ public final class PerformanceViewModel {
     public func removeSelected(loginItemIDs: Set<String>, agentIDs: Set<String>) async {
         guard phase != .working, !isRunningBatch else { return }
         let generation = beginLoad()
+        reloadIsPending = false
         phase = .working
         let selectedLoginItems = loginItems.filter { loginItemIDs.contains($0.id) }
         // Only user agents are removable; system daemons are never touched.
@@ -501,6 +553,7 @@ public final class PerformanceViewModel {
 
         guard let firstFailure = failures.first else {
             phase = .ready
+            await runPendingReload()
             return
         }
         log.error("Batch remove failed for \(failures.count, privacy: .public) items: \(firstFailure.localizedDescription, privacy: .private)")
@@ -526,6 +579,9 @@ public final class PerformanceViewModel {
     public func dismissResult() {
         failureNeedsFullDiskAccess = false
         phase = .ready
+        if reloadIsPending {
+            Task { await runPendingReload() }
+        }
     }
 
     // MARK: - Generations

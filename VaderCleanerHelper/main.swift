@@ -2,27 +2,6 @@
 // Entry point for VaderCleanerHelper — the privileged XPC daemon that performs root-level operations.
 
 import Foundation
-import Synchronization
-
-/// The executables with a run in flight. The app's watchdog gives up on a call
-/// long before a wedged tool exits, so retrying from the app must not start a
-/// second `mdutil -E` or `periodic` beside the first.
-final class RunningExecutables: Sendable {
-    private let running = Mutex<Set<String>>([])
-
-    /// Marks `executables` as running, or returns false if any already is.
-    func claim(_ executables: [String]) -> Bool {
-        running.withLock { running in
-            guard running.isDisjoint(with: executables) else { return false }
-            running.formUnion(executables)
-            return true
-        }
-    }
-
-    func release(_ executables: [String]) {
-        running.withLock { $0.subtract(executables) }
-    }
-}
 
 /// NSXPCListener delegate that vends a HelperService for each new XPC connection
 /// and implements the privileged operations defined in VaderCleanerHelperProtocol.
@@ -172,8 +151,8 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     /// Runs each command in order and replies with the first failure, or `nil`
     /// once all succeed. A non-zero exit or launch error short-circuits the rest.
     ///
-    /// The sequencing works because `execute` is synchronous: it returns only
-    /// once its command has exited, so the loop below really does run the
+    /// The sequencing works because `HelperToolRunner.execute` is synchronous: it
+    /// returns only once its command is done, so the loop below really does run the
     /// commands one after another. What moved off the XPC delivery queue is
     /// the whole loop, not each command inside it.
     private func runProcesses(
@@ -184,14 +163,14 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         let executables = commands.map(\.executable)
         let running = runningExecutables
         guard running.claim(executables) else {
-            reply.send(Self.alreadyRunningError(executables))
+            reply.send(HelperToolRunner.alreadyRunningError(executables))
             return
         }
         workQueue.async {
             defer { running.release(executables) }
             for command in commands {
-                if let error = Self.execute(executable: command.executable,
-                                            arguments: command.arguments) {
+                if let error = HelperToolRunner.execute(executable: command.executable,
+                                                        arguments: command.arguments) {
                     reply.send(error)
                     return
                 }
@@ -206,39 +185,6 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         reply: @escaping (Error?) -> Void
     ) {
         runProcesses(commands: [(executable: executable, arguments: arguments)], reply: reply)
-    }
-
-    private static func alreadyRunningError(_ executables: [String]) -> Error {
-        NSError(
-            domain: "com.personal.VaderCleaner.helper",
-            code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "\(executables.joined(separator: ", ")) is already running"]
-        )
-    }
-
-    /// Runs one command to completion and returns its failure, if any.
-    ///
-    /// Synchronous on purpose: callers have already hopped onto `workQueue`,
-    /// and `runProcesses` depends on this returning only once the command is
-    /// actually done.
-    private static func execute(executable: String, arguments: [String]) -> Error? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                return NSError(
-                    domain: "com.personal.VaderCleaner.helper",
-                    code: Int(process.terminationStatus),
-                    userInfo: [NSLocalizedDescriptionKey: "\(executable) exited with status \(process.terminationStatus)"]
-                )
-            }
-            return nil
-        } catch {
-            return error
-        }
     }
 }
 

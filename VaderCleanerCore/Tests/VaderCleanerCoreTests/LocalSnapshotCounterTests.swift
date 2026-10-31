@@ -6,6 +6,11 @@ import XCTest
 
 final class LocalSnapshotCounterTests: XCTestCase {
 
+    func test_count_isUnknownWhenTheListingFails() {
+        let counter = LocalSnapshotCounter(listSnapshots: { nil })
+        XCTAssertNil(counter.count())
+    }
+
     func test_count_returnsZeroForNoSnapshots() {
         let counter = LocalSnapshotCounter(listSnapshots: {
             "Snapshots for disk /:\n"

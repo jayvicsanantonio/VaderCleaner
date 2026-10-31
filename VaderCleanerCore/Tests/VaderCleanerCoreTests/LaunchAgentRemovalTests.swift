@@ -90,6 +90,31 @@ final class LaunchAgentRemovalTests {
         await #expect(throws: LaunchAgentError.self) { try await manager.remove(agent) }
     }
 
+    /// launchctl stops a job by label, and two plists can share one. Which of
+    /// them launchd loaded isn't known, so stopping could take down the job of
+    /// the plist the user is keeping.
+    @Test
+    func remove_leavesTheJobRunningWhenAnotherPlistSharesItsLabel() async throws {
+        let plist = try writePlist(label: "com.example.shared")
+        let other = directory.appendingPathComponent("com.example.shared.copy.plist")
+        try plistData(["Label": "com.example.shared", "Program": "/bin/true"]).write(to: other)
+        let launchctlCalls = TestBox(0)
+        let recycled = TestBox<[URL]>([])
+        let manager = makeManager(
+            launchctl: { _ in launchctlCalls.value += 1 },
+            recycle: { urls in
+                recycled.value += urls
+                return Set(urls)
+            }
+        )
+        let agent = try #require(manager.userAgents().first { $0.path.lastPathComponent == plist.lastPathComponent })
+
+        try await manager.remove(agent)
+
+        #expect(launchctlCalls.value == 0)
+        #expect(recycled.value.map(\.lastPathComponent) == [plist.lastPathComponent])
+    }
+
     @Test
     func remove_succeedsWhenThePlistIsAlreadyGone() async throws {
         let plist = try writePlist(label: "com.example.gone")

@@ -1,6 +1,8 @@
 // MailReindexerTests.swift
 // Verifies MailReindexer locates Mail envelope-index databases, vacuums/reindexes each, and reports clear errors when Full Disk Access is missing, Mail is open, or the database is locked.
 
+import Foundation
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -87,5 +89,44 @@ final class MailReindexerTests: XCTestCase {
         } catch {
             // Expected.
         }
+    }
+}
+
+/// Only a Mail folder that doesn't exist means "nothing to reindex". Any other
+/// read failure has to fail the run, or it would be recorded as done for a week.
+@Suite
+struct MailReindexerFolderReadTests {
+
+    @Test
+    func locateIndexes_isEmptyWhenTheMailFolderDoesNotExist() throws {
+        let directory = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(directory) }
+
+        let found = try MailReindexer.locateIndexes(in: directory.appendingPathComponent("Mail"))
+
+        #expect(found.isEmpty)
+    }
+
+    @Test
+    func locateIndexes_throwsOnAnyOtherReadFailure() throws {
+        let directory = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(directory) }
+        let notAFolder = directory.appendingPathComponent("Mail")
+        try Data().write(to: notAFolder)
+
+        #expect(throws: (any Error).self) { try MailReindexer.locateIndexes(in: notAFolder) }
+    }
+
+    @Test
+    func locateIndexes_findsTheIndexInAVersionFolder() throws {
+        let directory = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(directory) }
+        let mailData = directory.appendingPathComponent("V10/MailData", isDirectory: true)
+        try FileManager.default.createDirectory(at: mailData, withIntermediateDirectories: true)
+        try Data().write(to: mailData.appendingPathComponent("Envelope Index"))
+
+        let found = try MailReindexer.locateIndexes(in: directory)
+
+        #expect(found.map(\.lastPathComponent) == ["Envelope Index"])
     }
 }

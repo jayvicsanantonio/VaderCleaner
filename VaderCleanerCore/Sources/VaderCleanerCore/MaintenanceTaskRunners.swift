@@ -94,9 +94,9 @@ struct SpotlightReindexer: Sendable {
 
 /// Thins local Time Machine snapshots on the boot volume. macOS removes only
 /// what it decides it can, which is often nothing, so the snapshot count before
-/// and after is what the result line reports.
+/// and after is what the result line reports, when both could be read.
 struct TimeMachineSnapshotThinner: Sendable {
-    typealias CountSnapshots = @Sendable () -> Int
+    typealias CountSnapshots = @Sendable () -> Int?
 
     private let runner: PrivilegedTaskRunner
     private let countSnapshots: CountSnapshots
@@ -116,7 +116,14 @@ struct TimeMachineSnapshotThinner: Sendable {
     func run() async throws -> String {
         let before = countSnapshots()
         _ = try await runner.run()
-        let removed = before - countSnapshots()
+        guard let before, let after = countSnapshots() else {
+            return String(
+                localized: "Asked macOS to thin local snapshots.",
+                bundle: .module,
+                comment: "Result line after thinning Time Machine snapshots when the snapshots couldn't be counted."
+            )
+        }
+        let removed = before - after
         guard removed > 0 else {
             return String(
                 localized: "macOS didn't need to remove any local snapshots.",
