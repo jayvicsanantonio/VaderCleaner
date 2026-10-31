@@ -151,6 +151,9 @@ struct ContentView: View {
         //
         // Every section is only populated when it is still idle, so this never
         // disrupts a section the user has already scanned themselves.
+        smartScanViewModel.onThreatsRemoved = { [protectionDashboardViewModel] removed in
+            protectionDashboardViewModel.smartScanRemoved(threats: removed)
+        }
         smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, spaceLensViewModel, applicationsViewModel, performanceViewModel, protectionDashboardViewModel] plan in
             // Seeding walks the whole junk result off the main actor, so it
             // runs as its own task rather than blocking this completion hop.

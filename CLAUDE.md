@@ -303,6 +303,12 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   warns when a newer ClamAV is out. `ClamAVScanner` runs the same kind of check
   before every scan, so a broken engine fails the scan instead of reading as a
   clean Mac.
+- `clamscan` exits 2 for **any** error, including one unreadable file in a tree
+  of thousands, and exits 1 even when no single output line names the infected
+  file (a newline in its path splits the record). So exit 2 only fails a scan
+  when nothing was printed, and an exit of 1 never reads as clean:
+  `ClamAVScanner.scanReport` checks newline-named files one run at a time and
+  throws if it still can't name one.
 - `SystemStatsService()` autostarts timers and can trigger a Location prompt;
   use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
 

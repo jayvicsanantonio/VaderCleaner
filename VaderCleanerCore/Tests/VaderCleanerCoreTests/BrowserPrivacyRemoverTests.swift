@@ -1,5 +1,5 @@
 // BrowserPrivacyRemoverTests.swift
-// Verifies BrowserPrivacyRemover deletes exactly the selected cookie hosts / history rows, empties whole categories, removes cache files, and refuses when the target browser is running.
+// Verifies BrowserPrivacyRemover deletes exactly the selected cookie hosts / sites, empties whole categories, removes cache files, and refuses when the target browser is running.
 
 import XCTest
 import SQLite3
@@ -30,16 +30,16 @@ final class BrowserPrivacyRemoverTests: XCTestCase {
 
         try await remover.remove([
             PrivacyRemovalRequest(browser: .chrome, category: .cookies,
-                                  scope: .items(hostKeys: [".a.com"], rowIDs: []))
+                                  scope: .items(hostKeys: [".a.com"]))
         ])
 
         XCTAssertEqual(try rowCount(db, "SELECT count(*) FROM cookies"), 1)
         XCTAssertEqual(try rowCount(db, "SELECT count(*) FROM cookies WHERE host_key='.b.com'"), 1)
     }
 
-    // MARK: - Per-item history removal (by rowid)
+    // MARK: - Per-site history removal
 
-    func test_remove_historyRowIDs_deletesOnlyThoseRows() async throws {
+    func test_remove_historySites_deletesOnlyThoseRows() async throws {
         let db = tempDir.appendingPathComponent("History")
         try seed(db, "CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT)")
         try exec(db, "INSERT INTO urls (url) VALUES ('https://a.com/1'),('https://a.com/2'),('https://b.com/')")
@@ -47,7 +47,7 @@ final class BrowserPrivacyRemoverTests: XCTestCase {
 
         try await remover.remove([
             PrivacyRemovalRequest(browser: .chrome, category: .browsingHistory,
-                                  scope: .items(hostKeys: [], rowIDs: [1, 2]))
+                                  scope: .items(hostKeys: ["a.com"]))
         ])
 
         XCTAssertEqual(try rowCount(db, "SELECT count(*) FROM urls"), 1)

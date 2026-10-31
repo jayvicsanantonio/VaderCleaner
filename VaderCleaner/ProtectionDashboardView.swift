@@ -9,8 +9,7 @@ import VaderCleanerCore
 /// header, and a grid whose left tile shows the live malware scan while the
 /// right column fills with privacy tiles as the (faster) privacy preview
 /// completes. Composes `ProtectionDashboardViewModel`'s two child flows; this
-/// view owns only presentation state (which sheet/alert is up, which privacy
-/// tiles the user has already removed).
+/// view owns only presentation state (which sheet/alert is up).
 struct ProtectionDashboardView: View {
 
     let viewModel: ProtectionDashboardViewModel
@@ -23,8 +22,13 @@ struct ProtectionDashboardView: View {
     @State private var onboardingViewModel = MalwareOnboardingViewModel()
     @State private var reviewingThreats = false
     @State private var confirmingMalwareRemoval = false
+    /// Set when the review sheet hands off to the removal alert. The alert waits
+    /// for the sheet's dismissal, since presenting it while the sheet is still on
+    /// its way out can lose it.
+    @State private var confirmRemovalAfterReview = false
     @State private var pendingPrivacyRemoval: PrivacyRemoval?
-    @State private var removedPrivacyTiles: Set<String> = []
+    /// Where the button that opened the manager wants it to land.
+    @State private var managerFocus: ProtectionManagerFocus?
 
     /// Browser icons + resolved bundle URLs for the manager's rows, warmed
     /// through the shared `AppIconCache`.
@@ -66,9 +70,14 @@ struct ProtectionDashboardView: View {
                 privacyModel: viewModel.protectionPrivacy,
                 iconCache: iconCache,
                 bundleURL: { browserBundleURLs[$0] },
+                focus: $managerFocus,
                 onBack: { detail = .dashboard }
             )
         }
+        // Both alerts sit outside the host because either surface can raise them:
+        // a tile's Remove and the manager's lead to the same failures and blocks.
+        .modifier(RemovalFailureAlert(viewModel: viewModel))
+        .modifier(RunningBrowserAlert(model: viewModel.protectionPrivacy))
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
         // The dashboard appears once a scan has begun. Ensure the privacy
@@ -80,6 +89,11 @@ struct ProtectionDashboardView: View {
             // which never reads the signature date — without this the
             // definitions line has nothing to report.
             malware.refreshDatabaseDate()
+            viewModel.refreshManagerPrivacy()
+        }
+        // Coming back from a browser is when its data has most likely changed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if detail == .manager { viewModel.refreshManagerPrivacy() }
         }
         // Resolve each detected browser's bundle URL + warm the icon cache for
         // the manager's rows.
@@ -89,7 +103,13 @@ struct ProtectionDashboardView: View {
     /// Anchors the zoom to the button (or failing that, the click) being
     /// handled, then raises the manager.
     private func openManager() {
+        openManager(focusing: .privacy)
+    }
+
+    private func openManager(focusing focus: ProtectionManagerFocus) {
         managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        managerFocus = focus
+        viewModel.refreshManagerPrivacy()
         detail = .manager
     }
 
@@ -102,7 +122,11 @@ struct ProtectionDashboardView: View {
             .onChange(of: onboardingViewModel.isInstalled) { _, installed in
                 if installed { viewModel.beginScan() }
             }
-            .sheet(isPresented: $reviewingThreats) {
+            .sheet(isPresented: $reviewingThreats, onDismiss: {
+                guard confirmRemovalAfterReview else { return }
+                confirmRemovalAfterReview = false
+                confirmingMalwareRemoval = true
+            }) {
                 threatsReviewSheet
             }
             .alert(
@@ -137,12 +161,10 @@ struct ProtectionDashboardView: View {
                     }
                 }
             } message: {
-                Text(String(localized: "This permanently deletes the selected data. This cannot be undone.",
-                            comment: "Privacy removal confirmation body."))
+                if let removal = pendingPrivacyRemoval {
+                    Text(removal.confirmationMessage)
+                }
             }
-            // The removal confirmation promises the data will be gone; when it
-            // isn't, say so rather than leaving the tile sitting there.
-            .modifier(RemovalFailureAlert(viewModel: viewModel))
     }
 
     @ViewBuilder
@@ -276,27 +298,45 @@ struct ProtectionDashboardView: View {
     /// A scan refreshes signatures on its own, but the stale-definitions
     /// notification asks the user to act and previously left them nowhere to
     /// do it — `updateDatabaseManually()` existed with no caller. Hidden while
-    /// a scan or an update is in flight, since the dashboard is showing its
-    /// progress loader then.
+    /// a scan is in flight, since a scan does its own refresh.
     @ViewBuilder
     private var definitionsLine: some View {
         if !malware.isScanningPhase {
-            HStack(spacing: 8) {
-                Text(definitionsSummary)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.7))
-                Button {
-                    Task { await malware.updateDatabaseManually() }
-                } label: {
-                    Text(String(
-                        localized: "Update",
-                        comment: "Protection dashboard button that refreshes the malware signature database."
-                    ))
-                    .padding(.horizontal, 4)
+            VStack(spacing: 4) {
+                HStack(spacing: 8) {
+                    if malware.isUpdatingDefinitions {
+                        ProgressView().controlSize(.small)
+                        Text(String(
+                            localized: "Updating malware definitions…",
+                            comment: "Protection dashboard definitions status while an update runs."
+                        ))
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.7))
+                    } else {
+                        Text(definitionsSummary)
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.7))
+                        Button {
+                            Task { await malware.updateDatabaseManually() }
+                        } label: {
+                            Text(String(
+                                localized: "Update",
+                                comment: "Protection dashboard button that refreshes the malware signature database."
+                            ))
+                            .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.vaderTileGlass)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("protection.updateDefinitions")
+                    }
                 }
-                .buttonStyle(.vaderTileGlass)
-                .controlSize(.small)
-                .accessibilityIdentifier("protection.updateDefinitions")
+                if let failure = malware.definitionsUpdateFailure {
+                    Text(failure)
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("protection.updateDefinitions.failure")
+                }
             }
         }
     }
@@ -485,10 +525,19 @@ struct ProtectionDashboardView: View {
             metric: tile.metric,
             caption: tile.caption,
             systemImage: tile.systemImage,
-            onReview: openManager,
+            onReview: reviewAction(for: tile.removal),
             onRemove: { pendingPrivacyRemoval = tile.removal }
         )
         .accessibilityIdentifier("protection.privacyTile.\(tile.id)")
+    }
+
+    /// A browser's tile opens the manager on that browser. Recent Items has no
+    /// pane to open on, so its tile offers no Review.
+    private func reviewAction(for removal: PrivacyRemoval) -> (() -> Void)? {
+        switch removal {
+        case .browser(let browser): return { openManager(focusing: .browser(browser)) }
+        case .recents: return nil
+        }
     }
 
     /// One row of right-column cards.
@@ -546,23 +595,22 @@ struct ProtectionDashboardView: View {
         let bytes: Int64
     }
 
-    /// Tiles to render: one per detected browser with data, plus Recent Items —
-    /// minus any the user has already removed from the grid this session.
+    /// Tiles to render: one per detected browser with something left to remove,
+    /// plus Recent Items when there are any. Both come straight from the data, so
+    /// a removal retires its tile and a new scan brings it back only if there's
+    /// something new.
     private var privacyTiles: [PrivacyTile] {
         guard case .preview = privacy.phase else { return [] }
         var tiles: [PrivacyTile] = []
-        for browser in privacy.detectedBrowsers {
-            let size = privacy.sizeOnDisk(for: browser)
-            guard size > 0 else { continue }
-            let id = "browser.\(browser.rawValue)"
-            guard !removedPrivacyTiles.contains(id) else { continue }
+        for browser in privacy.detectedBrowsers where viewModel.hasRemovablePrivacyData(for: browser) {
+            let size = privacy.removableSize(for: browser)
             tiles.append(PrivacyTile(
-                id: id,
+                id: "browser.\(browser.rawValue)",
                 title: String(
                     localized: "\(browser.displayName) Browsing Data Found",
                     comment: "Protection privacy tile title for a browser's data."
                 ),
-                metric: formattedFileBytes(size),
+                metric: size > 0 ? formattedFileBytes(size) : nil,
                 caption: String(localized: "Remove your browser data to free up space and improve your privacy.",
                                 comment: "Protection browser-data tile caption."),
                 systemImage: "globe",
@@ -570,7 +618,7 @@ struct ProtectionDashboardView: View {
                 bytes: size
             ))
         }
-        if !removedPrivacyTiles.contains("recents") {
+        if privacy.hasRecentItems {
             tiles.append(PrivacyTile(
                 id: "recents",
                 title: String(localized: "Recent Items Found",
@@ -600,23 +648,34 @@ struct ProtectionDashboardView: View {
             }
         }
 
-        var tileID: String { id }
+        /// Says exactly what goes and what stays, because a tile's Remove acts on
+        /// a whole browser with nothing ticked to look at first.
+        var confirmationMessage: String {
+            switch self {
+            case .browser(let browser):
+                return String(
+                    localized: "This permanently deletes \(browser.displayName)'s cookies, download history, cached files, and last-session tabs, and signs you out of websites. Browsing history, passwords, and autofill stay. This cannot be undone.",
+                    comment: "Confirmation body for removing one browser's data from its dashboard tile."
+                )
+            case .recents:
+                return String(
+                    localized: "This clears your Mac's recent items lists. This cannot be undone.",
+                    comment: "Confirmation body for removing recent items from their dashboard tile."
+                )
+            }
+        }
     }
 
+    /// A tile leaves on its own once its data is gone. A failure, or a browser
+    /// that has to quit first, keeps it and raises an alert from the host.
     private func performPrivacyRemoval(_ removal: PrivacyRemoval) {
         Task {
-            let cleared: Bool
             switch removal {
             case .browser(let browser):
-                cleared = await viewModel.clearPrivacyData(for: browser)
+                _ = await viewModel.clearPrivacyData(for: browser)
             case .recents:
-                cleared = await viewModel.clearRecentItems()
+                _ = await viewModel.clearRecentItems()
             }
-            // A tile only retires once its data is actually gone; a failure keeps
-            // it (so the user can retry) and raises the alert below, rather than
-            // leaving a confirmed destructive action looking like a dead button.
-            guard cleared else { return }
-            _ = withAnimation { removedPrivacyTiles.insert(removal.tileID) }
         }
     }
 
@@ -627,10 +686,19 @@ struct ProtectionDashboardView: View {
                 MalwareResultsState(
                     threats: threats,
                     onRemoveAll: {
+                        confirmRemovalAfterReview = true
                         reviewingThreats = false
-                        confirmingMalwareRemoval = true
                     }
                 )
+                HStack {
+                    Spacer()
+                    Button(String(localized: "Close", comment: "Closes the detected-threats review without removing anything.")) {
+                        reviewingThreats = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("malware.review.close")
+                }
+                .padding([.horizontal, .bottom], 24)
             }
             .frame(minWidth: 520, minHeight: 420)
         } else {
@@ -669,6 +737,32 @@ private struct RemovalFailureAlert: ViewModifier {
             if let message = viewModel.removalFailureMessage {
                 Text(message)
             }
+        }
+    }
+}
+
+/// Raised when a removal is refused because its browser is open.
+private struct RunningBrowserAlert: ViewModifier {
+    let model: ProtectionPrivacyModel
+
+    private var browserName: String { model.blockedByRunningBrowser?.displayName ?? "" }
+
+    func body(content: Content) -> some View {
+        content.alert(
+            String(localized: "Quit \(browserName) first", comment: "Running-browser block title."),
+            isPresented: Binding(
+                get: { model.blockedByRunningBrowser != nil },
+                set: { if !$0 { model.acknowledgeBlock() } }
+            )
+        ) {
+            Button(String(localized: "OK", comment: "Acknowledge.")) {
+                model.acknowledgeBlock()
+            }
+        } message: {
+            Text(String(
+                localized: "These items are stored in a database \(browserName) has open. Quit \(browserName) and try again.",
+                comment: "Running-browser block body."
+            ))
         }
     }
 }

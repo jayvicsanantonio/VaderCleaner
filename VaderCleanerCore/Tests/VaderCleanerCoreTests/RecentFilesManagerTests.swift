@@ -95,4 +95,34 @@ final class RecentFilesManagerTests: XCTestCase {
         )
         XCTAssertNoThrow(try manager.clear())
     }
+
+    /// Per-app recent documents live one folder down, so a clear that stopped at
+    /// the top level left them behind.
+    func test_clear_removesPerApplicationRecentDocuments() throws {
+        let sharedDir = tempHome
+            .appendingPathComponent("Library/Application Support/com.apple.sharedfilelist", isDirectory: true)
+        let perApp = sharedDir
+            .appendingPathComponent("com.apple.LSSharedFileList.ApplicationRecentDocuments", isDirectory: true)
+        try FileManager.default.createDirectory(at: perApp, withIntermediateDirectories: true)
+        let textEdit = perApp.appendingPathComponent("com.apple.textedit.sfl3")
+        try Data().write(to: textEdit)
+        let manager = RecentFilesManager(homeDirectory: tempHome, clearAppRecentDocuments: {})
+
+        XCTAssertTrue(manager.hasRecentItems())
+        try manager.clear()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: textEdit.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: perApp.path), "only the lists go, not the folder")
+        XCTAssertFalse(manager.hasRecentItems())
+    }
+
+    func test_hasRecentItems_isFalseWithNoLists() throws {
+        let sharedDir = tempHome
+            .appendingPathComponent("Library/Application Support/com.apple.sharedfilelist", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedDir, withIntermediateDirectories: true)
+        try Data().write(to: sharedDir.appendingPathComponent("com.apple.LSSharedFileList.FavoriteItems.sfl3"))
+        let manager = RecentFilesManager(homeDirectory: tempHome, clearAppRecentDocuments: {})
+
+        XCTAssertFalse(manager.hasRecentItems())
+    }
 }

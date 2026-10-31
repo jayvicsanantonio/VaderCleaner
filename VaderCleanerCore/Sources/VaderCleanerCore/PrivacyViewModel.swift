@@ -63,6 +63,8 @@ public final class PrivacyViewModel {
     private(set) var scannedItemCount: Int = 0
 
     public private(set) var detectedBrowsers: [Browser] = []
+    /// Whether the last look found any recents list to clear.
+    public private(set) var hasRecentItems = false
     private(set) var checkedSelections: Set<Selection> = []
     private(set) var isClearRecentsChecked: Bool = true
 
@@ -71,6 +73,7 @@ public final class PrivacyViewModel {
     @ObservationIgnored private let pathsFor: PathsResolver
     @ObservationIgnored private let clearer: Clearer
     @ObservationIgnored private let clearRecentFiles: RecentFilesClearer
+    @ObservationIgnored private let recentItemsPresent: @MainActor () -> Bool
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "PrivacyViewModel")
 
@@ -84,6 +87,10 @@ public final class PrivacyViewModel {
     /// browser-data filesystem work does not keep competing in the
     /// background after the user has moved on.
     @ObservationIgnored private var currentOperationTask: Task<Void, Never>?
+
+    /// Advances when the untracked size cache changes outside a phase change, so
+    /// views reading sizes through it redraw.
+    private var revision = 0
 
     /// Cached per-cell sizes, populated at the end of `preview()` so the
     /// view's row labels and `totalSelectedSize` compute in O(1).
@@ -102,13 +109,15 @@ public final class PrivacyViewModel {
         // wire the real `BrowserDataCounter`.
         pathsFor: @escaping PathsResolver,
         clearer: @escaping Clearer,
-        clearRecentFiles: @escaping RecentFilesClearer
+        clearRecentFiles: @escaping RecentFilesClearer,
+        recentItemsPresent: @escaping @MainActor () -> Bool = { false }
     ) {
         self.detector = detector
         self.sizer = sizer
         self.pathsFor = pathsFor
         self.clearer = clearer
         self.clearRecentFiles = clearRecentFiles
+        self.recentItemsPresent = recentItemsPresent
     }
 
     deinit {
@@ -185,6 +194,15 @@ public final class PrivacyViewModel {
         checkedSelections.contains(Selection(browser: browser, category: category))
     }
 
+    /// The on-disk size of what a dashboard tile's Remove can actually clear for
+    /// this browser, as opposed to `sizeOnDisk(for:)`, which is everything. The
+    /// tile goes through the manager's removal, which never touches history or
+    /// autofill and can't read Safari's cookie format.
+    public func removableSize(for browser: Browser) -> Int64 {
+        let categories: [PrivacyCategory] = BrowserFamily(browser) == .safari ? [.cache] : [.cookies, .cache]
+        return sumOfSizes(over: Set(categories.map { Selection(browser: browser, category: $0) }))
+    }
+
     // Item *counts* are deliberately not maintained here. They belong to
     // `ProtectionPrivacyModel`, which is what the Protection Manager actually
     // reads; the copy this model kept had no production caller and cost one
@@ -243,6 +261,7 @@ public final class PrivacyViewModel {
     /// (e.g. Firefox without a profile yet) or a no-op category that
     /// the production clearer handles as such.
     private func sumOfSizes(over selections: Set<Selection>) -> Int64 {
+        _ = revision
         var visitedPaths = Set<URL>()
         var total: Int64 = 0
         // Iterate in `Browser.allCases` × `PrivacyCategory.allCases`
@@ -320,6 +339,7 @@ public final class PrivacyViewModel {
                     self.pathsByBrowserCategory = pathsSnapshot
                     self.checkedSelections = checkedSnapshot
                     self.isClearRecentsChecked = true
+                    self.hasRecentItems = self.recentItemsPresent()
                     self.phase = .preview
                 }
             } catch is CancellationError {
@@ -354,6 +374,28 @@ public final class PrivacyViewModel {
         finishOperation(generation)
     }
 
+    /// Re-measures the preview's sizes after data changed elsewhere, leaving
+    /// `phase` and the selection alone so the dashboard doesn't drop back to its
+    /// loader. Does nothing unless a preview is showing.
+    func refreshSizes() async {
+        guard phase == .preview else { return }
+        let generation = operationGeneration
+        let browsers = detectedBrowsers
+        let sizer = sizer
+        let sizes = await Task.detached { () -> [Selection: Int64] in
+            var sizes: [Selection: Int64] = [:]
+            for browser in browsers {
+                for category in PrivacyCategory.allCases {
+                    sizes[Selection(browser: browser, category: category)] = (try? await sizer(browser, category)) ?? 0
+                }
+            }
+            return sizes
+        }.value
+        guard operationGeneration == generation, phase == .preview else { return }
+        sizesByBrowserCategory = sizes
+        revision &+= 1
+    }
+
     /// Start a new operation by cancelling the old one and invalidating any
     /// late-arriving writes it might try to publish.
     private func beginOperation() -> Int {
@@ -380,6 +422,7 @@ public final class PrivacyViewModel {
 
     /// Clear cached preview state while preserving the current phase choice.
     private func clearPreviewState() {
+        hasRecentItems = false
         detectedBrowsers = []
         checkedSelections = []
         sizesByBrowserCategory = [:]
@@ -455,24 +498,13 @@ public final class PrivacyViewModel {
         finishOperation(generation)
     }
 
-    // MARK: - Targeted clears (Protection dashboard per-tile Remove)
-
-    /// Clears every actionable category of a single browser via the injected
-    /// clearer, without changing `phase` or the section's selection. The
-    /// Protection dashboard's per-tile Remove uses this so removing one
-    /// browser's data leaves the other tiles (and the Privacy section's own
-    /// preview) untouched. Throws on the first category that fails.
-    func clearData(for browser: Browser) async throws {
-        for category in PrivacyCategory.allCases {
-            guard isCategoryActionable(browser: browser, category: category) else { continue }
-            try await clearer(browser, category)
-        }
-    }
+    // MARK: - Targeted clears (Protection dashboard Recent Items tile)
 
     /// Clears the recent-items lists via the injected recents clearer, without
     /// changing `phase`. Used by the Protection dashboard's Recent Items tile.
     func clearRecentItems() async throws {
         try await clearRecentFiles()
+        hasRecentItems = recentItemsPresent()
     }
 
     /// Flip the per-cell checkbox.
@@ -528,7 +560,8 @@ extension PrivacyViewModel {
                 // inherits the enclosing `@MainActor` isolation, so we can
                 // call it directly without an explicit hop.
                 try recents.clear()
-            }
+            },
+            recentItemsPresent: { recents.hasRecentItems() }
         )
     }
 }

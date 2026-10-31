@@ -217,20 +217,42 @@ final class HelperDeletionPolicyTests: XCTestCase {
         XCTAssertEqual(try policy.validateDeletionPath(agent.path), agent.standardizedFileURL)
     }
 
-    func test_validateDeletionPath_rejectsNonPlistLaunchItems() {
-        let path = launchAgentsRoot.appendingPathComponent("com.example.agent.txt").path
+    /// A malware scan covers the system launch directories recursively, so a
+    /// payload dropped there has to be removable whatever it's called.
+    func test_validateDeletionPath_acceptsAnythingUnderTheSystemLaunchDirectories() throws {
+        for path in [
+            launchAgentsRoot.appendingPathComponent("payload.bin"),
+            launchDaemonsRoot.appendingPathComponent("Nested/com.example.daemon.plist")
+        ] {
+            XCTAssertEqual(try policy.validateDeletionPath(path.path), path.standardizedFileURL)
+        }
+    }
+
+    func test_validateDeletionPath_rejectsTheSystemLaunchDirectoriesThemselves() {
+        for path in [launchAgentsRoot.path, launchDaemonsRoot.path] {
+            XCTAssertThrowsError(try policy.validateDeletionPath(path))
+        }
+    }
+
+    func test_validateDeletionPath_rejectsNonPlistUserLaunchItems() {
+        let path = usersRoot
+            .appendingPathComponent("alice", isDirectory: true)
+            .appendingPathComponent("Library/LaunchAgents/payload.bin")
+            .path
 
         XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
             XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
         }
     }
 
-    func test_validateDeletionPath_rejectsNestedLaunchPlists() {
-        let path = launchAgentsRoot.appendingPathComponent("Nested/com.example.agent.plist").path
+    func test_launchDaemonPlists_namesOnlyDaemonPlistsThePolicyWouldDelete() {
+        let daemon = launchDaemonsRoot.appendingPathComponent("com.example.daemon.plist").path
+        let nested = launchDaemonsRoot.appendingPathComponent("Nested/com.example.daemon.plist").path
+        let payload = launchDaemonsRoot.appendingPathComponent("payload.bin").path
+        let agent = launchAgentsRoot.appendingPathComponent("com.example.agent.plist").path
+        let outside = tempRoot.appendingPathComponent("elsewhere/LaunchDaemons/x.plist").path
 
-        XCTAssertThrowsError(try policy.validateDeletionPath(path)) { error in
-            XCTAssertEqual(error as? HelperDeletionValidationError, .disallowedPath(path))
-        }
+        XCTAssertEqual(policy.launchDaemonPlists(in: [daemon, nested, payload, agent, outside]), [daemon])
     }
 
     func test_validateDeletionPath_rejectsNestedUserLaunchAgentPlists() {

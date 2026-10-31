@@ -43,6 +43,10 @@ public final class ProtectionDashboardViewModel {
         self.malware = malware
         self.privacy = privacy
         self.protectionPrivacy = protectionPrivacy
+        // The tiles measure the same data the manager removes.
+        protectionPrivacy.onDataChanged = { [weak privacy] in
+            Task { await privacy?.refreshSizes() }
+        }
     }
 
     /// Starts both scans together. The privacy preview is fast and fills its
@@ -59,10 +63,10 @@ public final class ProtectionDashboardViewModel {
     /// to scan Protection by hand afterwards. The malware tile is seeded from the
     /// scan's own results (no re-scan), and the fast privacy preview is kicked off
     /// so its tiles are ready too — unlike `beginScan()`, which would redundantly
-    /// re-run the malware scan. A no-op once the user has scanned here, so it
-    /// never disrupts a scan they started themselves.
+    /// re-run the malware scan. Every Smart Scan reports here, not just the first,
+    /// or Protection would go on saying "clean" after a later one found something;
+    /// `MalwareViewModel.seed` keeps it from disturbing a scan or a threat list.
     public func prewarmFromSmartScan(threats: [MalwareThreat], clamAVAvailable: Bool, scannedAt date: Date) {
-        guard !hasScanned else { return }
         // The privacy preview doesn't depend on the malware engine, so it is
         // warmed either way — its tiles and the manager are ready whenever the
         // user arrives.
@@ -73,8 +77,7 @@ public final class ProtectionDashboardViewModel {
         // switched off in Smart Care, an unusable engine, a failed scan — has no
         // result to show, and claiming otherwise replaced the section's intro
         // with a dashboard whose malware tile read "Scan Stopped" for a scan the
-        // user never started. `hasScanned` is one-shot, so setting it here would
-        // also spend the one chance a later Smart Scan has to seed properly.
+        // user never started.
         guard clamAVAvailable else { return }
         hasScanned = true
         malware.seed(threats: threats, clamAVAvailable: clamAVAvailable, scannedAt: date)
@@ -82,39 +85,73 @@ public final class ProtectionDashboardViewModel {
 
     // MARK: - Tile removal
 
-    /// Why the last tile removal failed, or `nil` when nothing has. The tile's
-    /// Remove sits behind a "this cannot be undone" confirmation, so a failure
-    /// that left the tile in place and said nothing read as a broken button.
-    public private(set) var removalFailureMessage: String?
+    /// Why the last Recent Items removal failed. It has no model of its own to
+    /// hold this, unlike a browser's data or a threat.
+    private var recentItemsFailureMessage: String?
 
-    /// Clears one browser's privacy data for its dashboard tile. Returns whether
-    /// the data is gone, so the caller can retire the tile — a tile whose data
-    /// is still there must stay, and the reason surfaces instead.
+    /// Why the last removal from anywhere in this section didn't finish, or `nil`
+    /// when nothing has failed. Remove sits behind a "this cannot be undone"
+    /// confirmation, so a failure that left things in place and said nothing read
+    /// as a broken button.
+    public var removalFailureMessage: String? {
+        if let recentItemsFailureMessage { return recentItemsFailureMessage }
+        if let message = protectionPrivacy.removalFailureMessage { return message }
+        let threats = malware.threatRemovalFailureCount
+        guard threats > 0 else { return nil }
+        return String(
+            localized: "\(threats) threats couldn't be removed and are still listed, so you can try again.",
+            bundle: .module,
+            comment: "Removal failure when some malware files couldn't be removed."
+        )
+    }
+
+    /// Clears one browser's privacy data for its dashboard tile, through the same
+    /// removal the manager uses: nothing happens while the browser is open, and
+    /// history, autofill, and passwords stay. Returns whether the data is gone.
     public func clearPrivacyData(for browser: Browser) async -> Bool {
-        await removing { try await privacy.clearData(for: browser) }
+        await protectionPrivacy.removeAllData(for: browser)
     }
 
     /// The same for the Recent Items tile.
     public func clearRecentItems() async -> Bool {
-        await removing { try await privacy.clearRecentItems() }
+        recentItemsFailureMessage = nil
+        do {
+            try await privacy.clearRecentItems()
+            return true
+        } catch {
+            log.error("Protection recent items removal failed: \(String(describing: error), privacy: .private)")
+            recentItemsFailureMessage = error.localizedDescription
+            return false
+        }
     }
 
     /// Dismisses the failure alert, so a retry starts from a clean slate rather
     /// than leaving a stale reason behind a later success.
     public func dismissRemovalFailure() {
-        removalFailureMessage = nil
+        recentItemsFailureMessage = nil
+        protectionPrivacy.dismissRemovalFailure()
+        malware.dismissThreatRemovalFailure()
     }
 
-    private func removing(_ work: () async throws -> Void) async -> Bool {
-        removalFailureMessage = nil
-        do {
-            try await work()
-            return true
-        } catch {
-            log.error("Protection tile removal failed: \(String(describing: error), privacy: .private)")
-            removalFailureMessage = error.localizedDescription
-            return false
+    /// Whether a browser's tile has anything left to offer. Prefers the manager's
+    /// counts, because a database file keeps its size after its rows are deleted;
+    /// until the manager has scanned, the preview's sizes are all there is.
+    public func hasRemovablePrivacyData(for browser: Browser) -> Bool {
+        guard protectionPrivacy.browsers.contains(browser) else {
+            return privacy.removableSize(for: browser) > 0
         }
+        return protectionPrivacy.removableCount(browser) > 0
+    }
+
+    /// Re-reads the manager's privacy data, so what it shows reflects browsing
+    /// done since it last looked. Silent: the current rows stay until new ones land.
+    public func refreshManagerPrivacy() {
+        Task { await protectionPrivacy.scan() }
+    }
+
+    /// Takes threats Smart Scan removed off this section's list.
+    public func smartScanRemoved(threats: [MalwareThreat]) {
+        malware.threatsRemovedElsewhere(threats)
     }
 
     /// Warms the Protection Manager's privacy model alongside the dashboard scan
@@ -134,6 +171,7 @@ public final class ProtectionDashboardViewModel {
         // reset. Clearing `hasScanned` flips `scanPresentation` back to `.intro`.
         malware.cancel()
         privacy.scanAgain()
+        dismissRemovalFailure()
         hasScanned = false
     }
 

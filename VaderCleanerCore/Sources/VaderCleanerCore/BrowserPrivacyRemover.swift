@@ -1,9 +1,10 @@
 // BrowserPrivacyRemover.swift
-// Removes selected Protection Manager privacy data: deletes cache/session files, empties whole SQLite categories, or deletes individual rows (cookies by host, history/search by rowid). Refuses while the target browser is running so a live database is never mutated.
+// Removes selected Protection Manager privacy data: deletes cache/session files, empties whole SQLite categories, or deletes the rows of chosen sites, in every profile. Refuses while the target browser is running so a live database is never mutated, and reports anything it couldn't remove.
 
 import Foundation
 import SQLite3
 import AppKit
+import os.log
 
 /// A single removal target: a whole category, or specific items within an
 /// expandable one.
@@ -14,20 +15,40 @@ public struct PrivacyRemovalRequest: Sendable, Equatable {
 
     enum Scope: Sendable, Equatable {
         case wholeCategory
-        /// Per-item: cookie hosts and/or table rowids to delete.
-        case items(hostKeys: [String], rowIDs: [Int64])
+        /// Per-item: the cookie hosts or sites to delete.
+        case items(hostKeys: [String])
     }
 }
 
-enum PrivacyRemovalError: Error, Equatable {
+enum PrivacyRemovalError: LocalizedError, Equatable {
     /// The target browser is running; removing would risk a locked/half-written
     /// store. The UI surfaces "Quit <browser> to remove these items."
     case browserRunning(Browser)
+    /// Every request was attempted, and at least one couldn't be carried out.
+    case incomplete
+
+    var errorDescription: String? {
+        switch self {
+        case .browserRunning(let browser):
+            return String(
+                localized: "Close \(browser.displayName) first, then try again.",
+                bundle: .module,
+                comment: "Removal failure when a browser must quit before its data can be cleared."
+            )
+        case .incomplete:
+            return String(
+                localized: "Some items couldn't be removed. Quit your browsers, check that VaderCleaner has Full Disk Access, then try again.",
+                bundle: .module,
+                comment: "Removal failure when a browser's data couldn't be deleted."
+            )
+        }
+    }
 }
 
 /// Executes `PrivacyRemovalRequest`s. SQLite deletes run read-write inside a
 /// transaction; file categories delete on disk. Refuses outright if a target
-/// browser is running.
+/// browser is running. Otherwise every request is attempted, and one that fails
+/// doesn't stop the rest.
 struct BrowserPrivacyRemover: Sendable {
 
     typealias IsRunning = @Sendable (Browser) -> Bool
@@ -46,12 +67,15 @@ struct BrowserPrivacyRemover: Sendable {
     }
 
     /// Removes every request. Throws `browserRunning` (before deleting anything)
-    /// if any target browser is open.
+    /// if any target browser is open, and `incomplete` afterwards if anything
+    /// couldn't be removed.
     func remove(_ requests: [PrivacyRemovalRequest]) async throws {
         for browser in Set(requests.map(\.browser)) where isBrowserRunning(browser) {
             throw PrivacyRemovalError.browserRunning(browser)
         }
-        await worker.remove(requests)
+        guard await worker.remove(requests) else {
+            throw PrivacyRemovalError.incomplete
+        }
     }
 
     /// Production running-check: any app with the browser's bundle id is active.
@@ -66,70 +90,131 @@ private actor RemoverWorker {
     /// See `InspectorWorker.fileManager` — the shared instance, held directly
     /// because no caller or test ever supplied a different one.
     private let fileManager = FileManager.default
+    private let log = Logger(subsystem: "com.personal.VaderCleaner", category: "BrowserPrivacyRemover")
 
     init(locator: BrowserPrivacyStoreLocator) {
         self.locator = locator
     }
 
-    func remove(_ requests: [PrivacyRemovalRequest]) {
+    /// Whether everything asked for is gone.
+    func remove(_ requests: [PrivacyRemovalRequest]) -> Bool {
+        var allRemoved = true
         for request in requests {
             switch locator.store(for: request.category, browser: request.browser) {
             case .none:
                 continue
-            case .files(let dirs):
-                deleteFiles(dirs)
-            case .sqlite(let db, let table, let kind):
-                guard fileManager.fileExists(atPath: db.path) else { continue }
-                switch request.scope {
-                case .wholeCategory:
-                    runDelete(db: db, sql: "DELETE FROM \"\(table)\"")
-                case .items(let hostKeys, let rowIDs):
-                    deleteItems(db: db, table: table, kind: kind, hostKeys: hostKeys, rowIDs: rowIDs)
+            case .files(let paths):
+                allRemoved = deleteFiles(paths) && allRemoved
+            case .sqlite(let dbs, let table, let kind):
+                for db in dbs where fileManager.fileExists(atPath: db.path) {
+                    let removed = runDelete(db: db) { handle in
+                        self.statements(for: request.scope, table: table, kind: kind, handle: handle)
+                    }
+                    allRemoved = removed && allRemoved
                 }
             }
         }
+        return allRemoved
     }
 
-    private func deleteFiles(_ paths: [URL]) {
+    private func deleteFiles(_ paths: [URL]) -> Bool {
+        var allRemoved = true
         for url in paths where fileManager.fileExists(atPath: url.path) {
-            try? fileManager.removeItem(at: url)
+            do {
+                try fileManager.removeItem(at: url)
+            } catch {
+                log.error("Could not remove browser data: \(error.localizedDescription, privacy: .private)")
+                allRemoved = false
+            }
+        }
+        return allRemoved
+    }
+
+    private func statements(
+        for scope: PrivacyRemovalRequest.Scope,
+        table: String,
+        kind: PrivacyItemKind,
+        handle: OpaquePointer
+    ) -> [String] {
+        let linked = Self.linkedTables(of: table).filter { tableExists($0.name, handle: handle) }
+        switch scope {
+        case .wholeCategory:
+            return ["DELETE FROM \"\(table)\""] + linked.map { "DELETE FROM \"\($0.name)\"" }
+        case .items(let hostKeys):
+            switch kind {
+            case .cookiesByHost(let column):
+                return hostKeys.chunked(into: 400).map { chunk in
+                    let list = chunk.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" }.joined(separator: ",")
+                    return "DELETE FROM \"\(table)\" WHERE \"\(column)\" IN (\(list))"
+                }
+            case .rowsBySite(let urlColumn):
+                let rowIDs = rowIDs(ofSites: Set(hostKeys), table: table, urlColumn: urlColumn, handle: handle)
+                return rowIDs.chunked(into: 400).flatMap { chunk -> [String] in
+                    let list = chunk.map(String.init).joined(separator: ",")
+                    return ["DELETE FROM \"\(table)\" WHERE rowid IN (\(list))"]
+                        + linked.map { "DELETE FROM \"\($0.name)\" WHERE \"\($0.keyColumn)\" IN (\(list))" }
+                }
+            case .plain:
+                return [] // informational stores are never deleted
+            }
         }
     }
 
-    private func deleteItems(db: URL, table: String, kind: PrivacyItemKind, hostKeys: [String], rowIDs: [Int64]) {
-        switch kind {
-        case .cookiesByHost(let column):
-            for chunk in hostKeys.chunked(into: 400) where !chunk.isEmpty {
-                let list = chunk.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" }.joined(separator: ",")
-                runDelete(db: db, sql: "DELETE FROM \"\(table)\" WHERE \"\(column)\" IN (\(list))")
-            }
-        case .rowsBySite:
-            for chunk in rowIDs.chunked(into: 400) where !chunk.isEmpty {
-                let list = chunk.map(String.init).joined(separator: ",")
-                runDelete(db: db, sql: "DELETE FROM \"\(table)\" WHERE rowid IN (\(list))")
-            }
-        case .plain:
-            break // informational stores are never deleted
-        }
+    /// Tables keyed to a row of `table`. Chromium keeps a download's actual URL
+    /// in `downloads_url_chains`, not `downloads`, so removing only the row it
+    /// hangs off would leave the very thing the user asked to forget.
+    private static func linkedTables(of table: String) -> [(name: String, keyColumn: String)] {
+        guard table == "downloads" else { return [] }
+        return [
+            ("downloads_url_chains", "id"),
+            ("downloads_slices", "download_id"),
+            ("downloads_reroute_info", "download_id")
+        ]
     }
 
-    /// Opens the DB read-write and runs `sql` in a transaction. A locked DB
-    /// (browser still open despite the guard) just fails silently rather than
-    /// corrupting anything — SQLite is atomic.
-    private func runDelete(db url: URL, sql: String) {
+    private func tableExists(_ name: String, handle: OpaquePointer) -> Bool {
+        var statement: OpaquePointer?
+        let sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '\(name)'"
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(statement) }
+        return sqlite3_step(statement) == SQLITE_ROW
+    }
+
+    /// The rows listed under the given sites right now, so a row added since the
+    /// list was read goes with its site and a reused rowid can't take a stranger.
+    private func rowIDs(ofSites sites: Set<String>, table: String, urlColumn: String, handle: OpaquePointer) -> [Int64] {
+        var statement: OpaquePointer?
+        let sql = "SELECT rowid, \"\(urlColumn)\" FROM \"\(table)\""
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var matches: [Int64] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let urlString = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+            if sites.contains(BrowserPrivacySite.key(forURL: urlString)) {
+                matches.append(sqlite3_column_int64(statement, 0))
+            }
+        }
+        return matches
+    }
+
+    /// Opens the DB read-write and runs the statements in one transaction, so a
+    /// row and the rows linked to it go together or not at all. Reports whether
+    /// the transaction committed. A locked DB (browser still open despite the
+    /// guard) fails rather than corrupting anything — SQLite is atomic.
+    private func runDelete(db url: URL, statements: (OpaquePointer) -> [String]) -> Bool {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let handle = db else {
             sqlite3_close(db)
-            return
+            return false
         }
-        defer { sqlite3_close(db) }
-        sqlite3_busy_timeout(db, 2000)
-        sqlite3_exec(db, "BEGIN IMMEDIATE", nil, nil, nil)
-        if sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK {
-            sqlite3_exec(db, "COMMIT", nil, nil, nil)
-        } else {
-            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+        defer { sqlite3_close(handle) }
+        sqlite3_busy_timeout(handle, 2000)
+        guard sqlite3_exec(handle, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else { return false }
+        for sql in statements(handle) where sqlite3_exec(handle, sql, nil, nil, nil) != SQLITE_OK {
+            sqlite3_exec(handle, "ROLLBACK", nil, nil, nil)
+            return false
         }
+        return sqlite3_exec(handle, "COMMIT", nil, nil, nil) == SQLITE_OK
     }
 }
 

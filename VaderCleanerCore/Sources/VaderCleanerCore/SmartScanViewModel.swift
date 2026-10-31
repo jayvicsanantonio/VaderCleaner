@@ -117,6 +117,9 @@ public final class SmartScanViewModel {
     /// ContentView can seed the same-scope standalone sections and spare the
     /// user a re-scan. `nil` by default (tests and previews don't seed).
     public var onScanCompleted: ((CarePlan) -> Void)?
+    /// Called with the threats a Run removed, so other surfaces listing them can
+    /// stop offering to remove files that are gone.
+    public var onThreatsRemoved: (([MalwareThreat]) -> Void)?
 
     /// Persistent, prebuilt model behind the junk Review — the same store the
     /// standalone Cleanup Manager uses. Warmed as soon as a scan lands
@@ -1440,6 +1443,7 @@ public final class SmartScanViewModel {
         guard !selected.isEmpty else { return nil }
         let failures = await threatRemover(selected)
         let removed = selected.count - failures.count
+        onThreatsRemoved?(selected.filter { !failures.contains($0) })
         return CareReceiptLine(
             kind: .threats,
             itemsProcessed: removed,

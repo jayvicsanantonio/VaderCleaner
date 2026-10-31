@@ -250,7 +250,8 @@ final class ClamAVScannerTests: XCTestCase {
                 "/\\.yarn/",
                 "/\\.cargo/registry/",
                 "/\\.gradle/caches/",
-                "/\\.m2/repository/"
+                "/\\.m2/repository/",
+                "/Library/CloudStorage/"
             ]
         )
     }
