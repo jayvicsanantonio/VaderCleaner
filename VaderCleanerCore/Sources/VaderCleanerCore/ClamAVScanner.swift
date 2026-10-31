@@ -9,6 +9,11 @@ import os.log
 /// The engine can't be trusted to scan anything.
 enum ClamAVEngineError: LocalizedError, Equatable {
     case selfTestFailed
+    case notInstalled
+    case scanFailed
+    /// clamscan's exit status says it found an infection, but no file could be
+    /// tied to the verdict. Never a clean result: the status can't be forged.
+    case unlocatedInfection
 
     var errorDescription: String? {
         switch self {
@@ -18,8 +23,33 @@ enum ClamAVEngineError: LocalizedError, Equatable {
                 bundle: .module,
                 comment: "Scan failure when clamscan can't detect a known test sample."
             )
+        case .notInstalled:
+            return String(
+                localized: "The malware engine isn't available, so nothing was scanned. Reinstall VaderCleaner to restore it.",
+                bundle: .module,
+                comment: "Scan failure when no clamscan binary can be found."
+            )
+        case .scanFailed:
+            return String(
+                localized: "The malware scan couldn't finish. Try updating the malware definitions, then scan again.",
+                bundle: .module,
+                comment: "Scan failure when the malware engine stops with a hard error."
+            )
+        case .unlocatedInfection:
+            return String(
+                localized: "The scan detected malware but couldn't work out which file it was in. Scan again, and if this keeps happening, don't treat this Mac as clean.",
+                bundle: .module,
+                comment: "Scan failure when the engine reports an infection no file can be tied to."
+            )
         }
     }
+}
+
+/// What one scan concluded: the confirmed threats, and how many items it was
+/// unable to read and so says nothing about.
+struct ClamAVScanReport: Sendable, Equatable {
+    let threats: [MalwareThreat]
+    let unreadableCount: Int
 }
 
 /// Scans paths for malware with `clamscan` and returns the matches.
@@ -58,6 +88,10 @@ struct ClamAVScanner {
     /// and not a symlink, whatever it points at.
     typealias RegularFileProbe = @Sendable (URL) -> Bool
 
+    /// Lists the regular files under some roots whose path contains a newline,
+    /// leaving out folders matching the given `--exclude-dir` patterns.
+    typealias NewlinePathFinder = @Sendable (_ roots: [URL], _ excludedDirectories: [String]) -> [URL]
+
     /// Directory-path regexes (clamscan's `--exclude-dir` flavour) that
     /// the scanner should skip. Walking these on a developer machine
     /// dominates scan time while contributing ~zero detection value:
@@ -88,7 +122,13 @@ struct ClamAVScanner {
         "/\\.yarn/",
         "/\\.cargo/registry/",
         "/\\.gradle/caches/",
-        "/\\.m2/repository/"
+        "/\\.m2/repository/",
+
+        // Dropbox, Google Drive, OneDrive and other File Provider mounts. Most
+        // of what's listed here is an online-only placeholder, which reading
+        // would download, so a scan could otherwise pull down a whole cloud
+        // account.
+        "/Library/CloudStorage/"
     ]
 
     /// Extra exclusions stacked on top of `defaultExcludedDirectories`
@@ -122,6 +162,20 @@ struct ClamAVScanner {
     /// The name `verifyEngineDetects` gives its throwaway signature.
     static let selfTestSignatureName = "VaderCleaner.Engine.SelfTest"
 
+    /// How many newline-named files `threatsAtNewlinePaths` will check. Each
+    /// takes its own clamscan run, and each of those loads the whole signature
+    /// database, so a directory of planted names mustn't turn one scan into
+    /// hours of them. Any beyond this count as coverage the scan didn't get to.
+    static let newlinePathCheckLimit = 25
+
+    /// What clamscan prints in place of a verdict for something it couldn't read.
+    private static let unreadableLineSuffixes = [
+        ": Access denied",
+        ": Can't open directory.",
+        ": Can't open file",
+        " ERROR"
+    ]
+
     private let detector: ClamAVDetector
     private let runner: ScanRunner
     private let databaseDirectoryProvider: DatabaseDirectoryProvider
@@ -129,6 +183,7 @@ struct ClamAVScanner {
     private let excludedFiles: [String]
     private let progressThrottleInterval: TimeInterval
     private let isRegularFile: RegularFileProbe
+    private let newlinePathFinder: NewlinePathFinder
     private let selfTestsEngine: Bool
     private let log = Logger(subsystem: "com.personal.VaderCleaner",
                              category: "ClamAVScanner")
@@ -142,6 +197,7 @@ struct ClamAVScanner {
         excludedFiles: [String] = [],
         progressThrottleInterval: TimeInterval = 0.1,
         isRegularFile: @escaping RegularFileProbe = ClamAVScanner.defaultRegularFileProbe,
+        newlinePathFinder: @escaping NewlinePathFinder = ClamAVScanner.defaultNewlinePathFinder,
         selfTestsEngine: Bool = true
     ) {
         self.detector = detector
@@ -151,6 +207,7 @@ struct ClamAVScanner {
         self.excludedFiles = excludedFiles
         self.progressThrottleInterval = progressThrottleInterval
         self.isRegularFile = isRegularFile
+        self.newlinePathFinder = newlinePathFinder
         self.selfTestsEngine = selfTestsEngine
     }
 
@@ -168,6 +225,46 @@ struct ClamAVScanner {
         (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
+    /// Production default: walks each root, stepping over anything unreadable
+    /// and any folder the scan excluded. Passing a file by name is what gets it
+    /// scanned, so walking into an excluded folder would scan what the user asked
+    /// to skip, and could page through a cloud mount besides.
+    static let defaultNewlinePathFinder: NewlinePathFinder = { roots, excludedDirectories in
+        let excluded = excludedDirectories.compactMap { try? NSRegularExpression(pattern: $0) }
+        var found: [URL] = []
+        for root in roots {
+            guard let walker = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: [],
+                errorHandler: { _, _ in true }
+            ) else { continue }
+            for case let url as URL in walker {
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+                if values?.isDirectory == true {
+                    // clamscan matches a folder with a trailing slash.
+                    let folder = url.path + "/"
+                    let range = NSRange(folder.startIndex..., in: folder)
+                    if excluded.contains(where: { $0.firstMatch(in: folder, range: range) != nil }) {
+                        walker.skipDescendants()
+                    }
+                } else if values?.isRegularFile == true, url.path.contains("\n") {
+                    found.append(url)
+                }
+            }
+        }
+        return found
+    }
+
+    /// The threats a scan confirmed, for callers with no use for its coverage.
+    func scan(
+        paths: [URL],
+        options: ScanOptions = ScanOptions(),
+        progress: @escaping @Sendable (_ line: String, _ filesScanned: Int) -> Void
+    ) async throws -> [MalwareThreat] {
+        try await scanReport(paths: paths, options: options, progress: progress).threats
+    }
+
     /// Scans `paths` recursively, reporting infected files only. `progress`
     /// receives a streamed `clamscan` output line together with the running
     /// count of files checked so far — `clamscan` prints one line per file, so
@@ -180,20 +277,19 @@ struct ClamAVScanner {
     /// it — see `verifiedThreats`.
     ///
     /// `clamscan` exits 0 when nothing is found and 1 when at least one
-    /// infection is found — both are *successful* scans. Only exit code 2
-    /// (a hard error), from either run, an unreachable binary, or an engine
-    /// that fails `verifyEngineDetects` throws.
-    func scan(
+    /// infection is found — both are *successful* scans. It exits 2 for any
+    /// error at all, which covers both a single unreadable file in a tree of
+    /// thousands and an engine that never got started. Only the first printed
+    /// anything, so that's what tells them apart: see `requireUsableExit`.
+    /// An exit of 1 is also a promise that something is infected, so a run that
+    /// can't name the file throws rather than coming back empty.
+    func scanReport(
         paths: [URL],
         options: ScanOptions = ScanOptions(),
         progress: @escaping @Sendable (_ line: String, _ filesScanned: Int) -> Void
-    ) async throws -> [MalwareThreat] {
+    ) async throws -> ClamAVScanReport {
         guard let binary = detector.path() else {
-            throw NSError(
-                domain: "com.personal.VaderCleaner.ClamAVScanner",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "ClamAV is not installed"]
-            )
+            throw ClamAVEngineError.notInstalled
         }
 
         if selfTestsEngine {
@@ -243,6 +339,7 @@ struct ClamAVScanner {
         let throttle = ProgressThrottle(interval: progressThrottleInterval)
         let counter = LineCounter()
         let status = try await runner(binary, arguments) { line in
+            counter.recordUnreadableIfNeeded(line)
             // Every line is parsed for threats so the throttle below
             // can't silently lose detections inside a tight burst of
             // infected files.
@@ -272,14 +369,80 @@ struct ClamAVScanner {
             progress(lastLine, counter.count)
         }
 
-        try requireSuccessfulExit(status)
+        try requireUsableExit(status, printedOutput: counter.count > 0)
 
-        return try await verifiedThreats(
-            collector.snapshot(),
-            scanRoots: paths,
-            binary: binary,
-            flags: sharedArguments + ["--no-summary"] + contentArguments
-        )
+        let reported = collector.snapshot()
+        let flags = sharedArguments + ["--no-summary"] + contentArguments
+        let verification = try await verifiedThreats(reported, scanRoots: paths, binary: binary, flags: flags)
+        var threats = verification.threats
+        var missed = verification.unreadableCount
+        if status == 1 {
+            let missing = try await threatsMissingFromVerdicts(
+                reported, confirmed: threats, roots: paths, binary: binary, flags: flags
+            )
+            threats += missing.threats
+            missed += missing.uncheckedCount
+        }
+
+        // A planted line can't lie about an exit of 0, the status clamscan
+        // only returns when it read everything. Any other status means at least
+        // one error, even in a form this doesn't recognise.
+        let unreadable = status == 0 ? 0 : max(counter.unreadableCount, status == 2 ? 1 : 0) + missed
+        return ClamAVScanReport(threats: threats, unreadableCount: unreadable)
+    }
+
+    /// Accounts for an exit of 1, which promises a real infection: when some
+    /// verdict went unconfirmed, it may have been the broken-up record of one, so
+    /// the newline-named files get checked. Throws if nothing at all can be named.
+    private func threatsMissingFromVerdicts(
+        _ reported: [MalwareThreat],
+        confirmed: [MalwareThreat],
+        roots: [URL],
+        binary: URL,
+        flags: [String]
+    ) async throws -> (threats: [MalwareThreat], uncheckedCount: Int) {
+        let confirmedPaths = Set(confirmed.map(\.filePath.path))
+        let everyVerdictConfirmed = !reported.isEmpty
+            && reported.allSatisfy { confirmedPaths.contains($0.filePath.path) }
+        guard !everyVerdictConfirmed else { return ([], 0) }
+        let found = try await threatsAtNewlinePaths(under: roots, binary: binary, flags: flags)
+        guard !confirmed.isEmpty || !found.threats.isEmpty else {
+            log.error("clamscan reported an infection no file could be tied to")
+            throw ClamAVEngineError.unlocatedInfection
+        }
+        return found
+    }
+
+    /// Finds infected files whose path contains a newline, which `verifiedThreats`
+    /// can't: clamscan splits their verdict across lines, so no single line names
+    /// the file. Each candidate gets a clamscan run of its own and only that run's
+    /// exit status decides, because a filename can forge any line it likes but
+    /// not the status. The signature name comes from the output and is display
+    /// text only.
+    private func threatsAtNewlinePaths(
+        under roots: [URL],
+        binary: URL,
+        flags: [String]
+    ) async throws -> (threats: [MalwareThreat], uncheckedCount: Int) {
+        let finder = newlinePathFinder
+        let excluded = excludedDirectories
+        let candidates = await Task.detached { finder(roots, excluded) }.value
+        var threats: [MalwareThreat] = []
+        for candidate in candidates.prefix(Self.newlinePathCheckLimit) {
+            try Task.checkCancellation()
+            let collector = ThreatCollector()
+            let status = try await runner(binary, flags + [candidate.path]) { line in
+                if let parsed = ClamAVOutputParser.parseLine(line) {
+                    collector.append(parsed)
+                }
+            }
+            guard status == 1 else { continue }
+            threats.append(MalwareThreat(
+                filePath: candidate,
+                threatName: collector.snapshot().last?.threatName ?? "Unknown"
+            ))
+        }
+        return (threats, max(0, candidates.count - Self.newlinePathCheckLimit))
     }
 
     /// Proves clamscan can detect something before trusting it to say a Mac is
@@ -349,13 +512,15 @@ struct ClamAVScanner {
     ///   full scan's line claimed.
     ///
     /// Every candidate goes in one run, since loading the signature database
-    /// dominates the cost of starting clamscan.
+    /// dominates the cost of starting clamscan. A candidate that run couldn't
+    /// read is left unconfirmed and comes back as `unreadableCount`, since the
+    /// scan can no longer say anything about it.
     private func verifiedThreats(
         _ reported: [MalwareThreat],
         scanRoots: [URL],
         binary: URL,
         flags: [String]
-    ) async throws -> [MalwareThreat] {
+    ) async throws -> (threats: [MalwareThreat], unreadableCount: Int) {
         var candidates: [String] = []
         var seen = Set<String>()
         for threat in reported where seen.insert(threat.filePath.path).inserted {
@@ -365,24 +530,34 @@ struct ClamAVScanner {
         }
 
         var confirmed: [MalwareThreat] = []
+        var unreadable = 0
         if !candidates.isEmpty {
             let candidateSet = Set(candidates)
             let collector = ThreatCollector()
+            let counter = LineCounter()
             let status = try await runner(binary, flags + candidates) { line in
+                _ = counter.record(line)
+                counter.recordUnreadableIfNeeded(line)
                 if let threat = ClamAVOutputParser.parseLine(line),
                    candidateSet.contains(threat.filePath.path) {
                     collector.append(threat)
                 }
             }
-            try requireSuccessfulExit(status)
+            try requireUsableExit(status, printedOutput: counter.count > 0)
             confirmed = collector.snapshot()
+            unreadable = status == 2 ? max(counter.unreadableCount, 1) : 0
         }
 
         let discarded = seen.count - confirmed.count
         if discarded > 0 {
             log.notice("Discarded \(discarded, privacy: .public) clamscan verdict(s) a re-scan did not confirm")
         }
-        return confirmed
+        return (confirmed, unreadable)
+    }
+
+    /// Whether a clamscan line reports an item it couldn't read.
+    static func isUnreadableLine(_ line: String) -> Bool {
+        unreadableLineSuffixes.contains { line.hasSuffix($0) }
     }
 
     /// Whether `url` is one of `roots` or lies beneath one. Compared by path
@@ -395,18 +570,17 @@ struct ClamAVScanner {
         }
     }
 
-    /// 0 = clean, 1 = virus(es) found, 2 = error. Anything else (or a
-    /// negative signal status) is a failure we surface rather than
+    /// 0 = clean, 1 = virus(es) found, 2 = error. An error after clamscan began
+    /// reporting on files is one it stepped over, usually an unreadable file, and
+    /// the rest of the run still stands. With no output at all it failed before
+    /// reaching a file, as it does when no signature database will load. Anything
+    /// else (or a negative signal status) is a failure we surface rather than
     /// silently report "no threats".
-    private func requireSuccessfulExit(_ status: Int32) throws {
-        guard status == 0 || status == 1 else {
+    private func requireUsableExit(_ status: Int32, printedOutput: Bool) throws {
+        let usable = status == 0 || status == 1 || (status == 2 && printedOutput)
+        guard usable else {
             log.error("clamscan exited with status \(status, privacy: .public)")
-            throw NSError(
-                domain: "com.personal.VaderCleaner.ClamAVScanner",
-                code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey:
-                    "clamscan exited with status \(status)"]
-            )
+            throw ClamAVEngineError.scanFailed
         }
     }
 
@@ -471,6 +645,7 @@ private final class ProgressThrottle: @unchecked Sendable {
 private final class LineCounter: @unchecked Sendable {
     private(set) var count = 0
     private(set) var lastLine: String?
+    private(set) var unreadableCount = 0
     private var reportedCount = 0
 
     /// Records a streamed line and returns the new running total.
@@ -478,6 +653,11 @@ private final class LineCounter: @unchecked Sendable {
         count += 1
         lastLine = line
         return count
+    }
+
+    /// Tallies a line that reports something clamscan couldn't read.
+    func recordUnreadableIfNeeded(_ line: String) {
+        if ClamAVScanner.isUnreadableLine(line) { unreadableCount += 1 }
     }
 
     /// Marks the current total as reported through the progress callback.

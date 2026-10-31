@@ -167,6 +167,17 @@ struct ManagerSurfaceModifier: ViewModifier {
 /// Centered icon + title + detail empty state for a Manager right pane with no
 /// items. Shared across the Cleanup, My Clutter, and Smart Scan managers so an
 /// empty pane reads the same everywhere instead of a bare line of text.
+/// The label of a manager's Sort menu. One `Text`, because a borderless `Menu`
+/// draws only the first view of a compound label, which left "Sort by:" with the
+/// current sort missing.
+struct ManagerSortLabel: View {
+    let value: String
+
+    var body: some View {
+        Text("\(Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)) \(Text(value).foregroundStyle(.tint))")
+    }
+}
+
 struct ManagerEmptyState: View {
     let icon: String
     let title: String

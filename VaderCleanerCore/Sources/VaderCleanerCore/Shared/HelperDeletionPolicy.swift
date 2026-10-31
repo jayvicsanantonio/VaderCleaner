@@ -209,12 +209,32 @@ struct HelperDeletionPolicy {
         return relative[1] == ".Trashes" && !relative[2].isEmpty
     }
 
+    /// Anything under the machine-wide launch directories: a malware scan covers
+    /// them recursively and can flag a payload that isn't a plist or sits in a
+    /// subfolder, and refusing those left them impossible to remove. launchd only
+    /// loads plists directly inside these folders, so nothing else here is a job
+    /// another app's install depends on.
     private func isAllowedLaunchPlist(_ url: URL) -> Bool {
+        if allowedLaunchPlistRoots.contains(where: { Self.isDescendant(url, of: $0) }) {
+            return true
+        }
         guard Self.pathExtension(of: url.lastPathComponent).caseInsensitiveCompare("plist") == .orderedSame else {
             return false
         }
-        return allowedLaunchPlistRoots.contains(where: { Self.isDirectChild(url, of: $0) })
-            || isAllowedUserLaunchAgent(url)
+        return isAllowedUserLaunchAgent(url)
+    }
+
+    /// The paths in a deletion request that define a system launch daemon. Its
+    /// job has to be booted out before the plist goes, or launchd keeps running
+    /// it until the next restart. Only paths this policy would delete qualify.
+    func launchDaemonPlists(in paths: [String]) -> [String] {
+        paths.filter { path in
+            guard let url = try? validateDeletionPath(path) else { return false }
+            return Self.pathExtension(of: url.lastPathComponent).caseInsensitiveCompare("plist") == .orderedSame
+                && allowedLaunchPlistRoots.contains { root in
+                    root.lastPathComponent == "LaunchDaemons" && Self.isDirectChild(url, of: root)
+                }
+        }
     }
 
     private func isAllowedUserLaunchAgent(_ url: URL) -> Bool {

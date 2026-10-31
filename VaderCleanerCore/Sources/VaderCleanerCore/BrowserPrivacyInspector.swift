@@ -3,17 +3,38 @@
 
 import Foundation
 import SQLite3
+import Synchronization
 
 /// One selectable entry inside an expandable category — a cookie domain, or a
-/// group of history/download/search rows for one site/term. Carries the keys the
-/// remover needs: `hostKey` for cookies (`DELETE … WHERE host = hostKey`) or
-/// `rowIDs` for the other tables (`DELETE … WHERE rowid IN rowIDs`).
+/// group of history/download rows for one site. `hostKey` is what the remover
+/// acts on in every profile: the cookie host, or the site its URLs belong to.
 public struct PrivacyItem: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
     public let count: Int
     var hostKey: String?
-    var rowIDs: [Int64] = []
+}
+
+/// Whether a category's count can be believed. Zero means "nothing there" only
+/// when the category is `.available`.
+public enum PrivacyDataAvailability: Sendable, Equatable {
+    case available
+    /// The app doesn't read this category for this browser's storage format.
+    case unsupported
+    /// The data is on disk but macOS or its permissions won't let the app open it.
+    case unreadable
+}
+
+/// A flag `FileManager`'s enumerator error handler can raise, which it may call
+/// from any thread.
+private final class LockedFlag: Sendable {
+    private let value = Mutex(false)
+
+    var isSet: Bool { value.withLock { $0 } }
+
+    func set() {
+        value.withLock { $0 = true }
+    }
 }
 
 /// Inspects a browser's privacy stores for the Protection Manager. Stores are
@@ -39,6 +60,11 @@ struct BrowserPrivacyInspector: Sendable {
     func items(for category: ProtectionPrivacyCategory, browser: Browser) async -> [PrivacyItem] {
         await worker.items(for: category, browser: browser)
     }
+
+    /// Whether `(browser, category)` can be read at all.
+    func availability(for category: ProtectionPrivacyCategory, browser: Browser) async -> PrivacyDataAvailability {
+        await worker.availability(for: category, browser: browser)
+    }
 }
 
 /// Off-main filesystem + SQLite work, mirroring the counter/clearer workers.
@@ -60,24 +86,86 @@ private actor InspectorWorker {
             return 0
         case .files(let dirs):
             return fileCount(under: dirs)
-        case .sqlite(let db, let table, _):
-            guard fileManager.fileExists(atPath: db.path) else { return 0 }
-            return rowCount(db: db, table: table)
+        case .sqlite(let dbs, let table, _):
+            return existing(dbs).reduce(0) { $0 + rowCount(db: $1, table: table) }
         }
     }
 
     func items(for category: ProtectionPrivacyCategory, browser: Browser) -> [PrivacyItem] {
         guard category.isExpandable else { return [] }
-        guard case .sqlite(let db, let table, let kind) = locator.store(for: category, browser: browser),
-              fileManager.fileExists(atPath: db.path) else { return [] }
-        switch kind {
-        case .cookiesByHost(let hostColumn):
-            return cookieItems(db: db, table: table, hostColumn: hostColumn)
-        case .rowsBySite(let urlColumn):
-            return rowsGroupedBySite(db: db, table: table, urlColumn: urlColumn)
-        case .plain:
+        guard case .sqlite(let dbs, let table, let kind) = locator.store(for: category, browser: browser) else {
             return []
         }
+        var counts: [String: Int] = [:]
+        for db in existing(dbs) {
+            switch kind {
+            case .cookiesByHost(let hostColumn):
+                addCookieCounts(db: db, table: table, hostColumn: hostColumn, to: &counts)
+            case .rowsBySite(let urlColumn):
+                addSiteCounts(db: db, table: table, urlColumn: urlColumn, to: &counts)
+            case .plain:
+                break
+            }
+        }
+        return counts
+            .map { PrivacyItem(id: $0.key, label: $0.key, count: $0.value, hostKey: $0.key) }
+            .sorted { $0.label < $1.label }
+    }
+
+    func availability(for category: ProtectionPrivacyCategory, browser: Browser) -> PrivacyDataAvailability {
+        switch locator.store(for: category, browser: browser) {
+        case .none:
+            return .unsupported
+        case .files(let paths):
+            let readable = paths
+                .filter { fileManager.fileExists(atPath: $0.path) }
+                .allSatisfy(canList)
+            return readable ? .available : .unreadable
+        case .sqlite(let dbs, let table, _):
+            return existing(dbs).allSatisfy { canQuery(db: $0, table: table) } ? .available : .unreadable
+        }
+    }
+
+    private func existing(_ urls: [URL]) -> [URL] {
+        urls.filter { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    /// Whether a file can be opened or a folder listed. `fileExists` can't say:
+    /// it answers yes for items macOS will then refuse to hand over.
+    private func canList(_ url: URL) -> Bool {
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard isDir else { return fileManager.isReadableFile(atPath: url.path) }
+        guard (try? fileManager.contentsOfDirectory(atPath: url.path)) != nil else { return false }
+        // A folder partway down that won't list would otherwise just shrink the
+        // count, reading as a smaller number rather than as missing data.
+        let failed = LockedFlag()
+        guard let walker = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: nil,
+            options: [],
+            errorHandler: { _, _ in
+                failed.set()
+                return true
+            }
+        ) else { return false }
+        for case _ as URL in walker where failed.isSet { return false }
+        return !failed.isSet
+    }
+
+    /// Whether a query against the table gets as far as reading the file. A
+    /// missing table (`SQLITE_ERROR`) is an older schema with nothing to show;
+    /// anything else, such as `SQLITE_AUTH` or `SQLITE_CANTOPEN`, means the
+    /// file itself is off limits.
+    private func canQuery(db url: URL, table: String) -> Bool {
+        guard let db = openReadOnly(url) else { return false }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        let status = sqlite3_prepare_v2(db, "SELECT 1 FROM \"\(table)\" LIMIT 1", -1, &stmt, nil)
+        defer { sqlite3_finalize(stmt) }
+        if status == SQLITE_ERROR { return true }
+        guard status == SQLITE_OK else { return false }
+        let step = sqlite3_step(stmt)
+        return step == SQLITE_ROW || step == SQLITE_DONE
     }
 
     // MARK: - File counting
@@ -99,14 +187,49 @@ private actor InspectorWorker {
 
     // MARK: - SQLite
 
+    /// Opens a browser's database for reading while the browser may have it open.
+    ///
+    /// `immutable=1` reads without touching any lock, which is the only way in
+    /// past a browser holding the file exclusively, but it ignores the `-wal`
+    /// file and so misses every row not yet checkpointed. So a database with a
+    /// non-empty log is opened normally first, which reads alongside a writer,
+    /// and falls back if that's refused.
     private func openReadOnly(_ url: URL) -> OpaquePointer? {
-        let uri = url.absoluteString + "?immutable=1"
+        if hasUncheckpointedLog(url), let db = open(uri: url.absoluteString + "?mode=ro"), canReadSchema(db) {
+            return db
+        }
+        return open(uri: url.absoluteString + "?immutable=1")
+    }
+
+    private func hasUncheckpointedLog(_ url: URL) -> Bool {
+        let log = url.path + "-wal"
+        let size = (try? fileManager.attributesOfItem(atPath: log))?[.size] as? Int64 ?? 0
+        return size > 0
+    }
+
+    private func open(uri: String) -> OpaquePointer? {
         var db: OpaquePointer?
         guard sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK else {
             sqlite3_close(db)
             return nil
         }
         return db
+    }
+
+    /// Closes the connection if it can't actually read, so the caller can try
+    /// another way in.
+    private func canReadSchema(_ db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        let status = sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master LIMIT 1", -1, &stmt, nil)
+        defer { sqlite3_finalize(stmt) }
+        let step = status == SQLITE_OK ? sqlite3_step(stmt) : status
+        guard step == SQLITE_ROW || step == SQLITE_DONE else {
+            sqlite3_finalize(stmt)
+            stmt = nil
+            sqlite3_close(db)
+            return false
+        }
+        return true
     }
 
     private func rowCount(db url: URL, table: String) -> Int {
@@ -118,42 +241,31 @@ private actor InspectorWorker {
         return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
     }
 
-    private func cookieItems(db url: URL, table: String, hostColumn: String) -> [PrivacyItem] {
-        guard let db = openReadOnly(url) else { return [] }
+    private func addCookieCounts(db url: URL, table: String, hostColumn: String, to counts: inout [String: Int]) {
+        guard let db = openReadOnly(url) else { return }
         defer { sqlite3_close(db) }
-        let sql = "SELECT \"\(hostColumn)\", count(*) FROM \"\(table)\" GROUP BY \"\(hostColumn)\" ORDER BY \"\(hostColumn)\""
+        let sql = "SELECT \"\(hostColumn)\", count(*) FROM \"\(table)\" GROUP BY \"\(hostColumn)\""
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
-        var items: [PrivacyItem] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             let host = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            let count = Int(sqlite3_column_int64(stmt, 1))
             guard !host.isEmpty else { continue }
-            items.append(PrivacyItem(id: host, label: host, count: count, hostKey: host))
+            counts[host, default: 0] += Int(sqlite3_column_int64(stmt, 1))
         }
-        return items
     }
 
-    /// Groups `(rowid, url)` rows by the host parsed from the URL, so a category
-    /// with thousands of rows collapses into a per-site list the user can act on.
-    private func rowsGroupedBySite(db url: URL, table: String, urlColumn: String) -> [PrivacyItem] {
-        guard let db = openReadOnly(url) else { return [] }
+    /// Groups URL rows by the host parsed from the URL, so a category with
+    /// thousands of rows collapses into a per-site list the user can act on.
+    private func addSiteCounts(db url: URL, table: String, urlColumn: String, to counts: inout [String: Int]) {
+        guard let db = openReadOnly(url) else { return }
         defer { sqlite3_close(db) }
-        let sql = "SELECT rowid, \"\(urlColumn)\" FROM \"\(table)\""
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, "SELECT \"\(urlColumn)\" FROM \"\(table)\"", -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
-        var groups: [String: (count: Int, rowIDs: [Int64])] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let rowID = sqlite3_column_int64(stmt, 0)
-            let urlString = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            let host = URL(string: urlString)?.host ?? (urlString.isEmpty ? "—" : urlString)
-            groups[host, default: (0, [])].count += 1
-            groups[host]?.rowIDs.append(rowID)
+            let urlString = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
+            counts[BrowserPrivacySite.key(forURL: urlString), default: 0] += 1
         }
-        return groups
-            .map { PrivacyItem(id: $0.key, label: $0.key, count: $0.value.count, hostKey: nil, rowIDs: $0.value.rowIDs) }
-            .sorted { $0.label < $1.label }
     }
 }

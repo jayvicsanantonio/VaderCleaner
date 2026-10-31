@@ -4,12 +4,21 @@
 import SwiftUI
 import VaderCleanerCore
 
+/// Where a dashboard button opens the manager.
+enum ProtectionManagerFocus: Equatable {
+    /// The Privacy pane, on whichever browser was last showing.
+    case privacy
+    case browser(Browser)
+}
+
 struct ProtectionManagerView: View {
 
     var malware: MalwareViewModel
     var privacyModel: ProtectionPrivacyModel
     var iconCache: AppIconCache
     let bundleURL: (Browser) -> URL?
+    /// Where to open, consumed as soon as it's been shown.
+    @Binding var focus: ProtectionManagerFocus?
     let onBack: () -> Void
 
     private enum Section: Hashable { case malware, privacy }
@@ -33,7 +42,6 @@ struct ProtectionManagerView: View {
     @State private var search = ""
     @State private var sort: Sort = .name
     @State private var confirming = false
-    @State private var blockedBrowser: Browser?
     @State private var hasInitialized = false
 
     private static let accent = ManagerChrome.accent
@@ -50,35 +58,48 @@ struct ProtectionManagerView: View {
                 // is populated before this view appears so `onChange` never fires.
                 if selectedBrowser == nil { selectedBrowser = privacyModel.browsers.first }
                 if !hasInitialized { hasInitialized = true; privacyModel.deselectAll() }
+                applyFocus()
             }
+            .onChange(of: focus) { _, _ in applyFocus() }
             // Catches the case where a pre-warm scan is still in flight when the
             // manager opens: select the first browser the moment it lands.
             .onChange(of: privacyModel.browsers) { _, browsers in
-                if selectedBrowser == nil { selectedBrowser = browsers.first }
+                if let selectedBrowser, browsers.contains(selectedBrowser) { return }
+                selectedBrowser = browsers.first
             }
-            .onChange(of: privacyModel.blockedByRunningBrowser) { _, b in if let b { blockedBrowser = b } }
+            // A search belongs to the pane it was typed in.
+            .onChange(of: section) { _, _ in search = "" }
+            // Keep a browser on screen that the search can actually show.
+            .onChange(of: search) { _, query in
+                guard let selectedBrowser, !privacyModel.browserMatches(selectedBrowser, search: query) else { return }
+                self.selectedBrowser = browserRows.first ?? selectedBrowser
+            }
+            // A selection only ever stands for threats still listed. During a
+            // removal it's left alone, so anything that fails stays ticked.
+            .onChange(of: malware.threatListState) { _, state in
+                switch state {
+                case .threats(let listed):
+                    selectedThreats.formIntersection(listed.map(\.id))
+                case .removing:
+                    break
+                case .scanning, .clean, .removed, .notScanned, .failed, .engineMissing:
+                    selectedThreats = []
+                }
+            }
             .alert(confirmTitle, isPresented: $confirming) {
                 Button(String(localized: "Cancel", comment: "Cancel removal."), role: .cancel) {}
                 Button(String(localized: "Remove", comment: "Confirm removal."), role: .destructive) { performRemove() }
             } message: {
                 Text(confirmMessage)
             }
-            .alert(
-                String(localized: "Quit \(blockedBrowser?.displayName ?? "") first", comment: "Running-browser block title."),
-                isPresented: Binding(
-                    get: { blockedBrowser != nil },
-                    set: { if !$0 { blockedBrowser = nil } }
-                )
-            ) {
-                Button(String(localized: "OK", comment: "Acknowledge.")) {
-                    privacyModel.acknowledgeBlock()
-                }
-            } message: {
-                Text(String(
-                    localized: "These items are stored in a database \(blockedBrowser?.displayName ?? "") has open. Quit \(blockedBrowser?.displayName ?? "") and try again.",
-                    comment: "Running-browser block body."
-                ))
-            }
+    }
+
+    private func applyFocus() {
+        guard let focus else { return }
+        section = .privacy
+        search = ""
+        if case .browser(let browser) = focus { selectedBrowser = browser }
+        self.focus = nil
     }
 
     private var surface: some View {
@@ -136,16 +157,16 @@ struct ProtectionManagerView: View {
                     .textFieldStyle(.plain).frame(width: 130)
                     .accessibilityIdentifier("protection.manager.search")
             }
-            Menu {
-                ForEach(Sort.allCases) { option in Button(option.label) { sort = option } }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                    Text(sort.label).foregroundStyle(.tint)
+            // Threats have no count to sort by, so the menu is only for Privacy.
+            if section == .privacy {
+                Menu {
+                    ForEach(Sort.allCases) { option in Button(option.label) { sort = option } }
+                } label: {
+                    ManagerSortLabel(value: sort.label)
                 }
+                .menuStyle(.borderlessButton).fixedSize()
+                .accessibilityIdentifier("protection.manager.sort")
             }
-            .menuStyle(.borderlessButton).fixedSize()
-            .accessibilityIdentifier("protection.manager.sort")
         }
         .padding(.horizontal, 24).padding(.vertical, 16)
     }
@@ -179,10 +200,16 @@ struct ProtectionManagerView: View {
                 VStack(spacing: 6) {
                     PaneHeading(
                         title: String(localized: "Privacy", comment: "Privacy middle header."),
-                        description: String(localized: "Instantly remove your browsing history, along with traces of your online and offline activities.", comment: "Privacy middle description."),
+                        description: String(
+                            localized: "Remove the cookies, download history, cached files, and tabs your browsers keep. Browsing history, passwords, and autofill are shown for your information.",
+                            comment: "Privacy middle description."
+                        ),
                         bottomPadding: 8
                     )
-                    ForEach(privacyModel.browsers) { browser in browserRow(browser) }
+                    if privacyModel.browsers.isEmpty && privacyModel.phase == .scanning {
+                        ProgressView().padding(.top, 12)
+                    }
+                    ForEach(browserRows) { browser in browserRow(browser) }
                 }
                 .padding(12)
             }
@@ -207,7 +234,7 @@ struct ProtectionManagerView: View {
                 browserIcon(browser)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(browser.displayName).font(.body.weight(.medium))
-                    Text(managerItemsLabel(privacyModel.totalCount(browser))).font(.caption).foregroundStyle(.secondary)
+                    Text(ProtectionCopy.items(privacyModel.removableCount(browser))).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -219,7 +246,7 @@ struct ProtectionManagerView: View {
             Image(systemName: "allergens").font(.title3).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
                 Text(String(localized: "Detected Threats", comment: "Threats row.")).font(.body.weight(.medium))
-                Text(managerItemsLabel(threats.count)).font(.caption).foregroundStyle(.secondary)
+                Text(ProtectionCopy.items(threats.count)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -232,7 +259,14 @@ struct ProtectionManagerView: View {
     private var rightPane: some View {
         switch section {
         case .privacy:
-            if let browser = selectedBrowser {
+            if browserRows.isEmpty && !search.isEmpty {
+                ManagerEmptyState(
+                    icon: "magnifyingglass",
+                    title: String(localized: "No Matches", comment: "Protection Manager empty search title."),
+                    detail: String(localized: "Nothing here matches your search.", comment: "Protection Manager empty search detail.")
+                )
+                .tint(Self.accent)
+            } else if let browser = selectedBrowser {
                 PrivacyPane(
                     browser: browser,
                     model: privacyModel,
@@ -246,20 +280,83 @@ struct ProtectionManagerView: View {
                 Color.clear
             }
         case .malware:
-            // While the engine is still looking for threats, show the scanning
-            // placeholder instead of an empty "No threats were found" list — the
-            // results aren't in yet.
-            if malware.isScanningPhase {
-                MalwareScanningPlaceholder()
-            } else {
-                MalwareResultsPane(
-                    threats: threats,
-                    search: search,
-                    selectedThreats: $selectedThreats,
-                    accent: Self.accent
-                )
+            malwarePane
+        }
+    }
+
+    /// The Malware pane says only what the last scan supports. "No threats" is
+    /// the answer to a finished scan, never to a stopped, failed, or missing one.
+    @ViewBuilder
+    private var malwarePane: some View {
+        switch malware.threatListState {
+        case .scanning:
+            MalwareScanningPlaceholder()
+        case .removing:
+            VStack(spacing: 14) {
+                ProgressView()
+                Text(String(localized: "Removing threats…", comment: "Protection Manager malware pane while removing."))
+                    .font(.title2.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .threats(let listed):
+            MalwareResultsPane(
+                threats: listed,
+                search: search,
+                unreadableNote: malware.unreadableNote,
+                selectedThreats: $selectedThreats,
+                accent: Self.accent
+            )
+        case .clean:
+            malwareStatus(
+                icon: "checkmark.shield.fill",
+                title: String(localized: "No Threats Found", comment: "Empty threats title."),
+                detail: malware.cleanResultDescription
+            )
+        case .removed(let count):
+            malwareStatus(
+                icon: "checkmark.shield.fill",
+                title: ProtectionCopy.threatsRemoved(count),
+                detail: String(localized: "The infected files have been removed.", comment: "Malware pane detail after removal.")
+            )
+        case .notScanned:
+            malwareStatus(
+                icon: "questionmark.circle",
+                title: String(localized: "No Scan Results", comment: "Malware pane title when no scan has finished."),
+                detail: String(localized: "The last scan didn't finish, so this can't say whether your Mac has any threats.", comment: "Malware pane detail when no scan has finished."),
+                offersScan: true
+            )
+        case .failed(let message):
+            malwareStatus(
+                icon: "exclamationmark.triangle",
+                title: String(localized: "Scan Failed", comment: "Malware pane title after a failed scan."),
+                detail: message,
+                offersScan: true
+            )
+        case .engineMissing:
+            malwareStatus(
+                icon: "exclamationmark.triangle",
+                title: String(localized: "Malware Engine Unavailable", comment: "Malware pane title when ClamAV is missing."),
+                detail: String(localized: "Your Mac couldn't be scanned because the malware engine is missing.", comment: "Malware pane detail when ClamAV is missing.")
+            )
+        }
+    }
+
+    private func malwareStatus(icon: String, title: String, detail: String, offersScan: Bool = false) -> some View {
+        VStack(spacing: 16) {
+            ManagerEmptyState(icon: icon, title: title, detail: detail)
+                .frame(maxHeight: .infinity)
+            if offersScan {
+                Button(String(localized: "Scan Now", comment: "Starts a malware scan from the Protection Manager.")) {
+                    malware.beginScan()
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("protection.manager.malware.scan")
             }
         }
+        .tint(Self.accent)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("protection.manager.malware.status")
     }
 
     // MARK: - Footer
@@ -267,6 +364,9 @@ struct ProtectionManagerView: View {
     private var footer: some View {
         HStack {
             Spacer()
+            if privacyModel.phase == .removing {
+                ProgressView().controlSize(.small)
+            }
             Text(selectionSummary).font(.callout).foregroundStyle(.secondary)
             Spacer()
             Button(role: .destructive) { confirming = true } label: {
@@ -286,10 +386,22 @@ struct ProtectionManagerView: View {
         return []
     }
 
+    /// The ticked threats still on the list, in list order.
+    private var selectedThreatList: [MalwareThreat] {
+        threats.filter { selectedThreats.contains($0.id) }
+    }
+
+    /// The browsers search leaves on offer, most items first when sorting by count.
+    private var browserRows: [Browser] {
+        let matching = privacyModel.browsers.filter { privacyModel.browserMatches($0, search: search) }
+        guard sort == .count else { return matching }
+        return matching.sorted { privacyModel.removableCount($0) > privacyModel.removableCount($1) }
+    }
+
     private var canRemove: Bool {
         switch section {
-        case .privacy: return privacyModel.hasSelection
-        case .malware: return !selectedThreats.isEmpty
+        case .privacy: return privacyModel.hasSelection && privacyModel.phase != .removing
+        case .malware: return !selectedThreatList.isEmpty
         }
     }
 
@@ -299,12 +411,12 @@ struct ProtectionManagerView: View {
             let n = privacyModel.selectedCount
             return n == 0
                 ? String(localized: "No Privacy Items Selected", comment: "Empty privacy selection.")
-                : String(localized: "\(n) Privacy Items Selected", comment: "Privacy selection count.")
+                : ProtectionCopy.privacyItemsSelected(n)
         case .malware:
-            let n = selectedThreats.count
+            let n = selectedThreatList.count
             return n == 0
                 ? String(localized: "No Threats Selected", comment: "Empty threat selection.")
-                : String(localized: "\(n) Threats Selected", comment: "Threat selection count.")
+                : ProtectionCopy.threatsSelected(n)
         }
     }
 
@@ -312,15 +424,18 @@ struct ProtectionManagerView: View {
         String(localized: "Remove selected items?", comment: "Removal confirmation title.")
     }
 
-    /// Privacy data is deleted outright; threats go to the Trash unless one
-    /// sits under a protected path, which the message then warns about.
+    /// Both bodies name what will go. A selection can span browsers the user isn't
+    /// looking at, and search can hide a ticked row. Privacy data is deleted
+    /// outright; threats go to the Trash unless one sits under a protected path,
+    /// which the message then warns about.
     private var confirmMessage: String {
         switch section {
         case .privacy:
-            return String(localized: "The selected items will be permanently deleted. This cannot be undone.",
-                          comment: "Protection Manager removal confirmation body.")
+            let warning = String(localized: "The selected items will be permanently deleted. This cannot be undone.",
+                                 comment: "Protection Manager removal confirmation body.")
+            return ([warning] + privacyModel.removalSummaryLines).joined(separator: "\n\n")
         case .malware:
-            return threats.filter { selectedThreats.contains($0.id) }.removalConfirmationMessage
+            return selectedThreatList.namedRemovalConfirmationMessage
         }
     }
 
@@ -329,8 +444,13 @@ struct ProtectionManagerView: View {
         case .privacy:
             Task { await privacyModel.remove() }
         case .malware:
-            let selected = threats.filter { selectedThreats.contains($0.id) }
-            Task { await malware.removeThreats(selected); onBack() }
+            let selected = selectedThreatList
+            // On a failure the manager stays up, with what's left still listed
+            // and ticked, while the host's alert says what happened.
+            Task {
+                await malware.removeThreats(selected)
+                if malware.threatRemovalFailureCount == 0 { onBack() }
+            }
         }
     }
 
@@ -370,9 +490,9 @@ private struct PrivacyPane: View {
                     description: String(localized: "You may choose to remove all the locally stored items that remain after browser use.", comment: "Privacy pane description.")
                 )
                 ManagerSelectMenu(
-                    any: model.hasSelection,
-                    onAll: { model.setAllSelected(true, browser: browser) },
-                    onNone: { model.setAllSelected(false, browser: browser) }
+                    any: model.hasSelection(in: browser, search: search),
+                    onAll: { model.setAllSelected(true, browser: browser, search: search) },
+                    onNone: { model.setAllSelected(false, browser: browser, search: search) }
                 )
                 // Each category (with its expanded per-item rows) sits on its
                 // own rounded glass card, matching the manager card rows used
@@ -385,10 +505,10 @@ private struct PrivacyPane: View {
                 // hosts and 2.2s at 10,000 — and re-paid it on every keystroke
                 // in the search field, since the filter runs in `body`.
                 VStack(spacing: 10) {
-                    ForEach(ProtectionPrivacyCategory.allCases) { category in
+                    ForEach(visibleCategories) { category in
                         VStack(spacing: 0) {
                             categoryRow(category)
-                            if isExpanded(category) {
+                            if showsItems(category) {
                                 LazyVStack(spacing: 0) {
                                     ForEach(sortedItems(category)) { item in
                                         itemRow(category, item)
@@ -415,16 +535,17 @@ private struct PrivacyPane: View {
             SmartInsightsSparkle(itemTitle: category.displayName, accent: accent, topic: .privacyData)
             // Fixed-width count column so the sparkle to its left lines up across
             // every row regardless of how wide each item count is.
-            Text(managerItemsLabel(model.count(browser, category)))
+            Text(countLabel(category))
                 .font(.callout).foregroundStyle(.secondary)
                 .frame(width: 100, alignment: .trailing)
+                .help(availabilityHelp(category))
             // Only offer the disclosure chevron when the category can expand AND
             // actually has items to reveal — an empty category shows no chevron.
             if category.isExpandable && model.count(browser, category) > 0 {
                 Button { toggleExpanded(category) } label: {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold)).foregroundStyle(.tint)
-                        .rotationEffect(.degrees(isExpanded(category) ? 90 : 0))
+                        .rotationEffect(.degrees(showsItems(category) ? 90 : 0))
                         .frame(width: 20, height: 20).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -449,9 +570,12 @@ private struct PrivacyPane: View {
                 Text(category.info).font(.callout).padding(14).frame(width: 260)
             }
         case .removable:
+            // An empty category has nothing to tick.
             ManagerCheckbox(state: model.categoryState(browser, category), accent: accent) {
                 model.toggleCategory(browser, category)
             }
+            .disabled(model.count(browser, category) == 0)
+            .opacity(model.count(browser, category) == 0 ? 0.4 : 1)
         }
     }
 
@@ -464,7 +588,7 @@ private struct PrivacyPane: View {
             Text(item.label).font(.body).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
             SmartInsightsSparkle(itemTitle: item.label, accent: accent, topic: .privacyData)
-            Text(managerItemsLabel(item.count))
+            Text(ProtectionCopy.items(item.count))
                 .font(.callout).foregroundStyle(.secondary)
                 .frame(width: 100, alignment: .trailing)
             Color.clear.frame(width: 20, height: 1)
@@ -473,9 +597,55 @@ private struct PrivacyPane: View {
         .background(Color.primary.opacity(0.02))
     }
 
+    /// Zero only means "nothing there" for data the app can read. Anything else
+    /// says so, rather than passing off "couldn't look" as "all clear".
+    private func countLabel(_ category: ProtectionPrivacyCategory) -> String {
+        switch model.availability(browser, category) {
+        case .available:
+            return ProtectionCopy.items(model.count(browser, category))
+        case .unsupported:
+            return String(localized: "Not available", comment: "Privacy category the app can't read for this browser.")
+        case .unreadable:
+            return String(localized: "Needs access", comment: "Privacy category the app isn't allowed to read.")
+        }
+    }
+
+    private func availabilityHelp(_ category: ProtectionPrivacyCategory) -> String {
+        switch model.availability(browser, category) {
+        case .available:
+            return ""
+        case .unsupported:
+            return String(
+                localized: "VaderCleaner can't read this kind of data from \(browser.displayName).",
+                comment: "Tooltip on a privacy category the app can't read for this browser."
+            )
+        case .unreadable:
+            return String(
+                localized: "macOS is keeping this data private. Give VaderCleaner Full Disk Access in System Settings to include it.",
+                comment: "Tooltip on a privacy category the app isn't allowed to read."
+            )
+        }
+    }
+
+    /// The categories search leaves on screen, most items first when sorting by count.
+    private var visibleCategories: [ProtectionPrivacyCategory] {
+        let matching = ProtectionPrivacyCategory.allCases.filter { model.isCategoryVisible(browser, $0, search: search) }
+        guard sortByCount else { return matching }
+        return matching.sorted { model.count(browser, $0) > model.count(browser, $1) }
+    }
+
+    /// A search that matched rows inside a category opens it, or the matches would
+    /// sit hidden behind a collapsed row. One that named the category itself
+    /// leaves the disclosure as the user set it.
+    private func showsItems(_ category: ProtectionPrivacyCategory) -> Bool {
+        if isExpanded(category) { return true }
+        guard !search.isEmpty, category.isExpandable else { return false }
+        return !category.displayName.localizedCaseInsensitiveContains(search)
+            && !model.visibleItems(browser, category, search: search).isEmpty
+    }
+
     private func sortedItems(_ category: ProtectionPrivacyCategory) -> [PrivacyItem] {
-        let items = model.items(browser, category)
-            .filter { search.isEmpty || $0.label.localizedCaseInsensitiveContains(search) }
+        let items = model.visibleItems(browser, category, search: search)
         return sortByCount
             ? items.sorted { $0.count > $1.count }
             : items.sorted { $0.label < $1.label }
@@ -497,55 +667,38 @@ private struct PrivacyPane: View {
 
 // MARK: - Malware panes
 
-/// The right pane's Malware content once the scan has settled: the detected
-/// threats with per-file selection, or an empty-state line when the Mac is
-/// clean. Derives its own filtered/sorted threat list.
+/// The right pane's Malware content when a scan found something: the detected
+/// threats with per-file selection. Derives its own filtered/sorted threat list.
 private struct MalwareResultsPane: View {
 
     let threats: [MalwareThreat]
     let search: String
+    let unreadableNote: String?
     @Binding var selectedThreats: Set<String>
     let accent: Color
 
-    /// Shared by the clean and the results states, so both say where removed
-    /// threats go.
-    private var paneDescription: String {
-        String(
-            localized: "Select the infected files to remove. They go to the Trash, except files in system folders, which are deleted permanently.",
-            comment: "Threats pane description."
-        )
-    }
-
     var body: some View {
-        if threats.isEmpty {
-            // A clean Mac shows the same centered icon + title + description
-            // empty state the Applications Manager uses, below the pane heading,
-            // rather than a bare left-aligned line.
+        ScrollView {
             VStack(spacing: 0) {
                 PaneHeading(
                     title: String(localized: "Detected Threats", comment: "Threats pane title."),
                     description: paneDescription
                 )
-                ManagerEmptyState(
-                    icon: "checkmark.shield.fill",
-                    title: String(localized: "No Threats Found", comment: "Empty threats title."),
-                    detail: String(localized: "Your Mac is clean — no malware was detected in this scan.", comment: "Empty threats detail.")
-                )
-                .tint(accent)
-            }
-            .padding(.horizontal, 24).padding(.vertical, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        } else {
-            ScrollView {
-                VStack(spacing: 0) {
-                    PaneHeading(
-                        title: String(localized: "Detected Threats", comment: "Threats pane title."),
-                        description: paneDescription
+                if sortedThreats.isEmpty {
+                    ManagerEmptyState(
+                        icon: "magnifyingglass",
+                        title: String(localized: "No Matches", comment: "Protection Manager empty search title."),
+                        detail: String(localized: "Nothing here matches your search.", comment: "Protection Manager empty search detail.")
                     )
+                    .tint(accent)
+                    .padding(.top, 40)
+                } else {
+                    // Select and Deselect act on the rows on screen, so a search
+                    // can't tick or untick anything it's hiding.
                     ManagerSelectMenu(
-                        any: !selectedThreats.isEmpty,
-                        onAll: { selectedThreats = Set(threats.map(\.id)) },
-                        onNone: { selectedThreats = [] }
+                        any: !selectedThreats.isDisjoint(with: sortedThreats.map(\.id)),
+                        onAll: { selectedThreats.formUnion(sortedThreats.map(\.id)) },
+                        onNone: { selectedThreats.subtract(sortedThreats.map(\.id)) }
                     )
                     // Lazy for the same reason as the privacy rows: a full-disk
                     // ClamAV scan decides how many threats land here, and the
@@ -554,9 +707,17 @@ private struct MalwareResultsPane: View {
                         ForEach(sortedThreats) { threat in threatRow(threat) }
                     }
                 }
-                .padding(.horizontal, 24).padding(.vertical, 16)
             }
+            .padding(.horizontal, 24).padding(.vertical, 16)
         }
+    }
+
+    private var paneDescription: String {
+        let description = String(
+            localized: "Select the infected files to remove. They go to the Trash, except files in system folders, which are deleted permanently.",
+            comment: "Threats pane description."
+        )
+        return unreadableNote.map { "\(description) \($0)" } ?? description
     }
 
     private func threatRow(_ threat: MalwareThreat) -> some View {
@@ -578,7 +739,7 @@ private struct MalwareResultsPane: View {
 
     private var sortedThreats: [MalwareThreat] {
         threats
-            .filter { search.isEmpty || $0.threatName.localizedCaseInsensitiveContains(search) || $0.filePath.lastPathComponent.localizedCaseInsensitiveContains(search) }
+            .filter { search.isEmpty || $0.threatName.localizedCaseInsensitiveContains(search) || $0.filePath.path.localizedCaseInsensitiveContains(search) }
             .sorted { $0.threatName < $1.threatName }
     }
 }
@@ -691,7 +852,26 @@ private struct ManagerCheckbox: View {
     }
 }
 
-/// Localized "N items" label shared by the manager's rows.
-private func managerItemsLabel(_ count: Int) -> String {
-    String(localized: "\(count) items", comment: "Item count label.")
+/// The Protection screens' counted labels, whose singulars come from the
+/// app's stringsdict.
+enum ProtectionCopy {
+    static func items(_ count: Int) -> String {
+        String(localized: "\(count) items", comment: "Item count label.")
+    }
+
+    static func threatsFound(_ count: Int) -> String {
+        String(localized: "\(count) Threats Found", comment: "Malware tile title when threats are found.")
+    }
+
+    static func threatsRemoved(_ count: Int) -> String {
+        String(localized: "\(count) Threats Removed", comment: "Malware tile title after removal.")
+    }
+
+    static func threatsSelected(_ count: Int) -> String {
+        String(localized: "\(count) Threats Selected", comment: "Threat selection count.")
+    }
+
+    static func privacyItemsSelected(_ count: Int) -> String {
+        String(localized: "\(count) Privacy Items Selected", comment: "Privacy selection count.")
+    }
 }

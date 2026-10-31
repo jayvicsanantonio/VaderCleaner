@@ -55,7 +55,7 @@ final class ProtectionPrivacyModelTests: XCTestCase {
         model.toggleItem(.chrome, .cookies, ".a.com")
         var requests = model.removalRequests()
         XCTAssertEqual(requests.count, 1)
-        XCTAssertEqual(requests[0].scope, .items(hostKeys: [".a.com"], rowIDs: []))
+        XCTAssertEqual(requests[0].scope, .items(hostKeys: [".a.com"]))
 
         model.toggleItem(.chrome, .cookies, ".b.com")
         requests = model.removalRequests()

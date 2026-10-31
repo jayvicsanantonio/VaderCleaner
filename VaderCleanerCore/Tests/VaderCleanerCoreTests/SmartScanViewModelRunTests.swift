@@ -135,6 +135,28 @@ final class SmartScanViewModelRunTests: XCTestCase {
         XCTAssertTrue(entries.contains("recycle:/Downloads/old.dmg"), "the chosen download runs")
     }
 
+    // MARK: - Reporting removals
+
+    func test_run_reportsOnlyTheThreatsItActuallyRemoved() async throws {
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in Self.richPlan },
+            junkCleaner: { _ in 0 },
+            threatRemover: { threats in Array(threats.dropFirst()) },
+            recycleFiles: { Set($0) },
+            maintenanceTaskRunner: { _ in }
+        )
+        var removed: [MalwareThreat] = []
+        vm.onThreatsRemoved = { removed = $0 }
+        await vm.scan()
+        guard case .threats(let found)? = Self.richPlan.finding(.threats)?.payload else {
+            return XCTFail("the fixture plan carries threats")
+        }
+
+        await vm.run()
+
+        XCTAssertEqual(removed, Array(found.prefix(1)))
+    }
+
     // MARK: - Receipt math
 
     func test_run_buildsReceipt_withBytesAndOrder() async {

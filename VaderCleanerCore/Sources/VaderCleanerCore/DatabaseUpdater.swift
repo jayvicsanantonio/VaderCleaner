@@ -4,6 +4,29 @@
 import Foundation
 import os
 
+/// A signature refresh that didn't happen.
+enum DatabaseUpdateError: LocalizedError, Equatable {
+    case notInstalled
+    case failed
+
+    var errorDescription: String? {
+        switch self {
+        case .notInstalled:
+            return String(
+                localized: "The malware definitions updater isn't available. Reinstall VaderCleaner to restore it.",
+                bundle: .module,
+                comment: "Definitions update failure when no freshclam binary can be found."
+            )
+        case .failed:
+            return String(
+                localized: "The malware definitions couldn't be updated. Check your internet connection, then try again.",
+                bundle: .module,
+                comment: "Definitions update failure when the download doesn't complete."
+            )
+        }
+    }
+}
+
 /// Tracks and refreshes the ClamAV signature database.
 ///
 /// Checks for a bundled ClamAV first (staged by the build script), then
@@ -105,14 +128,9 @@ struct DatabaseUpdater: Sendable {
         return paths
     }
 
-    /// The newest modification date across every signature file in every
-    /// configured database directory, or `nil` when none are present
-    /// (ClamAV not installed, or `freshclam` never run).
-    func lastUpdateDate() -> Date? {
-        newestSignatureDate(in: databaseDirectories)
-    }
-
-    /// The date of the database a scan will actually read.
+    /// The date of the database a scan will actually read: the newest
+    /// modification date across its signature files, or `nil` when none are
+    /// present (ClamAV not installed, or `freshclam` never run).
     ///
     /// `databaseDirectories` is ordered: the first entry is the directory the
     /// bundled `freshclam` writes and `ClamAVScanner` passes as `--database`,
@@ -120,28 +138,22 @@ struct DatabaseUpdater: Sendable {
     /// the first one may vote on freshness — a fresh Homebrew database next to
     /// a stale bundled one would otherwise skip the refresh while the scan ran
     /// against the stale copy.
-    private func scannedDatabaseLastUpdateDate() -> Date? {
+    func lastUpdateDate() -> Date? {
         guard let scanned = databaseDirectories.first else { return nil }
-        return newestSignatureDate(in: [scanned])
-    }
-
-    private func newestSignatureDate(in directories: [URL]) -> Date? {
+        let entries = (try? fileManager.contentsOfDirectory(
+            at: scanned,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
         var newest: Date?
-        for directory in directories {
-            let entries = (try? fileManager.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )) ?? []
-            for entry in entries
-            where Self.signatureExtensions.contains(entry.pathExtension.lowercased()) {
-                guard
-                    let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
-                    let modified = attributes[.modificationDate] as? Date
-                else { continue }
-                if modified > (newest ?? .distantPast) {
-                    newest = modified
-                }
+        for entry in entries
+        where Self.signatureExtensions.contains(entry.pathExtension.lowercased()) {
+            guard
+                let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
+                let modified = attributes[.modificationDate] as? Date
+            else { continue }
+            if modified > (newest ?? .distantPast) {
+                newest = modified
             }
         }
         return newest
@@ -158,20 +170,12 @@ struct DatabaseUpdater: Sendable {
     /// successful update and an already-current database).
     func update(progress: @escaping @Sendable (String) -> Void = { _ in }) async throws {
         guard let executable = freshclamPath() else {
-            throw NSError(
-                domain: "com.personal.VaderCleaner.DatabaseUpdater",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "freshclam is not installed"]
-            )
+            throw DatabaseUpdateError.notInstalled
         }
         let status = try await runner(executable, progress)
         guard status == 0 else {
-            throw NSError(
-                domain: "com.personal.VaderCleaner.DatabaseUpdater",
-                code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey:
-                    "freshclam exited with status \(status)"]
-            )
+            Self.log.error("freshclam exited with status \(status, privacy: .public)")
+            throw DatabaseUpdateError.failed
         }
     }
 
@@ -188,7 +192,7 @@ struct DatabaseUpdater: Sendable {
         now: Date = Date(),
         progress: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> Bool {
-        if let updated = scannedDatabaseLastUpdateDate(), now.timeIntervalSince(updated) <= Self.maxAge {
+        if let updated = lastUpdateDate(), now.timeIntervalSince(updated) <= Self.maxAge {
             return false
         }
         do {

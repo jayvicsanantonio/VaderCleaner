@@ -652,31 +652,7 @@ final class PrivacyViewModelTests: XCTestCase {
 
     // MARK: - Item counts (Protection Manager)
 
-    // MARK: - Targeted clears (Protection dashboard per-tile Remove)
-
-    func test_clearData_forBrowser_clearsOnlyActionableCategoriesOfThatBrowser() async {
-        let cleared = ActorBox<[String]>([])
-        let vm = makeViewModel(
-            detected: [.chrome, .firefox],
-            sizer: { _, _ in 100 },
-            clearer: { browser, category in
-                await cleared.append("\(browser.rawValue).\(category.rawValue)")
-            },
-            pathsFor: { browser, category in
-                // Only Chrome's cache is actionable; everything else has no
-                // paths and must be skipped (and Firefox is untouched entirely).
-                browser == .chrome && category == .cache
-                    ? [URL(fileURLWithPath: "/tmp/chrome/cache")]
-                    : []
-            }
-        )
-        await vm.preview()
-
-        try? await vm.clearData(for: .chrome)
-
-        let result = await cleared.value
-        XCTAssertEqual(result, ["chrome.cache"])
-    }
+    // MARK: - Targeted clears (Protection dashboard Recent Items tile)
 
     func test_clearRecentItems_invokesRecentsClearer() async {
         let called = ActorBox<Int>(0)

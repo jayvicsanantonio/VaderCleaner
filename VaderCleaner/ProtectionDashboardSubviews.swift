@@ -97,12 +97,12 @@ struct ProtectionMalwareTile: View {
                    action: onRemove)
                 .buttonStyle(.vaderWhite)
                 .accessibilityIdentifier("protection.malwareTile.remove")
-        case .idle, .failed:
+        case .idle, .failed, .clean, .done:
             Button(String(localized: "Scan Again", comment: "Restarts the malware scan."),
                    action: onScanAgain)
                 .buttonStyle(.vaderGlass)
                 .accessibilityIdentifier("protection.malwareTile.scanAgain")
-        case .clean, .removing, .done, .needsInstall:
+        case .removing, .needsInstall:
             EmptyView()
         }
     }
@@ -114,11 +114,11 @@ struct ProtectionMalwareTile: View {
         case .clean:
             return String(localized: "No Threats Found", comment: "Malware tile title when the scan is clean.")
         case .results(let threats):
-            return String(localized: "\(threats.count) Threats Found", comment: "Malware tile title when threats are found.")
+            return ProtectionCopy.threatsFound(threats.count)
         case .removing:
             return String(localized: "Removing Threats…", comment: "Malware tile title while removing threats.")
         case .done(let count):
-            return String(localized: "\(count) Threats Removed", comment: "Malware tile title after removal.")
+            return ProtectionCopy.threatsRemoved(count)
         case .failed:
             return String(localized: "Scan Failed", comment: "Malware tile title after a failure.")
         case .idle:
@@ -134,11 +134,11 @@ struct ProtectionMalwareTile: View {
             return String(localized: "Scanning your Mac in the background. This may take a moment.",
                           comment: "Malware tile subtitle while scanning.")
         case .clean:
-            return String(localized: "Your Mac is clean — no malware detected.",
-                          comment: "Malware tile subtitle when clean.")
+            return malware.cleanResultDescription
         case .results:
-            return String(localized: "Review the detected threats and remove them to stay protected.",
-                          comment: "Malware tile subtitle when threats are found.")
+            let advice = String(localized: "Review the detected threats and remove them to stay protected.",
+                                comment: "Malware tile subtitle when threats are found.")
+            return malware.unreadableNote.map { "\(advice) \($0)" } ?? advice
         case .removing:
             return String(localized: "Removing the infected files.",
                           comment: "Malware tile subtitle while removing.")

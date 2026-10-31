@@ -46,9 +46,9 @@ final class BrowserPrivacyInspectorTests: XCTestCase {
         XCTAssertEqual(count, 3)
     }
 
-    // MARK: - Downloads (expandable: grouped by site, carrying row ids for deletion)
+    // MARK: - Downloads (expandable: grouped by site, carrying the site for deletion)
 
-    func test_items_downloads_groupsBySiteAndKeepsRowIDs() async throws {
+    func test_items_downloads_groupsBySiteAndKeepsTheSite() async throws {
         let db = tempDir.appendingPathComponent("History")
         try seed(db, "CREATE TABLE downloads (id INTEGER PRIMARY KEY, tab_url TEXT)")
         try insert(db, """
@@ -62,7 +62,7 @@ final class BrowserPrivacyInspectorTests: XCTestCase {
         XCTAssertEqual(items.map(\.id), ["a.com", "b.com"])
         let a = try XCTUnwrap(items.first { $0.id == "a.com" })
         XCTAssertEqual(a.count, 2)
-        XCTAssertEqual(a.rowIDs.sorted(), [1, 2])
+        XCTAssertEqual(a.hostKey, "a.com")
     }
 
     // MARK: - Search queries (informational: count only, no items)

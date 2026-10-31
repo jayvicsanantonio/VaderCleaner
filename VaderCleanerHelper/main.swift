@@ -65,6 +65,14 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
         let reply = XPCReply(reply)
         workQueue.async {
             do {
+                // Best effort: a daemon that isn't loaded fails this harmlessly,
+                // and the plist still has to go.
+                for plist in policy.launchDaemonPlists(in: paths) {
+                    _ = HelperToolRunner.execute(
+                        executable: "/bin/launchctl",
+                        arguments: ["bootout", "system", plist]
+                    )
+                }
                 let firstError = try policy.removeValidatedPaths(paths)
                 reply.send(firstError)
             } catch {

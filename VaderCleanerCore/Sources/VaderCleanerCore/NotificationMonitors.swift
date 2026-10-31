@@ -35,7 +35,11 @@ public final class NotificationMonitors {
         self.hungApp = HungAppMonitor(preferences: preferences, dispatcher: dispatcher)
         self.trashedApp = TrashedAppMonitor(preferences: preferences, dispatcher: dispatcher)
         self.smartCare = SmartCareReminderScheduler(preferences: preferences)
-        self.definitions = MalwareDefinitionsMonitor(preferences: preferences, dispatcher: dispatcher)
+        self.definitions = MalwareDefinitionsMonitor(
+            preferences: preferences,
+            dispatcher: dispatcher,
+            cooldownDefaults: .standard
+        )
         self.appUpdates = AppUpdatesMonitor(preferences: preferences, dispatcher: dispatcher)
     }
 

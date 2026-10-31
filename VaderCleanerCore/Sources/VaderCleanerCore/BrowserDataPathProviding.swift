@@ -120,6 +120,7 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
     /// the file level.
     private func chromiumPaths(browser: Browser, category: PrivacyCategory) -> [URL] {
         guard let layout = chromiumLayout(for: browser) else { return [] }
+        let profiles = chromiumProfiles(in: layout)
 
         switch category {
         case .history:
@@ -129,7 +130,7 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
             // when WAL is off. Including all three keeps the on-disk
             // state coherent after a remove: dropping the main database
             // while leaving its sidecars behind strands them on disk.
-            return layout.profilePath.map(historyPaths(in:)) ?? []
+            return profiles.flatMap(historyPaths(in:))
         case .downloads:
             return []
         case .cookies:
@@ -138,12 +139,36 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
             // `Default/Cookies` location persists on older installs and
             // some downstream forks. Emit both; the clearer skips
             // whichever doesn't exist.
-            return layout.profilePath.map(cookiePaths(in:)) ?? []
+            return profiles.flatMap(cookiePaths(in:))
         case .cache:
             return layout.cachePath.map { [$0] } ?? []
         case .savedForms:
-            return layout.profilePath.map(webDataPaths(in:)) ?? []
+            return profiles.flatMap(webDataPaths(in:))
         }
+    }
+
+    /// The extensions folder of every Chromium profile on this Mac, for the
+    /// malware scan's persistence check.
+    func chromiumExtensionDirectories() -> [URL] {
+        Browser.allCases.compactMap(chromiumLayout(for:))
+            .flatMap(chromiumProfiles(in:))
+            .map { $0.appendingPathComponent("Extensions", isDirectory: true) }
+    }
+
+    /// Every profile of a Chromium browser: `Default`, then each additional
+    /// `Profile N` beside it. A user with two profiles has data in both, and
+    /// reading only the first reports the second as if it didn't exist.
+    private func chromiumProfiles(in layout: ChromiumLayout) -> [URL] {
+        guard let primary = layout.profilePath else { return [] }
+        guard layout.hasNamedProfiles else { return [primary] }
+        let additional = (try? fileManager.contentsOfDirectory(
+            at: primary.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ))?
+            .filter { $0.lastPathComponent.hasPrefix("Profile ") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+        return [primary] + additional
     }
 
     private func historyPaths(in profilePath: URL) -> [URL] {
@@ -183,6 +208,9 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
     private struct ChromiumLayout {
         let profilePath: URL?
         let cachePath: URL?
+        /// Whether profiles live side by side as `Default`, `Profile 1`, and so
+        /// on, which every vendor but Opera does.
+        var hasNamedProfiles = true
     }
 
     private func chromiumLayout(for browser: Browser) -> ChromiumLayout? {
@@ -217,7 +245,8 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
             // Opera flattens the profile — no `Default` subdirectory.
             return ChromiumLayout(
                 profilePath: appSupport.appendingPathComponent("com.operasoftware.Opera", isDirectory: true),
-                cachePath: caches.appendingPathComponent("com.operasoftware.Opera", isDirectory: true)
+                cachePath: caches.appendingPathComponent("com.operasoftware.Opera", isDirectory: true),
+                hasNamedProfiles: false
             )
         case .safari, .firefox:
             return nil
@@ -226,12 +255,13 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
 
     // MARK: - Firefox
 
-    /// Firefox profiles live under `Profiles/<8-char-rand>.default*`. We
-    /// enumerate the `Profiles/` directory at call time and pick the first
-    /// directory whose name contains `.default` — that matches both the
-    /// historical `<rand>.default` and the modern `<rand>.default-release`
-    /// variants. Returns no paths when no profile exists yet (e.g. the user
-    /// never launched Firefox), which is the right default for the clearer.
+    /// Firefox profiles live under `Profiles/<8-char-rand>.<name>`. We
+    /// enumerate the `Profiles/` directory at call time and take all of them:
+    /// a Mac commonly has an abandoned `<rand>.default` beside the
+    /// `<rand>.default-release` in actual use, plus any the user created, and
+    /// directory order says nothing about which is which. Returns no paths when
+    /// no profile exists yet (e.g. the user never launched Firefox), which is
+    /// the right default for the clearer.
     private func firefoxPaths(category: PrivacyCategory) -> [URL] {
         let library = homeDirectory.appendingPathComponent("Library", isDirectory: true)
         let appSupport = library.appendingPathComponent("Application Support", isDirectory: true)
@@ -244,15 +274,15 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
             .appendingPathComponent("Firefox", isDirectory: true)
             .appendingPathComponent("Profiles", isDirectory: true)
 
-        let profileDir = firefoxProfileDirectory(at: profilesRoot)
-        let cacheProfileDir = firefoxProfileDirectory(at: cacheProfilesRoot)
+        let profiles = firefoxProfileDirectories(at: profilesRoot)
+        let cacheProfiles = firefoxProfileDirectories(at: cacheProfilesRoot)
 
         switch category {
         case .history:
             // places.sqlite stores both browsing history and download
             // history in Firefox; surface its WAL-mode sidecars too so a
             // remove leaves no orphans on disk.
-            return profileDir.map { firefoxSqlitePaths(in: $0, named: "places.sqlite") } ?? []
+            return profiles.flatMap { firefoxSqlitePaths(in: $0, named: "places.sqlite") }
         case .downloads:
             // Firefox stores download history inside places.sqlite — the
             // same Chromium constraint applies. See
@@ -260,11 +290,11 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
             // no paths here.
             return []
         case .cookies:
-            return profileDir.map { firefoxSqlitePaths(in: $0, named: "cookies.sqlite") } ?? []
+            return profiles.flatMap { firefoxSqlitePaths(in: $0, named: "cookies.sqlite") }
         case .cache:
-            return cacheProfileDir.map { [$0.appendingPathComponent("cache2", isDirectory: true)] } ?? []
+            return cacheProfiles.map { $0.appendingPathComponent("cache2", isDirectory: true) }
         case .savedForms:
-            return profileDir.map { firefoxSqlitePaths(in: $0, named: "formhistory.sqlite") } ?? []
+            return profiles.flatMap { firefoxSqlitePaths(in: $0, named: "formhistory.sqlite") }
         }
     }
 
@@ -282,17 +312,14 @@ struct DefaultBrowserDataPathProvider: BrowserDataPathProviding, Sendable {
         ]
     }
 
-    private func firefoxProfileDirectory(at profilesRoot: URL) -> URL? {
-        guard let entries = try? fileManager.contentsOfDirectory(
+    private func firefoxProfileDirectories(at profilesRoot: URL) -> [URL] {
+        let entries = (try? fileManager.contentsOfDirectory(
             at: profilesRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
-        return entries.first { url in
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            return isDir && url.lastPathComponent.contains(".default")
-        }
+        )) ?? []
+        return entries
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 }

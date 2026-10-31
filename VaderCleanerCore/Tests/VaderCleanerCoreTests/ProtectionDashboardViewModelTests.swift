@@ -106,41 +106,6 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
 
     // MARK: - Tile removal
 
-    /// The tile's Remove sits behind "This permanently deletes the selected
-    /// data. This cannot be undone." A failure that leaves the tile in place
-    /// with nothing said reads as a broken button, so the reason is captured for
-    /// the alert — and the tile stays, since its data is still there.
-    func test_clearPrivacyData_reportsTheFailure_andKeepsTheTile() async {
-        let sut = makeSUT(
-            privacyDetector: { [.safari] },
-            privacyClearer: { _, _ in throw PrivacyTileFailure.denied },
-            privacyPaths: { _, _ in [URL(fileURLWithPath: "/tmp/safari-data")] }
-        )
-        // A category is only actionable once the preview found paths for it, so
-        // the clear has to run against a real preview to reach the clearer.
-        sut.beginScan()
-        await waitUntil { sut.privacy.phase == .preview }
-
-        let cleared = await sut.clearPrivacyData(for: .safari)
-
-        XCTAssertFalse(cleared, "a failed clear must not retire the tile")
-        XCTAssertNotNil(sut.removalFailureMessage)
-    }
-
-    func test_clearPrivacyData_reportsSuccess_andRaisesNoFailure() async {
-        let sut = makeSUT(
-            privacyDetector: { [.safari] },
-            privacyPaths: { _, _ in [URL(fileURLWithPath: "/tmp/safari-data")] }
-        )
-        sut.beginScan()
-        await waitUntil { sut.privacy.phase == .preview }
-
-        let cleared = await sut.clearPrivacyData(for: .safari)
-
-        XCTAssertTrue(cleared)
-        XCTAssertNil(sut.removalFailureMessage)
-    }
-
     func test_clearRecentItems_reportsTheFailure() async {
         let sut = makeSUT(recentFilesClearer: { throw PrivacyTileFailure.denied })
 
@@ -186,17 +151,22 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(sut.protectionPrivacy.browsers, [.chrome])
     }
 
-    /// If the user already scanned Protection here, a later Smart Scan pre-warm
-    /// must not disturb the flow.
-    func test_prewarmFromSmartScan_isNoOpWhenAlreadyScanned() {
-        let sut = makeSUT()
+    /// A Smart Scan finishing mid-scan must not disturb the scan the user started
+    /// here, which will land its own result.
+    func test_prewarmFromSmartScan_doesNotDisturbAScanInFlight() async {
+        let gate = SuspendingCallGate()
+        let sut = makeSUT(malwareScan: { _, _ in
+            await gate.hold()
+            return []
+        })
         sut.beginScan()
-        let malwarePhaseBefore = sut.malware.phase
+        await waitUntil { sut.malware.isScanningPhase }
 
         sut.prewarmFromSmartScan(threats: [threat], clamAVAvailable: true, scannedAt: Date())
 
-        XCTAssertEqual(sut.malware.phase, malwarePhaseBefore,
-                       "Pre-warm is gated on hasScanned, so it must not re-seed the malware flow")
+        XCTAssertTrue(sut.malware.isScanningPhase)
+        gate.open()
+        await waitUntil { sut.malware.phase == .clean }
     }
 
     // MARK: - Scan completion (drives the "scan finished" notification)
@@ -258,7 +228,6 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
         malwareScan: @escaping MalwareViewModel.Scan = { _, _ in [] },
         privacyDetector: @escaping PrivacyViewModel.Detector = { [] },
         managerBrowsers: [Browser] = [],
-        privacyClearer: @escaping PrivacyViewModel.Clearer = { _, _ in },
         recentFilesClearer: @escaping PrivacyViewModel.RecentFilesClearer = { },
         privacyPaths: @escaping PrivacyViewModel.PathsResolver = { _, _ in [] }
     ) -> ProtectionDashboardViewModel {
@@ -275,7 +244,7 @@ final class ProtectionDashboardViewModelTests: XCTestCase {
             detector: privacyDetector,
             sizer: { _, _ in 0 },
             pathsFor: privacyPaths,
-            clearer: privacyClearer,
+            clearer: { _, _ in },
             clearRecentFiles: recentFilesClearer
         )
         let protectionPrivacy = ProtectionPrivacyModel(

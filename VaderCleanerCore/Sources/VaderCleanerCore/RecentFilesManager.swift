@@ -18,7 +18,9 @@ import Foundation
 ///      named `com.apple.LSSharedFileList.Recent*.sfl3` (and `sfl2` on
 ///      older macOS). These files are the on-disk source of truth for
 ///      the Apple-menu Recent Items list — clearing them empties the
-///      menu after relogin / Dock restart.
+///      menu after relogin / Dock restart. Each app's own recent documents
+///      sit one folder down, under
+///      `com.apple.LSSharedFileList.ApplicationRecentDocuments/`.
 ///
 /// The app-level clear action is injected as a closure so tests can verify
 /// invocation without touching `NSDocumentController`'s singleton state.
@@ -49,36 +51,17 @@ struct RecentFilesManager {
         try clearSharedFileListRecents()
     }
 
+    /// Whether there is any recents list to clear.
+    func hasRecentItems() -> Bool {
+        (try? sharedFileListRecents().isEmpty == false) ?? false
+    }
+
     /// On-disk source of truth for the Apple-menu Recent Items list.
     /// Skipped when the directory is missing (fresh user account), and
     /// only `com.apple.LSSharedFileList.Recent*.sfl*` files are removed —
     /// favorites / non-Recent sfl entries are not part of "recent items".
     private func clearSharedFileListRecents() throws {
-        let directory = homeDirectory
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("com.apple.sharedfilelist", isDirectory: true)
-
-        guard fileManager.fileExists(atPath: directory.path) else { return }
-
-        let entries = try fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        for url in entries {
-            let name = url.lastPathComponent
-            // Tightened glob: prefix `com.apple.LSSharedFileList.Recent`
-            // *and* an `.sfl*` extension. The prefix-only check would
-            // sweep up any future Apple file that happened to start with
-            // "Recent" (e.g. a hypothetical `Recent.config.plist`); the
-            // suffix anchors removal to the SharedFileList file format
-            // we actually understand. `.sfl2` is the older format,
-            // `.sfl3` the modern one — both are removed.
-            let ext = url.pathExtension
-            guard name.hasPrefix("com.apple.LSSharedFileList.Recent"),
-                  ext == "sfl" || ext == "sfl2" || ext == "sfl3"
-            else { continue }
+        for url in try sharedFileListRecents() {
             do {
                 try fileManager.removeItem(at: url)
             } catch CocoaError.fileNoSuchFile {
@@ -86,5 +69,43 @@ struct RecentFilesManager {
                 continue
             }
         }
+    }
+
+    private func sharedFileListRecents() throws -> [URL] {
+        let directory = homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("com.apple.sharedfilelist", isDirectory: true)
+
+        guard fileManager.fileExists(atPath: directory.path) else { return [] }
+
+        let entries = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        // Tightened glob: prefix `com.apple.LSSharedFileList.Recent`
+        // *and* an `.sfl*` extension. The prefix-only check would
+        // sweep up any future Apple file that happened to start with
+        // "Recent" (e.g. a hypothetical `Recent.config.plist`); the
+        // suffix anchors removal to the SharedFileList file format
+        // we actually understand. `.sfl2` is the older format,
+        // `.sfl3` the modern one — both are removed.
+        let topLevel = entries.filter {
+            $0.lastPathComponent.hasPrefix("com.apple.LSSharedFileList.Recent") && Self.isSharedFileList($0)
+        }
+        let perApplicationFolder = directory
+            .appendingPathComponent("com.apple.LSSharedFileList.ApplicationRecentDocuments", isDirectory: true)
+        guard fileManager.fileExists(atPath: perApplicationFolder.path) else { return topLevel }
+        let perApplication = try fileManager.contentsOfDirectory(
+            at: perApplicationFolder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        return topLevel + perApplication.filter(Self.isSharedFileList)
+    }
+
+    private static func isSharedFileList(_ url: URL) -> Bool {
+        ["sfl", "sfl2", "sfl3"].contains(url.pathExtension)
     }
 }

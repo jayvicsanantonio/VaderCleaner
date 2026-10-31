@@ -230,10 +230,7 @@ struct MyClutterManagerView: View {
                     Button(option.label) { sort = option }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Sort by:", comment: "Manager sort label.")).foregroundStyle(.secondary)
-                    Text(sort.label).foregroundStyle(.tint)
-                }
+                ManagerSortLabel(value: sort.label)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()

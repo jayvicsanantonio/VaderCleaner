@@ -178,5 +178,37 @@
             <string>%d local snapshots</string>
         </dict>
     </dict>
+    <key>%lld threats couldn't be removed and are still listed, so you can try again.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@threats@, so you can try again.</string>
+        <key>threats</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>%lld threat couldn't be removed and is still listed</string>
+            <key>other</key>
+            <string>%lld threats couldn't be removed and are still listed</string>
+        </dict>
+    </dict>
+    <key>%lld items couldn't be read, so they weren't checked. Full Disk Access helps with anything macOS is keeping private.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@ Full Disk Access helps with anything macOS is keeping private.</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>%lld item couldn't be read, so it wasn't checked.</string>
+            <key>other</key>
+            <string>%lld items couldn't be read, so they weren't checked.</string>
+        </dict>
+    </dict>
 </dict>
 </plist>
