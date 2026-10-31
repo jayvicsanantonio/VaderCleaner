@@ -3,6 +3,7 @@
 
 import Foundation
 import SQLite3
+import Synchronization
 
 /// One selectable entry inside an expandable category — a cookie domain, or a
 /// group of history/download rows for one site. `hostKey` is what the remover
@@ -22,6 +23,18 @@ public enum PrivacyDataAvailability: Sendable, Equatable {
     case unsupported
     /// The data is on disk but macOS or its permissions won't let the app open it.
     case unreadable
+}
+
+/// A flag `FileManager`'s enumerator error handler can raise, which it may call
+/// from any thread.
+private final class LockedFlag: Sendable {
+    private let value = Mutex(false)
+
+    var isSet: Bool { value.withLock { $0 } }
+
+    func set() {
+        value.withLock { $0 = true }
+    }
 }
 
 /// Inspects a browser's privacy stores for the Protection Manager. Stores are
@@ -121,10 +134,22 @@ private actor InspectorWorker {
     /// it answers yes for items macOS will then refuse to hand over.
     private func canList(_ url: URL) -> Bool {
         let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        if isDir {
-            return (try? fileManager.contentsOfDirectory(atPath: url.path)) != nil
-        }
-        return fileManager.isReadableFile(atPath: url.path)
+        guard isDir else { return fileManager.isReadableFile(atPath: url.path) }
+        guard (try? fileManager.contentsOfDirectory(atPath: url.path)) != nil else { return false }
+        // A folder partway down that won't list would otherwise just shrink the
+        // count, reading as a smaller number rather than as missing data.
+        let failed = LockedFlag()
+        guard let walker = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: nil,
+            options: [],
+            errorHandler: { _, _ in
+                failed.set()
+                return true
+            }
+        ) else { return false }
+        for case _ as URL in walker where failed.isSet { return false }
+        return !failed.isSet
     }
 
     /// Whether a query against the table gets as far as reading the file. A
@@ -137,7 +162,10 @@ private actor InspectorWorker {
         var stmt: OpaquePointer?
         let status = sqlite3_prepare_v2(db, "SELECT 1 FROM \"\(table)\" LIMIT 1", -1, &stmt, nil)
         defer { sqlite3_finalize(stmt) }
-        return status == SQLITE_OK || status == SQLITE_ERROR
+        if status == SQLITE_ERROR { return true }
+        guard status == SQLITE_OK else { return false }
+        let step = sqlite3_step(stmt)
+        return step == SQLITE_ROW || step == SQLITE_DONE
     }
 
     // MARK: - File counting
@@ -159,14 +187,49 @@ private actor InspectorWorker {
 
     // MARK: - SQLite
 
+    /// Opens a browser's database for reading while the browser may have it open.
+    ///
+    /// `immutable=1` reads without touching any lock, which is the only way in
+    /// past a browser holding the file exclusively, but it ignores the `-wal`
+    /// file and so misses every row not yet checkpointed. So a database with a
+    /// non-empty log is opened normally first, which reads alongside a writer,
+    /// and falls back if that's refused.
     private func openReadOnly(_ url: URL) -> OpaquePointer? {
-        let uri = url.absoluteString + "?immutable=1"
+        if hasUncheckpointedLog(url), let db = open(uri: url.absoluteString + "?mode=ro"), canReadSchema(db) {
+            return db
+        }
+        return open(uri: url.absoluteString + "?immutable=1")
+    }
+
+    private func hasUncheckpointedLog(_ url: URL) -> Bool {
+        let log = url.path + "-wal"
+        let size = (try? fileManager.attributesOfItem(atPath: log))?[.size] as? Int64 ?? 0
+        return size > 0
+    }
+
+    private func open(uri: String) -> OpaquePointer? {
         var db: OpaquePointer?
         guard sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK else {
             sqlite3_close(db)
             return nil
         }
         return db
+    }
+
+    /// Closes the connection if it can't actually read, so the caller can try
+    /// another way in.
+    private func canReadSchema(_ db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        let status = sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master LIMIT 1", -1, &stmt, nil)
+        defer { sqlite3_finalize(stmt) }
+        let step = status == SQLITE_OK ? sqlite3_step(stmt) : status
+        guard step == SQLITE_ROW || step == SQLITE_DONE else {
+            sqlite3_finalize(stmt)
+            stmt = nil
+            sqlite3_close(db)
+            return false
+        }
+        return true
     }
 
     private func rowCount(db url: URL, table: String) -> Int {

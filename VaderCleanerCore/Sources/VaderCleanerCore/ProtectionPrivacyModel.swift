@@ -207,6 +207,19 @@ public final class ProtectionPrivacyModel {
             || selectedItems.contains { $0.key.browser == browser && !$0.value.isEmpty }
     }
 
+    /// Whether any row that search leaves visible in this browser is ticked, for
+    /// the Select menu, whose commands act on those same rows.
+    public func hasSelection(in browser: Browser, search: String) -> Bool {
+        ProtectionPrivacyCategory.allCases.contains { category in
+            guard category.kind == .removable, isCategoryVisible(browser, category, search: search) else { return false }
+            if category.isExpandable {
+                return visibleItems(browser, category, search: search)
+                    .contains { isItemSelected(browser, category, $0.id) }
+            }
+            return selectedCategories.contains(Key(browser: browser, category: category))
+        }
+    }
+
     /// One line per browser naming what Remove will act on, since the selection
     /// can span browsers the user isn't looking at.
     public var removalSummaryLines: [String] {
@@ -218,15 +231,57 @@ public final class ProtectionPrivacyModel {
                 guard chosen > 0 else { return nil }
                 let total = itemsByKey[key]?.count ?? 0
                 guard chosen < total else { return category.displayName }
+                let names = selectedItemNames(for: key)
                 return String(
-                    localized: "\(category.displayName) (\(chosen) of \(total))",
+                    localized: "\(category.displayName) (\(chosen) of \(total): \(names))",
                     bundle: .module,
-                    comment: "A partly selected privacy category in the removal confirmation."
+                    comment: "A partly selected privacy category in the removal confirmation, naming the chosen sites."
                 )
             }
             guard !parts.isEmpty else { return nil }
             return "\(browser.displayName): \(parts.joined(separator: ", "))"
         }
+    }
+
+    /// The chosen sites of a partly selected category, cut short past a few. They
+    /// may be hidden by search or sit in another browser, so a count alone wouldn't
+    /// say what's about to go.
+    private func selectedItemNames(for key: Key) -> String {
+        let limit = 3
+        let ids = selectedItems[key] ?? []
+        let labels = (itemsByKey[key] ?? []).filter { ids.contains($0.id) }.map(\.label)
+        var names = Array(labels.prefix(limit))
+        if labels.count > limit {
+            let more = labels.count - limit
+            names.append(String(
+                localized: "and \(more) more",
+                bundle: .module,
+                comment: "Ends a shortened list of sites in the privacy removal confirmation."
+            ))
+        }
+        return names.joined(separator: ", ")
+    }
+
+    /// What a dashboard tile's Remove will do for this browser, naming only what
+    /// it can really remove there: Safari has no cookies or download history this
+    /// app can read, for one.
+    public func removalConfirmation(for browser: Browser) -> String {
+        let categories = ProtectionPrivacyCategory.allCases.filter {
+            $0.kind == .removable && availability(browser, $0) != .unsupported
+        }
+        let list = ListFormatter.localizedString(byJoining: categories.map(\.displayName.localizedLowercase))
+        guard categories.contains(.cookies) else {
+            return String(
+                localized: "This permanently deletes \(browser.displayName)'s \(list). Browsing history, passwords, and autofill stay. This cannot be undone.",
+                bundle: .module,
+                comment: "Confirmation body for removing one browser's data from its dashboard tile, when that doesn't include cookies."
+            )
+        }
+        return String(
+            localized: "This permanently deletes \(browser.displayName)'s \(list), and signs you out of websites. Browsing history, passwords, and autofill stay. This cannot be undone.",
+            bundle: .module,
+            comment: "Confirmation body for removing one browser's data from its dashboard tile."
+        )
     }
 
     // MARK: - Selection mutation
@@ -298,10 +353,30 @@ public final class ProtectionPrivacyModel {
     /// are never touched here either: the tile's promise and the manager's have
     /// to be the same one.
     public func removeAllData(for browser: Browser) async -> Bool {
+        // A tile can come from the faster preview before this model has counted
+        // anything, and with no counts there'd be nothing to ask for.
+        guard browsers.contains(browser) else {
+            removalFailureMessage = String(
+                localized: "VaderCleaner is still reading this browser's data. Try again in a moment.",
+                bundle: .module,
+                comment: "Removal failure when a browser's data hasn't finished being read."
+            )
+            return false
+        }
         let requests = ProtectionPrivacyCategory.allCases
             .filter { $0.kind == .removable && count(browser, $0) > 0 }
             .map { PrivacyRemovalRequest(browser: browser, category: $0, scope: .wholeCategory) }
-        return await perform(requests)
+        guard await perform(requests) else { return false }
+        // An unreadable store counts zero, so it got no request but still holds
+        // its data.
+        let leftUnread = ProtectionPrivacyCategory.allCases.contains {
+            $0.kind == .removable && availability(browser, $0) == .unreadable
+        }
+        guard !leftUnread else {
+            removalFailureMessage = PrivacyRemovalError.incomplete.localizedDescription
+            return false
+        }
+        return true
     }
 
     @discardableResult

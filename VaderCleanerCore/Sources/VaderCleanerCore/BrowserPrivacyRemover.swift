@@ -135,7 +135,7 @@ private actor RemoverWorker {
         table: String,
         kind: PrivacyItemKind,
         handle: OpaquePointer
-    ) -> [String] {
+    ) -> [String]? {
         let linked = Self.linkedTables(of: table).filter { tableExists($0.name, handle: handle) }
         switch scope {
         case .wholeCategory:
@@ -148,7 +148,9 @@ private actor RemoverWorker {
                     return "DELETE FROM \"\(table)\" WHERE \"\(column)\" IN (\(list))"
                 }
             case .rowsBySite(let urlColumn):
-                let rowIDs = rowIDs(ofSites: Set(hostKeys), table: table, urlColumn: urlColumn, handle: handle)
+                guard let rowIDs = rowIDs(ofSites: Set(hostKeys), table: table, urlColumn: urlColumn, handle: handle) else {
+                    return nil
+                }
                 return rowIDs.chunked(into: 400).flatMap { chunk -> [String] in
                     let list = chunk.map(String.init).joined(separator: ",")
                     return ["DELETE FROM \"\(table)\" WHERE rowid IN (\(list))"]
@@ -182,10 +184,11 @@ private actor RemoverWorker {
 
     /// The rows listed under the given sites right now, so a row added since the
     /// list was read goes with its site and a reused rowid can't take a stranger.
-    private func rowIDs(ofSites sites: Set<String>, table: String, urlColumn: String, handle: OpaquePointer) -> [Int64] {
+    /// `nil` means the rows couldn't be read, not that there are none.
+    private func rowIDs(ofSites sites: Set<String>, table: String, urlColumn: String, handle: OpaquePointer) -> [Int64]? {
         var statement: OpaquePointer?
         let sql = "SELECT rowid, \"\(urlColumn)\" FROM \"\(table)\""
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(statement) }
         var matches: [Int64] = []
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -200,8 +203,9 @@ private actor RemoverWorker {
     /// Opens the DB read-write and runs the statements in one transaction, so a
     /// row and the rows linked to it go together or not at all. Reports whether
     /// the transaction committed. A locked DB (browser still open despite the
-    /// guard) fails rather than corrupting anything — SQLite is atomic.
-    private func runDelete(db url: URL, statements: (OpaquePointer) -> [String]) -> Bool {
+    /// guard) fails rather than corrupting anything — SQLite is atomic. `nil`
+    /// statements mean they couldn't be worked out, which also counts as failing.
+    private func runDelete(db url: URL, statements: (OpaquePointer) -> [String]?) -> Bool {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let handle = db else {
             sqlite3_close(db)
@@ -210,7 +214,11 @@ private actor RemoverWorker {
         defer { sqlite3_close(handle) }
         sqlite3_busy_timeout(handle, 2000)
         guard sqlite3_exec(handle, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else { return false }
-        for sql in statements(handle) where sqlite3_exec(handle, sql, nil, nil, nil) != SQLITE_OK {
+        guard let statements = statements(handle) else {
+            sqlite3_exec(handle, "ROLLBACK", nil, nil, nil)
+            return false
+        }
+        for sql in statements where sqlite3_exec(handle, sql, nil, nil, nil) != SQLITE_OK {
             sqlite3_exec(handle, "ROLLBACK", nil, nil, nil)
             return false
         }

@@ -96,12 +96,13 @@ struct RecentFilesManager {
         }
         let perApplicationFolder = directory
             .appendingPathComponent("com.apple.LSSharedFileList.ApplicationRecentDocuments", isDirectory: true)
-        let perApplication = ((try? fileManager.contentsOfDirectory(
+        guard fileManager.fileExists(atPath: perApplicationFolder.path) else { return topLevel }
+        let perApplication = try fileManager.contentsOfDirectory(
             at: perApplicationFolder,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        )) ?? []).filter(Self.isSharedFileList)
-        return topLevel + perApplication
+        )
+        return topLevel + perApplication.filter(Self.isSharedFileList)
     }
 
     private static func isSharedFileList(_ url: URL) -> Bool {

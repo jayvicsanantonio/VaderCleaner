@@ -143,6 +143,12 @@ public final class ProtectionDashboardViewModel {
         return protectionPrivacy.removableCount(browser) > 0
     }
 
+    /// Looks again for recent items, which other apps add while this one is in
+    /// the background.
+    public func refreshRecentItems() {
+        privacy.refreshRecentItems()
+    }
+
     /// Re-reads the manager's privacy data, so what it shows reflects browsing
     /// done since it last looked. Silent: the current rows stay until new ones land.
     public func refreshManagerPrivacy() {

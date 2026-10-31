@@ -14,7 +14,7 @@ struct ClamAVScannerCoverageTests {
 
     private func makeScanner(
         runner: @escaping ClamAVScanner.ScanRunner,
-        newlinePaths: @escaping ClamAVScanner.NewlinePathFinder = { _ in [] }
+        newlinePaths: @escaping ClamAVScanner.NewlinePathFinder = { _, _ in [] }
     ) -> ClamAVScanner {
         ClamAVScanner(
             detector: ClamAVDetector(
@@ -114,7 +114,7 @@ struct ClamAVScannerCoverageTests {
                 onLine("payload: Osx.Malware.Agent-1 FOUND")
                 return 1
             },
-            newlinePaths: { _ in [URL(fileURLWithPath: evil)] }
+            newlinePaths: { _, _ in [URL(fileURLWithPath: evil)] }
         )
 
         let threats = try await scanner.scan(paths: [Self.home], progress: { _, _ in })
@@ -141,7 +141,7 @@ struct ClamAVScannerCoverageTests {
                 onLine("\(sample): Eicar-Test-Signature FOUND")
                 return 1
             },
-            newlinePaths: { _ in [URL(fileURLWithPath: clean)] }
+            newlinePaths: { _, _ in [URL(fileURLWithPath: clean)] }
         )
 
         let threats = try await scanner.scan(paths: [Self.home], progress: { _, _ in })
@@ -170,7 +170,7 @@ struct ClamAVScannerCoverageTests {
                 onLine("\(sample): Eicar-Test-Signature FOUND")
                 return 1
             },
-            newlinePaths: { _ in
+            newlinePaths: { _, _ in
                 searched.value = true
                 return []
             }
@@ -194,7 +194,7 @@ struct ClamAVScannerCoverageTests {
         try Data("a".utf8).write(to: inNamedDirectory)
         try Data("a".utf8).write(to: root.appendingPathComponent("plain.txt"))
 
-        let found = ClamAVScanner.defaultNewlinePathFinder([root]).map(\.lastPathComponent).sorted()
+        let found = ClamAVScanner.defaultNewlinePathFinder([root], []).map(\.lastPathComponent).sorted()
 
         #expect(found == ["evil\npayload", "inner.bin"].sorted())
     }

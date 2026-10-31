@@ -93,6 +93,7 @@ struct ProtectionDashboardView: View {
         }
         // Coming back from a browser is when its data has most likely changed.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            viewModel.refreshRecentItems()
             if detail == .manager { viewModel.refreshManagerPrivacy() }
         }
         // Resolve each detected browser's bundle URL + warm the icon cache for
@@ -162,7 +163,7 @@ struct ProtectionDashboardView: View {
                 }
             } message: {
                 if let removal = pendingPrivacyRemoval {
-                    Text(removal.confirmationMessage)
+                    Text(confirmationMessage(for: removal))
                 }
             }
     }
@@ -647,22 +648,19 @@ struct ProtectionDashboardView: View {
             case .recents: return "recents"
             }
         }
+    }
 
-        /// Says exactly what goes and what stays, because a tile's Remove acts on
-        /// a whole browser with nothing ticked to look at first.
-        var confirmationMessage: String {
-            switch self {
-            case .browser(let browser):
-                return String(
-                    localized: "This permanently deletes \(browser.displayName)'s cookies, download history, cached files, and last-session tabs, and signs you out of websites. Browsing history, passwords, and autofill stay. This cannot be undone.",
-                    comment: "Confirmation body for removing one browser's data from its dashboard tile."
-                )
-            case .recents:
-                return String(
-                    localized: "This clears your Mac's recent items lists. This cannot be undone.",
-                    comment: "Confirmation body for removing recent items from their dashboard tile."
-                )
-            }
+    /// Says exactly what goes and what stays, because a tile's Remove acts on a
+    /// whole browser with nothing ticked to look at first.
+    private func confirmationMessage(for removal: PrivacyRemoval) -> String {
+        switch removal {
+        case .browser(let browser):
+            return viewModel.protectionPrivacy.removalConfirmation(for: browser)
+        case .recents:
+            return String(
+                localized: "This clears your Mac's recent items lists. This cannot be undone.",
+                comment: "Confirmation body for removing recent items from their dashboard tile."
+            )
         }
     }
 

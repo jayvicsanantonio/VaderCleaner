@@ -88,8 +88,9 @@ struct ClamAVScanner {
     /// and not a symlink, whatever it points at.
     typealias RegularFileProbe = @Sendable (URL) -> Bool
 
-    /// Lists the regular files under some roots whose path contains a newline.
-    typealias NewlinePathFinder = @Sendable ([URL]) -> [URL]
+    /// Lists the regular files under some roots whose path contains a newline,
+    /// leaving out folders matching the given `--exclude-dir` patterns.
+    typealias NewlinePathFinder = @Sendable (_ roots: [URL], _ excludedDirectories: [String]) -> [URL]
 
     /// Directory-path regexes (clamscan's `--exclude-dir` flavour) that
     /// the scanner should skip. Walking these on a developer machine
@@ -164,7 +165,7 @@ struct ClamAVScanner {
     /// How many newline-named files `threatsAtNewlinePaths` will check. Each
     /// takes its own clamscan run, and each of those loads the whole signature
     /// database, so a directory of planted names mustn't turn one scan into
-    /// hours of them.
+    /// hours of them. Any beyond this count as coverage the scan didn't get to.
     static let newlinePathCheckLimit = 25
 
     /// What clamscan prints in place of a verdict for something it couldn't read.
@@ -224,18 +225,30 @@ struct ClamAVScanner {
         (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
-    /// Production default: walks each root, stepping over anything unreadable.
-    static let defaultNewlinePathFinder: NewlinePathFinder = { roots in
+    /// Production default: walks each root, stepping over anything unreadable
+    /// and any folder the scan excluded. Passing a file by name is what gets it
+    /// scanned, so walking into an excluded folder would scan what the user asked
+    /// to skip, and could page through a cloud mount besides.
+    static let defaultNewlinePathFinder: NewlinePathFinder = { roots, excludedDirectories in
+        let excluded = excludedDirectories.compactMap { try? NSRegularExpression(pattern: $0) }
         var found: [URL] = []
         for root in roots {
             guard let walker = FileManager.default.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isRegularFileKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
                 options: [],
                 errorHandler: { _, _ in true }
             ) else { continue }
-            for case let url as URL in walker where url.path.contains("\n") {
-                if (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
+            for case let url as URL in walker {
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+                if values?.isDirectory == true {
+                    // clamscan matches a folder with a trailing slash.
+                    let folder = url.path + "/"
+                    let range = NSRange(folder.startIndex..., in: folder)
+                    if excluded.contains(where: { $0.firstMatch(in: folder, range: range) != nil }) {
+                        walker.skipDescendants()
+                    }
+                } else if values?.isRegularFile == true, url.path.contains("\n") {
                     found.append(url)
                 }
             }
@@ -360,15 +373,21 @@ struct ClamAVScanner {
 
         let reported = collector.snapshot()
         let flags = sharedArguments + ["--no-summary"] + contentArguments
-        var threats = try await verifiedThreats(reported, scanRoots: paths, binary: binary, flags: flags)
+        let verification = try await verifiedThreats(reported, scanRoots: paths, binary: binary, flags: flags)
+        var threats = verification.threats
+        var missed = verification.unreadableCount
         if status == 1 {
-            threats += try await threatsMissingFromVerdicts(reported, confirmed: threats, roots: paths, binary: binary, flags: flags)
+            let missing = try await threatsMissingFromVerdicts(
+                reported, confirmed: threats, roots: paths, binary: binary, flags: flags
+            )
+            threats += missing.threats
+            missed += missing.uncheckedCount
         }
 
         // A planted line can't lie about an exit of 0, the status clamscan
         // only returns when it read everything. Any other status means at least
         // one error, even in a form this doesn't recognise.
-        let unreadable = status == 0 ? 0 : max(counter.unreadableCount, status == 2 ? 1 : 0)
+        let unreadable = status == 0 ? 0 : max(counter.unreadableCount, status == 2 ? 1 : 0) + missed
         return ClamAVScanReport(threats: threats, unreadableCount: unreadable)
     }
 
@@ -381,13 +400,13 @@ struct ClamAVScanner {
         roots: [URL],
         binary: URL,
         flags: [String]
-    ) async throws -> [MalwareThreat] {
+    ) async throws -> (threats: [MalwareThreat], uncheckedCount: Int) {
         let confirmedPaths = Set(confirmed.map(\.filePath.path))
         let everyVerdictConfirmed = !reported.isEmpty
             && reported.allSatisfy { confirmedPaths.contains($0.filePath.path) }
-        guard !everyVerdictConfirmed else { return [] }
+        guard !everyVerdictConfirmed else { return ([], 0) }
         let found = try await threatsAtNewlinePaths(under: roots, binary: binary, flags: flags)
-        guard !confirmed.isEmpty || !found.isEmpty else {
+        guard !confirmed.isEmpty || !found.threats.isEmpty else {
             log.error("clamscan reported an infection no file could be tied to")
             throw ClamAVEngineError.unlocatedInfection
         }
@@ -404,9 +423,10 @@ struct ClamAVScanner {
         under roots: [URL],
         binary: URL,
         flags: [String]
-    ) async throws -> [MalwareThreat] {
+    ) async throws -> (threats: [MalwareThreat], uncheckedCount: Int) {
         let finder = newlinePathFinder
-        let candidates = await Task.detached { finder(roots) }.value
+        let excluded = excludedDirectories
+        let candidates = await Task.detached { finder(roots, excluded) }.value
         var threats: [MalwareThreat] = []
         for candidate in candidates.prefix(Self.newlinePathCheckLimit) {
             try Task.checkCancellation()
@@ -422,7 +442,7 @@ struct ClamAVScanner {
                 threatName: collector.snapshot().last?.threatName ?? "Unknown"
             ))
         }
-        return threats
+        return (threats, max(0, candidates.count - Self.newlinePathCheckLimit))
     }
 
     /// Proves clamscan can detect something before trusting it to say a Mac is
@@ -492,13 +512,15 @@ struct ClamAVScanner {
     ///   full scan's line claimed.
     ///
     /// Every candidate goes in one run, since loading the signature database
-    /// dominates the cost of starting clamscan.
+    /// dominates the cost of starting clamscan. A candidate that run couldn't
+    /// read is left unconfirmed and comes back as `unreadableCount`, since the
+    /// scan can no longer say anything about it.
     private func verifiedThreats(
         _ reported: [MalwareThreat],
         scanRoots: [URL],
         binary: URL,
         flags: [String]
-    ) async throws -> [MalwareThreat] {
+    ) async throws -> (threats: [MalwareThreat], unreadableCount: Int) {
         var candidates: [String] = []
         var seen = Set<String>()
         for threat in reported where seen.insert(threat.filePath.path).inserted {
@@ -508,12 +530,14 @@ struct ClamAVScanner {
         }
 
         var confirmed: [MalwareThreat] = []
+        var unreadable = 0
         if !candidates.isEmpty {
             let candidateSet = Set(candidates)
             let collector = ThreatCollector()
             let counter = LineCounter()
             let status = try await runner(binary, flags + candidates) { line in
                 _ = counter.record(line)
+                counter.recordUnreadableIfNeeded(line)
                 if let threat = ClamAVOutputParser.parseLine(line),
                    candidateSet.contains(threat.filePath.path) {
                     collector.append(threat)
@@ -521,13 +545,14 @@ struct ClamAVScanner {
             }
             try requireUsableExit(status, printedOutput: counter.count > 0)
             confirmed = collector.snapshot()
+            unreadable = status == 2 ? max(counter.unreadableCount, 1) : 0
         }
 
         let discarded = seen.count - confirmed.count
         if discarded > 0 {
             log.notice("Discarded \(discarded, privacy: .public) clamscan verdict(s) a re-scan did not confirm")
         }
-        return confirmed
+        return (confirmed, unreadable)
     }
 
     /// Whether a clamscan line reports an item it couldn't read.

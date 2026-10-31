@@ -64,7 +64,8 @@ struct ProtectionManagerView: View {
             // Catches the case where a pre-warm scan is still in flight when the
             // manager opens: select the first browser the moment it lands.
             .onChange(of: privacyModel.browsers) { _, browsers in
-                if selectedBrowser == nil { selectedBrowser = browsers.first }
+                if let selectedBrowser, browsers.contains(selectedBrowser) { return }
+                selectedBrowser = browsers.first
             }
             // A search belongs to the pane it was typed in.
             .onChange(of: section) { _, _ in search = "" }
@@ -489,7 +490,7 @@ private struct PrivacyPane: View {
                     description: String(localized: "You may choose to remove all the locally stored items that remain after browser use.", comment: "Privacy pane description.")
                 )
                 ManagerSelectMenu(
-                    any: model.hasSelection(in: browser),
+                    any: model.hasSelection(in: browser, search: search),
                     onAll: { model.setAllSelected(true, browser: browser, search: search) },
                     onNone: { model.setAllSelected(false, browser: browser, search: search) }
                 )

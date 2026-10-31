@@ -125,4 +125,18 @@ final class RecentFilesManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.hasRecentItems())
     }
+
+    /// Only a missing folder counts as nothing to clear. One that can't be read
+    /// still holds its lists, so reporting success would leave them behind.
+    func test_clear_reportsAPerApplicationFolderItCannotList() throws {
+        let perApp = tempHome
+            .appendingPathComponent("Library/Application Support/com.apple.sharedfilelist", isDirectory: true)
+            .appendingPathComponent("com.apple.LSSharedFileList.ApplicationRecentDocuments", isDirectory: true)
+        try FileManager.default.createDirectory(at: perApp, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: perApp.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: perApp.path) }
+        let manager = RecentFilesManager(homeDirectory: tempHome, clearAppRecentDocuments: {})
+
+        XCTAssertThrowsError(try manager.clear())
+    }
 }

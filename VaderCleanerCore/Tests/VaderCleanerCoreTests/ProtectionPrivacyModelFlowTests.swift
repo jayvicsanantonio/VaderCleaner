@@ -116,7 +116,7 @@ struct ProtectionPrivacyModelFlowTests {
         model.toggleCategory(.brave, .tabsFromLastSession)
 
         #expect(model.removalSummaryLines == [
-            "Google Chrome: Cookies (1 of 2), Cached Files",
+            "Google Chrome: Cookies (1 of 2: .apple.com), Cached Files",
             "Brave: Tabs From Last Session"
         ])
     }

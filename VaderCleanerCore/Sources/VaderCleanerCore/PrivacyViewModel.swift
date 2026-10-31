@@ -82,6 +82,10 @@ public final class PrivacyViewModel {
     /// but they must not publish stale results back into the UI.
     @ObservationIgnored private var operationGeneration: Int = 0
 
+    /// Identifies the newest `refreshSizes()`, so an older one that finishes
+    /// after it can't put its older numbers back.
+    @ObservationIgnored private var refreshGeneration = 0
+
     /// Handle for the currently-running Privacy operation. A new preview,
     /// clear, reset, or view-model teardown cancels the old one so expensive
     /// browser-data filesystem work does not keep competing in the
@@ -379,20 +383,29 @@ public final class PrivacyViewModel {
     /// loader. Does nothing unless a preview is showing.
     func refreshSizes() async {
         guard phase == .preview else { return }
+        refreshGeneration &+= 1
+        let refresh = refreshGeneration
         let generation = operationGeneration
         let browsers = detectedBrowsers
         let sizer = sizer
-        let sizes = await Task.detached { () -> [Selection: Int64] in
+        let pathsFor = pathsFor
+        // Paths too, not only sizes: a size counts only for a cell with paths,
+        // and a browser profile can have appeared since the preview.
+        let measured = await Task.detached { () -> (sizes: [Selection: Int64], paths: [Selection: [URL]]) in
             var sizes: [Selection: Int64] = [:]
+            var paths: [Selection: [URL]] = [:]
             for browser in browsers {
                 for category in PrivacyCategory.allCases {
-                    sizes[Selection(browser: browser, category: category)] = (try? await sizer(browser, category)) ?? 0
+                    let selection = Selection(browser: browser, category: category)
+                    sizes[selection] = (try? await sizer(browser, category)) ?? 0
+                    paths[selection] = pathsFor(browser, category)
                 }
             }
-            return sizes
+            return (sizes, paths)
         }.value
-        guard operationGeneration == generation, phase == .preview else { return }
-        sizesByBrowserCategory = sizes
+        guard refresh == refreshGeneration, operationGeneration == generation, phase == .preview else { return }
+        sizesByBrowserCategory = measured.sizes
+        pathsByBrowserCategory = measured.paths
         revision &+= 1
     }
 
@@ -504,6 +517,11 @@ public final class PrivacyViewModel {
     /// changing `phase`. Used by the Protection dashboard's Recent Items tile.
     func clearRecentItems() async throws {
         try await clearRecentFiles()
+        hasRecentItems = recentItemsPresent()
+    }
+
+    /// Looks again for recent items, which other apps add to all the time.
+    func refreshRecentItems() {
         hasRecentItems = recentItemsPresent()
     }
 

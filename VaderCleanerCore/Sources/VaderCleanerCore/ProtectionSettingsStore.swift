@@ -41,7 +41,7 @@ public enum ScanMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .quick:    return String(localized: "Key areas", bundle: .module, comment: "Protection scan mode depth.")
         case .balanced: return String(localized: "Most files", bundle: .module, comment: "Protection scan mode depth.")
-        case .deep:     return String(localized: "Whole home folder", bundle: .module, comment: "Protection scan mode depth.")
+        case .deep:     return String(localized: "Home folder", bundle: .module, comment: "Protection scan mode depth.")
         }
     }
 
@@ -62,7 +62,7 @@ public enum ScanMode: String, CaseIterable, Identifiable, Sendable {
             )
         case .deep:
             return String(
-                localized: "Goes through your whole home folder and every startup item, including the photo and video libraries Balanced Scan skips. Online-only cloud files are left alone so a scan never downloads them. Worth the wait if you think something slipped through.",
+                localized: "Goes through your home folder and every startup item, including the photo and video libraries Balanced Scan skips. Cloud storage folders like Dropbox and Google Drive are left out so a scan never downloads them. Worth the wait if you think something slipped through.",
                 bundle: .module,
                 comment: "Protection Deep Scan purpose."
             )

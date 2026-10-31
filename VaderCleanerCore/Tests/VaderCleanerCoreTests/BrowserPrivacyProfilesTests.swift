@@ -46,6 +46,19 @@ private struct Stores {
         return Int(sqlite3_column_int64(statement, 0))
     }
 
+    func scalarText(_ url: URL, _ sql: String) throws -> String? {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK else { throw CocoaError(.fileReadUnknown) }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return sqlite3_column_text(statement, 0).map { String(cString: $0) }
+    }
+
     func remover(_ paths: [PrivacyCategory: [URL]]) -> BrowserPrivacyRemover {
         BrowserPrivacyRemover(pathProvider: StubPaths(paths: paths), isBrowserRunning: { _ in false })
     }
@@ -101,6 +114,9 @@ struct BrowserPrivacyRemoverCompletenessTests {
         #expect(try stores.count(history, "downloads_url_chains") == 1)
         #expect(try stores.count(history, "downloads_slices") == 1)
         #expect(try stores.count(history, "downloads_reroute_info") == 1)
+        // It's the other site's rows that survive, not just the right number.
+        #expect(try stores.scalarText(history, "SELECT url FROM downloads_url_chains") == "https://b.com/keep.dmg")
+        #expect(try stores.scalarText(history, "SELECT data FROM downloads_reroute_info") == "y")
     }
 
     @Test

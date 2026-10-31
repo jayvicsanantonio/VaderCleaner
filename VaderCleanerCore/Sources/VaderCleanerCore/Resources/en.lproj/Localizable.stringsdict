@@ -194,10 +194,10 @@
             <string>%lld threats couldn't be removed and are still listed</string>
         </dict>
     </dict>
-    <key>%lld items couldn't be read, so they weren't checked. Full Disk Access lets VaderCleaner check them.</key>
+    <key>%lld items couldn't be read, so they weren't checked. Full Disk Access helps with anything macOS is keeping private.</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>
-        <string>%#@items@ Full Disk Access lets VaderCleaner check them.</string>
+        <string>%#@items@ Full Disk Access helps with anything macOS is keeping private.</string>
         <key>items</key>
         <dict>
             <key>NSStringFormatSpecTypeKey</key>
