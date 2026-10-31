@@ -758,8 +758,22 @@ extension AppUninstallerViewModel {
                         try? LaunchAgentManager.defaultLaunchctl(["unload", url.path])
                     }
                 }.value
+            },
+            bundleNeedsHelper: { needsHelperToRemove($0) },
+            helperIsReachable: {
+                await HelperReachability().probe(timeout: HelperReachability.preflightTimeout)
             }
         )
+    }
+
+    /// Whether moving this bundle is beyond the user's own permissions: moving a
+    /// directory takes write access to it and to its parent, which a root-owned
+    /// bundle (an App Store install, a pkg install) doesn't give. A bundle
+    /// that's already gone needs nothing.
+    nonisolated static func needsHelperToRemove(_ bundleURL: URL, fileManager: FileManager = .default) -> Bool {
+        guard fileManager.fileExists(atPath: bundleURL.path) else { return false }
+        return !fileManager.isWritableFile(atPath: bundleURL.path)
+            || !fileManager.isWritableFile(atPath: bundleURL.deletingLastPathComponent().path)
     }
 
     /// Pure orchestration of the recycle → privileged-escalation → byte-credit
@@ -767,6 +781,9 @@ extension AppUninstallerViewModel {
     /// tested without `NSWorkspace` or a live XPC helper.
     ///
     /// Steps:
+    ///   0. If only the helper can remove the bundle, make sure it answers
+    ///      first. Everything below moves the app's support files, so finding
+    ///      out at step 3 would leave an installed app stripped of them.
     ///   1. Snapshot sizes *before* anything moves — a Trashed or deleted path
     ///      no longer stats, so we couldn't credit it afterwards. Launch agents
     ///      are unloaded here too: a job launchd still holds keeps running
@@ -794,8 +811,14 @@ extension AppUninstallerViewModel {
         // main thread anyway. Sendable + async makes the snapshot hop off.
         sizeFor: @Sendable (_ urls: [URL]) async -> [String: Int64],
         exists: (_ path: String) -> Bool,
-        unloadLaunchAgents: (_ plists: [URL]) async -> Void = { _ in }
+        unloadLaunchAgents: (_ plists: [URL]) async -> Void = { _ in },
+        bundleNeedsHelper: (_ bundleURL: URL) -> Bool = { _ in false },
+        helperIsReachable: () async -> Bool = { true }
     ) async throws -> RecycleOutcome {
+        if bundleNeedsHelper(bundleURL), await !helperIsReachable() {
+            throw HelperConnectionError.unavailable
+        }
+
         let allURLs = [bundleURL] + associatedURLs
         let sizesByPath = await sizeFor(allURLs)
 

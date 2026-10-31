@@ -38,8 +38,8 @@ public struct PrivilegedTaskRunner: Sendable {
     ///
     /// The Spotlight reindex is the call most likely to need the watchdog:
     /// `mdutil -E /` is the longest-running of the three.
-    func run() async throws -> String {
-        let error = await HelperCall.perform(helperProvider: helperProvider, invoke)
+    func run(timeout: Duration = HelperCall.defaultTimeout) async throws -> String {
+        let error = await HelperCall.perform(timeout: timeout, helperProvider: helperProvider, invoke)
         if let error {
             log.error("Maintenance task failed: \(error.localizedDescription, privacy: .private)")
             throw error

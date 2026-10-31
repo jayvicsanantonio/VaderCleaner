@@ -17,6 +17,12 @@ import Foundation
 /// spy would otherwise have to grow.
 public struct HelperReachability: Sendable {
 
+    /// How long to wait before something that's about to depend on the helper
+    /// gives up on it. Long enough for launchd to start it on demand. A stale
+    /// registration never errors out, it just never answers, so without a short
+    /// limit the wait is `HelperCall.defaultTimeout`'s ten minutes.
+    static let preflightTimeout: Duration = .seconds(10)
+
     private let runner: PrivilegedTaskRunner
 
     public init(helperProvider: @escaping PrivilegedTaskRunner.HelperProvider = SystemJunkDeleter.defaultHelperProvider) {
@@ -32,8 +38,12 @@ public struct HelperReachability: Sendable {
     /// reachable — the connection carried it — so only connection-class
     /// failures read as unreachable.
     public func probe() async -> Bool {
+        await probe(timeout: HelperCall.defaultTimeout)
+    }
+
+    func probe(timeout: Duration) async -> Bool {
         do {
-            _ = try await runner.run()
+            _ = try await runner.run(timeout: timeout)
             return true
         } catch {
             return !HelperConnectionError.isConnectionFailure(error)
