@@ -13,13 +13,31 @@ import SwiftUI
 /// within view updates" trap. `onResolve` can still fire more than once across
 /// a window close/reopen, so callers should remain idempotent.
 struct WindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow) -> Void
+    let onResolve: @MainActor (NSWindow) -> Void
 
     /// Tracks the most recently resolved window so repeated `updateNSView`
     /// passes for the same window don't re-fire `onResolve`. Weak so a closed
     /// window can deallocate and a later reopen resolves afresh.
+    @MainActor
     final class Coordinator {
         weak var lastWindow: NSWindow?
+
+        /// Hands a newly resolved window to `onResolve` on the next main-queue
+        /// turn. `updateNSView` runs inside SwiftUI's update, while Core
+        /// Animation is committing, and callers use the window to add and
+        /// move child windows — doing that mid-commit makes AppKit log
+        /// "Invalid attempt to open a new transaction during CA commit". The
+        /// window is recorded straight away so a second update pass in the
+        /// same turn doesn't schedule it twice.
+        func resolve(_ window: NSWindow, onResolve: @escaping @MainActor (NSWindow) -> Void) {
+            guard lastWindow !== window else { return }
+            lastWindow = window
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    onResolve(window)
+                }
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -32,7 +50,7 @@ struct WindowAccessor: NSViewRepresentable {
         // the next runloop tick, once it has a window.
         DispatchQueue.main.async {
             if let window = view.window {
-                resolve(window, coordinator: context.coordinator)
+                context.coordinator.resolve(window, onResolve: onResolve)
             }
         }
         return view
@@ -40,13 +58,7 @@ struct WindowAccessor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         if let window = nsView.window {
-            resolve(window, coordinator: context.coordinator)
+            context.coordinator.resolve(window, onResolve: onResolve)
         }
-    }
-
-    private func resolve(_ window: NSWindow, coordinator: Coordinator) {
-        guard coordinator.lastWindow !== window else { return }
-        coordinator.lastWindow = window
-        onResolve(window)
     }
 }
