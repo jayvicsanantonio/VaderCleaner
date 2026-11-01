@@ -52,6 +52,9 @@ final class ScanDiscWindowController {
     /// The presence the panel's content last asked for, kept so lifting a
     /// suppression restores whatever the disc was doing rather than guessing.
     @ObservationIgnored private var contentWantsDisc = false
+    /// Whether a panel update is already queued for the next main-queue turn,
+    /// so several requests in one SwiftUI update collapse into one.
+    @ObservationIgnored private var isPanelUpdateScheduled = false
 
     init(
         smartScanViewModel: SmartScanViewModel,
@@ -106,7 +109,7 @@ final class ScanDiscWindowController {
     func setRailWidth(_ width: CGFloat) {
         guard railWidth != width else { return }
         railWidth = width
-        reposition()
+        schedulePanelUpdate()
     }
 
     /// Holds the panel out regardless of what its content reports — the
@@ -116,7 +119,7 @@ final class ScanDiscWindowController {
     var isSuppressed: Bool = false {
         didSet {
             guard isSuppressed != oldValue else { return }
-            applyDiscVisibility()
+            schedulePanelUpdate()
         }
     }
 
@@ -125,7 +128,28 @@ final class ScanDiscWindowController {
     /// intercepts clicks meant for the main window behind it.
     func setDiscVisible(_ visible: Bool) {
         contentWantsDisc = visible
-        applyDiscVisibility()
+        schedulePanelUpdate()
+    }
+
+    /// Applies the panel's visibility and placement on the next main-queue
+    /// turn. Every caller is a SwiftUI callback — `onAppear`/`onChange` in the
+    /// panel's own content or in ContentView — and those run while Core
+    /// Animation is committing. Ordering or resizing a window from there opens
+    /// a window transaction mid-commit ("Invalid attempt to open a new
+    /// transaction during CA commit") and re-enters the panel's layout while it
+    /// is still being laid out.
+    private func schedulePanelUpdate() {
+        guard !isPanelUpdateScheduled else { return }
+        isPanelUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            // The main queue runs on the main thread; bridge that to the
+            // controller's main-actor isolation.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isPanelUpdateScheduled = false
+                self.applyDiscVisibility()
+            }
+        }
     }
 
     /// Orders the panel in or out from the content's request and the
