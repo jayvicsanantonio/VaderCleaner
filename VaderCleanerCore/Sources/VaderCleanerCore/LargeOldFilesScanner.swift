@@ -1,6 +1,7 @@
 // LargeOldFilesScanner.swift
-// Walks the user-files roots via FileScanner batches, then filters and re-tags each ScannedFile as .largeFile (size > 50 MB) or .oldFile (not accessed in 6+ months); files matching neither are dropped.
+// Walks the user-files roots via FileScanner batches, then filters and re-tags each ScannedFile as .largeFile (size > 50 MB) or .oldFile (at least 1 MB with no sign of use in 6+ months); files matching neither are dropped.
 
+import CoreServices
 import Foundation
 
 /// Top-level entry point for the Large & Old Files feature. Composes a
@@ -17,10 +18,15 @@ struct LargeOldFilesScanner {
     /// installer disk images.
     static let sizeThresholdBytes: Int64 = 50 * 1024 * 1024
 
-    /// Files whose `lastAccessDate` is more than 6 months in the past are
-    /// tagged `.oldFile`. Expressed in seconds (`60 * 60 * 24 * 30 * 6`) so
-    /// the constant is unit-clear at the call site.
+    /// Files showing no use for more than 6 months are tagged `.oldFile`.
+    /// Expressed in seconds (`60 * 60 * 24 * 30 * 6`) so the constant is
+    /// unit-clear at the call site.
     static let ageThresholdSeconds: TimeInterval = 60 * 60 * 24 * 30 * 6
+
+    /// Smallest file age alone can qualify. Below this a file costs too little
+    /// to be clutter however old it is, and a folder of old notes or config files
+    /// would otherwise bury the results.
+    static let oldFileMinimumBytes: Int64 = 1024 * 1024
 
     /// Extensions for app-managed virtual disks and VM/container volumes. The
     /// scan skips these for two reasons: deleting one destroys the owning app's
@@ -57,15 +63,29 @@ struct LargeOldFilesScanner {
     private let fileScanner: FileScanning
     private let pathProvider: UserFilesPathProviding
     private let now: () -> Date
+    private let lastUsedDate: (URL) -> Date?
+    private let isLocallyAvailable: (URL) -> Bool
 
     init(
         fileScanner: FileScanning = FileScanner(),
         pathProvider: UserFilesPathProviding = DefaultUserFilesPathProvider(),
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        lastUsedDate: @escaping (URL) -> Date? = LargeOldFilesScanner.spotlightLastUsedDate(for:),
+        isLocallyAvailable: @escaping (URL) -> Bool = CloudFileAvailability.isLocallyAvailable(_:)
     ) {
         self.fileScanner = fileScanner
         self.pathProvider = pathProvider
         self.now = now
+        self.lastUsedDate = lastUsedDate
+        self.isLocallyAvailable = isLocallyAvailable
+    }
+
+    /// When the file was last opened, as Spotlight recorded it, or `nil` if it
+    /// has no record. A separate query per file, so it is only asked of files
+    /// that already look old.
+    static func spotlightLastUsedDate(for url: URL) -> Date? {
+        guard let item = MDItemCreateWithURL(kCFAllocatorDefault, url as CFURL) else { return nil }
+        return MDItemCopyAttribute(item, kMDItemLastUsedDate) as? Date
     }
 
     func scan(
@@ -120,7 +140,7 @@ struct LargeOldFilesScanner {
             batchSize: batchSize,
             onProgress: onProgress
         ) { scannedBatch in
-            let matchedBatch = scannedBatch.compactMap { Self.classify($0, cutoff: cutoff) }
+            let matchedBatch = scannedBatch.compactMap { classify($0, cutoff: cutoff) }
             guard !matchedBatch.isEmpty else { return }
             try Task.checkCancellation()
             try await onBatch(matchedBatch)
@@ -143,24 +163,39 @@ struct LargeOldFilesScanner {
     /// by age"), so they only enter the result set if they pass the size
     /// threshold. This avoids a stale-volume backup folder showing every
     /// 4-byte file as "ancient" just because its access date is missing.
-    private static func classify(_ file: ScannedFile, cutoff: Date) -> ScannedFile? {
+    ///
+    /// A stale access date alone doesn't make a file old. APFS only updates it
+    /// when it is older than the modified date, so a file read every day but
+    /// last edited years ago keeps an ancient one. A file is old only when its
+    /// access date, modified date, and Spotlight's last-opened date all agree.
+    /// That still can't see reads by tools that bypass Launch Services, such as
+    /// scripts, which is why old files are never selected by default.
+    ///
+    /// Cloud-only placeholders are dropped: they report their full logical size
+    /// while occupying no local space, and Trashing one removes the real file
+    /// from iCloud.
+    private func classify(_ file: ScannedFile, cutoff: Date) -> ScannedFile? {
         // Skip app-managed virtual disks (Docker.raw, *.utm, *.sparsebundle, …)
         // before any size/age check: deleting them is destructive, and their
         // sparse logical size would otherwise dominate the results with a
         // phantom multi-terabyte entry.
-        if isVirtualDiskImage(file.url) { return nil }
-        let isLarge = file.size > sizeThresholdBytes
-        let isOld: Bool = {
-            guard let lastAccess = file.lastAccessDate else { return false }
+        if Self.isVirtualDiskImage(file.url) { return nil }
+        let isLarge = file.size > Self.sizeThresholdBytes
+        func isOld() -> Bool {
+            guard file.size >= Self.oldFileMinimumBytes,
+                  let lastAccess = file.lastAccessDate else { return false }
             // Inclusive: a file accessed exactly at the 6-month cutoff is
             // already "not accessed within the past six months", so it
             // belongs in the old-files bucket. Strict `<` would leave a
             // one-second sliver where the boundary case is invisible to
             // the user — without inclusive comparison the result depends
             // on file-system timestamp resolution.
-            return lastAccess <= cutoff
-        }()
-        guard isLarge || isOld else { return nil }
+            guard lastAccess <= cutoff else { return false }
+            if let modified = file.lastModifiedDate, modified > cutoff { return false }
+            if let lastUsed = lastUsedDate(file.url), lastUsed > cutoff { return false }
+            return true
+        }
+        guard isLarge || isOld(), isLocallyAvailable(file.url) else { return nil }
         return ScannedFile(
             url: file.url,
             size: file.size,

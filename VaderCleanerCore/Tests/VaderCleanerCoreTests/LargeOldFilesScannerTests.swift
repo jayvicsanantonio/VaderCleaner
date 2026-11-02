@@ -117,8 +117,8 @@ final class LargeOldFilesScannerTests: XCTestCase {
     /// out so the user is not shown last week's downloads.
     func test_scan_findsFilesNotAccessedWithinAgeThreshold() async throws {
         let root = try makeRoot("downloads")
-        let stale = try TestHelpers.createDummyFile(named: "stale.txt", size: 32, in: root)
-        let fresh = try TestHelpers.createDummyFile(named: "fresh.txt", size: 32, in: root)
+        let stale = try TestHelpers.createDummyFile(named: "stale.txt", size: Int(LargeOldFilesScanner.oldFileMinimumBytes), in: root)
+        let fresh = try TestHelpers.createDummyFile(named: "fresh.txt", size: Int(LargeOldFilesScanner.oldFileMinimumBytes), in: root)
         try setAccessDate(at: stale,
                           to: referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds - 86_400))
         try setAccessDate(at: fresh, to: referenceNow.addingTimeInterval(-3_600))
@@ -143,7 +143,7 @@ final class LargeOldFilesScannerTests: XCTestCase {
     /// silently flip the behavior.
     func test_scan_classifiesFileAccessedExactlyAtCutoffAsOld() async throws {
         let root = try makeRoot("documents-boundary")
-        let edge = try TestHelpers.createDummyFile(named: "edge.txt", size: 32, in: root)
+        let edge = try TestHelpers.createDummyFile(named: "edge.txt", size: Int(LargeOldFilesScanner.oldFileMinimumBytes), in: root)
         let cutoff = referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds)
         try setAccessDate(at: edge, to: cutoff)
 
@@ -307,7 +307,7 @@ final class LargeOldFilesScannerTests: XCTestCase {
         )
         let oldFile = ScannedFile(
             url: URL(fileURLWithPath: "/tmp/large-old-tests/old.txt"),
-            size: 32,
+            size: LargeOldFilesScanner.oldFileMinimumBytes,
             lastAccessDate: referenceNow.addingTimeInterval(-LargeOldFilesScanner.ageThresholdSeconds - 86_400),
             lastModifiedDate: nil,
             category: .largeFile

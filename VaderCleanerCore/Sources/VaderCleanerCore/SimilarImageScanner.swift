@@ -144,6 +144,10 @@ public struct SimilarImageScanner {
             try Task.checkCancellation()
         }
 
+        // Before the cap, so project assets can't crowd real photos out of it.
+        var candidateFilter = ClutterCandidateFilter(roots: roots)
+        images.removeAll { !candidateFilter.isOffered($0.url) }
+
         guard images.count > 1 else { return [] }
 
         // Keep the newest images when over the cap so the comparison stays
@@ -203,11 +207,13 @@ public struct SimilarImageScanner {
 
     // MARK: - Pure clustering
 
-    /// Single-link clustering over `count` items using a union-find. Two items
-    /// join the same cluster when their `distance` is non-nil and at or below
-    /// `threshold`. Returns only clusters of two or more, each a sorted index
-    /// list. Pure and side-effect-free so it is unit-testable with a synthetic
-    /// distance function.
+    /// Complete-link clustering over `count` items using a union-find. Two
+    /// clusters merge only when every pair across them has a non-nil `distance`
+    /// at or below `threshold`, so a group never holds two images that are far
+    /// apart: a shared neighbour can't chain unrelated shots together, which is
+    /// what a group's "keep one, remove the rest" relies on. Returns only clusters
+    /// of two or more, each a sorted index list. Pure and side-effect-free so it
+    /// is unit-testable with a synthetic distance function.
     static func cluster(
         count: Int,
         threshold: Float,
@@ -215,6 +221,7 @@ public struct SimilarImageScanner {
     ) -> [[Int]] {
         guard count > 1 else { return [] }
         var parent = Array(0..<count)
+        var members = (0..<count).map { [$0] }
         func find(_ x: Int) -> Int {
             var root = x
             while parent[root] != root {
@@ -223,11 +230,23 @@ public struct SimilarImageScanner {
             }
             return root
         }
-        func union(_ a: Int, _ b: Int) { parent[find(a)] = find(b) }
+        func isWithinThreshold(_ a: Int, _ b: Int) -> Bool {
+            guard let d = distance(min(a, b), max(a, b)) else { return false }
+            return d <= threshold
+        }
 
         for i in 0..<count {
             for j in (i + 1)..<count {
-                if let d = distance(i, j), d <= threshold { union(i, j) }
+                let rootI = find(i)
+                let rootJ = find(j)
+                guard rootI != rootJ, isWithinThreshold(i, j) else { continue }
+                let allPairsClose = members[rootI].allSatisfy { a in
+                    members[rootJ].allSatisfy { b in isWithinThreshold(a, b) }
+                }
+                guard allPairsClose else { continue }
+                parent[rootI] = rootJ
+                members[rootJ] += members[rootI]
+                members[rootI] = []
             }
         }
 

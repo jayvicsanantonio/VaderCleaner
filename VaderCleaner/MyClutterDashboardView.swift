@@ -2,7 +2,6 @@
 // Post-scan landing for My Clutter: a centered "files to sort through" header with a Review All Files action, above a four-card recommendation grid (Duplicates, Similar Images, Large & Old, Downloads) with real file thumbnails.
 
 import SwiftUI
-import QuickLookThumbnailing
 import AppKit
 import VaderCleanerCore
 
@@ -568,31 +567,14 @@ struct ClutterThumbnailView: View {
                 image = cached
                 return
             }
-            let generated = await Self.thumbnail(for: url, pointSize: pointSize)
-            if let generated {
-                ClutterThumbnailCache.store(generated, for: url, pointSize: pointSize)
-            }
-            image = generated
+            // A reused view is still showing the previous file. The preview pane
+            // puts this picture beside the new file's details, and someone may
+            // choose what to remove from that, so show nothing rather than the
+            // wrong image.
+            image = nil
+            let loaded = await ClutterThumbnailCache.load(url, pointSize: pointSize)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
-    }
-
-    /// Generates a Quick Look thumbnail, falling back to the Finder icon.
-    /// iCloud placeholders use the icon directly — asking Quick Look to render
-    /// one would force a slow on-demand download.
-    private static func thumbnail(for url: URL, pointSize: CGFloat) async -> NSImage? {
-        guard CloudFileAvailability.isLocallyAvailable(url) else {
-            return NSWorkspace.shared.icon(forFile: url.path)
-        }
-        let size = CGSize(width: pointSize, height: pointSize)
-        let request = QLThumbnailGenerator.Request(
-            fileAt: url,
-            size: size,
-            scale: 2,
-            representationTypes: .thumbnail
-        )
-        if let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
-            return rep.nsImage
-        }
-        return NSWorkspace.shared.icon(forFile: url.path)
     }
 }

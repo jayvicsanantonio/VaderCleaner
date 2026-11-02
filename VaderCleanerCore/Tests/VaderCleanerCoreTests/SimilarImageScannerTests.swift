@@ -23,8 +23,9 @@ final class SimilarImageScannerTests: XCTestCase {
         XCTAssertEqual(clusters, [[0, 1]], "Only the two near images should cluster; the far one is a singleton and dropped")
     }
 
-    func test_singleLinkChainsTransitively() {
-        // 0~1 and 1~2 but 0 and 2 are far — single-link still merges all three.
+    func test_chainDoesNotMergeItemsThatAreFarApart() {
+        // 0~1 and 1~2 but 0 and 2 are far. A group promises its images look
+        // alike, so a shared neighbour can't pull 0 and 2 together.
         let matrix: [[Float]] = [
             [0.0, 0.2, 0.9],
             [0.2, 0.0, 0.2],
@@ -32,7 +33,7 @@ final class SimilarImageScannerTests: XCTestCase {
         ]
         let clusters = SimilarImageScanner.cluster(count: 3, threshold: 0.35, distance: distance(matrix))
 
-        XCTAssertEqual(clusters, [[0, 1, 2]], "Single-link clustering chains 0-1-2 even though 0 and 2 are far apart")
+        XCTAssertEqual(clusters, [[0, 1]], "Every pair in a cluster must be within the threshold")
     }
 
     func test_noClustersWhenAllFarApart() {

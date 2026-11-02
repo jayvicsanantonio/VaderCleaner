@@ -269,8 +269,8 @@ struct MyClutterManagerView: View {
             ScrollView {
                 switch category {
                 case .largeOld: largeOldFacets
-                case .duplicates: groupList(viewModel.duplicateGroups.map { ($0.id, $0.original, $0.files) })
-                case .similar: groupList(viewModel.similarGroups.map { ($0.id, $0.original, $0.files) })
+                case .duplicates: groupList(viewModel.duplicateGroups.map { ($0.id, $0.original, $0.files) }, activeID: activeDuplicateGroup?.id)
+                case .similar: groupList(viewModel.similarGroups.map { ($0.id, $0.original, $0.files) }, activeID: activeSimilarGroup?.id)
                 case .downloads: browserList
                 }
             }
@@ -325,10 +325,10 @@ struct MyClutterManagerView: View {
 
     /// Group list for Duplicates / Similar Images: a representative thumbnail,
     /// the group name, its reclaimable size, and a copy count badge.
-    private func groupList(_ groups: [(id: String, original: ScannedFile, files: [ScannedFile])]) -> some View {
+    private func groupList(_ groups: [(id: String, original: ScannedFile, files: [ScannedFile])], activeID: String?) -> some View {
         LazyVStack(spacing: 4) {
             ForEach(groups, id: \.id) { group in
-                NavRow(selected: selectedGroupID == group.id) {
+                NavRow(selected: activeID == group.id) {
                     selectedGroupID = group.id
                     focusedURL = group.files.first?.url
                 } content: {
@@ -379,6 +379,16 @@ struct MyClutterManagerView: View {
 
     // MARK: - Right pane
 
+    /// The Duplicates group on screen. See `MyClutterManagerModel.resolvedGroup`.
+    private var activeDuplicateGroup: DuplicateGroup? {
+        MyClutterManagerModel.resolvedGroup(selectedID: selectedGroupID, in: viewModel.duplicateGroups)
+    }
+
+    /// The Similar Images group on screen. See `MyClutterManagerModel.resolvedGroup`.
+    private var activeSimilarGroup: SimilarImageGroup? {
+        MyClutterManagerModel.resolvedGroup(selectedID: selectedGroupID, in: viewModel.similarGroups)
+    }
+
     private var rightPaneHeader: (title: String, description: String)? {
         switch category {
         case .largeOld:
@@ -417,13 +427,11 @@ struct MyClutterManagerView: View {
                 return (bucket.title, desc)
             }
         case .duplicates:
-            let id = selectedGroupID ?? viewModel.duplicateGroups.first?.id
-            let title = viewModel.duplicateGroups.first(where: { $0.id == id })?.original.url.lastPathComponent
+            let title = activeDuplicateGroup?.original.url.lastPathComponent
                 ?? String(localized: "Duplicates", comment: "Duplicates right pane fallback title.")
             return (title, String(localized: "Identical copies stored in different places.", comment: "Duplicates right pane description."))
         case .similar:
-            let id = selectedGroupID ?? viewModel.similarGroups.first?.id
-            let title = viewModel.similarGroups.first(where: { $0.id == id })?.original.url.lastPathComponent
+            let title = activeSimilarGroup?.original.url.lastPathComponent
                 ?? String(localized: "Similar Images", comment: "Similar right pane fallback title.")
             return (title, String(localized: "Similar images you can compare — keep the best, remove the rest.", comment: "Similar right pane description."))
         case .downloads:
@@ -455,12 +463,12 @@ struct MyClutterManagerView: View {
                 fileList(displayedFiles)
             }
         case .duplicates:
-            if let group = viewModel.duplicateGroups.first(where: { $0.id == (selectedGroupID ?? viewModel.duplicateGroups.first?.id) }) {
-                imagePreviewPane(files: group.files, original: group.original, showsBestBadge: false)
+            if let group = activeDuplicateGroup {
+                imagePreviewPane(files: group.files, original: group.original)
             } else { emptyRightPane }
         case .similar:
-            if let group = viewModel.similarGroups.first(where: { $0.id == (selectedGroupID ?? viewModel.similarGroups.first?.id) }) {
-                imagePreviewPane(files: group.files, original: group.original, showsBestBadge: true)
+            if let group = activeSimilarGroup {
+                imagePreviewPane(files: group.files, original: group.original)
             } else { emptyRightPane }
         case .downloads:
             if isLoadingCache {
@@ -531,7 +539,7 @@ struct MyClutterManagerView: View {
     /// The image-preview pane for Duplicates / Similar Images: a "Select"
     /// control, a thumbnail strip (the kept original flagged), a large preview,
     /// and the focused file's metadata.
-    private func imagePreviewPane(files: [ScannedFile], original: ScannedFile, showsBestBadge: Bool) -> some View {
+    private func imagePreviewPane(files: [ScannedFile], original: ScannedFile) -> some View {
         let copies = files.filter { $0.url != original.url }
         let focused = files.first(where: { $0.url == focusedURL }) ?? original
         // A ScrollView (not a plain VStack) so the pane sizes like the file
@@ -563,7 +571,7 @@ struct MyClutterManagerView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 10) {
                         ForEach(files, id: \.url) { file in
-                            thumbnailStripItem(file, isOriginal: file.url == original.url, showsBestBadge: showsBestBadge)
+                            thumbnailStripItem(file, isOriginal: file.url == original.url)
                         }
                     }
                 }
@@ -573,6 +581,13 @@ struct MyClutterManagerView: View {
                     .frame(height: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
+                if focused.url != original.url {
+                    Button(String(localized: "Keep This Copy", comment: "Makes the previewed file the one its group keeps, instead of the current kept file.")) {
+                        keepCopy(focused.url)
+                    }
+                    .accessibilityIdentifier("myClutter.manager.keepCopy")
+                }
+
                 metadata(for: focused)
             }
             .padding(24)
@@ -580,12 +595,18 @@ struct MyClutterManagerView: View {
         }
     }
 
-    private func thumbnailStripItem(_ file: ScannedFile, isOriginal: Bool, showsBestBadge: Bool) -> some View {
+    /// Makes `url` the file its group keeps, staying on that group: a group's ID
+    /// is its kept file's path, so the selection has to follow the change.
+    private func keepCopy(_ url: URL) {
+        viewModel.keep(url, in: category)
+        selectedGroupID = url.path
+    }
+
+    private func thumbnailStripItem(_ file: ScannedFile, isOriginal: Bool) -> some View {
         ClutterThumbnailStripItem(
             url: file.url,
             isOriginal: isOriginal,
-            showsBestBadge: showsBestBadge,
-            isSelected: viewModel.isSelected(file.url),
+            isSelected: !isOriginal && viewModel.isSelected(file.url),
             isFocused: (focusedURL ?? file.url) == file.url,
             accent: Self.accent,
             onToggleSelect: { viewModel.toggleSelection(url: file.url) },
@@ -629,7 +650,22 @@ struct MyClutterManagerView: View {
         return HStack(spacing: 12) {
             Text(footerSummary(selection)).font(.callout.weight(.medium))
                 .accessibilityIdentifier("myClutter.manager.summary")
+            if viewModel.removalFailureCount > 0 {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "%lld items couldn't be moved to the Trash.", comment: "Manager footer after a removal left files behind."),
+                    viewModel.removalFailureCount
+                ))
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("myClutter.manager.removalFailure")
+            }
             Spacer()
+            if viewModel.isRemoving {
+                ProgressView().controlSize(.small)
+            }
+            // Deliberately no default-action shortcut. A card's Review opens with
+            // copies already checked, so Return would Trash them all with no
+            // further look.
             Button(String(localized: "Remove", comment: "Footer button that trashes the selected files.")) {
                 Task {
                     await viewModel.deleteSelected(in: currentCategoryURLs)
@@ -637,8 +673,7 @@ struct MyClutterManagerView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(selection.count == 0)
+            .disabled(selection.count == 0 || viewModel.isRemoving)
             .accessibilityIdentifier("myClutter.manager.remove")
         }
         .padding(.horizontal, 24)

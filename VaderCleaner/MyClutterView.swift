@@ -112,14 +112,13 @@ struct MyClutterView: View {
         MyClutterDashboardView(
             viewModel: viewModel,
             accent: accent,
-            // "Review All Files" browses everything with nothing checked;
-            // each card's Review pre-selects only that card's group so the
-            // manager opens matching the tile the user tapped.
-            onReviewAll: { viewModel.clearSelection(); openReview(.all) },
-            onReviewDuplicates: { viewModel.selectOnly(category: .duplicates); openReview(.duplicates) },
-            onReviewSimilar: { viewModel.selectOnly(category: .similar); openReview(.similar) },
-            onReviewLargeOld: { viewModel.selectOnly(category: .largeOld); openReview(.largeOld) },
-            onReviewDownloads: { viewModel.selectOnly(category: .downloads); openReview(.downloads) },
+            // Reviewing starts from nothing checked, except that the Duplicates
+            // card checks its copies once. Reopening keeps the user's choices.
+            onReviewAll: { viewModel.beginReview(of: nil); openReview(.all) },
+            onReviewDuplicates: { viewModel.beginReview(of: .duplicates); openReview(.duplicates) },
+            onReviewSimilar: { viewModel.beginReview(of: .similar); openReview(.similar) },
+            onReviewLargeOld: { viewModel.beginReview(of: .largeOld); openReview(.largeOld) },
+            onReviewDownloads: { viewModel.beginReview(of: .downloads); openReview(.downloads) },
             onStartOver: viewModel.scanAgain
         )
     }
