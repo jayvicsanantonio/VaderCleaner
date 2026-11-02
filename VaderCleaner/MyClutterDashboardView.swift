@@ -114,6 +114,9 @@ struct MyClutterDashboardView: View {
                 }
             }
             .buttonStyle(.plain)
+            // A scan started now could list a file the removal is about to move,
+            // and that file would then read as one that couldn't be Trashed.
+            .disabled(viewModel.isRemoving)
             .accessibilityIdentifier("myClutter.startOver")
             Spacer()
         }

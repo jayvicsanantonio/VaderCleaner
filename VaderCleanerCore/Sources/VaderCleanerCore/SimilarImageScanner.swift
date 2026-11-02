@@ -100,6 +100,7 @@ public struct SimilarImageScanner {
     private let roots: [URL]
     private let threshold: Float
     private let imageCap: Int
+    private let libraryPath: String
     /// Test seam: returns a feature print for a URL, or `nil` when the image
     /// can't be read. Production uses Vision; tests can stub it.
     private let featurePrint: @Sendable (URL) -> VNFeaturePrintObservation?
@@ -109,12 +110,14 @@ public struct SimilarImageScanner {
         roots: [URL] = [FileManager.default.homeDirectoryForCurrentUser],
         threshold: Float = SimilarImageScanner.defaultThreshold,
         imageCap: Int = SimilarImageScanner.defaultImageCap,
+        libraryPath: String = SimilarImageScanner.userLibraryPath(),
         featurePrint: @escaping @Sendable (URL) -> VNFeaturePrintObservation? = SimilarImageScanner.visionFeaturePrint(for:)
     ) {
         self.fileScanner = fileScanner
         self.roots = roots
         self.threshold = threshold
         self.imageCap = imageCap
+        self.libraryPath = libraryPath
         self.featurePrint = featurePrint
     }
 
@@ -135,10 +138,10 @@ public struct SimilarImageScanner {
             options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
             batchSize: FileScanner.defaultBatchSize,
             onProgress: onProgress
-        ) { [libraryPath = Self.userLibraryPath()] batch in
+        ) { batch in
             for file in batch where Self.imageExtensions.contains(file.url.pathExtension.lowercased())
                 && file.size > 0
-                && Self.isUserPhotoCandidate(file.url, libraryPath: libraryPath) {
+                && Self.isUserPhotoCandidate(file.url, libraryPath: libraryPath, roots: roots) {
                 images.append(file)
             }
             try Task.checkCancellation()
@@ -200,9 +203,15 @@ public struct SimilarImageScanner {
     /// such as the wallpaper-extension image cache, which are near-identical by
     /// design, aren't photos a person means to de-duplicate, and are regenerated
     /// by the OS. The trailing separator keeps a sibling like `~/LibraryNotes`
-    /// from matching the `~/Library` prefix.
-    nonisolated static func isUserPhotoCandidate(_ url: URL, libraryPath: String) -> Bool {
-        !url.path.hasPrefix(libraryPath + "/")
+    /// from matching the `~/Library` prefix. A file under a root at or inside
+    /// `~/Library` stays a candidate, because the user picked that folder.
+    nonisolated static func isUserPhotoCandidate(_ url: URL, libraryPath: String, roots: [URL] = []) -> Bool {
+        let library = libraryPath + "/"
+        guard url.path.hasPrefix(library) else { return true }
+        return roots.contains { root in
+            let rootPrefix = root.path + "/"
+            return rootPrefix.hasPrefix(library) && url.path.hasPrefix(rootPrefix)
+        }
     }
 
     // MARK: - Pure clustering
@@ -214,6 +223,9 @@ public struct SimilarImageScanner {
     /// what a group's "keep one, remove the rest" relies on. Returns only clusters
     /// of two or more, each a sorted index list. Pure and side-effect-free so it
     /// is unit-testable with a synthetic distance function.
+    ///
+    /// Each pair is compared once up front, because a merge re-checks every pair
+    /// across two clusters and a comparison is the expensive step.
     static func cluster(
         count: Int,
         threshold: Float,
@@ -230,18 +242,22 @@ public struct SimilarImageScanner {
             }
             return root
         }
-        func isWithinThreshold(_ a: Int, _ b: Int) -> Bool {
-            guard let d = distance(min(a, b), max(a, b)) else { return false }
-            return d <= threshold
+        var closeTo = [Set<Int>](repeating: [], count: count)
+        for i in 0..<count {
+            for j in (i + 1)..<count {
+                guard let d = distance(i, j), d <= threshold else { continue }
+                closeTo[i].insert(j)
+                closeTo[j].insert(i)
+            }
         }
 
         for i in 0..<count {
-            for j in (i + 1)..<count {
+            for j in closeTo[i].sorted() where j > i {
                 let rootI = find(i)
                 let rootJ = find(j)
-                guard rootI != rootJ, isWithinThreshold(i, j) else { continue }
+                guard rootI != rootJ else { continue }
                 let allPairsClose = members[rootI].allSatisfy { a in
-                    members[rootJ].allSatisfy { b in isWithinThreshold(a, b) }
+                    members[rootJ].allSatisfy { b in closeTo[a].contains(b) }
                 }
                 guard allPairsClose else { continue }
                 parent[rootI] = rootJ

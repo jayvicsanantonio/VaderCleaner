@@ -24,8 +24,10 @@ struct DuplicateScanner {
     private static let maxConcurrentHashes = 4
 
     /// A file name ending the way Finder, browsers, and Safari mark a copy:
-    /// `report copy`, `report copy 2`, `report 2`, `report (1)`, `report-1`.
-    private static let copyNamePattern = #"( copy( \d+)?| \d+| \(\d+\)|-\d+)$"#
+    /// `report copy`, `report copy 2`, `report 2`, `report (1)`, `report-1`. A bare
+    /// number stops at two digits, since a longer one such as a year names the
+    /// document rather than marking a copy of it.
+    private static let copyNamePattern = #"( copy( \d+)?| \d{1,2}| \(\d+\)|-\d{1,2})$"#
 
     private let fileScanner: FileScanning
     private let roots: [URL]
@@ -127,10 +129,13 @@ struct DuplicateScanner {
     /// This does not catch APFS *clones*, which share storage without sharing an
     /// inode; there is no public API that reports shared extents, so a clone is
     /// still reported as a full-sized copy.
+    ///
+    /// Ranked before dropping names, so the name that stands for an inode is its
+    /// preferred one whichever the walk reached first.
     private func group(from files: [ScannedFile]) -> DuplicateGroup? {
-        let distinct = Self.deduplicatedByInode(files)
+        let distinct = Self.deduplicatedByInode(sortedKeepingOriginalFirst(files))
         guard distinct.count > 1 else { return nil }
-        return DuplicateGroup(files: sortedKeepingOriginalFirst(distinct))
+        return DuplicateGroup(files: distinct)
     }
 
     /// Keeps one file per distinct inode, preserving order. Files whose

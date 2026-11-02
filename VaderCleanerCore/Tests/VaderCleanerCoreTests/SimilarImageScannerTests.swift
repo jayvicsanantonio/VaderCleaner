@@ -1,6 +1,7 @@
 // SimilarImageScannerTests.swift
 // Pins the pure perceptual-clustering core of SimilarImageScanner: items merge only when their distance is within threshold, singletons are dropped, and clusters are returned as sorted index groups.
 
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -90,5 +91,34 @@ final class SimilarImageScannerTests: XCTestCase {
             .sorted { $0[0] < $1[0] }
 
         XCTAssertEqual(clusters, [[0, 1], [2, 3]])
+    }
+}
+
+@Suite struct SimilarImageClusterCostTests {
+
+    /// A Vision comparison is the expensive step, and a large library of similar
+    /// photos would otherwise repeat it for every merge a cluster attempts.
+    @Test func eachPairIsComparedOnce() {
+        var comparisons = 0
+
+        let clusters = SimilarImageScanner.cluster(count: 5, threshold: 0.35) { _, _ in
+            comparisons += 1
+            return 0.1
+        }
+
+        #expect(clusters == [[0, 1, 2, 3, 4]])
+        #expect(comparisons == 10)
+    }
+
+    @Test func aPickedFolderInsideLibraryIsACandidateButTheRestOfLibraryIsNot() {
+        let library = "/Users/me/Library"
+        let inPicked = URL(fileURLWithPath: "/Users/me/Library/Some Photos/a.png")
+        let elsewhere = URL(fileURLWithPath: "/Users/me/Library/Caches/a.png")
+        let picked = URL(fileURLWithPath: "/Users/me/Library/Some Photos")
+
+        #expect(SimilarImageScanner.isUserPhotoCandidate(inPicked, libraryPath: library, roots: [picked]))
+        #expect(!SimilarImageScanner.isUserPhotoCandidate(elsewhere, libraryPath: library, roots: [picked]))
+        #expect(!SimilarImageScanner.isUserPhotoCandidate(inPicked, libraryPath: library, roots: [URL(fileURLWithPath: "/Users/me")]))
+        #expect(SimilarImageScanner.isUserPhotoCandidate(elsewhere, libraryPath: library, roots: [URL(fileURLWithPath: library)]))
     }
 }

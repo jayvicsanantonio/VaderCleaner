@@ -259,8 +259,10 @@ public final class MyClutterViewModel {
     /// be removed, the old original now is, so the count stays what the user saw.
     /// `url` ends up unchecked everywhere, even if it is also listed in another
     /// category, since they just said they want it. A no-op unless `url` is a
-    /// removable copy in that category.
+    /// removable copy in that category, and while a removal runs, since that
+    /// removal already holds its list of files.
     public func keep(_ url: URL, in category: MyClutterCategory) {
+        guard !isRemoving else { return }
         let previous: ScannedFile
         switch category {
         case .duplicates:
@@ -605,7 +607,8 @@ extension MyClutterViewModel {
     public static func live(
         exclusions: ExclusionsStore,
         scanScope: MyClutterScanScopeStore,
-        onLargeOldFilesFound: LargeOldFilesFoundHandler? = nil
+        onLargeOldFilesFound: LargeOldFilesFoundHandler? = nil,
+        downloadsDirectory: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     ) -> MyClutterViewModel {
         MyClutterViewModel(
             // Each closure snapshots the stores on the main actor (their
@@ -644,8 +647,7 @@ extension MyClutterViewModel {
                     )
                 }
                 try Self.requireAvailable(picked)
-                let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                let root = Self.downloadsRoot(scanRoots: picked, downloads: downloads)
+                let root = Self.downloadsRoot(scanRoots: picked, downloads: downloadsDirectory)
                 return try await DownloadsScanner(downloadsURL: root).scan(excluding: ex, onProgress: onProgress)
             },
             deleter: { urls in await UserFileRecycler.recycle(urls, context: "My Clutter") },

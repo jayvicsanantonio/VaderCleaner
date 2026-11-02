@@ -72,11 +72,18 @@ private func makeViewModel(
     /// it means the scan looked nowhere else, `~/Downloads` included.
     @Test func aPickedFolderIsTheOnlyPlaceLooked() async throws {
         let root = try TestHelpers.createTempDirectory()
-        defer { TestHelpers.tearDownTempDirectory(root) }
+        let downloads = try TestHelpers.createTempDirectory()
+        defer {
+            TestHelpers.tearDownTempDirectory(root)
+            TestHelpers.tearDownTempDirectory(downloads)
+        }
+        try Data("installer".utf8).write(to: downloads.appendingPathComponent("tool.dmg"))
+        let listed = try await DownloadsScanner(downloadsURL: downloads).scan(excluding: [])
+        #expect(listed.count == 1, "The file is one a scan of Downloads would list")
         let defaults = try #require(UserDefaults(suiteName: "MyClutterScanFailureTests-\(UUID().uuidString)"))
         let scope = MyClutterScanScopeStore(defaults: defaults)
         scope.selectFolder(root)
-        let vm = MyClutterViewModel.live(exclusions: ExclusionsStore(defaults: defaults), scanScope: scope)
+        let vm = MyClutterViewModel.live(exclusions: ExclusionsStore(defaults: defaults), scanScope: scope, downloadsDirectory: downloads)
 
         await vm.scan()
 
@@ -254,13 +261,40 @@ private func makeViewModel(
     /// A removal must take the file the user ended up choosing, and spare the
     /// one they kept.
     @Test func removingAfterKeepSparesTheChosenFile() async {
-        let vm = await scanned()
+        let trashed = TestBox<Set<URL>>([])
+        let vm = makeViewModel(duplicates: [DuplicateGroup(files: [a, b, c])], deleter: { urls in
+            trashed.value = Set(urls)
+            return Set(urls)
+        })
+        await vm.scan()
+        vm.beginReview(of: .duplicates)
         vm.keep(b.url, in: .duplicates)
 
         await vm.deleteSelected(in: Set(vm.duplicateCopies.map(\.url)))
 
+        #expect(trashed.value == [a.url, c.url])
         #expect(vm.duplicateGroups.isEmpty)
         #expect(vm.selectedURLs.isEmpty)
+    }
+
+    /// The removal already holds its list of files, so moving the Keep badge now
+    /// would show a file as kept while it goes to the Trash.
+    @Test func keepDoesNothingWhileARemovalRuns() async {
+        let gate = SuspendingCallGate()
+        let vm = makeViewModel(duplicates: [DuplicateGroup(files: [a, b, c])], deleter: { urls in
+            await gate.hold()
+            return Set(urls)
+        })
+        await vm.scan()
+        vm.beginReview(of: .duplicates)
+        let removal = Task { await vm.deleteSelected(in: [b.url]) }
+        #expect(await pollUntil { gate.isHolding })
+
+        vm.keep(b.url, in: .duplicates)
+
+        #expect(vm.duplicateGroups.first?.original == a)
+        gate.open()
+        await removal.value
     }
 
     @Test func keepingUnchecksAFileListedInAnotherCategoryToo() async {

@@ -27,6 +27,20 @@ import UniformTypeIdentifiers
         return filter.isOffered(url)
     }
 
+    /// A temp root in the spelling the walker reports, because the similar-image
+    /// scan compares plain paths against `~/Library`.
+    private func makeRootSpelledAsWalked() throws -> URL {
+        let root = try makeRoot()
+        return root.path.hasPrefix("/private/") ? root : URL(fileURLWithPath: "/private" + root.path)
+    }
+
+    private func setHiddenFlag(on url: URL) throws {
+        var target = url
+        var values = URLResourceValues()
+        values.isHidden = true
+        try target.setResourceValues(values)
+    }
+
     // MARK: - The filter
 
     @Test func offersOrdinaryFiles() throws {
@@ -48,6 +62,39 @@ import UniformTypeIdentifiers
         let root = try makeRoot()
         defer { TestHelpers.tearDownTempDirectory(root) }
         #expect(!isOffered(roots: [root], try write("app/\(folder)/pkg/LICENSE", in: root)))
+    }
+
+    /// Finder's hidden flag hides a file just as a leading dot does. `Icon\r`, a
+    /// custom folder icon's file, is the common case: identical across folders.
+    @Test func holdsBackFilesAndFoldersCarryingTheHiddenFlag() throws {
+        let root = try makeRoot()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        let flaggedFile = try write("notes/flagged.pdf", in: root)
+        try setHiddenFlag(on: flaggedFile)
+        let inFlaggedFolder = try write("vault/deep/report.pdf", in: root)
+        try setHiddenFlag(on: root.appendingPathComponent("vault"))
+
+        #expect(!isOffered(roots: [root], root.appendingPathComponent("notes/flagged.pdf")))
+        #expect(!isOffered(roots: [root], inFlaggedFolder))
+        #expect(isOffered(roots: [root], try write("notes/plain.pdf", in: root)))
+    }
+
+    /// `~/Library` carries the flag, and picking it directly is deliberate.
+    @Test func aRootCarryingTheHiddenFlagStillOffersItsFiles() throws {
+        let root = try makeRoot()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        try setHiddenFlag(on: root)
+        #expect(isOffered(roots: [root], try write("Photos/a.pdf", in: root)))
+    }
+
+    /// Picking `node_modules` itself doesn't make its packages' files safe, any
+    /// more than picking a repo makes its tracked files safe.
+    @Test(arguments: ["node_modules", "Pods", "venv"])
+    func aRootThatIsADependencyTreeIsStillOne(_ folder: String) throws {
+        let base = try makeRoot()
+        defer { TestHelpers.tearDownTempDirectory(base) }
+        let root = base.appendingPathComponent(folder)
+        #expect(!isOffered(roots: [root], try write("\(folder)/pkg/LICENSE", in: base)))
     }
 
     /// A tracked file looks like any other, but Trashing it damages the checkout
@@ -134,7 +181,7 @@ import UniformTypeIdentifiers
     // MARK: - Which copy is kept
 
     @Test func keepsTheOriginalNameOverItsCopyNames() async throws {
-        for copyName in ["report copy.pdf", "report copy 2.pdf", "report 2.pdf", "report (1).pdf", "report-1.pdf"] {
+        for copyName in ["report copy.pdf", "report copy 2.pdf", "report 2.pdf", "report 15.pdf", "report (1).pdf", "report-1.pdf"] {
             let root = try makeRoot()
             defer { TestHelpers.tearDownTempDirectory(root) }
             try write("report.pdf", in: root)
@@ -145,6 +192,44 @@ import UniformTypeIdentifiers
             let kept = try #require(groups.first?.original.url.lastPathComponent)
             #expect(kept == "report.pdf", "kept \(kept) over report.pdf, against \(copyName)")
         }
+    }
+
+    /// A year names the document rather than marking a copy of it, so the path
+    /// decides here: the shorter one wins only if the year isn't read as a copy.
+    @Test(arguments: ["taxes 2024.pdf", "taxes-2024.pdf"])
+    func aYearInTheNameIsNotACopyName(_ name: String) async throws {
+        let root = try makeRoot()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        try write(name, in: root)
+        try write("archive/taxes.pdf", in: root)
+
+        let groups = try await DuplicateScanner(roots: [root]).scan(excluding: [])
+
+        let kept = try #require(groups.first?.original.url.lastPathComponent)
+        #expect(kept == name)
+    }
+
+    /// Two names for one inode count once, and the name that stands for them must
+    /// be the preferred one whichever the walk reached first. Otherwise the
+    /// Downloads name could be kept, or listed as a copy that frees nothing.
+    @Test func aHardLinkedPairIsRepresentedByItsFiledName() async throws {
+        let root = try makeRoot()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        let downloads = root.appendingPathComponent("Downloads")
+        let inDownloads = try write("Downloads/report.pdf", in: root)
+        let filed = root.appendingPathComponent("Filed/report.pdf")
+        try FileManager.default.createDirectory(at: filed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.linkItem(at: inDownloads, to: filed)
+        let separate = try write("Other/deep/er/report.pdf", in: root)
+        let walked = [inDownloads, filed, separate].map {
+            ScannedFile(url: $0, size: 10, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
+        }
+
+        let scanner = DuplicateScanner(fileScanner: FilesInOrderScanner(files: walked), roots: [root], downloadsDirectory: downloads)
+        let groups = try await scanner.scan(excluding: [])
+
+        let group = try #require(groups.first)
+        #expect(group.files.map(\.url) == [filed, separate])
     }
 
     /// A filed copy is the one worth keeping: Downloads is the folder the same
@@ -205,6 +290,36 @@ import UniformTypeIdentifiers
         #expect(names == ["a.png", "b.png"])
     }
 
+    /// A folder picked inside `~/Library` is a deliberate choice; arriving at
+    /// `~/Library` from above is what the exclusion is for.
+    @Test func similarScanLooksInsideAPickedLibraryFolder() async throws {
+        let base = try makeRootSpelledAsWalked()
+        defer { TestHelpers.tearDownTempDirectory(base) }
+        let library = base.appendingPathComponent("Library")
+        let picked = library.appendingPathComponent("Some Photos")
+        for path in ["Library/Some Photos/a.png", "Library/Some Photos/b.png"] {
+            try writePNG(path, in: base)
+        }
+
+        let groups = try await SimilarImageScanner(roots: [picked], libraryPath: library.path).scan(excluding: [])
+
+        let names = Set(groups.flatMap { $0.files.map(\.url.lastPathComponent) })
+        #expect(names == ["a.png", "b.png"])
+    }
+
+    @Test func similarScanStillSkipsLibraryWhenWalkingIntoIt() async throws {
+        let base = try makeRootSpelledAsWalked()
+        defer { TestHelpers.tearDownTempDirectory(base) }
+        let library = base.appendingPathComponent("Library")
+        for path in ["Library/Caches/a.png", "Library/Caches/b.png"] {
+            try writePNG(path, in: base)
+        }
+
+        let groups = try await SimilarImageScanner(roots: [base], libraryPath: library.path).scan(excluding: [])
+
+        #expect(groups.isEmpty)
+    }
+
     /// A solid-colour PNG, so every call yields an identical feature print.
     private func writePNG(_ relativePath: String, in root: URL) throws {
         let url = root.appendingPathComponent(relativePath)
@@ -220,5 +335,20 @@ import UniformTypeIdentifiers
         let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
         CGImageDestinationAddImage(destination, image, nil)
         #expect(CGImageDestinationFinalize(destination))
+    }
+}
+
+/// Reports exactly `files`, in order, so a test can fix what the walk reaches first.
+private struct FilesInOrderScanner: FileScanning {
+    let files: [ScannedFile]
+
+    func scan(
+        roots: [ScanRoot],
+        excluding: [URL],
+        options: FileScanOptions,
+        batchSize: Int,
+        onBatch: ([ScannedFile]) async throws -> Void
+    ) async throws {
+        try await onBatch(files)
     }
 }

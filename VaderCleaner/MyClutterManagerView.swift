@@ -585,6 +585,7 @@ struct MyClutterManagerView: View {
                     Button(String(localized: "Keep This Copy", comment: "Makes the previewed file the one its group keeps, instead of the current kept file.")) {
                         keepCopy(focused.url)
                     }
+                    .disabled(viewModel.isRemoving)
                     .accessibilityIdentifier("myClutter.manager.keepCopy")
                 }
 

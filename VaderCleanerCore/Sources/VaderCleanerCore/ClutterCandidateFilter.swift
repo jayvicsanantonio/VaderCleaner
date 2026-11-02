@@ -12,9 +12,14 @@ import Foundation
 /// the project that owns it. The walker emits all of these, because other scans
 /// want them, so this is applied by the two scans that recommend removal.
 ///
+/// A file counts as hidden if it is named with a leading dot or carries Finder's
+/// hidden flag, which the walker doesn't filter on.
+///
 /// Only what sits at or below a scan root counts. A home directory that is itself
 /// a dotfiles repo must not hide all of `~/Documents`, and a root the user picked
-/// inside a hidden folder was chosen deliberately.
+/// inside a hidden folder, or one hidden itself, was chosen deliberately. Picking
+/// a dependency tree or a checkout doesn't make its files safe to remove, though,
+/// so those still count at the root.
 ///
 /// Mutating because it memoizes per directory: a checkout check is a filesystem
 /// probe, and candidates cluster heavily in the same folders.
@@ -39,7 +44,7 @@ struct ClutterCandidateFilter {
     }
 
     mutating func isOffered(_ url: URL) -> Bool {
-        if url.lastPathComponent.hasPrefix(".") { return false }
+        if url.lastPathComponent.hasPrefix(".") || Self.hasHiddenFlag(url) { return false }
         return !isManaged(directory: Self.comparablePath(url.deletingLastPathComponent()))
     }
 
@@ -47,18 +52,25 @@ struct ClutterCandidateFilter {
         if let known = isManagedByDirectory[path] { return known }
         let managed: Bool
         if rootPaths.contains(path) {
-            managed = Self.isCheckout(path)
+            managed = Self.isProjectOwned(path)
         } else if path == "/" || path.isEmpty {
             managed = false
         } else {
-            let name = (path as NSString).lastPathComponent
-            managed = name.hasPrefix(".")
-                || Self.managedDirectoryNames.contains(name)
-                || Self.isCheckout(path)
+            managed = (path as NSString).lastPathComponent.hasPrefix(".")
+                || Self.hasHiddenFlag(URL(fileURLWithPath: path))
+                || Self.isProjectOwned(path)
                 || isManaged(directory: (path as NSString).deletingLastPathComponent)
         }
         isManagedByDirectory[path] = managed
         return managed
+    }
+
+    private static func hasHiddenFlag(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isHiddenKey]))?.isHidden ?? false
+    }
+
+    private static func isProjectOwned(_ path: String) -> Bool {
+        managedDirectoryNames.contains((path as NSString).lastPathComponent) || isCheckout(path)
     }
 
     private static func isCheckout(_ path: String) -> Bool {

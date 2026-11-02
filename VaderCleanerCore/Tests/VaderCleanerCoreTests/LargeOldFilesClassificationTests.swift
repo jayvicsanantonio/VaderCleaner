@@ -86,6 +86,26 @@ import Testing
         let provider = DefaultUserFilesPathProvider(homeDirectory: URL(fileURLWithPath: "/Users/someone"), roots: [picked])
         #expect(provider.roots() == [picked])
     }
+
+    @Test func aFileInAPickedLibraryFolderIsListed() async throws {
+        let base = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(base) }
+        let picked = base.appendingPathComponent("Library/Application Support/Old App")
+        try FileManager.default.createDirectory(at: picked, withIntermediateDirectories: true)
+        let oldFile = picked.appendingPathComponent("archive.bin")
+        try Data(count: Int(LargeOldFilesScanner.oldFileMinimumBytes)).write(to: oldFile)
+
+        let scanner = LargeOldFilesScanner(
+            pathProvider: DefaultUserFilesPathProvider(homeDirectory: base, roots: [picked]),
+            now: { Date().addingTimeInterval(LargeOldFilesScanner.ageThresholdSeconds + 86_400) },
+            lastUsedDate: { _ in nil },
+            isLocallyAvailable: { _ in true }
+        )
+        let files = try await scanner.scan(excluding: [])
+
+        #expect(files.map(\.url.lastPathComponent) == [oldFile.lastPathComponent])
+        #expect(files.map(\.category) == [.oldFile])
+    }
 }
 
 private struct OneFileScanner: FileScanning {
