@@ -23,10 +23,21 @@ struct ScanRoot: Equatable {
     /// contributed zero bytes and no row could select it.
     let packagesAsFiles: Bool
 
-    init(url: URL, category: ScanCategory, packagesAsFiles: Bool = false) {
+    /// Whether each item directly under this root is one removable unit, whatever
+    /// its type: a folder is rolled up, and a symlink is emitted rather than
+    /// skipped.
+    ///
+    /// For roots where the top-level items are what the user recognises. A file at
+    /// a time, emptying the Trash left its folders and symlinks behind, and an iOS
+    /// backup reached the Trash as loose, unrestorable files that a folder row
+    /// could also select only part of.
+    let rollsUpTopLevelItems: Bool
+
+    init(url: URL, category: ScanCategory, packagesAsFiles: Bool = false, rollsUpTopLevelItems: Bool = false) {
         self.url = url
         self.category = category
         self.packagesAsFiles = packagesAsFiles
+        self.rollsUpTopLevelItems = rollsUpTopLevelItems
     }
 }
 
@@ -635,14 +646,6 @@ struct FileScanner: FileScanning {
 
                 let resourceValues = try? url.resourceValues(forKeys: Self.resourceKeySet)
 
-                if resourceValues?.isSymbolicLink == true {
-                    // Skip symlinks unconditionally — this avoids both
-                    // double-counting (when the link's target is also under
-                    // the scanned root) and pulling in external content
-                    // (when the target is outside the root).
-                    continue
-                }
-
                 // Exclusions are canonical, while enumerator URLs keep the
                 // root spelling they were given. Projecting through the root
                 // mapper preserves canonical matching without doing
@@ -652,6 +655,28 @@ struct FileScanner: FileScanning {
                    PathExclusionMatcher.isExcluded(path: canonicalPath, by: rootExclusions) {
                     if resourceValues?.isDirectory == true {
                         enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
+                let isTopLevelUnit = root.rollsUpTopLevelItems && enumerator.level == 1
+
+                if resourceValues?.isSymbolicLink == true {
+                    // Skip symlinks — this avoids both double-counting (when the
+                    // link's target is also under the scanned root) and pulling
+                    // in external content (when the target is outside the root).
+                    // A top-level one is an item in its own right, though: it
+                    // contributes no bytes, and removing it leaves its target alone.
+                    if isTopLevelUnit {
+                        batch.append(
+                            ScannedFile(
+                                url: url,
+                                size: 0,
+                                lastAccessDate: nil,
+                                lastModifiedDate: nil,
+                                category: root.category
+                            )
+                        )
                     }
                     continue
                 }
@@ -669,9 +694,8 @@ struct FileScanner: FileScanning {
                     continue
                 }
 
-                if packagesAsFiles,
-                   isDirectory,
-                   resourceValues?.isPackage == true {
+                if isDirectory,
+                   isTopLevelUnit || (packagesAsFiles && resourceValues?.isPackage == true) {
                     if let canonicalPath,
                        PathExclusionMatcher.containsExcludedDescendant(
                         of: canonicalPath,

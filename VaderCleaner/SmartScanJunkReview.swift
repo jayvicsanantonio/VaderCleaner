@@ -39,6 +39,13 @@ struct SmartScanJunkReview: View {
                     selectionRevision: viewModel.junkSelectionRevision
                 ) { viewModel.junkFileSelection.contains($0.url) }
             },
+            isPartiallySelected: { id in
+                // Same walk and memo as the checked state above.
+                store.someFilesSelected(
+                    forRowID: id,
+                    selectionRevision: viewModel.junkSelectionRevision
+                ) { viewModel.junkFileSelection.contains($0.url) }
+            },
             onToggle: { id in
                 // Whole-folder toggle in one batched pass: gather the row's files
                 // under a single lock, then flip them together so a folder over

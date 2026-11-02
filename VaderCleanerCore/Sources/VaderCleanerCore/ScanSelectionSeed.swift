@@ -53,6 +53,21 @@ struct ScanSelectionSeed: Equatable, Sendable {
         }
     }
 
+    /// The files a one-click Clean on `categories` may remove: exactly what a
+    /// card's Review would pre-check, so Clean can never reach further than the
+    /// app is willing to go unattended.
+    static func files(
+        of categories: Set<ScanCategory>,
+        from result: ScanResult,
+        cacheRoots: [String] = WebDevArtifact.packageCacheRoots
+    ) async -> [ScannedFile] {
+        result.items.filter { file in
+            categories.contains(file.category)
+                && file.category.isSafeToAutoRemove
+                && isPreselectable(file, cacheRoots: cacheRoots)
+        }
+    }
+
     /// Whether a file in an otherwise-safe category may be checked without the
     /// user asking for it.
     ///
@@ -61,9 +76,25 @@ struct ScanSelectionSeed: Equatable, Sendable {
     /// project* a full reinstall the next time it's opened — a real interruption
     /// to work in progress, not a background refill. So the caches pre-check and
     /// the per-project artifacts stay an explicit choice.
+    ///
+    /// Xcode Junk is the same split with higher stakes: derived data and device
+    /// support rebuild themselves, but an archive is a saved build and its
+    /// symbols, which no later build can reproduce.
     private static func isPreselectable(_ file: ScannedFile, cacheRoots: [String]) -> Bool {
-        guard file.category == .webDevJunk else { return true }
-        return !WebDevArtifact.isProjectArtifact(file.url, cacheRoots: cacheRoots)
+        switch file.category {
+        case .webDevJunk:
+            return !WebDevArtifact.isProjectArtifact(file.url, cacheRoots: cacheRoots)
+        case .xcodeJunk:
+            return !isXcodeArchive(file.url)
+        default:
+            return true
+        }
+    }
+
+    /// Whether a path is inside Xcode's Archives folder.
+    private static func isXcodeArchive(_ url: URL) -> Bool {
+        let components = url.pathComponents
+        return zip(components, components.dropFirst()).contains { $0 == "Xcode" && $1 == "Archives" }
     }
 
     /// Single-pass builder over the result's precomputed category groupings.

@@ -47,9 +47,27 @@ struct LanguageFileLocator {
         "dutch": "nl"
     ]
 
+    /// Alternate codes for one language, mapped onto the one `Locale` reports.
+    /// Bundles still ship the older spellings, and without this a Norwegian
+    /// user's `no.lproj` reads as a language they don't use.
+    private static let alternateLanguageCodes: [String: String] = [
+        "no": "nb",
+        "iw": "he",
+        "in": "id",
+        "ji": "yi",
+        "tl": "fil"
+    ]
+
+    /// ISO codes that name no language: multiple languages, undetermined, and no
+    /// linguistic content. Resources under them aren't translations to strip.
+    private static let nonLanguageCodes: Set<String> = ["mul", "und", "zxx"]
+
     init(scanRoots: [URL], activeLanguageCodes: Set<String>) {
         self.scanRoots = scanRoots
-        self.activeLanguageCodes = Set(activeLanguageCodes.map { $0.lowercased() })
+        self.activeLanguageCodes = Set(activeLanguageCodes.map { code in
+            let lowered = code.lowercased()
+            return Self.alternateLanguageCodes[lowered] ?? lowered
+        })
     }
 
     /// Walks each scan root, surfaces every `.lproj` directory whose locale
@@ -169,6 +187,7 @@ struct LanguageFileLocator {
         if parts.count == 1 && first.count > 3 {
             return nil
         }
-        return first
+        if nonLanguageCodes.contains(first) { return nil }
+        return alternateLanguageCodes[first] ?? first
     }
 }

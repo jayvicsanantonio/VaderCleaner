@@ -32,6 +32,9 @@ struct SmartScanReviewManager: View {
     /// Whether a leaf item (by `ManagerItem.id`) is currently checked. Unused
     /// when `showsSelection` is false.
     var isSelected: (String) -> Bool = { _ in false }
+    /// Whether a row covers selected and unselected items both, drawn as a mixed
+    /// checkbox. The flat managers' rows are one item each, so they leave this off.
+    var isPartiallySelected: (String) -> Bool = { _ in false }
     /// Flip a single item's checked state. Unused when `showsSelection` is false.
     var onToggle: (String) -> Void = { _ in }
     /// Bulk select/clear every item in a category (the "Select" menu). Unused
@@ -90,7 +93,9 @@ struct SmartScanReviewManager: View {
     /// Optional override for the prominent primary footer button. When `nil` the
     /// footer shows "Done" wired to `onBack` (the Smart Scan default); supplying
     /// a title (e.g. "Clean Up") swaps the label and runs `onPrimaryAction`,
-    /// disabled while `primaryActionEnabled` is false.
+    /// disabled while `primaryActionEnabled` is false. Only "Done" answers Return:
+    /// a custom action does real work, and pressing Return to finish typing in the
+    /// search field must not start it.
     var primaryActionTitle: String? = nil
     var onPrimaryAction: (() -> Void)? = nil
     var primaryActionEnabled: Bool = true
@@ -139,14 +144,13 @@ struct SmartScanReviewManager: View {
     /// Lazily-loaded rows per category id (when `loadItems` is set), cached for
     /// this manager session.
     @State private var lazyItemsByCategory: [String: [ManagerItem]] = [:]
-    /// Category id whose rows are being loaded lazily right now. Tracked by id
-    /// (not a plain flag) so a load superseded by a category switch can't
-    /// clear — or leave stuck — the newer load's spinner.
-    @State private var loadingCategoryID: String?
 
-    /// True while the *selected* category's rows are being loaded lazily.
+    /// True while the *selected* category's rows haven't loaded yet. Derived from
+    /// the cache rather than tracked, so it is already true on the render that
+    /// switches category and no load can leave it stuck.
     private var isLoadingItems: Bool {
-        loadingCategoryID != nil && loadingCategoryID == selectedCategoryID
+        guard loadItems != nil, let selectedCategoryID else { return false }
+        return lazyItemsByCategory[selectedCategoryID] == nil
     }
 
     private var loadedSections: [ManagerSection] { sections ?? [] }
@@ -209,8 +213,11 @@ struct SmartScanReviewManager: View {
             refreshDisplayedItems()
         }
         .onChange(of: selectedCategoryID) { _, _ in
-            // A fresh category starts fully collapsed.
+            // A fresh category starts fully collapsed. The rows change now, not
+            // when a slow load finishes: until then the old category's rows would
+            // sit under the new header, with clicks landing on the old files.
             expandedIDs = []
+            refreshDisplayedItems()
         }
         // Load the selected category's rows (lazily when `loadItems` is set),
         // then refresh the visible list. Runs on first appearance and whenever
@@ -241,6 +248,8 @@ struct SmartScanReviewManager: View {
     /// (non-deep-linked) reopen resumes in place.
     private func applyDeepLinkTarget() {
         guard initialSectionID != nil || initialCategoryID != nil else { return }
+        // A search left over from the last open would hide the rows being linked to.
+        search = ""
         if let target = initialSectionID, loadedSections.contains(where: { $0.id == target }) {
             selectedSectionID = target
             refreshSortedCategories()
@@ -256,13 +265,9 @@ struct SmartScanReviewManager: View {
     /// caching them for this session. No-op for eager managers.
     private func loadSelectedCategoryIfNeeded() async {
         guard let loadItems, let id = selectedCategoryID, lazyItemsByCategory[id] == nil else { return }
-        loadingCategoryID = id
-        let built = await loadItems(id)
-        // Guard against the category having changed while loading: the cache
-        // still accepts the stale build (it's valid for its category), but
-        // only the load that is still current may clear the loading marker.
-        lazyItemsByCategory[id] = built
-        if loadingCategoryID == id { loadingCategoryID = nil }
+        // Cached even if the category changed while loading: a stale build is
+        // still valid for its own category.
+        lazyItemsByCategory[id] = await loadItems(id)
     }
 
     // MARK: - Header
@@ -443,19 +448,23 @@ struct SmartScanReviewManager: View {
                         Text(String(localized: "Select:", comment: "Label before the bulk-select menu on a Smart Scan Manager."))
                             .foregroundStyle(.secondary)
                         Menu {
+                            // Bulk picks act on the whole category, so they're off
+                            // while a search is hiding part of it: "Select All"
+                            // beside a filtered list reads as "all of these".
                             Button(String(localized: "Select All", comment: "Bulk-select every item in the category.")) {
                                 onSetCategory(category, true)
                             }
-                            .disabled(state == .all)
+                            .disabled(state == .all || !search.isEmpty)
                             Button(String(localized: "Deselect All", comment: "Bulk-deselect every item in the category.")) {
                                 onSetCategory(category, false)
                             }
-                            .disabled(state == .none)
+                            .disabled(state == .none || !search.isEmpty)
                             let filters = categorySelectFilters(category)
                             if !filters.isEmpty {
                                 Divider()
                                 ForEach(filters) { filter in
                                     Button(filter.title) { filter.apply() }
+                                        .disabled(!search.isEmpty)
                                 }
                             }
                         } label: {
@@ -477,6 +486,13 @@ struct SmartScanReviewManager: View {
                     ProgressView()
                         .controlSize(.large)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if displayedItems.isEmpty, !search.isEmpty {
+                    ManagerEmptyState(
+                        icon: "magnifyingglass",
+                        title: String(localized: "No matches", comment: "Empty state title when a Smart Scan Manager search finds nothing."),
+                        detail: String(localized: "Nothing in this category matches your search.", comment: "Empty state detail when a Smart Scan Manager search finds nothing.")
+                    )
+                    .accessibilityIdentifier("\(accessibilityPrefix).noMatches")
                 } else if displayedItems.isEmpty {
                     ManagerEmptyState(
                         icon: "checkmark.seal.fill",
@@ -489,6 +505,7 @@ struct SmartScanReviewManager: View {
                         items: displayedItems,
                         showsSelection: showsSelection,
                         isSelected: rowIsSelected,
+                        isPartiallySelected: rowIsPartiallySelected,
                         onToggle: onToggle,
                         accent: accent,
                         // Tall enough for the 38-point icon plus the card's
@@ -503,6 +520,9 @@ struct SmartScanReviewManager: View {
                         // `refreshDisplayedItems` so its O(n) id hash never runs
                         // per render.
                         contentToken: displayedToken,
+                        // Expanding a row changes the rows but not what the user
+                        // is looking at, so it keeps the scroll position.
+                        scrollResetToken: "\(selectedCategoryID ?? "")|\(sort.rawValue)|\(search)",
                         selectionToken: selectionToken,
                         accessibilityPrefix: accessibilityPrefix,
                         forcesLightAppearance: lightSurface,
@@ -541,7 +561,7 @@ struct SmartScanReviewManager: View {
                 action: onPrimaryAction ?? onBack
             )
             .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(primaryActionTitle == nil ? .defaultAction : nil)
             // Only the custom primary action (e.g. Clean Up) gates on enablement;
             // the default "Done" is always available.
             .disabled(primaryActionTitle != nil && !primaryActionEnabled)
@@ -616,6 +636,16 @@ struct SmartScanReviewManager: View {
             return isSelected
         }
         return { _ in uniform }
+    }
+
+    /// The per-row mixed-checkbox predicate, with the same fast path: a uniformly
+    /// selected category has no mixed rows.
+    private var rowIsPartiallySelected: (String) -> Bool {
+        guard let category = selectedCategory,
+              Self.uniformSelection(tally: categorySelectionTally(category)) != nil else {
+            return isPartiallySelected
+        }
+        return { _ in false }
     }
 
     /// Maps a category's selection tally to its uniform state: `true` when
@@ -701,35 +731,49 @@ struct SmartScanReviewManager: View {
         sortedCategories.first { $0.id == selectedCategoryID } ?? sortedCategories.first
     }
 
+    /// The rows to display for a category. The builder pre-sorts each level by
+    /// size, so the default view (size, no search) needs no sort. Search looks at
+    /// both levels the manager shows: a top-level row stays when it or a child
+    /// matches, and a row kept only for its children shows the ones that matched
+    /// without needing to be expanded. Expanded rows are followed by their children.
+    static func visibleRows(
+        of items: [ManagerItem],
+        search: String,
+        sort: ManagerSort,
+        expandedIDs: Set<String>
+    ) -> [ManagerItem] {
+        let matches: (ManagerItem) -> Bool = { $0.title.localizedCaseInsensitiveContains(search) }
+        let ordered: ([ManagerItem]) -> [ManagerItem] = { rows in
+            guard sort == .name else { return rows }
+            return rows.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        }
+        let filtered = search.isEmpty
+            ? items
+            : items.filter { matches($0) || $0.children.contains(where: matches) }
+        let topLevel = sort == .size && !search.isEmpty
+            ? filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
+            : ordered(filtered)
+        var rows: [ManagerItem] = []
+        for item in topLevel {
+            rows.append(item)
+            if item.isExpandable, expandedIDs.contains(item.id) {
+                rows.append(contentsOf: ordered(item.children))
+            } else if !search.isEmpty, !matches(item) {
+                rows.append(contentsOf: ordered(item.children.filter(matches)))
+            }
+        }
+        return rows
+    }
+
     /// Rebuild the visible item list. Called only when the category, sort,
-    /// search, or expansion changes — never on a selection toggle. The builder
-    /// pre-sorts each category by size, so the default view (size, no search)
-    /// needs no top-level sort. Expanded rows are followed by their (already
-    /// size-sorted) children.
+    /// search, or expansion changes — never on a selection toggle.
     private func refreshDisplayedItems() {
         guard selectedCategory != nil else {
             displayedItems = []
             displayedToken = ManagerItemTable.contentToken(items: [], sort: sort.rawValue, search: search)
             return
         }
-        let categoryItems = currentCategoryItems
-        let filtered = search.isEmpty
-            ? categoryItems
-            : categoryItems.filter { $0.title.localizedCaseInsensitiveContains(search) }
-        let topLevel: [ManagerItem]
-        switch sort {
-        case .size:
-            topLevel = search.isEmpty ? filtered : filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
-        case .name:
-            topLevel = filtered.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        }
-        var rows: [ManagerItem] = []
-        for item in topLevel {
-            rows.append(item)
-            if item.isExpandable, expandedIDs.contains(item.id) {
-                rows.append(contentsOf: item.children)
-            }
-        }
+        let rows = Self.visibleRows(of: currentCategoryItems, search: search, sort: sort, expandedIDs: expandedIDs)
         displayedItems = rows
         displayedToken = ManagerItemTable.contentToken(items: rows, sort: sort.rawValue, search: search)
     }

@@ -60,8 +60,10 @@ public enum CleanupGroup: String, CaseIterable, Identifiable {
     }
 
     /// Whether this card offers a direct "Clean" action alongside "Review".
-    /// System Junk and Trash Bins are safe to clean wholesale; Xcode Junk and
-    /// Document Versions are review-only so the user inspects before removing.
+    /// System Junk and Trash Bins are mostly safe to clean in one click, and the
+    /// action skips their opt-in files (`SystemJunkViewModel.clean(categories:)`);
+    /// Xcode Junk and Document Versions are review-only so the user inspects
+    /// before removing.
     public var allowsDirectClean: Bool {
         switch self {
         case .systemJunk, .trashBins:

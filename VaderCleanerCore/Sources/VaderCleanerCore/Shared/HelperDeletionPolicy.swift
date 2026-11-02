@@ -35,7 +35,10 @@ struct HelperDeletionPolicy {
             // directories — the helper still refuses anything else under
             // /Library.
             URL(fileURLWithPath: "/Library/Mail/Bundles", isDirectory: true),
-            URL(fileURLWithPath: "/Library/Internet Plug-Ins", isDirectory: true)
+            URL(fileURLWithPath: "/Library/Internet Plug-Ins", isDirectory: true),
+            // Saved document revisions. Only the per-user folder: the store's
+            // database beside it is what makes the rest of the store readable.
+            URL(fileURLWithPath: kDocumentVersionsRevisionsPath, isDirectory: true)
         ],
         allowedLaunchPlistRoots: [
             URL(fileURLWithPath: "/Library/LaunchAgents", isDirectory: true),

@@ -88,6 +88,7 @@ final class DeveloperProjectScannerTests: XCTestCase {
         let dist = otherRoot.appendingPathComponent("projectB/dist", isDirectory: true)
         try FileManager.default.createDirectory(at: dist, withIntermediateDirectories: true)
         try TestHelpers.createDummyFile(named: "bundle.js", size: 20, in: dist)
+        try TestHelpers.createDummyFile(named: "package.json", size: 1, in: dist.deletingLastPathComponent())
 
         let scanner = DeveloperProjectScanner(roots: [tempRoot, otherRoot])
         let results = await scanner.scan()

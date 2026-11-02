@@ -235,11 +235,10 @@ final class SystemJunkDeleterTests: XCTestCase {
         XCTAssertEqual(fakeHelper.deleteFilesPaths, [systemURL.path])
     }
 
-    /// If the helper reports an error, the system-path bytes must NOT be
-    /// credited to the freed total — the protocol cannot tell us which
-    /// paths succeeded, so we cannot honestly claim partial progress.
-    /// User-domain bytes still count because we deleted those in-process.
-    func test_delete_systemPathErrorDoesNotCreditBytes() async throws {
+    /// The protocol can't say which paths of a failed batch went, so the deleter
+    /// looks. A path that is still there earns no credit; user-domain bytes still
+    /// count because those were removed in-process.
+    func test_delete_systemPathStillOnDiskAfterHelperErrorEarnsNoCredit() async throws {
         let userDir = tempRoot.appendingPathComponent("user-cache", isDirectory: true)
         try FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
         let userURL = try TestHelpers.createDummyFile(named: "u.bin", size: 50, in: userDir)
@@ -251,10 +250,14 @@ final class SystemJunkDeleterTests: XCTestCase {
 
         let fakeHelper = HelperProtocolSpy()
         fakeHelper.setReply(.failure(NSError(domain: "test", code: 1)), for: .deleteFiles)
-        let deleter = SystemJunkDeleter(helperProvider: { _ in fakeHelper }, trashItem: sandboxedTrash)
+        let deleter = SystemJunkDeleter(
+            helperProvider: { _ in fakeHelper },
+            trashItem: sandboxedTrash,
+            pathIsGone: { _ in false }
+        )
         let bytesFreed = try await deleter.delete(files)
 
-        XCTAssertEqual(bytesFreed, 50, "Only user-domain bytes should be credited when the helper batch failed")
+        XCTAssertEqual(bytesFreed, 50, "Only user-domain bytes should be credited when the helper removed nothing")
     }
 
     /// Regression test for the XPC continuation hang reported on PR #30:
@@ -281,11 +284,12 @@ final class SystemJunkDeleterTests: XCTestCase {
                 NSLocalizedDescriptionKey: "Connection invalidated"
             ]))
             return droppingHelper
-        })
+        }, pathIsGone: { _ in false })
 
-        let bytesFreed = try await deleter.delete(files)
+        let report = await deleter.remove(files)
 
-        XCTAssertEqual(bytesFreed, 0, "Connection error must resolve as failure, not hang")
+        XCTAssertEqual(report.failedCount, 1, "Connection error must resolve as failure, not hang")
+        XCTAssertEqual(report.totalBytes, 0)
     }
 
     /// When the helper is unavailable (typical dev environment without ad-hoc
@@ -356,7 +360,8 @@ final class SystemJunkDeleterTests: XCTestCase {
         let deleter = SystemJunkDeleter(
             helperProvider: { _ in helper },
             trashItem: sandboxedTrash,
-            helperBatchSize: 2
+            helperBatchSize: 2,
+            pathIsGone: { _ in false }
         )
         let bytesFreed = try await deleter.delete(files)
 

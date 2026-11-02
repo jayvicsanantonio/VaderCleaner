@@ -17,6 +17,11 @@ let kHelperMachServiceName = "com.personal.VaderCleaner.helper"
 /// `scanDocumentVersions` selector is allowed to read.
 let kDocumentVersionsStorePath = "/System/Volumes/Data/.DocumentRevisions-V100"
 
+/// The folder inside the store that holds saved revisions, one subfolder per
+/// user id. It is all the helper may delete from the store: the rest is the
+/// database and bookkeeping that make those revisions readable.
+let kDocumentVersionsRevisionsPath = kDocumentVersionsStorePath + "/PerUID"
+
 enum HelperCodeSigningRequirements {
     static let appIdentifier = "com.personal.VaderCleaner"
     static let helperIdentifier = "com.personal.VaderCleaner.helper"
