@@ -29,13 +29,14 @@ protocol UserFilesPathProviding {
 
 /// Production implementation that returns the canonical user directories that
 /// might contain large or stale files: `~/Documents`, `~/Downloads`,
-/// `~/Desktop`, `~/Movies`, `~/Music`, `~/Pictures`, and `~/Library`.
+/// `~/Desktop`, `~/Movies`, `~/Music`, and `~/Pictures`.
 ///
-/// `~/Library` is intentionally included — it can hold multi-gigabyte caches
-/// or `Application Support` blobs left behind by uninstalled apps that the
-/// System Junk path provider doesn't touch. The My Clutter review moves files
-/// to the Trash (reversible) rather than deleting outright, mitigating
-/// accidental loss of live app data.
+/// `~/Library` is intentionally left out. It holds live app data — message and
+/// mail databases, keychains, containers — that no size or age rule can tell
+/// from clutter, and a file there that goes unread for months may still be vital.
+/// Caches are System Junk's domain and uninstalled apps' remains are the
+/// Applications section's. A user who picks a folder inside it still gets that
+/// folder walked.
 struct DefaultUserFilesPathProvider: UserFilesPathProviding {
 
     private let homeDirectory: URL
@@ -55,7 +56,7 @@ struct DefaultUserFilesPathProvider: UserFilesPathProviding {
 
     func roots() -> [URL] {
         if let explicitRoots { return explicitRoots }
-        return ["Documents", "Downloads", "Desktop", "Movies", "Music", "Pictures", "Library"]
+        return ["Documents", "Downloads", "Desktop", "Movies", "Music", "Pictures"]
             .map { homeDirectory.appendingPathComponent($0, isDirectory: true) }
     }
 

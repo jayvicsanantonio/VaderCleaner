@@ -49,8 +49,30 @@ public enum ClutterThumbnailCache {
     /// Look never forces a slow on-demand download. Shared by the SwiftUI
     /// dashboard thumbnails and the AppKit manager rows so both cache into the
     /// same store.
+    ///
+    /// Returns `nil`, caching nothing, if the task was cancelled while generating.
+    /// A cancelled Quick Look request lands on the icon fallback, which must not
+    /// stick to the file, and a superseded view must not get a late result: a
+    /// slow load finishing after a newer one would put this file's picture beside
+    /// the next file's details.
     public static func load(_ url: URL, pointSize: CGFloat) async -> NSImage? {
+        await load(url, pointSize: pointSize, generate: generateThumbnail)
+    }
+
+    /// `load` with the generator injected, so tests can hold a load mid-flight.
+    static func load(
+        _ url: URL,
+        pointSize: CGFloat,
+        generate: @Sendable (URL, CGFloat) async -> NSImage?
+    ) async -> NSImage? {
         if let cached = cached(url, pointSize: pointSize) { return cached }
+        let image = await generate(url, pointSize)
+        guard !Task.isCancelled else { return nil }
+        if let image { store(image, for: url, pointSize: pointSize) }
+        return image
+    }
+
+    private static func generateThumbnail(_ url: URL, pointSize: CGFloat) async -> NSImage? {
         let image: NSImage?
         if CloudFileAvailability.isLocallyAvailable(url) {
             let request = QLThumbnailGenerator.Request(
@@ -67,7 +89,6 @@ public enum ClutterThumbnailCache {
         } else {
             image = NSWorkspace.shared.icon(forFile: url.path)
         }
-        if let image { store(image, for: url, pointSize: pointSize) }
         return image
     }
 }

@@ -1,5 +1,5 @@
 // MyClutterThumbnailStripItem.swift
-// One selectable image in the Duplicates / Similar Images thumbnail strip: a removal checkbox, the kept-original badge, and magenta active/hover states.
+// One image in the Duplicates / Similar Images thumbnail strip: a removal checkbox on a removable copy, a Keep badge on the kept one, and magenta active/hover states.
 
 import SwiftUI
 
@@ -21,16 +21,17 @@ enum ClutterThumbnailEmphasis {
     }
 }
 
-/// One image in the Duplicates / Similar Images thumbnail strip: a selectable
-/// card with a removal checkbox (top-left), the kept-original badge (top-right),
-/// a magenta border when selected (active), and a light-magenta hover tint. Its
-/// own view with local hover state so moving the pointer repaints only the
-/// hovered thumbnail, not the whole preview pane. The checkbox toggles removal
-/// selection; tapping elsewhere on the image focuses it in the large preview.
+/// One image in the Duplicates / Similar Images thumbnail strip: a card with a
+/// removal checkbox (top-left) on a removable copy or a Keep badge (top-right) on
+/// the kept one, a magenta border when selected (active), and a light-magenta
+/// hover tint. The kept image has no checkbox because it can't be removed from
+/// here; the preview pane's Keep This Copy changes which one that is. Its own view
+/// with local hover state so moving the pointer repaints only the hovered
+/// thumbnail, not the whole preview pane. The checkbox toggles removal selection;
+/// tapping elsewhere on the image focuses it in the large preview.
 struct ClutterThumbnailStripItem: View {
     let url: URL
     let isOriginal: Bool
-    let showsBestBadge: Bool
     let isSelected: Bool
     let isFocused: Bool
     let accent: Color
@@ -67,22 +68,29 @@ struct ClutterThumbnailStripItem: View {
 
     // A white chip behind the shared manager checkbox keeps it legible over a
     // busy photo, matching the checkbox used by the file-list rows.
+    @ViewBuilder
     private var checkbox: some View {
-        ManagerRowCheckbox(isOn: isSelected, action: onToggleSelect)
-            .padding(3)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.85))
-            )
-            .padding(4)
+        if !isOriginal {
+            ManagerRowCheckbox(isOn: isSelected, action: onToggleSelect)
+                .padding(3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.85))
+                )
+                .padding(4)
+        }
     }
 
     @ViewBuilder
     private var badge: some View {
-        if showsBestBadge && isOriginal {
-            Circle().fill(.green).frame(width: 12, height: 12)
-                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-                .padding(5)
+        if isOriginal {
+            Text(String(localized: "Keep", comment: "Badge on the image a Duplicates or Similar Images group keeps."))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.green, in: Capsule())
+                .padding(4)
         }
     }
 

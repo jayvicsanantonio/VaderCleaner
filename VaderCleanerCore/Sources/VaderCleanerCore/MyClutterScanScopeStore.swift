@@ -7,7 +7,7 @@ import Observation
 /// Holds which folder the My Clutter (large & old files) scan should walk.
 ///
 /// The default scope is "home": the scanner walks the canonical home subtrees
-/// (`~/Documents`, `~/Downloads`, … `~/Library`) exactly as it always has. When
+/// (`~/Documents`, `~/Downloads`, … `~/Pictures`) exactly as it always has. When
 /// the user picks a folder, that folder is walked directly instead. The choice
 /// is persisted as a single absolute path so it survives relaunch; `nil` means
 /// the default home scope.

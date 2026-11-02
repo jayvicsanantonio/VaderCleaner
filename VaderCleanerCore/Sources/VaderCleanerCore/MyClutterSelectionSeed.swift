@@ -20,11 +20,12 @@ struct MyClutterSelectionSeed: Equatable, Sendable {
     var sizeByURL: [URL: Int64] = [:]
     var categoriesByURL: [URL: [MyClutterCategory]] = [:]
 
-    /// Safe-by-default seed: the redundant duplicate and near-duplicate copies
-    /// are pre-selected (deleting one always leaves an original) while the
-    /// large/old files and downloads — real user data — stay unselected, so
-    /// removing them is an explicit choice. Mirrors Smart Scan and the
-    /// app-wide safe-by-default rule (see `ScanCategory.isSafeToAutoRemove`).
+    /// Safe-by-default seed: the byte-identical duplicate copies are pre-selected
+    /// (deleting one always leaves the same bytes behind). Similar images look
+    /// alike but are different files, and large/old files and downloads are real
+    /// user data, so all three stay unselected and removing them is an explicit
+    /// choice. Mirrors the app-wide safe-by-default rule (see
+    /// `ScanCategory.isSafeToAutoRemove`).
     static func safeDefaults(
         duplicates: [DuplicateGroup],
         similar: [SimilarImageGroup],
@@ -56,7 +57,7 @@ struct MyClutterSelectionSeed: Equatable, Sendable {
             seed.categoriesByURL[item.file.url, default: []].append(.downloads)
         }
 
-        seed.selectedURLs = Set(duplicateCopies.map(\.url)).union(similarCopies.map(\.url))
+        seed.selectedURLs = Set(duplicateCopies.map(\.url))
         for url in seed.selectedURLs {
             let size = seed.sizeByURL[url] ?? 0
             seed.totalSelectedSize += size

@@ -163,16 +163,14 @@ final class MyClutterViewModelTests: XCTestCase {
 
         await vm.scan()
 
-        // Safe-by-default: the redundant duplicate and near-duplicate copies are
-        // pre-checked (deleting one always leaves an original), while large/old
-        // files and downloads — real user data — stay opt-in.
-        let redundant = Set(vm.duplicateCopies.map(\.url)).union(vm.similarCopies.map(\.url))
-        XCTAssertEqual(vm.selectedURLs, redundant)
+        // Safe-by-default: byte-identical duplicate copies are pre-checked
+        // (deleting one always leaves the same bytes behind), while similar
+        // images, large/old files, and downloads stay opt-in.
+        XCTAssertEqual(vm.selectedURLs, Set(vm.duplicateCopies.map(\.url)))
+        XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/p/b.jpg")), "Similar images stay opt-in")
         XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/big/movie.mov")), "Large/old files stay opt-in")
         XCTAssertFalse(vm.isSelected(URL(fileURLWithPath: "/d/app.dmg")), "Downloads stay opt-in")
-        let expectedBytes = vm.duplicateCopies.reduce(Int64(0)) { $0 + $1.size }
-            + vm.similarCopies.reduce(Int64(0)) { $0 + $1.size }
-        XCTAssertEqual(vm.totalSelectedSize, expectedBytes)
+        XCTAssertEqual(vm.totalSelectedSize, vm.duplicateCopies.reduce(Int64(0)) { $0 + $1.size })
     }
 
     func test_emptyWhenNothingFound() async {
@@ -225,55 +223,6 @@ final class MyClutterViewModelTests: XCTestCase {
         XCTAssertEqual(vm.selectedBytes(in: .largeOld), 0)
         XCTAssertEqual(vm.selectedCount(in: .largeOld), 0)
         XCTAssertEqual(vm.selectedBytes(in: .duplicates), 10, "A sibling category is unaffected")
-    }
-
-    // MARK: - Manager-open selection (browse-everything vs. grid tile)
-
-    /// "Review All Files" browses everything with nothing checked, so
-    /// `clearSelection()` empties the live selection and every per-category
-    /// total the footer reads.
-    func test_clearSelection_emptiesSelectionAndCategoryTotals() async {
-        let dup = DuplicateGroup(files: [file("/a/orig.txt", size: 10), file("/a/copy.txt", size: 10)])
-        let sim = SimilarImageGroup(files: [file("/p/a.jpg", size: 50), file("/p/b.jpg", size: 40)])
-        let vm = makeViewModel(duplicates: [dup], similar: [sim])
-        await vm.scan()
-        XCTAssertFalse(vm.selectedURLs.isEmpty, "Safe defaults pre-check the redundant copies")
-
-        vm.clearSelection()
-
-        XCTAssertTrue(vm.selectedURLs.isEmpty)
-        XCTAssertEqual(vm.totalSelectedSize, 0)
-        XCTAssertEqual(vm.selectedBytes(in: .duplicates), 0)
-        XCTAssertEqual(vm.selectedCount(in: .similar), 0)
-    }
-
-    /// The Duplicates card's Review pre-selects only that card's redundant
-    /// copies — not the similar copies the scan-time safe default also checks.
-    func test_selectOnly_duplicates_selectsOnlyThatCategory() async {
-        let dup = DuplicateGroup(files: [file("/a/orig.txt", size: 10), file("/a/copy.txt", size: 10)])
-        let sim = SimilarImageGroup(files: [file("/p/a.jpg", size: 50), file("/p/b.jpg", size: 40)])
-        let vm = makeViewModel(duplicates: [dup], similar: [sim])
-        await vm.scan()
-
-        vm.selectOnly(category: .duplicates)
-
-        XCTAssertEqual(vm.selectedURLs, Set(vm.duplicateCopies.map(\.url)))
-        XCTAssertEqual(vm.totalSelectedSize, 10)
-        XCTAssertEqual(vm.selectedCount(in: .similar), 0, "The similar card's copies stay unchecked")
-    }
-
-    /// Large & Old and Downloads are real user data, so their cards' Review
-    /// opens unchecked (opt-in) — matching the scan-time safe default.
-    func test_selectOnly_largeOldOpensUnchecked() async {
-        let large = [file("/big/a.mov", size: 100), file("/big/b.mov", size: 200)]
-        let dup = DuplicateGroup(files: [file("/a/orig.txt", size: 10), file("/a/copy.txt", size: 10)])
-        let vm = makeViewModel(duplicates: [dup], largeOld: large)
-        await vm.scan()
-
-        vm.selectOnly(category: .largeOld)
-
-        XCTAssertTrue(vm.selectedURLs.isEmpty)
-        XCTAssertEqual(vm.totalSelectedSize, 0)
     }
 
     /// A file that belongs to two categories (e.g. a large file that is also a

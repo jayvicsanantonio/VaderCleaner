@@ -6,10 +6,11 @@ import XCTest
 
 final class MyClutterSelectionSeedTests: XCTestCase {
 
-    /// Safe-by-default: every redundant duplicate and near-duplicate copy is
-    /// pre-selected (deleting one always leaves an original); large/old files
-    /// and downloads — real user data — stay unselected.
-    func test_safeDefaults_selectsOnlyRedundantCopies() async {
+    /// Safe-by-default: every byte-identical duplicate copy is pre-selected
+    /// (deleting one always leaves the same bytes behind). Similar images are
+    /// different files, and large/old files and downloads are real user data,
+    /// so all three stay unselected.
+    func test_safeDefaults_selectsOnlyDuplicateCopies() async {
         let dupOriginal = file("/docs/report.pdf", size: 100)
         let dupCopy = file("/docs/report copy.pdf", size: 100)
         let simOriginal = file("/pics/sunset.jpg", size: 50)
@@ -24,8 +25,8 @@ final class MyClutterSelectionSeedTests: XCTestCase {
             downloads: [download]
         )
 
-        XCTAssertEqual(seed.selectedURLs, [dupCopy.url, simCopy.url])
-        XCTAssertEqual(seed.totalSelectedSize, 140)
+        XCTAssertEqual(seed.selectedURLs, [dupCopy.url])
+        XCTAssertEqual(seed.totalSelectedSize, 100)
     }
 
     /// The size map must cover every file in every category — the unselected
@@ -53,8 +54,8 @@ final class MyClutterSelectionSeedTests: XCTestCase {
     }
 
     /// The per-category selected tallies must match what the manager footer
-    /// shows, and a file that is both a duplicate copy and a similar copy is
-    /// selected once but tallied in both categories — the same accounting
+    /// shows, and a selected duplicate copy that is also a similar copy is tallied
+    /// in both categories — the same accounting
     /// `recomputeSelectedCategoryTotals()` produces.
     func test_safeDefaults_talliesSharedFilesInEveryMemberCategory() async {
         let dupOriginal = file("/docs/a.pdf", size: 10)

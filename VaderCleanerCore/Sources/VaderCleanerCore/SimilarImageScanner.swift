@@ -100,6 +100,7 @@ public struct SimilarImageScanner {
     private let roots: [URL]
     private let threshold: Float
     private let imageCap: Int
+    private let libraryPath: String
     /// Test seam: returns a feature print for a URL, or `nil` when the image
     /// can't be read. Production uses Vision; tests can stub it.
     private let featurePrint: @Sendable (URL) -> VNFeaturePrintObservation?
@@ -109,12 +110,14 @@ public struct SimilarImageScanner {
         roots: [URL] = [FileManager.default.homeDirectoryForCurrentUser],
         threshold: Float = SimilarImageScanner.defaultThreshold,
         imageCap: Int = SimilarImageScanner.defaultImageCap,
+        libraryPath: String = SimilarImageScanner.userLibraryPath(),
         featurePrint: @escaping @Sendable (URL) -> VNFeaturePrintObservation? = SimilarImageScanner.visionFeaturePrint(for:)
     ) {
         self.fileScanner = fileScanner
         self.roots = roots
         self.threshold = threshold
         self.imageCap = imageCap
+        self.libraryPath = libraryPath
         self.featurePrint = featurePrint
     }
 
@@ -135,14 +138,18 @@ public struct SimilarImageScanner {
             options: FileScanOptions(packagesAsFiles: true, skipsProtectedMediaStores: true),
             batchSize: FileScanner.defaultBatchSize,
             onProgress: onProgress
-        ) { [libraryPath = Self.userLibraryPath()] batch in
+        ) { batch in
             for file in batch where Self.imageExtensions.contains(file.url.pathExtension.lowercased())
                 && file.size > 0
-                && Self.isUserPhotoCandidate(file.url, libraryPath: libraryPath) {
+                && Self.isUserPhotoCandidate(file.url, libraryPath: libraryPath, roots: roots) {
                 images.append(file)
             }
             try Task.checkCancellation()
         }
+
+        // Before the cap, so project assets can't crowd real photos out of it.
+        var candidateFilter = ClutterCandidateFilter(roots: roots)
+        images.removeAll { !candidateFilter.isOffered($0.url) }
 
         guard images.count > 1 else { return [] }
 
@@ -196,18 +203,29 @@ public struct SimilarImageScanner {
     /// such as the wallpaper-extension image cache, which are near-identical by
     /// design, aren't photos a person means to de-duplicate, and are regenerated
     /// by the OS. The trailing separator keeps a sibling like `~/LibraryNotes`
-    /// from matching the `~/Library` prefix.
-    nonisolated static func isUserPhotoCandidate(_ url: URL, libraryPath: String) -> Bool {
-        !url.path.hasPrefix(libraryPath + "/")
+    /// from matching the `~/Library` prefix. A file under a root at or inside
+    /// `~/Library` stays a candidate, because the user picked that folder.
+    nonisolated static func isUserPhotoCandidate(_ url: URL, libraryPath: String, roots: [URL] = []) -> Bool {
+        let library = libraryPath + "/"
+        guard url.path.hasPrefix(library) else { return true }
+        return roots.contains { root in
+            let rootPrefix = root.path + "/"
+            return rootPrefix.hasPrefix(library) && url.path.hasPrefix(rootPrefix)
+        }
     }
 
     // MARK: - Pure clustering
 
-    /// Single-link clustering over `count` items using a union-find. Two items
-    /// join the same cluster when their `distance` is non-nil and at or below
-    /// `threshold`. Returns only clusters of two or more, each a sorted index
-    /// list. Pure and side-effect-free so it is unit-testable with a synthetic
-    /// distance function.
+    /// Complete-link clustering over `count` items using a union-find. Two
+    /// clusters merge only when every pair across them has a non-nil `distance`
+    /// at or below `threshold`, so a group never holds two images that are far
+    /// apart: a shared neighbour can't chain unrelated shots together, which is
+    /// what a group's "keep one, remove the rest" relies on. Returns only clusters
+    /// of two or more, each a sorted index list. Pure and side-effect-free so it
+    /// is unit-testable with a synthetic distance function.
+    ///
+    /// Each pair is compared once up front, because a merge re-checks every pair
+    /// across two clusters and a comparison is the expensive step.
     static func cluster(
         count: Int,
         threshold: Float,
@@ -215,6 +233,7 @@ public struct SimilarImageScanner {
     ) -> [[Int]] {
         guard count > 1 else { return [] }
         var parent = Array(0..<count)
+        var members = (0..<count).map { [$0] }
         func find(_ x: Int) -> Int {
             var root = x
             while parent[root] != root {
@@ -223,11 +242,27 @@ public struct SimilarImageScanner {
             }
             return root
         }
-        func union(_ a: Int, _ b: Int) { parent[find(a)] = find(b) }
-
+        var closeTo = [Set<Int>](repeating: [], count: count)
         for i in 0..<count {
             for j in (i + 1)..<count {
-                if let d = distance(i, j), d <= threshold { union(i, j) }
+                guard let d = distance(i, j), d <= threshold else { continue }
+                closeTo[i].insert(j)
+                closeTo[j].insert(i)
+            }
+        }
+
+        for i in 0..<count {
+            for j in closeTo[i].sorted() where j > i {
+                let rootI = find(i)
+                let rootJ = find(j)
+                guard rootI != rootJ else { continue }
+                let allPairsClose = members[rootI].allSatisfy { a in
+                    members[rootJ].allSatisfy { b in closeTo[a].contains(b) }
+                }
+                guard allPairsClose else { continue }
+                parent[rootI] = rootJ
+                members[rootJ] += members[rootI]
+                members[rootI] = []
             }
         }
 
