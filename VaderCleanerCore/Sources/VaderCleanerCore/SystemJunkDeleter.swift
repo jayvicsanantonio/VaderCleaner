@@ -79,8 +79,10 @@ public struct SystemJunkDeleter: Sendable {
     /// thousands of paths through the helper; one giant `deleteFiles(_:)` message
     /// risks the XPC transport's size limits and makes the helper process the
     /// whole set as a single unit. Chunking bounds each message and lets a
-    /// partial failure cost only its own batch.
-    static let defaultHelperBatchSize = 10_000
+    /// partial failure cost only its own batch. It also bounds how long Stop
+    /// takes: a call can't be interrupted once sent, so cancellation lands between
+    /// batches.
+    static let defaultHelperBatchSize = 1_000
 
     /// See `DefaultAppDiscovery.fileManager` — `.default` is documented
     /// thread-safe and test fixtures are single-threaded.
@@ -258,10 +260,14 @@ public struct SystemJunkDeleter: Sendable {
     /// The helper is best-effort — it deletes what it can and returns the first
     /// error — and the protocol has no per-path result, so after an error each
     /// path is checked on disk. One protected file in a batch would otherwise cost
-    /// the thousands around it their credit. A helper that was never reached has
-    /// removed nothing, so that case needs no checking.
+    /// the hundreds around it their credit. A path that was already gone before
+    /// the call earns nothing and isn't a failure, which is why that is recorded
+    /// first. A helper that was never reached has removed nothing, so that case
+    /// needs no checking. One that stopped answering may still be working, so what
+    /// remains of its batch is unconfirmed rather than failed.
     private func deleteChunkViaHelper(files: [ScannedFile], into report: inout JunkRemovalReport) async {
         let paths = files.map { $0.url.path }
+        let alreadyGone = Set(paths.filter(pathIsGone))
 
         let error = await HelperCall.perform(helperProvider: helperProvider) { helper, reply in
             helper.deleteFiles(paths, reply: reply)
@@ -273,14 +279,18 @@ public struct SystemJunkDeleter: Sendable {
             return
         }
         log.error("Helper deletion failed for \(paths.count, privacy: .public) paths: \(error.localizedDescription, privacy: .private)")
+        let attempted = files.filter { !alreadyGone.contains($0.url.path) }
         if case HelperConnectionError.unavailable = error {
-            report.failedCount += files.count
+            report.failedCount += attempted.count
             return
         }
-        for file in files {
+        let timedOut = if case HelperConnectionError.timedOut = error { true } else { false }
+        for file in attempted {
             if pathIsGone(file.url.path) {
                 report.bytesFreed += file.size
                 report.removedCount += 1
+            } else if timedOut {
+                report.unconfirmedCount += 1
             } else {
                 report.failedCount += 1
             }

@@ -63,6 +63,9 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
     func deleteFiles(_ paths: [String], reply: @escaping (Error?) -> Void) {
         let policy = deletionPolicy
         let reply = XPCReply(reply)
+        // Read here, on the queue XPC delivers on: `current()` means nothing once
+        // the work has moved to `workQueue`.
+        let callerUID = NSXPCConnection.current()?.effectiveUserIdentifier
         workQueue.async {
             do {
                 // Best effort: a daemon that isn't loaded fails this harmlessly,
@@ -73,7 +76,7 @@ final class HelperService: NSObject, NSXPCListenerDelegate, VaderCleanerHelperPr
                         arguments: ["bootout", "system", plist]
                     )
                 }
-                let firstError = try policy.removeValidatedPaths(paths)
+                let firstError = try policy.removeValidatedPaths(paths, callerUID: callerUID)
                 reply.send(firstError)
             } catch {
                 reply.send(error)

@@ -27,6 +27,22 @@ public enum ManagerRowSelection: Sendable {
 public final class CleanupManagerStore: @unchecked Sendable {
 
     private let lock = NSLock()
+    /// Held for a whole path-index build, so overlapping callers wait for the one
+    /// map instead of each building their own. Always taken before `lock`.
+    private let pathIndexBuildLock = NSLock()
+
+    /// Test seams: called once a category's build has taken its inputs, and each
+    /// time a path index is actually built.
+    private let beforeBuildingRows: (@Sendable () -> Void)?
+    private let onBuildingPathIndex: (@Sendable () -> Void)?
+
+    init(
+        beforeBuildingRows: (@Sendable () -> Void)? = nil,
+        onBuildingPathIndex: (@Sendable () -> Void)? = nil
+    ) {
+        self.beforeBuildingRows = beforeBuildingRows
+        self.onBuildingPathIndex = onBuildingPathIndex
+    }
 
     // Inputs, copied from the latest scan result.
     private var itemsByCategory: [ScanCategory: [ScannedFile]] = [:]
@@ -155,9 +171,11 @@ public final class CleanupManagerStore: @unchecked Sendable {
     /// warm calls it, and so does each category's first build, which means rows
     /// can never reach the screen before the index they resolve through. A row
     /// that outran a low-priority warm swallowed its checkbox click and showed
-    /// unchecked. A warm and a build may both do the work once; the second result
-    /// is simply dropped.
+    /// unchecked. A caller arriving during a build waits for it rather than
+    /// returning early, which would reinstate exactly that race.
     private func ensurePathIndex() {
+        pathIndexBuildLock.lock()
+        defer { pathIndexBuildLock.unlock() }
         lock.lock()
         guard !hasPathIndex else {
             lock.unlock()
@@ -167,6 +185,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
         let inputs = itemsByCategory
         lock.unlock()
 
+        onBuildingPathIndex?()
         let map = Dictionary(
             inputs.values.joined().map { ($0.url.path, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -226,6 +245,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
         let files = category.flatMap { itemsByCategory[$0] } ?? []
         let myToken = token
         lock.unlock()
+        beforeBuildingRows?()
 
         // Web Development Junk needs the same expensive cache/project split for
         // both its rows and its idle-projects Select pick, so compute both in

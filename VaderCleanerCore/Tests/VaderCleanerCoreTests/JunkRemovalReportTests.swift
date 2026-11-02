@@ -42,10 +42,18 @@ struct JunkRemovalReportTests {
     @Test("One path the helper refuses doesn't cost the batch the paths it removed")
     func partialHelperFailureKeepsCredit() async {
         let spy = HelperProtocolSpy(defaultReply: .failure(HelperDeletionValidationError.disallowedPath("x")))
+        // Both paths exist before the call; only one is gone after it.
+        let lookups = TestBox<[String: Int]>([:])
         let deleter = SystemJunkDeleter(
             helperProvider: { _ in spy },
             trashItem: { _ in },
-            pathIsGone: { $0.hasSuffix("/gone") }
+            pathIsGone: { path in
+                let lookup = lookups.withLock { counts -> Int in
+                    counts[path, default: 0] += 1
+                    return counts[path, default: 0]
+                }
+                return lookup > 1 && path.hasSuffix("/gone")
+            }
         )
 
         let report = await deleter.remove([
@@ -57,9 +65,74 @@ struct JunkRemovalReportTests {
         #expect(report.failedCount == 1)
     }
 
-    @Test("An unreachable helper removed nothing, whatever the paths look like")
+    @Test("A path already gone before a failed batch is neither credited nor a failure")
+    func alreadyGoneBeforeTheBatchEarnsNothing() async {
+        let spy = HelperProtocolSpy(defaultReply: .failure(HelperDeletionValidationError.disallowedPath("x")))
+        let deleter = SystemJunkDeleter(helperProvider: { _ in spy }, trashItem: { _ in }, pathIsGone: { _ in true })
+
+        let report = await deleter.remove([file("/Library/Caches/stale", 1_000, .systemCache)])
+
+        #expect(report.bytesFreed == 0)
+        #expect(report.failedCount == 0)
+        #expect(report.removedCount == 0)
+    }
+
+    @Test("Paths a timed-out batch hasn't removed yet are unconfirmed, not failed")
+    func timedOutBatchIsUnconfirmed() async {
+        let spy = HelperProtocolSpy(defaultReply: .drop)
+        let lookups = TestBox<[String: Int]>([:])
+        let deleter = SystemJunkDeleter(
+            helperProvider: { errorHandler in
+                errorHandler(HelperConnectionError.timedOut)
+                return spy
+            },
+            trashItem: { _ in },
+            pathIsGone: { path in
+                let lookup = lookups.withLock { counts -> Int in
+                    counts[path, default: 0] += 1
+                    return counts[path, default: 0]
+                }
+                return lookup > 1 && path.hasSuffix("/gone")
+            }
+        )
+
+        let report = await deleter.remove([
+            file("/Library/Caches/gone", 1_000, .systemCache),
+            file("/Library/Caches/pending", 7, .systemCache),
+        ])
+
+        #expect(report.bytesFreed == 1_000)
+        #expect(report.failedCount == 0)
+        #expect(report.unconfirmedCount == 1)
+        #expect(!report.finishedCleanly)
+        #expect(report.details.contains { $0.contains("1 item") })
+    }
+
+    @Test("A batch that timed out with nothing confirmed gone counts as removing nothing")
+    func timedOutWithNothingRemoved() async {
+        let spy = HelperProtocolSpy(defaultReply: .drop)
+        let deleter = SystemJunkDeleter(
+            helperProvider: { errorHandler in
+                errorHandler(HelperConnectionError.timedOut)
+                return spy
+            },
+            trashItem: { _ in },
+            pathIsGone: { _ in false }
+        )
+
+        let report = await deleter.remove([file("/Library/Caches/a", 1, .systemCache)])
+
+        #expect(report.removedNothing)
+    }
+
+    @Test("Helper batches stay small enough for Stop to take effect soon")
+    func helperBatchesAreBounded() {
+        #expect(SystemJunkDeleter.defaultHelperBatchSize <= 1_000)
+    }
+
+    @Test("An unreachable helper removed nothing")
     func unreachableHelperCreditsNothing() async {
-        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: { _ in }, pathIsGone: { _ in true })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: { _ in }, pathIsGone: { _ in false })
 
         let report = await deleter.remove([file("/Library/Caches/a", 1_000, .systemCache)])
 
@@ -70,7 +143,7 @@ struct JunkRemovalReportTests {
 
     @Test("delete throws when nothing could be removed, so a clean can't read as a success")
     func deleteThrowsWhenNothingRemoved() async {
-        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: { _ in })
+        let deleter = SystemJunkDeleter(helperProvider: { _ in nil }, trashItem: { _ in }, pathIsGone: { _ in false })
 
         await #expect(throws: JunkRemovalError.self) {
             _ = try await deleter.delete([file("/Library/Caches/a", 1_000, .systemCache)])
@@ -180,6 +253,12 @@ struct JunkRemovalReportTests {
         #expect(JunkRemovalReport().headline == "Nothing was removed")
     }
 
+    @Test("Removing only zero-byte items still reads as a removal")
+    func headlineForZeroByteRemovals() {
+        #expect(JunkRemovalReport(removedCount: 1).headline == "1 item removed")
+        #expect(JunkRemovalReport(removedCount: 3).headline == "3 items removed")
+    }
+
     @Test("Details name the Trash, the failures, and a stopped clean")
     func detailCopy() {
         let report = JunkRemovalReport(bytesFreed: 1, bytesMovedToTrash: 1_000_000, removedCount: 2, failedCount: 3, wasCancelled: true)
@@ -193,24 +272,48 @@ struct JunkRemovalReportTests {
 
     // MARK: - Helper policy
 
-    @Test("The helper may remove saved revisions under the store's per-user folder")
-    func policyAllowsRevisions() throws {
-        let path = kDocumentVersionsStorePath + "/PerUID/501/1/com.apple.documentVersions/abc.txt"
+    @Test("The helper removes a caller's own saved revisions")
+    func policyAllowsOwnRevisions() throws {
+        let path = kDocumentVersionsRevisionsPath + "/501/1/com.apple.documentVersions/abc.txt"
         #expect(SystemJunkDeleter.requiresHelper(path: path))
         #expect(throws: Never.self) {
+            _ = try HelperDeletionPolicy.production.validateDeletionPath(path, callerUID: 501)
+        }
+    }
+
+    @Test("The helper refuses another account's revisions, and any from an unknown caller")
+    func policyBindsRevisionsToTheCaller() {
+        let path = kDocumentVersionsRevisionsPath + "/501/1/com.apple.documentVersions/abc.txt"
+        #expect(throws: HelperDeletionValidationError.self) {
+            _ = try HelperDeletionPolicy.production.validateDeletionPath(path, callerUID: 502)
+        }
+        #expect(throws: HelperDeletionValidationError.self) {
             _ = try HelperDeletionPolicy.production.validateDeletionPath(path)
         }
     }
 
-    @Test("The helper refuses the store's own database and the folder itself")
+    @Test("A refused revision doesn't stop the rest of the batch")
+    func refusedRevisionFailsAlone() throws {
+        let removed = TestBox<[String]>([])
+        let error = try HelperDeletionPolicy.production.removeValidatedPaths(
+            [kDocumentVersionsRevisionsPath + "/502/a.txt", "/Library/Caches/ok"],
+            callerUID: 501
+        ) { url in removed.withLock { $0.append(url.path) } }
+
+        #expect(error != nil)
+        #expect(removed.value == ["/Library/Caches/ok"])
+    }
+
+    @Test("The helper refuses the store's own database and its folders, even from their owner")
     func policyProtectsTheStore() {
         for path in [
             kDocumentVersionsStorePath + "/db-V1/db.sqlite",
-            kDocumentVersionsStorePath + "/PerUID",
+            kDocumentVersionsRevisionsPath + "/501",
+            kDocumentVersionsRevisionsPath,
             kDocumentVersionsStorePath,
         ] {
             #expect(throws: HelperDeletionValidationError.self, "\(path)") {
-                _ = try HelperDeletionPolicy.production.validateDeletionPath(path)
+                _ = try HelperDeletionPolicy.production.validateDeletionPath(path, callerUID: 501)
             }
         }
     }

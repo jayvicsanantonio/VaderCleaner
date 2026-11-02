@@ -42,6 +42,9 @@ struct SystemJunkView: View {
     /// The removal waiting on the confirmation dialog: `nil` categories means the
     /// manager's selection, otherwise a card's one-click Clean.
     @State private var pendingClean: PendingClean?
+    /// Counts one-click Clean taps, so only the latest may raise the dialog: each
+    /// works out its numbers off the main actor, and an earlier tap can finish last.
+    @State private var directCleanRequest = 0
 
     private struct PendingClean {
         let categories: Set<ScanCategory>?
@@ -186,8 +189,13 @@ struct SystemJunkView: View {
     /// click, so it opens the manager to choose from instead.
     private func confirmDirectClean(of group: CleanupGroup) {
         let categories = Set(group.categories)
+        directCleanRequest += 1
+        let request = directCleanRequest
         Task {
-            if let confirmation = await viewModel.directCleanConfirmation(categories: categories) {
+            let confirmation = await viewModel.directCleanConfirmation(categories: categories)
+            // Superseded by a later tap, or the results left the screen meanwhile.
+            guard request == directCleanRequest, case .preview = viewModel.phase else { return }
+            if let confirmation {
                 pendingClean = PendingClean(categories: categories, confirmation: confirmation)
             } else {
                 reviewGroup(group)

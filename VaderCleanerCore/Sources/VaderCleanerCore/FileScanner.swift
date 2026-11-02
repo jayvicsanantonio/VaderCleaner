@@ -667,7 +667,11 @@ struct FileScanner: FileScanning {
                     // in external content (when the target is outside the root).
                     // A top-level one is an item in its own right, though: it
                     // contributes no bytes, and removing it leaves its target alone.
-                    if isTopLevelUnit {
+                    // Exclusions are stored resolved, so a link excluded by name
+                    // only matches through its target. The resolve is file I/O, but
+                    // only runs for these few links.
+                    if isTopLevelUnit,
+                       !PathExclusionMatcher.isExcluded(path: PathExclusionMatcher.canonicalize(url), by: rootExclusions) {
                         batch.append(
                             ScannedFile(
                                 url: url,
@@ -677,6 +681,9 @@ struct FileScanner: FileScanning {
                                 category: root.category
                             )
                         )
+                        if batch.count >= batchLimit {
+                            try await flushBatch()
+                        }
                     }
                     continue
                 }

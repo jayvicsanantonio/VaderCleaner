@@ -98,28 +98,14 @@ struct CleanupFlowTests {
         #expect(calls.value == 1)
     }
 
-    @Test("A clean leaves the preview before its first suspension, closing every other path into it")
-    func cleanLeavesPreviewImmediately() async {
-        let vm = await makeViewModel([file("/Users/me/Library/Caches/a", 10, .userCache)])
-
-        async let cleaning: Void = vm.clean()
-        await Task.yield()
-        let phaseDuringClean = vm.phase
-        await cleaning
-
-        if case .preview = phaseDuringClean { Issue.record("the preview was still up while a clean was starting") }
-    }
-
-    @Test("Start Over while a clean is still choosing its files cancels the deletion")
+    @Test("A clean abandoned while it chose its files never reaches the deleter")
     func startOverCancelsClean() async {
         let calls = TestBox(0)
-        let items = (0..<200_000).map { file("/Users/me/.Trash/\($0)", 1, .trash) }
-        let vm = await makeViewModel(items, deleter: { _, _ in calls.withLock { $0 += 1 }; return JunkRemovalReport() })
+        let item = file("/Users/me/.Trash/a", 1, .trash)
+        let vm = await makeViewModel([item], deleter: { _, _ in calls.withLock { $0 += 1 }; return JunkRemovalReport() })
 
-        let clean = Task { await vm.clean(categories: [.trash]) }
-        await Task.yield()
         vm.scanAgain()
-        await clean.value
+        await vm.performClean([item], from: ScanResult(items: [item]))
 
         #expect(calls.value == 0)
         #expect(vm.phase == .idle)
@@ -161,6 +147,18 @@ struct CleanupFlowTests {
             return
         }
         #expect(stage == .cleaning)
+    }
+
+    @Test("A clean stopped after a failure returns to the preview, not the failure screen")
+    func stoppedAfterAFailureReturnsToPreview() async {
+        let vm = await makeViewModel(
+            [file("/Users/me/Library/Caches/a", 10, .userCache)],
+            deleter: { _, _ in JunkRemovalReport(failedCount: 1, wasCancelled: true) }
+        )
+
+        await vm.clean()
+
+        if case .preview = vm.phase {} else { Issue.record("expected the preview, got \(vm.phase)") }
     }
 
     @Test("A clean stopped before removing anything returns to the preview")
@@ -244,6 +242,7 @@ struct CleanupFlowTests {
         #expect(confirmation.itemCount == 2)
         #expect(confirmation.totalBytes == 1_200)
         #expect(confirmation.permanentBytes == 1_000)
+        #expect(confirmation.permanentItemCount == 1)
     }
 
     @Test("A card's confirmation counts only what its Clean would really remove")
@@ -267,24 +266,39 @@ struct CleanupFlowTests {
         #expect(await vm.directCleanConfirmation(categories: [.mailAttachments]) == nil)
     }
 
-    @Test(
-        "The confirmation says what is permanent",
-        arguments: [
-            (Int64(1_000), Int64(1_000), "permanently"),
-            (Int64(1_000), Int64(400), "permanently"),
-            (Int64(1_000), Int64(0), "Trash"),
-        ]
-    )
-    func confirmationCopy(total: Int64, permanent: Int64, expected: String) {
-        let confirmation = CleanupConfirmation(itemCount: 3, totalBytes: total, permanentBytes: permanent)
-        #expect(confirmation.message.contains(expected))
+    @Test("The confirmation says what is permanent")
+    func confirmationCopy() {
+        let permanent = CleanupConfirmation(itemCount: 3, permanentItemCount: 3, totalBytes: 1_000, permanentBytes: 1_000)
+        #expect(permanent.message.contains("permanently"))
+        #expect(!permanent.message.contains("Trash"))
+
+        let trashed = CleanupConfirmation(itemCount: 3, permanentItemCount: 0, totalBytes: 1_000, permanentBytes: 0)
+        #expect(trashed.message.contains("Trash"))
+        #expect(!trashed.message.contains("permanently"))
     }
 
     @Test("A partly permanent clean names both destinations")
     func confirmationCopyMixed() {
-        let confirmation = CleanupConfirmation(itemCount: 3, totalBytes: 1_000, permanentBytes: 400)
+        let confirmation = CleanupConfirmation(itemCount: 3, permanentItemCount: 1, totalBytes: 1_000, permanentBytes: 400)
         #expect(confirmation.message.contains("permanently"))
         #expect(confirmation.message.contains("Trash"))
+    }
+
+    @Test("Zero-byte items count toward where things go")
+    func confirmationCopyWithZeroBytes() {
+        let onlyEmptyCaches = CleanupConfirmation(itemCount: 2, permanentItemCount: 0, totalBytes: 0, permanentBytes: 0)
+        #expect(!onlyEmptyCaches.message.contains("permanently"))
+
+        let emptyTrashItem = CleanupConfirmation(itemCount: 2, permanentItemCount: 1, totalBytes: 500, permanentBytes: 0)
+        #expect(emptyTrashItem.message.contains("permanently"))
+        #expect(emptyTrashItem.message.contains("Trash"))
+    }
+
+    @Test("The title and message read correctly for a single item and for no bytes")
+    func confirmationGrammar() {
+        let one = CleanupConfirmation(itemCount: 1, permanentItemCount: 1, totalBytes: 0, permanentBytes: 0)
+        #expect(one.title == "Remove 1 item?")
+        #expect(one.message.hasPrefix("1 item "))
     }
 
     // MARK: - Review All

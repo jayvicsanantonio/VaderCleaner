@@ -17,6 +17,9 @@ public struct JunkRemovalReport: Equatable, Sendable {
     public var removedCount: Int
     /// Items still in place because removing them failed.
     public var failedCount: Int
+    /// Items still in place when the helper stopped answering. It may yet remove
+    /// them, so they can't be called failed.
+    public var unconfirmedCount: Int
     /// Whether the clean was stopped before reaching every item.
     public var wasCancelled: Bool
 
@@ -25,12 +28,14 @@ public struct JunkRemovalReport: Equatable, Sendable {
         bytesMovedToTrash: Int64 = 0,
         removedCount: Int = 0,
         failedCount: Int = 0,
+        unconfirmedCount: Int = 0,
         wasCancelled: Bool = false
     ) {
         self.bytesFreed = bytesFreed
         self.bytesMovedToTrash = bytesMovedToTrash
         self.removedCount = removedCount
         self.failedCount = failedCount
+        self.unconfirmedCount = unconfirmedCount
         self.wasCancelled = wasCancelled
     }
 
@@ -40,7 +45,7 @@ public struct JunkRemovalReport: Equatable, Sendable {
     /// Whether every attempt failed: the clean tried and left everything in place.
     /// A file that had already gone isn't an attempt that failed, so a clean of a
     /// stale list doesn't read as an error.
-    public var removedNothing: Bool { removedCount == 0 && failedCount > 0 }
+    public var removedNothing: Bool { removedCount == 0 && failedCount + unconfirmedCount > 0 }
 
     /// The results screen's headline: the bytes returned to the disk if any were,
     /// otherwise where the bytes went, otherwise that nothing changed.
@@ -55,6 +60,16 @@ public struct JunkRemovalReport: Equatable, Sendable {
             return String.localizedStringWithFormat(
                 String(localized: "%@ moved to the Trash", bundle: .module, comment: "Cleanup result headline when everything went to the Trash; %@ is the size."),
                 formattedFileBytes(bytesMovedToTrash)
+            )
+        }
+        // Empty files and symlinks: real removals with no bytes to report.
+        if removedCount == 1 {
+            return String(localized: "1 item removed", bundle: .module, comment: "Cleanup result headline when a single item with no size was removed.")
+        }
+        if removedCount > 1 {
+            return String.localizedStringWithFormat(
+                String(localized: "%@ items removed", bundle: .module, comment: "Cleanup result headline when only items with no size were removed; %@ is the count."),
+                removedCount.formatted(.number)
             )
         }
         return String(localized: "Nothing was removed", bundle: .module, comment: "Cleanup result headline when no items were removed.")
@@ -84,6 +99,22 @@ public struct JunkRemovalReport: Equatable, Sendable {
                 failedCount.formatted(.number)
             ))
         }
+        if unconfirmedCount == 1 {
+            lines.append(String(
+                localized: "1 item may still be removed: VaderCleaner's helper stopped responding.",
+                bundle: .module,
+                comment: "Cleanup result detail for a single item left in a helper batch that timed out."
+            ))
+        } else if unconfirmedCount > 1 {
+            lines.append(String.localizedStringWithFormat(
+                String(
+                    localized: "%@ items may still be removed: VaderCleaner's helper stopped responding.",
+                    bundle: .module,
+                    comment: "Cleanup result detail; %@ is the number of items left in a helper batch that timed out."
+                ),
+                unconfirmedCount.formatted(.number)
+            ))
+        }
         if wasCancelled {
             lines.append(String(localized: "Cleaning was stopped before it finished.", bundle: .module, comment: "Cleanup result detail after the user stopped a clean."))
         }
@@ -91,7 +122,7 @@ public struct JunkRemovalReport: Equatable, Sendable {
     }
 
     /// Whether the clean did all it set out to.
-    public var finishedCleanly: Bool { failedCount == 0 && !wasCancelled }
+    public var finishedCleanly: Bool { failedCount == 0 && unconfirmedCount == 0 && !wasCancelled }
 }
 
 /// Thrown when a clean tried to remove items and none of them went.

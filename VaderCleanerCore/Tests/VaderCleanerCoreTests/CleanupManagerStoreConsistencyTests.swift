@@ -42,16 +42,45 @@ struct CleanupManagerStoreConsistencyTests {
 
     @Test("A tree build in flight during unload doesn't repopulate the store")
     func staleBuildStaysOut() async {
-        let store = CleanupManagerStore()
-        let items = (0..<300_000).map { file("/Users/me/Library/Caches/app\($0 % 500)/\($0)", 1, .userCache) }
-        store.load(result: ScanResult(items: items))
+        // Holds the build between taking its inputs and building from them, so
+        // the unload lands exactly inside it.
+        let inputsTaken = TestBox(false)
+        let release = DispatchSemaphore(value: 0)
+        let store = CleanupManagerStore(beforeBuildingRows: {
+            inputsTaken.withLock { $0 = true }
+            release.wait()
+        })
+        store.load(result: ScanResult(items: [file("/Users/me/Library/Caches/app/a", 1, .userCache)]))
 
         let build = Task.detached(priority: .userInitiated) { store.items(forCategoryID: "userCache") }
-        try? await Task.sleep(for: .milliseconds(20))
+        #expect(await pollUntil { inputsTaken.value })
         store.unload()
-        _ = await build.value
+        // Once for the build in flight, once for the read below, which also passes
+        // through the seam.
+        release.signal()
+        release.signal()
+        let staleTree = await build.value
 
+        #expect(!staleTree.isEmpty, "the build must have started from the old inputs for this to prove anything")
         #expect(store.items(forCategoryID: "userCache").isEmpty)
+    }
+
+    @Test("Overlapping callers share one path-index build")
+    func indexBuildsOnce() async {
+        let builds = TestBox(0)
+        let store = CleanupManagerStore(onBuildingPathIndex: { builds.withLock { $0 += 1 } })
+        let items = (0..<50_000).map { file("/Users/me/Library/Caches/app/\($0)", 1, .userCache) }
+        store.load(result: ScanResult(items: items))
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<4 {
+                group.addTask { _ = store.items(forCategoryID: "userCache") }
+            }
+        }
+
+        #expect(store.file(forPath: "/Users/me/Library/Caches/app/0") != nil)
+        #expect(await pollUntil { builds.value >= 1 })
+        #expect(builds.value == 1)
     }
 
     @Test("A folder row's checkbox covers a scanned file that is the folder itself")

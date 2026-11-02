@@ -194,6 +194,46 @@ struct JunkScanSafetyTests {
         }
     }
 
+    @Test("A top-level symlink to an excluded path is left alone")
+    func excludedSymlinkTarget() async throws {
+        try await withTempRoot { root in
+            let trash = root.appendingPathComponent("Trash", isDirectory: true)
+            let target = root.appendingPathComponent("Keep", isDirectory: true)
+            try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: trash.appendingPathComponent("link"), withDestinationURL: target)
+
+            let files = try await FileScanner().scan(
+                roots: [ScanRoot(url: trash, category: .trash, rollsUpTopLevelItems: true)],
+                excluding: [target]
+            )
+
+            #expect(files.isEmpty)
+        }
+    }
+
+    @Test("Top-level symlinks flush with the batch like everything else")
+    func symlinksRespectTheBatchLimit() async throws {
+        try await withTempRoot { root in
+            for index in 0..<3 {
+                try FileManager.default.createSymbolicLink(
+                    at: root.appendingPathComponent("link\(index)"),
+                    withDestinationURL: URL(fileURLWithPath: "/tmp")
+                )
+            }
+            let batches = TestBox<[Int]>([])
+
+            try await FileScanner().scan(
+                roots: [ScanRoot(url: root, category: .trash, rollsUpTopLevelItems: true)],
+                excluding: [],
+                batchSize: 1,
+                onProgress: nil
+            ) { batch in batches.withLock { $0.append(batch.count) } }
+
+            #expect(batches.value == [1, 1, 1])
+        }
+    }
+
     @Test("An excluded file inside a rolled-up item keeps that item from rolling up")
     func exclusionInsideTopLevelItem() async throws {
         try await withTempRoot { root in

@@ -354,7 +354,7 @@ public final class SystemJunkViewModel {
 
     /// Starts a clean of the selection, or with `categories` of those categories'
     /// safe files, holding off system sleep for its duration. `cancelClean` stops
-    /// it between items.
+    /// it between items, or between batches for what goes through the helper.
     public func beginClean(categories: Set<ScanCategory>? = nil) {
         guard case .preview = phase else { return }
         cleanTask = Task {
@@ -405,7 +405,7 @@ public final class SystemJunkViewModel {
     /// runs the deleter and lands on the outcome. The report comes from the
     /// deleter so partial-failure cases report what was actually removed, not the
     /// requested total.
-    private func performClean(_ toDelete: [ScannedFile], from result: ScanResult) async {
+    func performClean(_ toDelete: [ScannedFile], from result: ScanResult) async {
         // Start Over landed while the files were being chosen, or the task was
         // stopped: either way the user no longer wants this clean.
         guard case .cleaning = phase else { return }
@@ -426,12 +426,14 @@ public final class SystemJunkViewModel {
                 }
             }
             guard case .cleaning = phase else { return }
-            if report.removedNothing {
+            if report.wasCancelled, report.removedCount == 0 {
+                // Stopped before anything moved, so the results are all still true.
+                // Checked first: a failure before the Stop doesn't make this a
+                // failed clean, and the failure screen would throw the results away.
+                phase = .preview(result)
+            } else if report.removedNothing {
                 let failure = JunkRemovalError.nothingRemoved(failedCount: report.failedCount)
                 phase = .failed(stage: .cleaning, message: failure.localizedDescription)
-            } else if report.wasCancelled, report.removedCount == 0 {
-                // Stopped before anything moved, so the results are all still true.
-                phase = .preview(result)
             } else {
                 phase = .complete(report)
             }
