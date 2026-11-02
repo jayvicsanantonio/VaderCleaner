@@ -127,14 +127,66 @@ public struct CarePlan: Equatable, Sendable {
         )
     }
 
+    /// This plan without the items at `urls`, for the findings a Run pass didn't
+    /// re-scan. Findings overlap: Duplicates, Downloads, Large & Old Files, and
+    /// Installers all walk the same folders, and one app can be unused, unsupported,
+    /// and due an update. So removing a file through one card leaves it stale on
+    /// the others. Pruned in place because re-scanning those cards would throw away
+    /// what the user chose on them. A group left with one file has nothing to
+    /// compare, and the first file left in a group becomes its kept original.
+    ///
+    /// Junk is left alone: its payload can run to a million files, and the deleter
+    /// already treats a file that has gone as nothing to do.
+    func removingItems(at urls: Set<URL>) -> CarePlan {
+        guard !urls.isEmpty else { return self }
+        let pruned = findings.map { finding -> CareFinding in
+            switch finding.payload {
+            case .threats(let threats):
+                return CareFinding(payload: .threats(threats.filter { !urls.contains($0.filePath) }))
+            case .duplicates(let groups):
+                return CareFinding(payload: .duplicates(groups.compactMap { group in
+                    let files = group.files.filter { !urls.contains($0.url) }
+                    return files.count > 1 ? DuplicateGroup(files: files) : nil
+                }))
+            case .similarImages(let groups):
+                return CareFinding(payload: .similarImages(groups.compactMap { group in
+                    let files = group.files.filter { !urls.contains($0.url) }
+                    return files.count > 1 ? SimilarImageGroup(files: files) : nil
+                }))
+            case .downloads(let items):
+                return CareFinding(payload: .downloads(items.filter { !urls.contains($0.file.url) }))
+            case .largeOldFiles(let files):
+                return CareFinding(payload: .largeOldFiles(files.filter { !urls.contains($0.url) }))
+            case .installers(let files):
+                return CareFinding(payload: .installers(files.filter { !urls.contains($0.url) }))
+            case .unusedApps(let apps):
+                return CareFinding(payload: .unusedApps(apps.filter { !urls.contains($0.app.bundleURL) }))
+            case .unsupportedApps(let apps):
+                return CareFinding(payload: .unsupportedApps(apps.filter { !urls.contains($0.app.bundleURL) }))
+            case .appUpdates(let updates):
+                return CareFinding(payload: .appUpdates(updates.filter { !urls.contains($0.bundleURL) }))
+            case .junk, .appLeftovers, .extensions, .backgroundItems, .loginItems,
+                 .maintenanceDue, .browserPrivacy, .lowDiskSpace:
+                return finding
+            }
+        }
+        return CarePlan(
+            findings: pruned.filter { !$0.isEmpty },
+            health: health,
+            unitOutcomes: unitOutcomes,
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+    }
+
     /// This plan with `refreshed` substituted in for `units` — the units a Run
     /// pass acted on and a targeted re-scan has just re-checked.
     ///
     /// Findings and outcomes for those units come from `refreshed`, so work that
     /// is genuinely gone disappears instead of lingering as a stale card. Every
-    /// other finding is carried forward untouched: the run never touched it, so
-    /// it is still true, and re-walking the filesystem to rediscover it is what
-    /// made a post-run re-scan expensive.
+    /// other finding is carried forward, and re-walking the filesystem to
+    /// rediscover it is what made a post-run re-scan expensive.
+    /// `removingItems(at:)` is what keeps those carried findings true.
     ///
     /// Health rides along on every re-scan (a cleanup changes free space), but a
     /// refresh that captured none keeps the earlier reading rather than blanking

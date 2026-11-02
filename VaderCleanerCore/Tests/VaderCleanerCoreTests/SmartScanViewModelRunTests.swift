@@ -66,7 +66,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
             scanEngine: { _, _ in Self.richPlan },
             junkCleaner: { files in
                 for f in files { recorder.record("junk:\(f.url.path)") }
-                return files.reduce(0) { $0 + $1.size }
+                return .removing(files)
             },
             threatRemover: { threats in
                 for t in threats { recorder.record("threat:\(t.filePath.path)") }
@@ -140,7 +140,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_reportsOnlyTheThreatsItActuallyRemoved() async throws {
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { _ in 0 },
+            junkCleaner: { _ in JunkRemovalReport() },
             threatRemover: { threats in Array(threats.dropFirst()) },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in }
@@ -162,7 +162,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
     func test_run_buildsReceipt_withBytesAndOrder() async {
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in }
@@ -178,7 +178,8 @@ final class SmartScanViewModelRunTests: XCTestCase {
             [.threats, .junkCleanup, .duplicates, .maintenanceDue],
             "receipt lines follow feed order; unexecuted findings have no line"
         )
-        XCTAssertEqual(receipt.totalBytesFreed, 1_000 + 10)
+        XCTAssertEqual(receipt.totalBytesFreed, 1_000)
+        XCTAssertEqual(receipt.totalBytesMovedToTrash, 10)
         let junkLine = receipt.lines.first { $0.kind == .junkCleanup }
         XCTAssertEqual(junkLine?.itemsProcessed, 1)
         XCTAssertEqual(junkLine?.bytesFreed, 1_000)
@@ -194,7 +195,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         var cleanedCalls = 0
         let working = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in }
@@ -285,7 +286,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let junkCalls = Recorder()
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { files in junkCalls.record("called"); return files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in junkCalls.record("called"); return .removing(files) },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in }
@@ -354,7 +355,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let recorded = Recorder()
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             threatRemover: { _ in [] },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in },
@@ -366,7 +367,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         await vm.run()
         XCTAssertEqual(
             recorded.entries,
-            ["scan", "receipt:\(1_000 + 10)"],
+            ["scan", "receipt:1000"],
             "completing a Run pass records its receipt"
         )
     }
@@ -400,7 +401,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
             scanEngine: { _, _ in plan },
             junkCleaner: { files in
                 junkSnapshot.value = vmRef?.runProgress
-                return files.reduce(0) { $0 + $1.size }
+                return .removing(files)
             },
             recycleFiles: { Set($0) },
             maintenanceTaskRunner: { _ in
@@ -501,7 +502,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let choices = ChoiceBox()
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             recycleFiles: { Set($0) },
             recordRunChoices: { choices.record($0, $1) }
         )
@@ -522,7 +523,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         let choices = ChoiceBox()
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.richPlan },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             recycleFiles: { Set($0) },
             recordRunChoices: { choices.record($0, $1) }
         )
@@ -552,7 +553,7 @@ final class SmartScanViewModelRunTests: XCTestCase {
         )
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in plan },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             recordRunChoices: { choices.record($0, $1) }
         )
         await vm.scan()

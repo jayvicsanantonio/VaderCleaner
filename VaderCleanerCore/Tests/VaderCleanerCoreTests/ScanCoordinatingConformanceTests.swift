@@ -121,7 +121,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
             },
             junkCleaner: { _ in
                 await gate.wait()
-                return 0
+                return JunkRemovalReport()
             }
         )
         await vm.scan() // → .results, the only phase run() acts from.
@@ -637,7 +637,7 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
         engine: @escaping SmartScanViewModel.ScanEngine = { _, _ in
             ScanCoordinatingConformanceTests.emptyCarePlan()
         },
-        junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in 0 }
+        junkCleaner: @escaping SmartScanViewModel.JunkCleaner = { _ in JunkRemovalReport() }
     ) -> SmartScanViewModel {
         SmartScanViewModel(
             scanEngine: engine,

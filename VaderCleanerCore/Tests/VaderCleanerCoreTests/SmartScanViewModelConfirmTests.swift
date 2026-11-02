@@ -19,10 +19,10 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         )
     }
 
-    /// Junk (pre-approved, one safe file), duplicates (pre-approved, seeds its
+    /// Junk (pre-approved, one safe file the Trash can't take), duplicates (pre-approved, seeds its
     /// redundant copy), and one opt-in large file that stays out until chosen.
     private nonisolated static var plan: CarePlan {
-        let junk = ScanResult(items: [Self.file("/cache/safe", size: 1_000, category: .userCache)])
+        let junk = ScanResult(items: [Self.file("/Library/Caches/safe", size: 1_000, category: .systemCache)])
         let dupGroup = DuplicateGroup(files: [
             Self.file("/Downloads/original", size: 40),
             Self.file("/Downloads/copy", size: 40)
@@ -44,7 +44,7 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
     private func scannedViewModel(runRecorder: (@Sendable () -> Void)? = nil) async -> SmartScanViewModel {
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.plan },
-            junkCleaner: { files in runRecorder?(); return files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in runRecorder?(); return .removing(files) },
             recycleFiles: { runRecorder?(); return Set($0) }
         )
         await vm.scan()

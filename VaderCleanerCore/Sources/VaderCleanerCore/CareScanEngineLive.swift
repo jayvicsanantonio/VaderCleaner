@@ -114,7 +114,7 @@ extension CareScanEngine.UnitRunners {
                 await DefaultUnusedAppScanner().scan(apps: apps, excluding: await excludedURLs())
             },
             unsupportedApps: { apps in
-                await DefaultUnsupportedAppScanner().scan(apps: apps)
+                await DefaultUnsupportedAppScanner().scan(apps: apps, excluding: await excludedURLs())
             },
             appLeftovers: { installedBundleIDs in
                 await DefaultAppLeftoverScanner().scan(
