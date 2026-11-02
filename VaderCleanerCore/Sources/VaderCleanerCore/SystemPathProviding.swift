@@ -24,14 +24,19 @@ struct DefaultSystemPathProvider: SystemPathProviding {
     nonisolated(unsafe) private let fileManager: FileManager
     private let homeDirectory: URL
     private let languageFileLocator: LanguageFileLocator
+    /// Asked once per `roots()` call, off the main actor, to decide whether
+    /// another app's container may be walked. See `roots()`.
+    private let hasFullDiskAccess: @Sendable () -> Bool
 
     init(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        languageFileLocator: LanguageFileLocator? = nil
+        languageFileLocator: LanguageFileLocator? = nil,
+        hasFullDiskAccess: @escaping @Sendable () -> Bool = { PrivacyPermissionChecker.hasFullDiskAccess() }
     ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory
+        self.hasFullDiskAccess = hasFullDiskAccess
         self.languageFileLocator = languageFileLocator
             ?? LanguageFileLocator(
                 scanRoots: Self.defaultLanguageScanRoots(homeDirectory: homeDirectory),
@@ -122,12 +127,30 @@ struct DefaultSystemPathProvider: SystemPathProviding {
             category: .mailAttachments,
             packagesAsFiles: true
         ))
+        // A sandboxed Mail saves into its container instead. Reading another app's
+        // container without Full Disk Access raises the "access data from other
+        // apps" prompt in the middle of a scan, so it is only walked with the
+        // grant in place.
+        if hasFullDiskAccess() {
+            roots.append(ScanRoot(
+                url: userLibrary
+                    .appendingPathComponent("Containers", isDirectory: true)
+                    .appendingPathComponent("com.apple.mail", isDirectory: true)
+                    .appendingPathComponent("Data", isDirectory: true)
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Mail Downloads", isDirectory: true),
+                category: .mailAttachments,
+                packagesAsFiles: true
+            ))
+        }
+        // One backup is one thing to keep or remove: part of one restores nothing.
         roots.append(ScanRoot(
             url: userLibrary
                 .appendingPathComponent("Application Support", isDirectory: true)
                 .appendingPathComponent("MobileSync", isDirectory: true)
                 .appendingPathComponent("Backup", isDirectory: true),
-            category: .iosBackups
+            category: .iosBackups,
+            rollsUpTopLevelItems: true
         ))
 
         // System-domain paths — readable when Full Disk Access is granted.
@@ -145,7 +168,8 @@ struct DefaultSystemPathProvider: SystemPathProviding {
         roots.append(ScanRoot(
             url: homeDirectory.appendingPathComponent(".Trash", isDirectory: true),
             category: .trash,
-            packagesAsFiles: true
+            packagesAsFiles: true,
+            rollsUpTopLevelItems: true
         ))
         roots.append(contentsOf: volumeTrashRoots())
 
@@ -218,7 +242,7 @@ struct DefaultSystemPathProvider: SystemPathProviding {
                 .appendingPathComponent(".Trashes", isDirectory: true)
                 .appendingPathComponent(uid, isDirectory: true)
             if fileManager.fileExists(atPath: trash.path) {
-                roots.append(ScanRoot(url: trash, category: .trash, packagesAsFiles: true))
+                roots.append(ScanRoot(url: trash, category: .trash, packagesAsFiles: true, rollsUpTopLevelItems: true))
             }
         }
         return roots

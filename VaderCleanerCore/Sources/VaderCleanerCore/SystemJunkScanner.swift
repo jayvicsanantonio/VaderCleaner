@@ -120,17 +120,17 @@ struct SystemJunkScanner: Sendable {
         return ScanResult(items: files + supplementary)
     }
 
-    /// Drops files at or beneath any excluded path. Shared by both privileged
-    /// enumerators, which return already-collected results rather than being
-    /// filtered during the walk.
+    /// Drops files at or beneath any excluded path, and rolled-up folders that
+    /// have an excluded path inside them, since removing the folder would remove
+    /// that path too. Shared by both privileged enumerators, which return
+    /// already-collected results rather than being filtered during the walk.
     static func excluding(_ files: [ScannedFile], paths: [URL]) -> [ScannedFile] {
         guard !paths.isEmpty else { return files }
         let excluded = paths.map(PathExclusionMatcher.canonicalize)
-        return files.filter {
-            !PathExclusionMatcher.isExcluded(
-                path: PathExclusionMatcher.canonicalize($0.url),
-                by: excluded
-            )
+        return files.filter { file in
+            let path = PathExclusionMatcher.canonicalize(file.url)
+            return !PathExclusionMatcher.isExcluded(path: path, by: excluded)
+                && !PathExclusionMatcher.containsExcludedDescendant(of: path, in: excluded)
         }
     }
 }

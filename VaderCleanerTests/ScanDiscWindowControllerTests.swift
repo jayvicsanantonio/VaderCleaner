@@ -178,7 +178,7 @@ struct ScanDiscWindowControllerTests {
             ),
             systemJunkViewModel: SystemJunkViewModel(
                 scanner: { _ in ScanResult(items: []) },
-                deleter: { _ in 0 }
+                deleter: { _, _ in JunkRemovalReport() }
             ),
             myClutterViewModel: MyClutterViewModel(
                 duplicateScan: { _ in [] },

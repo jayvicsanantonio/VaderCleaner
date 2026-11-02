@@ -647,9 +647,12 @@ final class ScanCoordinatingConformanceTests: XCTestCase {
 
     private func makeSystemJunk(
         scanner: @escaping () async throws -> ScanResult = { ScanResult(items: []) },
-        deleter: @escaping SystemJunkViewModel.Deleter = { _ in 0 }
+        deleter: @escaping ([ScannedFile]) async throws -> Int64 = { _ in 0 }
     ) -> SystemJunkViewModel {
-        SystemJunkViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
+        SystemJunkViewModel(
+            scanner: { _ in try await scanner() },
+            deleter: { files, _ in JunkRemovalReport(bytesFreed: try await deleter(files)) }
+        )
     }
 
     private func makeMalware(

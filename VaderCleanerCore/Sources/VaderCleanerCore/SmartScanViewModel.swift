@@ -117,6 +117,10 @@ public final class SmartScanViewModel {
     /// ContentView can seed the same-scope standalone sections and spare the
     /// user a re-scan. `nil` by default (tests and previews don't seed).
     public var onScanCompleted: ((CarePlan) -> Void)?
+
+    /// Called once a Run has removed junk, so a section holding results from
+    /// before that pass can drop them.
+    public var onJunkCleaned: (() -> Void)?
     /// Called with the threats a Run removed, so other surfaces listing them can
     /// stop offering to remove files that are gone.
     public var onThreatsRemoved: (([MalwareThreat]) -> Void)?
@@ -1431,6 +1435,7 @@ public final class SmartScanViewModel {
         guard !selectedJunk.isEmpty else { return nil }
         do {
             let bytes = try await junkCleaner(selectedJunk)
+            onJunkCleaned?()
             return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
         } catch {
             log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .private)")

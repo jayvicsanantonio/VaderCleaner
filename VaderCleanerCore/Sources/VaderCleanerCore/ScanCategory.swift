@@ -52,22 +52,23 @@ public enum ScanCategory: String, CaseIterable, Codable, Hashable, Sendable {
     /// standalone Cleanup Manager, and My Clutter) so their default selections
     /// stay consistent.
     ///
-    /// Safe categories are regenerable (caches, logs, dev build junk, document
-    /// autosave versions, unused app localizations) or already discarded
-    /// (Trash), so pre-checking them can never destroy data the user can't get
-    /// back. Categories holding real user files — mail attachments, iOS
-    /// backups, and the large/old personal files surfaced by My Clutter — are
-    /// still scanned and listed, but stay unchecked so removing them is an
-    /// explicit choice.
+    /// Safe categories are regenerable (caches, logs, dev build junk, unused app
+    /// localizations) or already discarded (Trash), so pre-checking them can
+    /// never destroy data the user can't get back. Categories holding real user
+    /// files — mail attachments, iOS backups, document version history, and the
+    /// large/old personal files surfaced by My Clutter — are still scanned and
+    /// listed, but stay unchecked so removing them is an explicit choice. A safe
+    /// category can still hold individual files that stay opt-in; see
+    /// `ScanSelectionSeed.isPreselectable`.
     var isSafeToAutoRemove: Bool {
         switch self {
         case .systemCache, .userCache,
              .systemLogs, .userLogs,
              .languageFiles,
-             .xcodeJunk, .documentVersions, .webDevJunk,
+             .xcodeJunk, .webDevJunk,
              .trash:
             return true
-        case .mailAttachments, .iosBackups, .largeFile, .oldFile:
+        case .mailAttachments, .iosBackups, .documentVersions, .largeFile, .oldFile:
             return false
         }
     }

@@ -153,6 +153,9 @@ struct ContentView: View {
         smartScanViewModel.onThreatsRemoved = { [protectionDashboardViewModel] removed in
             protectionDashboardViewModel.smartScanRemoved(threats: removed)
         }
+        smartScanViewModel.onJunkCleaned = { [systemJunkViewModel] in
+            systemJunkViewModel.discardStalePreview()
+        }
         smartScanViewModel.onScanCompleted = { [systemJunkViewModel, myClutterViewModel, spaceLensViewModel, applicationsViewModel, performanceViewModel, protectionDashboardViewModel] plan in
             // Seeding walks the whole junk result off the main actor, so it
             // runs as its own task rather than blocking this completion hop.

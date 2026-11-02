@@ -42,7 +42,7 @@ public final class SystemJunkViewModel {
         case scanning
         case preview(ScanResult)
         case cleaning
-        case complete(bytesFreed: Int64)
+        case complete(JunkRemovalReport)
         case failed(stage: FailureStage, message: String)
     }
 
@@ -55,11 +55,12 @@ public final class SystemJunkViewModel {
     /// background walk so the scanning screen can show it advancing.
     public typealias Scanner = (@escaping @Sendable (Int) -> Void) async throws -> ScanResult
 
-    /// Closure type for the deletion sink. Returns the number of bytes that
-    /// were actually freed (not the byte sum of the input) so partial-failure
-    /// cases — e.g. the helper deletes nine of ten paths — are reported
-    /// accurately to the user.
-    public typealias Deleter = ([ScannedFile]) async throws -> Int64
+    /// Closure type for the deletion sink. Returns what actually happened (not
+    /// the byte sum of the input) so partial-failure cases — e.g. the helper
+    /// deletes nine of ten paths — are reported accurately to the user. The
+    /// `@Sendable` parameter receives the running count of items dealt with, and
+    /// the sink stops early if its task is cancelled.
+    public typealias Deleter = ([ScannedFile], @escaping @Sendable (Int) -> Void) async throws -> JunkRemovalReport
 
     public private(set) var phase: Phase = .idle
 
@@ -102,6 +103,18 @@ public final class SystemJunkViewModel {
     /// callback so the scanning screen can show "Scanned N items…" — proof the
     /// open-ended walk is advancing rather than hung.
     public private(set) var scannedItemCount: Int = 0
+
+    /// Items the in-flight clean has dealt with, and how many it set out to deal
+    /// with, so the cleaning screen can show a long clean is advancing.
+    public private(set) var cleanedItemCount: Int = 0
+    public private(set) var cleanTotalCount: Int = 0
+
+    /// The running clean started by `beginClean`, held so `cancelClean` can reach it.
+    @ObservationIgnored private var cleanTask: Task<Void, Never>?
+
+    /// Whether the user has changed the selection since it was last seeded. Review
+    /// All opens empty only over a seeded selection, never over the user's picks.
+    @ObservationIgnored private var selectionWasEdited = false
 
     @ObservationIgnored private let scanner: Scanner
     @ObservationIgnored private let deleter: Deleter
@@ -156,6 +169,7 @@ public final class SystemJunkViewModel {
     /// lockstep. Idempotent in the sense that two calls in a row return the VM
     /// to its prior selection.
     public func toggleSelection(_ file: ScannedFile) {
+        selectionWasEdited = true
         if selectedURLs.contains(file.url) {
             selectedURLs.remove(file.url)
             totalSelectedSize -= file.size
@@ -194,6 +208,7 @@ public final class SystemJunkViewModel {
     /// assigning once collapses that to four mutations total.
     public func setSelection(_ files: [ScannedFile], selected: Bool) {
         guard !files.isEmpty else { return }
+        selectionWasEdited = true
         var urls = selectedURLs
         var total = totalSelectedSize
         var bytes = selectedBytesByCategory
@@ -242,11 +257,34 @@ public final class SystemJunkViewModel {
         apply(ScanSelectionSeed())
     }
 
+    /// Readies the selection for "Review All Junk": cleared while it is still a
+    /// seed, kept once the user has made picks of their own, so backing out of the
+    /// manager and returning doesn't silently throw their work away.
+    public func prepareReviewAll() {
+        guard !selectionWasEdited else { return }
+        clearSelection()
+    }
+
+    /// What removing the current selection would do, for its confirmation dialog.
+    public var selectionConfirmation: CleanupConfirmation {
+        CleanupConfirmation(bytesByCategory: selectedBytesByCategory, countByCategory: selectedCountByCategory)
+    }
+
+    /// What a one-click Clean on `categories` would do, or `nil` when it would
+    /// remove nothing because everything in them is opt-in.
+    public func directCleanConfirmation(categories: Set<ScanCategory>) async -> CleanupConfirmation? {
+        guard let result = latestResult else { return nil }
+        let seed = await ScanSelectionSeed.selection(of: categories, from: result)
+        guard !seed.urls.isEmpty else { return nil }
+        return CleanupConfirmation(bytesByCategory: seed.bytesByCategory, countByCategory: seed.countByCategory)
+    }
+
     /// Land a precomputed selection in the four observable properties in one
     /// write each. The seed itself is built off the main actor (see
     /// `ScanSelectionSeed`) — walking a large result's URLs into a `Set` on
     /// the main thread froze the scan-complete transition for seconds.
     private func apply(_ seed: ScanSelectionSeed) {
+        selectionWasEdited = false
         selectedURLs = seed.urls
         totalSelectedSize = seed.totalBytes
         selectedBytesByCategory = seed.bytesByCategory
@@ -314,43 +352,103 @@ public final class SystemJunkViewModel {
         phase = .preview(result)
     }
 
+    /// Starts a clean of the selection, or with `categories` of those categories'
+    /// safe files, holding off system sleep for its duration. `cancelClean` stops
+    /// it between items, or between batches for what goes through the helper.
+    public func beginClean(categories: Set<ScanCategory>? = nil) {
+        guard case .preview = phase else { return }
+        cleanTask = Task {
+            await ScanActivityAssertion()(reason: "VaderCleaner is cleaning") {
+                if let categories {
+                    await self.clean(categories: categories)
+                } else {
+                    await self.clean()
+                }
+            }
+        }
+    }
+
+    /// Stops the running clean. What has already gone stays gone.
+    public func cancelClean() {
+        cleanTask?.cancel()
+    }
+
     /// Hand the injected deleter every currently-selected file and land in
-    /// `.complete(bytesFreed:)`. A no-op when nothing is selected.
+    /// `.complete`. A no-op when nothing is selected or a clean already started.
     public func clean() async {
-        guard let result = latestResult, !selectedURLs.isEmpty else { return }
+        guard case .preview = phase, let result = latestResult, !selectedURLs.isEmpty else { return }
+        // The phase moves before the first suspension: a second click, a Start
+        // Over, or a Scan can no longer reach this result while it is filtered.
+        phase = .cleaning
         // Filter the full result down to the selection off the main actor —
         // hashing a million URLs on the main thread froze the Clean tap.
         let selection = selectedURLs
         let toDelete = await ScanFileFilter.selected(from: result.items) { selection.contains($0.url) }
-        await performClean(toDelete)
+        await performClean(toDelete, from: result)
     }
 
-    /// Clean every file whose category is in `categories`, regardless of the
-    /// per-file selection — backs a dashboard card's "Clean" button, which acts
-    /// on the whole group. A no-op when the group produced no files.
+    /// Clean the safe files in `categories`, regardless of the per-file selection
+    /// — backs a dashboard card's "Clean" button, which acts on the whole group.
+    /// Reaches only what the card's Review would pre-check: the group's opt-in
+    /// user data needs an explicit choice in the manager. A no-op when that leaves
+    /// nothing.
     public func clean(categories: Set<ScanCategory>) async {
-        guard let result = latestResult else { return }
+        guard case .preview = phase, let result = latestResult else { return }
+        phase = .cleaning
         // Off the main actor, mirroring `clean()` — the same full result is
         // walked, so keep both taps off the main thread for consistency.
-        let toDelete = await ScanFileFilter.selected(from: result.items) { categories.contains($0.category) }
-        await performClean(toDelete)
+        let toDelete = await ScanSelectionSeed.files(of: categories, from: result)
+        await performClean(toDelete, from: result)
     }
 
-    /// Shared clean pipeline: a no-op for an empty input, otherwise
-    /// `.cleaning` → `.complete(bytesFreed:)`, or `.failed` if the deleter
-    /// throws. `bytesFreed` comes from the deleter so partial-failure cases
-    /// report what was actually removed, not the requested total.
-    private func performClean(_ toDelete: [ScannedFile]) async {
-        guard !toDelete.isEmpty else { return }
+    /// Shared clean pipeline: back to the preview for an empty input, otherwise
+    /// runs the deleter and lands on the outcome. The report comes from the
+    /// deleter so partial-failure cases report what was actually removed, not the
+    /// requested total.
+    func performClean(_ toDelete: [ScannedFile], from result: ScanResult) async {
+        // Start Over landed while the files were being chosen, or the task was
+        // stopped: either way the user no longer wants this clean.
+        guard case .cleaning = phase else { return }
+        guard !toDelete.isEmpty, !Task.isCancelled else {
+            phase = .preview(result)
+            return
+        }
 
-        phase = .cleaning
+        cleanedItemCount = 0
+        cleanTotalCount = toDelete.count
         do {
-            let bytes = try await deleter(toDelete)
-            self.phase = .complete(bytesFreed: bytes)
+            let report = try await deleter(toDelete) { [weak self] count in
+                // Same hop and guards as the scan's progress: the deleter runs
+                // off the main actor and the hops can land out of order.
+                Task { @MainActor in
+                    guard let self, case .cleaning = self.phase, count > self.cleanedItemCount else { return }
+                    self.cleanedItemCount = count
+                }
+            }
+            guard case .cleaning = phase else { return }
+            if report.wasCancelled, report.removedCount == 0 {
+                // Stopped before anything moved, so the results are all still true.
+                // Checked first: a failure before the Stop doesn't make this a
+                // failed clean, and the failure screen would throw the results away.
+                phase = .preview(result)
+            } else if report.removedNothing {
+                let failure = JunkRemovalError.nothingRemoved(failedCount: report.failedCount)
+                phase = .failed(stage: .cleaning, message: failure.localizedDescription)
+            } else {
+                phase = .complete(report)
+            }
         } catch {
             log.error("System Junk clean failed: \(String(describing: error), privacy: .private)")
-            self.phase = .failed(stage: .cleaning, message: error.localizedDescription)
+            phase = .failed(stage: .cleaning, message: error.localizedDescription)
         }
+    }
+
+    /// Drops results something else has acted on — Smart Scan cleaning the same
+    /// files — so the dashboard can't offer and total files that are gone. Only a
+    /// preview goes stale this way; a report describes what already happened.
+    public func discardStalePreview() {
+        guard case .preview = phase else { return }
+        scanAgain()
     }
 
     /// Reset the VM to `.idle`, dropping the cached result and selection so
@@ -400,8 +498,8 @@ extension SystemJunkViewModel {
                 return try await SystemJunkScanner.live(projectScanRoots: projectRoots)
                     .scan(excluding: excluded, onProgress: onProgress)
             },
-            deleter: { files in
-                try await SystemJunkDeleter().delete(files)
+            deleter: { files, onProgress in
+                await SystemJunkDeleter().remove(files, onProgress: onProgress)
             }
         )
     }

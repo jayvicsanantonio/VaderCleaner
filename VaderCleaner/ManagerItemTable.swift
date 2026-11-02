@@ -14,6 +14,9 @@ struct ManagerItemTable: NSViewRepresentable {
     let items: [ManagerItem]
     let showsSelection: Bool
     let isSelected: (String) -> Bool
+    /// Whether a row covers selected and unselected items both, drawn as a mixed
+    /// checkbox.
+    var isPartiallySelected: (String) -> Bool = { _ in false }
     let onToggle: (String) -> Void
     /// Accent for the checked checkbox, so it matches the section's glow.
     let accent: Color
@@ -22,6 +25,11 @@ struct ManagerItemTable: NSViewRepresentable {
     /// changes, so the bridge reloads rows then — and only refreshes checkbox
     /// state (no reload) on a selection toggle.
     let contentToken: String
+    /// Changes whenever a content change should return the list to the top, for
+    /// hosts whose rows also change in place: expanding a row reloads the table
+    /// but must keep the row the user just clicked in view. `nil` (the default)
+    /// returns to the top on every reload.
+    var scrollResetToken: String? = nil
     /// Changes whenever the *selection* changes (the host's selection revision).
     /// When set, `updateNSView` refreshes visible checkbox state only when this
     /// moves, so the frequent SwiftUI updates that fire during momentum
@@ -67,6 +75,12 @@ struct ManagerItemTable: NSViewRepresentable {
     /// toggle. A non-`nil` token refreshes only when it moves, sparing the
     /// per-frame walk during momentum scrolls of the huge Cleanup Manager.
     static func shouldRefreshSelection(previous: Int?, current: Int?) -> Bool {
+        current == nil || previous != current
+    }
+
+    /// Whether a reload should scroll back to the top. A `nil` current token means
+    /// the host doesn't distinguish, so every reload does.
+    static func shouldResetScroll(previous: String?, current: String?) -> Bool {
         current == nil || previous != current
     }
 
@@ -118,11 +132,15 @@ struct ManagerItemTable: NSViewRepresentable {
             previous: coordinator.selectionToken,
             current: selectionToken
         )
+        let resetScroll = Self.shouldResetScroll(
+            previous: coordinator.scrollResetToken,
+            current: scrollResetToken
+        )
         coordinator.apply(self)
         if reload {
             coordinator.setHoveredRow(nil) // a stale hover index can't survive a reload
             coordinator.table?.reloadData()
-            coordinator.table?.scroll(.zero)
+            if resetScroll { coordinator.table?.scroll(.zero) }
         } else if selectionChanged {
             // Only when the selection actually moved — otherwise the many
             // no-op SwiftUI updates during a momentum scroll would each re-walk
@@ -141,6 +159,7 @@ struct ManagerItemTable: NSViewRepresentable {
         private var items: [ManagerItem] = []
         private var showsSelection = true
         private var isSelected: (String) -> Bool = { _ in false }
+        private var isPartiallySelected: (String) -> Bool = { _ in false }
         private var onToggle: (String) -> Void = { _ in }
         private var accent: NSColor = .controlAccentColor
         private var accessibilityPrefix = ""
@@ -149,12 +168,14 @@ struct ManagerItemTable: NSViewRepresentable {
         private var onToggleExpand: (String) -> Void = { _ in }
         fileprivate var contentToken = ""
         fileprivate var selectionToken: Int? = nil
+        fileprivate var scrollResetToken: String?
         weak var table: NSTableView?
 
         func apply(_ source: ManagerItemTable) {
             items = source.items
             showsSelection = source.showsSelection
             isSelected = source.isSelected
+            isPartiallySelected = source.isPartiallySelected
             onToggle = source.onToggle
             accent = NSColor(source.accent)
             accessibilityPrefix = source.accessibilityPrefix
@@ -163,6 +184,7 @@ struct ManagerItemTable: NSViewRepresentable {
             onToggleExpand = source.onToggleExpand
             contentToken = source.contentToken
             selectionToken = source.selectionToken
+            scrollResetToken = source.scrollResetToken
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }
@@ -178,6 +200,7 @@ struct ManagerItemTable: NSViewRepresentable {
             cell.configure(
                 item: item,
                 selected: showsSelection && isSelected(item.id),
+                partiallySelected: showsSelection && isPartiallySelected(item.id),
                 showsCheckbox: showsSelection,
                 accent: accent,
                 showsSparkle: showsSparkle,
@@ -222,7 +245,11 @@ struct ManagerItemTable: NSViewRepresentable {
             guard range.length > 0 else { return }
             for row in range.location..<(range.location + range.length) where row < items.count {
                 guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? ManagerRowCellView else { continue }
-                cell.setSelected(showsSelection && isSelected(items[row].id), accent: accent)
+                cell.setSelected(
+                    showsSelection && isSelected(items[row].id),
+                    partially: showsSelection && isPartiallySelected(items[row].id),
+                    accent: accent
+                )
             }
         }
     }
@@ -594,6 +621,7 @@ final class ManagerRowCellView: NSTableCellView {
     func configure(
         item: ManagerItem,
         selected: Bool,
+        partiallySelected: Bool,
         showsCheckbox: Bool,
         accent: NSColor,
         showsSparkle: Bool,
@@ -649,7 +677,7 @@ final class ManagerRowCellView: NSTableCellView {
             onChevron = nil
         }
 
-        setSelected(selected, accent: accent)
+        setSelected(selected, partially: partiallySelected, accent: accent)
     }
 
     /// Draws the row's leading image in one of three modes: a Quick Look
@@ -728,11 +756,12 @@ final class ManagerRowCellView: NSTableCellView {
     @objc private func chevronTapped() { onChevron?() }
     @objc private func checkboxTapped() { onCheckbox?() }
 
-    func setSelected(_ selected: Bool, accent: NSColor) {
+    func setSelected(_ selected: Bool, partially: Bool, accent: NSColor) {
         guard !checkbox.isHidden else { return }
         // A rounded square: an accent-outlined box when unchecked, filled
-        // with a white check when selected — matching the reference card.
-        checkbox.image = ManagerCheckboxImage.image(checked: selected, accent: accent)
+        // with a white check when selected — matching the reference card —
+        // and filled with a white dash when only part of a folder is selected.
+        checkbox.image = ManagerCheckboxImage.image(checked: selected, partially: partially, accent: accent)
         checkbox.contentTintColor = nil
     }
 }
@@ -755,15 +784,15 @@ private enum ManagerSymbolCache {
 
 /// Draws and caches the rounded checkbox used on every manager row: an
 /// accent-outlined rounded square when unchecked, filled with a white check when
-/// selected. Keyed by checked-state + accent so it redraws only when those
-/// change. Main-thread only (cells are configured on the main actor).
+/// selected, filled with a white dash when partly selected. Keyed by state +
+/// accent so it redraws only when those change. Main-thread only (cells are configured on the main actor).
 @MainActor
 private enum ManagerCheckboxImage {
     private static var cache: [String: NSImage] = [:]
 
-    static func image(checked: Bool, accent: NSColor) -> NSImage {
+    static func image(checked: Bool, partially: Bool, accent: NSColor) -> NSImage {
         let srgb = accent.usingColorSpace(.sRGB) ?? accent
-        let key = "\(checked)|\(Int(srgb.redComponent * 255))-\(Int(srgb.greenComponent * 255))-\(Int(srgb.blueComponent * 255))"
+        let key = "\(checked)|\(partially)|\(Int(srgb.redComponent * 255))-\(Int(srgb.greenComponent * 255))-\(Int(srgb.blueComponent * 255))"
         if let cached = cache[key] { return cached }
 
         let side: CGFloat = 18
@@ -782,6 +811,16 @@ private enum ManagerCheckboxImage {
                 check.line(to: NSPoint(x: box.minX + box.width * 0.74, y: box.minY + box.height * 0.68))
                 NSColor.white.setStroke()
                 check.stroke()
+            } else if partially {
+                accent.setFill()
+                path.fill()
+                let dash = NSBezierPath()
+                dash.lineWidth = 2
+                dash.lineCapStyle = .round
+                dash.move(to: NSPoint(x: box.minX + box.width * 0.28, y: box.midY))
+                dash.line(to: NSPoint(x: box.minX + box.width * 0.72, y: box.midY))
+                NSColor.white.setStroke()
+                dash.stroke()
             } else {
                 // A softened accent for the empty outline so it reads as a light
                 // pink border rather than the bolder filled state.

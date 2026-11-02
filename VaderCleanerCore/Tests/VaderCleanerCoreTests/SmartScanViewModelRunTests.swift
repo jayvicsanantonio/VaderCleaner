@@ -185,6 +185,39 @@ final class SmartScanViewModelRunTests: XCTestCase {
         XCTAssertEqual(junkLine?.outcome, .success)
     }
 
+    // MARK: - Telling other sections
+
+    /// The Cleanup section may be holding results from before this pass, so a Run
+    /// that removed junk says so — and one that couldn't remove any doesn't.
+    func test_run_reportsJunkCleaned_onlyWhenTheCleanerSucceeded() async {
+        struct Boom: Error {}
+        var cleanedCalls = 0
+        let working = SmartScanViewModel(
+            scanEngine: { _, _ in Self.richPlan },
+            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            threatRemover: { _ in [] },
+            recycleFiles: { Set($0) },
+            maintenanceTaskRunner: { _ in }
+        )
+        working.onJunkCleaned = { cleanedCalls += 1 }
+        await working.scan()
+        await working.run()
+        XCTAssertEqual(cleanedCalls, 1)
+
+        cleanedCalls = 0
+        let failing = SmartScanViewModel(
+            scanEngine: { _, _ in Self.richPlan },
+            junkCleaner: { _ in throw Boom() },
+            threatRemover: { _ in [] },
+            recycleFiles: { Set($0) },
+            maintenanceTaskRunner: { _ in }
+        )
+        failing.onJunkCleaned = { cleanedCalls += 1 }
+        await failing.scan()
+        await failing.run()
+        XCTAssertEqual(cleanedCalls, 0)
+    }
+
     // MARK: - Failure isolation
 
     func test_run_oneFailingFinding_leavesTheRestIntact() async {

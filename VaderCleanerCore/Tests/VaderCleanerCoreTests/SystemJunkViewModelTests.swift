@@ -211,7 +211,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         // The cache file is selected by default (safe category); clean it.
         await vm.clean()
 
-        XCTAssertEqual(vm.phase, .complete(bytesFreed: 1_024))
+        XCTAssertEqual(vm.phase, .complete(JunkRemovalReport(bytesFreed: 1_024)))
     }
 
     /// A throwing deleter must surface `.failed` rather than leaving the user
@@ -595,7 +595,7 @@ final class SystemJunkViewModelTests: XCTestCase {
             Set(received), [cacheA, cacheB],
             "clean(categories:) must delete the whole group, not just the selected files"
         )
-        XCTAssertEqual(vm.phase, .complete(bytesFreed: 300))
+        XCTAssertEqual(vm.phase, .complete(JunkRemovalReport(bytesFreed: 300)))
     }
 
     /// Cleaning a group with no scanned files must not call the deleter or leave
@@ -650,7 +650,7 @@ final class SystemJunkViewModelTests: XCTestCase {
         await vm.scan()
         // The cache file is selected by default (safe category); clean it.
         await vm.clean()
-        XCTAssertEqual(vm.phase, .complete(bytesFreed: 100))
+        XCTAssertEqual(vm.phase, .complete(JunkRemovalReport(bytesFreed: 100)))
 
         vm.scanAgain()
 
@@ -671,7 +671,7 @@ final class SystemJunkViewModelTests: XCTestCase {
                 await Task.yield()
                 return ScanResult(items: [])
             },
-            deleter: { _ in 0 }
+            deleter: { _, _ in JunkRemovalReport() }
         )
 
         await vm.scan()
@@ -689,7 +689,7 @@ final class SystemJunkViewModelTests: XCTestCase {
                 await Task.yield()
                 return ScanResult(items: [])
             },
-            deleter: { _ in 0 }
+            deleter: { _, _ in JunkRemovalReport() }
         )
 
         await vm.scan()
@@ -805,7 +805,10 @@ final class SystemJunkViewModelTests: XCTestCase {
         // Adapt the progress-free test closures to the production scanner
         // signature; the count test constructs the VM directly to drive the
         // progress callback.
-        SystemJunkViewModel(scanner: { _ in try await scanner() }, deleter: deleter)
+        SystemJunkViewModel(
+            scanner: { _ in try await scanner() },
+            deleter: { files, _ in JunkRemovalReport(bytesFreed: try await deleter(files)) }
+        )
     }
 
     private func makeResult(_ groups: (ScanCategory, [ScannedFile])...) -> ScanResult {

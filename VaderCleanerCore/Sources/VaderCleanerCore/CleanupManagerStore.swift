@@ -3,6 +3,13 @@
 
 import Foundation
 
+/// How much of what a manager row covers is selected, for its checkbox.
+public enum ManagerRowSelection: Sendable {
+    case none
+    case some
+    case all
+}
+
 /// Caches the Cleanup Manager's model across opens and warms it in the
 /// background after a scan, so the panes appear without a per-open rebuild.
 ///
@@ -20,6 +27,22 @@ import Foundation
 public final class CleanupManagerStore: @unchecked Sendable {
 
     private let lock = NSLock()
+    /// Held for a whole path-index build, so overlapping callers wait for the one
+    /// map instead of each building their own. Always taken before `lock`.
+    private let pathIndexBuildLock = NSLock()
+
+    /// Test seams: called once a category's build has taken its inputs, and each
+    /// time a path index is actually built.
+    private let beforeBuildingRows: (@Sendable () -> Void)?
+    private let onBuildingPathIndex: (@Sendable () -> Void)?
+
+    init(
+        beforeBuildingRows: (@Sendable () -> Void)? = nil,
+        onBuildingPathIndex: (@Sendable () -> Void)? = nil
+    ) {
+        self.beforeBuildingRows = beforeBuildingRows
+        self.onBuildingPathIndex = onBuildingPathIndex
+    }
 
     // Inputs, copied from the latest scan result.
     private var itemsByCategory: [ScanCategory: [ScannedFile]] = [:]
@@ -30,9 +53,11 @@ public final class CleanupManagerStore: @unchecked Sendable {
     private var itemsCache: [String: [ManagerItem]] = [:]
     /// Leaf file path → file, for toggling selection. Built off-main.
     private var filesByPath: [String: ScannedFile] = [:]
-    /// Childless row id → the leaf file paths it covers, populated as each
-    /// category's tree is built. Expandable folders are absent here; they
-    /// resolve through `childRowIDsByRowID` instead, so a path is stored once
+    /// Whether `filesByPath` covers the current inputs.
+    private var hasPathIndex = false
+    /// Row id → the leaf file paths stored on that row, populated as each
+    /// category's tree is built. Expandable folders are normally absent here;
+    /// they resolve through `childRowIDsByRowID` instead, so a path is stored once
     /// (in its childless node) rather than once per ancestor.
     private var pathsByRowID: [String: [String]] = [:]
     /// Expandable-folder row id → its child row ids, so a folder's covered
@@ -40,7 +65,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
     private var childRowIDsByRowID: [String: [String]] = [:]
     /// Memoized `allFilesSelected` answers, valid only for
     /// `cachedSelectionRevision`.
-    private var rowSelectionCache: [String: Bool] = [:]
+    private var rowSelectionCache: [String: ManagerRowSelection] = [:]
     /// The selection revision `rowSelectionCache` was built against; `nil`
     /// before the first query.
     private var cachedSelectionRevision: Int?
@@ -86,6 +111,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
         shellCache = nil
         itemsCache = [:]
         filesByPath = [:]
+        hasPathIndex = false
         pathsByRowID = [:]
         childRowIDsByRowID = [:]
         rowSelectionCache = [:]
@@ -106,7 +132,6 @@ public final class CleanupManagerStore: @unchecked Sendable {
             sizeByCategory: result.sizeByCategory
         )
         let myToken = token
-        let allItems = result.items
         lock.unlock()
 
         Task.detached(priority: .utility) { [weak self] in
@@ -115,12 +140,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
             withExtendedLifetime(superseded) {}
             guard let self else { return }
             // The path index first, so selection works as soon as rows appear.
-            let map = Dictionary(allItems.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
-            // Scoped `withLock` rather than lock()/unlock(): the bare calls are
-            // unavailable from an async context.
-            self.lock.withLock {
-                if self.token == myToken { self.filesByPath = map }
-            }
+            self.ensurePathIndex()
 
             // Warm the cheap shell so the panes paint instantly on open. Each
             // category's folder tree is built lazily on first open (see
@@ -147,6 +167,41 @@ public final class CleanupManagerStore: @unchecked Sendable {
         }
     }
 
+    /// Builds the path→file index unless it already exists. Runs off-main: the
+    /// warm calls it, and so does each category's first build, which means rows
+    /// can never reach the screen before the index they resolve through. A row
+    /// that outran a low-priority warm swallowed its checkbox click and showed
+    /// unchecked. A caller arriving during a build waits for it rather than
+    /// returning early, which would reinstate exactly that race.
+    private func ensurePathIndex() {
+        pathIndexBuildLock.lock()
+        defer { pathIndexBuildLock.unlock() }
+        lock.lock()
+        guard !hasPathIndex else {
+            lock.unlock()
+            return
+        }
+        let myToken = token
+        let inputs = itemsByCategory
+        lock.unlock()
+
+        onBuildingPathIndex?()
+        let map = Dictionary(
+            inputs.values.joined().map { ($0.url.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        lock.lock()
+        if token == myToken, !hasPathIndex {
+            filesByPath = map
+            hasPathIndex = true
+            // Anything answered before this point saw no files at all.
+            rowSelectionCache.removeAll()
+            cachedSelectionRevision = nil
+        }
+        lock.unlock()
+    }
+
     private func isCurrent(_ myToken: Int) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return token == myToken
@@ -161,6 +216,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
         }
         let ibc = itemsByCategory
         let sbc = sizeByCategory
+        let myToken = token
         lock.unlock()
 
         let built = CleanupManagerModel.buildShell(
@@ -169,7 +225,9 @@ public final class CleanupManagerStore: @unchecked Sendable {
             includeEmptySections: true
         )
         lock.lock()
-        shellCache = built
+        // A `load` or `unload` landed during the build, so this describes content
+        // the store no longer serves.
+        if token == myToken { shellCache = built }
         lock.unlock()
         return built
     }
@@ -177,6 +235,7 @@ public final class CleanupManagerStore: @unchecked Sendable {
     /// The rows for one category (built once and cached). Indexes the
     /// rows' selection paths so the selection callbacks can resolve them.
     public func items(forCategoryID id: String) -> [ManagerItem] {
+        ensurePathIndex()
         lock.lock()
         if let cached = itemsCache[id] {
             lock.unlock()
@@ -184,7 +243,9 @@ public final class CleanupManagerStore: @unchecked Sendable {
         }
         let category = ScanCategory(rawValue: id)
         let files = category.flatMap { itemsByCategory[$0] } ?? []
+        let myToken = token
         lock.unlock()
+        beforeBuildingRows?()
 
         // Web Development Junk needs the same expensive cache/project split for
         // both its rows and its idle-projects Select pick, so compute both in
@@ -200,10 +261,14 @@ public final class CleanupManagerStore: @unchecked Sendable {
         }
 
         lock.lock()
+        defer { lock.unlock() }
+        // A `load` or `unload` landed during the build: hand this tree to the
+        // caller that asked for it, but keep it out of the caches, which now
+        // belong to other content.
+        guard token == myToken else { return tree }
         itemsCache[id] = tree
         if let idleProjectFiles { webDevIdleProjectFilesCache = idleProjectFiles }
         indexRows(tree)
-        lock.unlock()
         return tree
     }
 
@@ -219,26 +284,28 @@ public final class CleanupManagerStore: @unchecked Sendable {
     /// Records each row's selection index. A childless row stores the leaf paths
     /// it covers; an expandable folder stores its child row ids so its covered
     /// paths resolve as the union of its children — keeping a path out of every
-    /// ancestor's storage. Call under `lock`.
+    /// ancestor's storage. The one path an expandable folder keeps is a scanned
+    /// file that is the folder itself, which belongs to no child. Call under `lock`.
     private func indexRows(_ rows: [ManagerItem]) {
         for row in rows {
             if row.children.isEmpty {
                 pathsByRowID[row.id] = row.selectionPaths.isEmpty ? [row.id] : row.selectionPaths
             } else {
                 childRowIDsByRowID[row.id] = row.children.map(\.id)
+                if !row.selectionPaths.isEmpty { pathsByRowID[row.id] = row.selectionPaths }
             }
             indexRows(row.children)
         }
     }
 
-    /// Resolves a row's covered leaf paths. A childless row returns its stored
-    /// paths; an expandable folder unions its children. Call under `lock`.
+    /// Resolves a row's covered leaf paths: its stored paths plus the union of its
+    /// children, or the id itself for a row the index doesn't know. Call under
+    /// `lock`.
     private func resolvePaths(forRowID id: String) -> [String] {
-        if let paths = pathsByRowID[id] { return paths }
-        if let children = childRowIDsByRowID[id] {
-            return children.flatMap { resolvePaths(forRowID: $0) }
-        }
-        return [id]
+        let stored = pathsByRowID[id]
+        let children = childRowIDsByRowID[id]
+        if stored == nil && children == nil { return [id] }
+        return (stored ?? []) + (children ?? []).flatMap { resolvePaths(forRowID: $0) }
     }
 
     // MARK: - Selection lookups (read from the main actor)
@@ -266,19 +333,38 @@ public final class CleanupManagerStore: @unchecked Sendable {
     }
 
     /// Whether a row covers at least one indexed file and every one of them
-    /// satisfies `isSelected` — the folder-row checkbox's checked state,
-    /// answered by walking the row's index in place and short-circuiting on the
-    /// first miss, instead of materializing the subtree's whole file array
-    /// (which a visible folder row over a huge subtree re-allocated on every
-    /// table reload). Paths the background warm hasn't indexed yet are skipped,
-    /// matching `files(forRowID:)`; a row that resolves to no files answers
-    /// unchecked. `isSelected` runs under the store's lock and must not call
-    /// back into the store.
+    /// satisfies `isSelected` — the folder-row checkbox's checked state. See
+    /// `selectionState`, which answers it.
+    public func allFilesSelected(
+        forRowID id: String,
+        selectionRevision: Int,
+        isSelected: (ScannedFile) -> Bool
+    ) -> Bool {
+        selectionState(forRowID: id, selectionRevision: selectionRevision, isSelected: isSelected) == .all
+    }
+
+    /// Whether a row covers selected and unselected files both — the folder-row
+    /// checkbox's mixed state. A folder drawn empty here would read as "nothing in
+    /// this folder goes" while its selected files still would.
+    public func someFilesSelected(
+        forRowID id: String,
+        selectionRevision: Int,
+        isSelected: (ScannedFile) -> Bool
+    ) -> Bool {
+        selectionState(forRowID: id, selectionRevision: selectionRevision, isSelected: isSelected) == .some
+    }
+
+    /// How much of a row is selected, answered by walking the row's index in
+    /// place and stopping as soon as it has seen both a selected and an unselected
+    /// file, instead of materializing the subtree's whole file array (which a
+    /// visible folder row over a huge subtree re-allocated on every table reload).
+    /// A row that resolves to no files answers `.none`. `isSelected` runs under the
+    /// store's lock and must not call back into the store.
     ///
     /// Answers are memoized per `selectionRevision` — the view model's counter
     /// over its selection set — and the whole cache is dropped the moment that
-    /// counter moves. Without it, an all-selected folder row has nothing to
-    /// short-circuit on and rescans its entire subtree every time the table
+    /// counter moves. Without it, a uniformly-selected folder row has nothing to
+    /// stop early on and rescans its entire subtree every time the table
     /// configures its cell: `~/.npm` covers a quarter of a million files, so
     /// scrolling it back into view cost ~140 ms of `Set<URL>` lookups, once per
     /// appearance. The manager's per-category fast path
@@ -287,11 +373,11 @@ public final class CleanupManagerStore: @unchecked Sendable {
     /// a mixed selection — the normal state of Web Development Junk, whose
     /// caches are pre-checked and whose project artifacts are not — falls
     /// through to here for every row.
-    public func allFilesSelected(
+    public func selectionState(
         forRowID id: String,
         selectionRevision: Int,
         isSelected: (ScannedFile) -> Bool
-    ) -> Bool {
+    ) -> ManagerRowSelection {
         lock.lock(); defer { lock.unlock() }
         if cachedSelectionRevision != selectionRevision {
             rowSelectionCache.removeAll(keepingCapacity: true)
@@ -299,31 +385,31 @@ public final class CleanupManagerStore: @unchecked Sendable {
         } else if let cached = rowSelectionCache[id] {
             return cached
         }
-        var foundFile = false
-        let answer = allResolvedFilesSelected(forRowID: id, isSelected: isSelected, foundFile: &foundFile) && foundFile
+        var foundSelected = false
+        var foundUnselected = false
+        visitResolvedFiles(forRowID: id) { file in
+            if isSelected(file) { foundSelected = true } else { foundUnselected = true }
+            return !(foundSelected && foundUnselected)
+        }
+        let answer: ManagerRowSelection = foundSelected ? (foundUnselected ? .some : .all) : .none
         rowSelectionCache[id] = answer
         return answer
     }
 
-    /// Recursive body of `allFilesSelected`, mirroring `resolvePaths`' index
-    /// precedence (stored paths, then children, then the id itself as a path).
-    /// Call under `lock`.
-    private func allResolvedFilesSelected(forRowID id: String, isSelected: (ScannedFile) -> Bool, foundFile: inout Bool) -> Bool {
-        let paths: [String]
-        if let stored = pathsByRowID[id] {
-            paths = stored
-        } else if let children = childRowIDsByRowID[id] {
-            for child in children where !allResolvedFilesSelected(forRowID: child, isSelected: isSelected, foundFile: &foundFile) {
-                return false
-            }
-            return true
-        } else {
-            paths = [id]
-        }
-        for path in paths {
+    /// Visits a row's indexed files until `visit` returns `false`, mirroring
+    /// `resolvePaths`' index order without materializing its array. Paths with no
+    /// indexed file are skipped. Returns whether the walk ran to the end. Call
+    /// under `lock`.
+    @discardableResult
+    private func visitResolvedFiles(forRowID id: String, _ visit: (ScannedFile) -> Bool) -> Bool {
+        let stored = pathsByRowID[id]
+        let children = childRowIDsByRowID[id]
+        for path in stored ?? (children == nil ? [id] : []) {
             guard let file = filesByPath[path] else { continue }
-            foundFile = true
-            if !isSelected(file) { return false }
+            if !visit(file) { return false }
+        }
+        for child in children ?? [] where !visitResolvedFiles(forRowID: child, visit) {
+            return false
         }
         return true
     }

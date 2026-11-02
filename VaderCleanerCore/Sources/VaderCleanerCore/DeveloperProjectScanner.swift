@@ -34,6 +34,24 @@ struct DeveloperProjectScanner {
         "target",
     ]
 
+    /// Names people also give to their own folders, each with the manifests that
+    /// show a toolchain is really behind it. A `target` beside a `Cargo.toml` is
+    /// Rust output; a `target` with nothing around it could be anything, so it is
+    /// never offered. Every other junk name is one only a toolchain creates.
+    static let manifestsForAmbiguousNames: [String: Set<String>] = [
+        "build": [
+            "package.json", "build.gradle", "build.gradle.kts", "settings.gradle",
+            "settings.gradle.kts", "CMakeLists.txt", "meson.build", "pyproject.toml", "setup.py",
+        ],
+        "dist": ["package.json", "pyproject.toml", "setup.py"],
+        "target": ["Cargo.toml", "pom.xml"],
+    ]
+
+    /// Visible folders whose contents are never project output. A virtualenv's
+    /// installed packages carry their own `build` and `dist` folders beside their
+    /// own `setup.py`, so the manifest rule can't rule those out by itself.
+    private static let undescendedFolderNames: Set<String> = ["venv", "site-packages"]
+
     /// Directories to search. Supplied per scan from the user-configurable scope.
     let roots: [URL]
 
@@ -87,22 +105,43 @@ struct DeveloperProjectScanner {
         if Task.isCancelled { return }
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
             options: []
         ) else {
             return
         }
+        let siblingNames = Set(entries.map(\.lastPathComponent))
         for entry in entries {
             visit(&visited, onProgress: onProgress)
-            let isDirectory = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            guard isDirectory else { continue }
+            let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            guard values?.isDirectory == true else { continue }
 
-            if Self.junkFolderNames.contains(entry.lastPathComponent) {
+            if Self.isArtifact(named: entry.lastPathComponent, besideEntriesNamed: siblingNames) {
                 results.append(rolledUpFile(for: entry, visited: &visited, onProgress: onProgress))
-            } else if depth < maxDepth {
+            } else if depth < maxDepth,
+                      Self.mayContainProjects(named: entry.lastPathComponent, isPackage: values?.isPackage == true, depth: depth) {
                 collect(in: entry, depth: depth + 1, into: &results, visited: &visited, onProgress: onProgress)
             }
         }
+    }
+
+    /// Whether a folder is regenerable output: a name only a toolchain creates,
+    /// or an ambiguous name beside one of the manifests that vouch for it.
+    private static func isArtifact(named name: String, besideEntriesNamed siblings: Set<String>) -> Bool {
+        guard junkFolderNames.contains(name) else { return false }
+        guard let manifests = manifestsForAmbiguousNames[name] else { return true }
+        return !manifests.isDisjoint(with: siblings)
+    }
+
+    /// Whether the walk should look inside a folder that isn't an artifact. Hidden
+    /// folders hold metadata and tool state rather than projects: `.git` has
+    /// `refs/heads/build` whenever a branch is named `build/…`, and removing that
+    /// deletes the branches. App bundles hold a shipped app's runtime files, and a
+    /// root-level `Library` — the home folder picked as the scan folder — holds
+    /// other apps' data.
+    private static func mayContainProjects(named name: String, isPackage: Bool, depth: Int) -> Bool {
+        if name.hasPrefix(".") || isPackage || undescendedFolderNames.contains(name) { return false }
+        return !(depth == 0 && name == "Library")
     }
 
     /// Counts one visited filesystem item, ticking `onProgress` on the shared
@@ -115,47 +154,58 @@ struct DeveloperProjectScanner {
     }
 
     /// Builds the single `ScannedFile` representing a matched folder: the folder
-    /// URL, its recursive byte total, and the folder's own timestamps so the
-    /// Cleanup Manager can sort and age it like any other entry.
+    /// URL, its recursive byte total, and timestamps so the Cleanup Manager can
+    /// sort and age it like any other entry.
+    ///
+    /// The modified date is the newest of the folder's and its files'. A folder's
+    /// own date only moves when a direct child is added or removed, so on its own
+    /// it calls a `dist` idle while the files inside change daily.
     private func rolledUpFile(
         for folder: URL,
         visited: inout Int,
         onProgress: (@Sendable (Int) -> Void)?
     ) -> ScannedFile {
         let timestamps = try? folder.resourceValues(forKeys: [.contentAccessDateKey, .contentModificationDateKey])
+        let contents = directoryContents(folder, visited: &visited, onProgress: onProgress)
         return ScannedFile(
             url: folder,
-            size: directorySize(folder, visited: &visited, onProgress: onProgress),
+            size: contents.size,
             lastAccessDate: timestamps?.contentAccessDate,
-            lastModifiedDate: timestamps?.contentModificationDate,
+            lastModifiedDate: [timestamps?.contentModificationDate, contents.newestModification].compactMap { $0 }.max(),
             category: .webDevJunk
         )
     }
 
-    /// Sums the byte size of every regular file under `folder`. Unreadable
-    /// descendants are skipped rather than aborting the walk. This is where
-    /// the bulk of a big artifact folder's items are visited, so each
-    /// enumerated descendant counts toward the progress tally.
-    private func directorySize(
+    /// Sums the byte size of every regular file under `folder` and finds the
+    /// newest of their modification dates. Unreadable descendants are skipped
+    /// rather than aborting the walk. This is where the bulk of a big artifact
+    /// folder's items are visited, so each enumerated descendant counts toward
+    /// the progress tally.
+    private func directoryContents(
         _ folder: URL,
         visited: inout Int,
         onProgress: (@Sendable (Int) -> Void)?
-    ) -> Int64 {
+    ) -> (size: Int64, newestModification: Date?) {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
         guard let enumerator = fileManager.enumerator(
             at: folder,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            includingPropertiesForKeys: Array(keys),
             options: []
         ) else {
-            return 0
+            return (0, nil)
         }
         var total: Int64 = 0
+        var newest: Date?
         for case let url as URL in enumerator {
             visit(&visited, onProgress: onProgress)
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            let values = try? url.resourceValues(forKeys: keys)
             if values?.isRegularFile == true {
                 total += Int64(values?.fileSize ?? 0)
+                if let modified = values?.contentModificationDate, modified > (newest ?? .distantPast) {
+                    newest = modified
+                }
             }
         }
-        return total
+        return (total, newest)
     }
 }

@@ -54,7 +54,7 @@ struct ScanCategoryTests {
             .systemCache, .userCache,
             .systemLogs, .userLogs,
             .languageFiles,
-            .xcodeJunk, .documentVersions, .webDevJunk,
+            .xcodeJunk, .webDevJunk,
             .trash,
         ]
         for category in ScanCategory.allCases {

@@ -23,10 +23,10 @@ import os.log
 /// `~/Library/Application Support/MobileSync/Backup`, and `~/Applications`)
 /// is removed in-process.
 ///
-/// Errors on individual files are logged and skipped — a single locked log
-/// file must never abort the whole clean. The returned `bytesFreed` reflects
-/// only the files we actually removed, so the UI never claims a freed-space
-/// total it did not deliver.
+/// Errors on individual files are logged and counted — a single locked log
+/// file must never abort the whole clean. The `JunkRemovalReport` reflects only
+/// the files that actually went, so the UI never claims a total it did not
+/// deliver.
 public struct SystemJunkDeleter: Sendable {
 
     /// Closure that yields a fresh helper proxy bound to the supplied
@@ -41,6 +41,17 @@ public struct SystemJunkDeleter: Sendable {
     /// redirect to a sandboxed directory instead of the real `~/.Trash`;
     /// production uses `FileManager.trashItem`.
     typealias TrashItem = @Sendable (URL) throws -> Void
+
+    /// Whether nothing exists at a path any more. Injectable so tests can state
+    /// the outcome of a failed helper batch without real root-owned files.
+    typealias PathIsGone = @Sendable (String) -> Bool
+
+    /// Lists "gone" only on a definite answer: `lstat` also fails for a path the
+    /// app isn't allowed to look at, and that says nothing about whether it went.
+    static let defaultPathIsGone: PathIsGone = { path in
+        var info = stat()
+        return lstat(path, &info) != 0 && errno == ENOENT
+    }
 
     /// Plain prefix matches that mean "must go through the helper". Stored
     /// with trailing slashes so the check matches descendants but not paths
@@ -68,8 +79,10 @@ public struct SystemJunkDeleter: Sendable {
     /// thousands of paths through the helper; one giant `deleteFiles(_:)` message
     /// risks the XPC transport's size limits and makes the helper process the
     /// whole set as a single unit. Chunking bounds each message and lets a
-    /// partial failure cost only its own batch.
-    static let defaultHelperBatchSize = 10_000
+    /// partial failure cost only its own batch. It also bounds how long Stop
+    /// takes: a call can't be interrupted once sent, so cancellation lands between
+    /// batches.
+    static let defaultHelperBatchSize = 1_000
 
     /// See `DefaultAppDiscovery.fileManager` — `.default` is documented
     /// thread-safe and test fixtures are single-threaded.
@@ -81,18 +94,25 @@ public struct SystemJunkDeleter: Sendable {
     private let helperProvider: HelperProvider
     private let trashItem: TrashItem
     private let helperBatchSize: Int
+    private let pathIsGone: PathIsGone
+
+    /// How many in-process removals pass between progress reports, so a clean of
+    /// hundreds of thousands of files doesn't hop to the main actor for each one.
+    private static let progressInterval = 256
 
     init(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         helperProvider: @escaping HelperProvider = SystemJunkDeleter.defaultHelperProvider,
         trashItem: TrashItem? = nil,
-        helperBatchSize: Int = SystemJunkDeleter.defaultHelperBatchSize
+        helperBatchSize: Int = SystemJunkDeleter.defaultHelperBatchSize,
+        pathIsGone: @escaping PathIsGone = SystemJunkDeleter.defaultPathIsGone
     ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory
         self.helperProvider = helperProvider
         self.helperBatchSize = max(1, helperBatchSize)
+        self.pathIsGone = pathIsGone
         // `FileManager.trashItem` always targets the system Trash regardless of
         // the instance, so the trash destination is its own seam rather than a
         // property of the injected `fileManager` — and the default can name the
@@ -103,8 +123,9 @@ public struct SystemJunkDeleter: Sendable {
         }
     }
 
-    /// Deletes every file in `files` and returns the sum of byte sizes for
-    /// the ones that were successfully removed.
+    /// Removes every file in `files` and reports what happened, stopping between
+    /// items if the task is cancelled. `onProgress` receives the running count of
+    /// items dealt with.
     ///
     /// User-domain files are moved to the **Trash** (recoverable) rather than
     /// deleted outright, so a Clean can be undone from Finder. Two cases stay a
@@ -112,31 +133,65 @@ public struct SystemJunkDeleter: Sendable {
     /// Trash (emptying the Trash Bins), and system/root files routed through the
     /// privileged helper (rebuildable caches/logs and the root-owned Document
     /// Versions store, which can't move to the user's Trash).
-    func delete(_ files: [ScannedFile]) async throws -> Int64 {
+    func remove(_ files: [ScannedFile], onProgress: (@Sendable (Int) -> Void)? = nil) async -> JunkRemovalReport {
         let (helperFiles, userFiles) = partition(files)
 
-        var bytesFreed: Int64 = 0
+        var report = JunkRemovalReport()
+        var processed = 0
         for file in userFiles {
+            if Task.isCancelled {
+                report.wasCancelled = true
+                return report
+            }
             do {
                 if Self.isInUserTrash(path: file.url.path, homeDirectory: homeDirectory) {
                     // Emptying the Trash is, by definition, permanent.
                     try fileManager.removeItem(at: file.url)
+                    report.bytesFreed += file.size
                 } else {
                     // Recoverable: move to the Trash instead of deleting.
                     try trashItem(file.url)
+                    report.bytesMovedToTrash += file.size
                 }
-                bytesFreed += file.size
+                report.removedCount += 1
+            } catch where Self.isNoSuchFile(error) {
+                // Gone since the scan listed it: nothing freed, and nothing failed.
             } catch {
+                report.failedCount += 1
                 log.debug("Skipping unremovable user file \(file.url.path, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private)")
             }
+            processed += 1
+            if processed.isMultiple(of: Self.progressInterval) { onProgress?(processed) }
+        }
+        onProgress?(processed)
+
+        for chunk in helperFiles.chunked(into: helperBatchSize) where !chunk.isEmpty {
+            if Task.isCancelled {
+                report.wasCancelled = true
+                return report
+            }
+            await deleteChunkViaHelper(files: chunk, into: &report)
+            processed += chunk.count
+            onProgress?(processed)
         }
 
-        if !helperFiles.isEmpty {
-            let succeeded = await deleteViaHelper(files: helperFiles)
-            bytesFreed += succeeded
-        }
+        return report
+    }
 
-        return bytesFreed
+    /// Removes `files` and returns the bytes moved or removed, for callers that
+    /// only need a total. Throws when every attempt failed, so a clean that did
+    /// nothing can't read as a success with zero bytes.
+    func delete(_ files: [ScannedFile]) async throws -> Int64 {
+        let report = await remove(files)
+        if report.removedNothing {
+            throw JunkRemovalError.nothingRemoved(failedCount: report.failedCount)
+        }
+        return report.totalBytes
+    }
+
+    private static func isNoSuchFile(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError
     }
 
     /// Splits `files` into `(needsHelper, userDomain)` based on the routing
@@ -190,21 +245,10 @@ public struct SystemJunkDeleter: Sendable {
         return URL(fileURLWithPath: path).standardizedFileURL.path.hasPrefix(prefix)
     }
 
-    /// Routes every helper-bound file through the privileged helper in bounded
-    /// batches (`helperBatchSize`), awaiting each in turn and summing the bytes
-    /// of the batches that succeeded. Chunking keeps a single clean of hundreds
-    /// of thousands of paths from serializing into one oversized XPC message,
-    /// and a failed batch costs only its own bytes: the remaining batches still
-    /// run, and each is credited on its own success.
-    private func deleteViaHelper(files: [ScannedFile]) async -> Int64 {
-        var bytesFreed: Int64 = 0
-        for chunk in files.chunked(into: helperBatchSize) where !chunk.isEmpty {
-            bytesFreed += await deleteChunkViaHelper(files: chunk)
-        }
-        return bytesFreed
-    }
-
-    /// Attempts a single batched helper call. The XPC interface uses the
+    /// Attempts a single batched helper call and records the outcome in `report`.
+    /// Batches are bounded (`helperBatchSize`) so a clean of hundreds of thousands
+    /// of paths doesn't serialize into one oversized XPC message, and the caller
+    /// continues with the rest whatever this one does. The XPC interface uses the
     /// classic reply-block style so we bridge through `withCheckedContinuation`.
     ///
     /// `NSXPCConnection` may, in failure cases, fire the connection-level
@@ -213,24 +257,44 @@ public struct SystemJunkDeleter: Sendable {
     /// spinner. `HelperCall.perform` installs both paths plus a watchdog and
     /// guarantees exactly one of them resolves the await.
     ///
-    /// On any error from either path we treat this batch as failed and return
-    /// `0` — the helper has a best-effort contract (it deletes what it can and
-    /// returns the first error), but because the protocol does not surface a
-    /// per-path success vector, we do not credit byte counts for a failed
-    /// batch. Only this chunk is affected; the caller continues with the rest.
-    private func deleteChunkViaHelper(files: [ScannedFile]) async -> Int64 {
+    /// The helper is best-effort — it deletes what it can and returns the first
+    /// error — and the protocol has no per-path result, so after an error each
+    /// path is checked on disk. One protected file in a batch would otherwise cost
+    /// the hundreds around it their credit. A path that was already gone before
+    /// the call earns nothing and isn't a failure, which is why that is recorded
+    /// first. A helper that was never reached has removed nothing, so that case
+    /// needs no checking. One that stopped answering may still be working, so what
+    /// remains of its batch is unconfirmed rather than failed.
+    private func deleteChunkViaHelper(files: [ScannedFile], into report: inout JunkRemovalReport) async {
         let paths = files.map { $0.url.path }
-        let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
+        let alreadyGone = Set(paths.filter(pathIsGone))
 
         let error = await HelperCall.perform(helperProvider: helperProvider) { helper, reply in
             helper.deleteFiles(paths, reply: reply)
         }
 
-        if let error {
-            log.error("Helper deletion failed for \(paths.count, privacy: .public) paths: \(error.localizedDescription, privacy: .private)")
-            return 0
+        guard let error else {
+            report.bytesFreed += files.reduce(Int64(0)) { $0 + $1.size }
+            report.removedCount += files.count
+            return
         }
-        return totalBytes
+        log.error("Helper deletion failed for \(paths.count, privacy: .public) paths: \(error.localizedDescription, privacy: .private)")
+        let attempted = files.filter { !alreadyGone.contains($0.url.path) }
+        if case HelperConnectionError.unavailable = error {
+            report.failedCount += attempted.count
+            return
+        }
+        let timedOut = if case HelperConnectionError.timedOut = error { true } else { false }
+        for file in attempted {
+            if pathIsGone(file.url.path) {
+                report.bytesFreed += file.size
+                report.removedCount += 1
+            } else if timedOut {
+                report.unconfirmedCount += 1
+            } else {
+                report.failedCount += 1
+            }
+        }
     }
 
     /// Default helper provider — returns the proxy from

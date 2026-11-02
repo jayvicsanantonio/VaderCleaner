@@ -54,7 +54,10 @@ struct HelperDeletionPolicy {
         allowedApplicationBundleRoots: [
             URL(fileURLWithPath: "/Applications", isDirectory: true)
         ],
-        volumesRoot: URL(fileURLWithPath: "/Volumes", isDirectory: true)
+        volumesRoot: URL(fileURLWithPath: "/Volumes", isDirectory: true),
+        // Saved document revisions. Only the per-user folder: the store's
+        // database beside it is what makes the rest of the store readable.
+        documentRevisionsRoot: URL(fileURLWithPath: kDocumentVersionsRevisionsPath, isDirectory: true)
     )
 
     private let allowedDescendantRoots: [URL]
@@ -63,6 +66,7 @@ struct HelperDeletionPolicy {
     private let allowedLanguageResourceRoots: [URL]
     private let allowedApplicationBundleRoots: [URL]
     private let volumesRoot: URL
+    private let documentRevisionsRoot: URL?
 
     init(
         allowedDescendantRoots: [URL],
@@ -70,7 +74,8 @@ struct HelperDeletionPolicy {
         allowedUserLaunchAgentsRoot: URL? = nil,
         allowedLanguageResourceRoots: [URL],
         allowedApplicationBundleRoots: [URL] = [],
-        volumesRoot: URL
+        volumesRoot: URL,
+        documentRevisionsRoot: URL? = nil
     ) {
         self.allowedDescendantRoots = allowedDescendantRoots.map(Self.canonicalRoot)
         self.allowedLaunchPlistRoots = allowedLaunchPlistRoots.map(Self.canonicalRoot)
@@ -78,9 +83,13 @@ struct HelperDeletionPolicy {
         self.allowedLanguageResourceRoots = allowedLanguageResourceRoots.map(Self.canonicalRoot)
         self.allowedApplicationBundleRoots = allowedApplicationBundleRoots.map(Self.canonicalRoot)
         self.volumesRoot = Self.canonicalRoot(volumesRoot)
+        self.documentRevisionsRoot = documentRevisionsRoot.map(Self.canonicalRoot)
     }
 
-    func validateDeletionPath(_ path: String) throws -> URL {
+    /// Checks a path against the allowlist. `callerUID` is the connecting
+    /// client's user id, which only saved document revisions depend on: they
+    /// belong to one account, so an unknown caller is refused them.
+    func validateDeletionPath(_ path: String, callerUID: uid_t? = nil) throws -> URL {
         guard !path.isEmpty else { throw HelperDeletionValidationError.emptyPath }
         guard (path as NSString).isAbsolutePath else {
             throw HelperDeletionValidationError.relativePath(path)
@@ -91,7 +100,8 @@ struct HelperDeletionPolicy {
         guard requestedURL.path != "/", resolvedURL.path != "/" else {
             throw HelperDeletionValidationError.rootPath(path)
         }
-        guard isAllowedDeletionTarget(requestedURL), isAllowedDeletionTarget(resolvedURL) else {
+        guard isAllowedDeletionTarget(requestedURL, callerUID: callerUID),
+              isAllowedDeletionTarget(resolvedURL, callerUID: callerUID) else {
             throw HelperDeletionValidationError.disallowedPath(path)
         }
         return requestedURL
@@ -111,13 +121,14 @@ struct HelperDeletionPolicy {
 
     func removeValidatedPaths(
         _ paths: [String],
+        callerUID: uid_t? = nil,
         remove: (URL) throws -> Void = Self.securelyRemoveItem
     ) throws -> Error? {
         var seen = Set<String>()
         var firstError: Error?
         for path in paths {
             do {
-                let url = try validateDeletionPath(path)
+                let url = try validateDeletionPath(path, callerUID: callerUID)
                 guard seen.insert(url.path).inserted else { continue }
                 try remove(url)
             } catch {
@@ -147,17 +158,20 @@ struct HelperDeletionPolicy {
         try removeItem(components: components, from: rootFD, displayPath: displayPath)
     }
 
-    private func isAllowedDeletionTarget(_ url: URL) -> Bool {
-        if isAllowedDeletionTargetWithoutSystemAliases(url) {
+    private func isAllowedDeletionTarget(_ url: URL, callerUID: uid_t?) -> Bool {
+        if isAllowedDeletionTargetWithoutSystemAliases(url, callerUID: callerUID) {
             return true
         }
         if let aliasURL = Self.canonicalSystemAlias(for: url) {
-            return isAllowedDeletionTargetWithoutSystemAliases(aliasURL)
+            return isAllowedDeletionTargetWithoutSystemAliases(aliasURL, callerUID: callerUID)
         }
         return false
     }
 
-    private func isAllowedDeletionTargetWithoutSystemAliases(_ url: URL) -> Bool {
+    private func isAllowedDeletionTargetWithoutSystemAliases(_ url: URL, callerUID: uid_t?) -> Bool {
+        if isAllowedDocumentRevision(url, callerUID: callerUID) {
+            return true
+        }
         if allowedDescendantRoots.contains(where: { Self.isDescendant(url, of: $0) }) {
             return true
         }
@@ -198,6 +212,17 @@ struct HelperDeletionPolicy {
                 || ext.caseInsensitiveCompare("bundle") == .orderedSame
                 || ext.caseInsensitiveCompare("appex") == .orderedSame
         })
+    }
+
+    /// Something inside `<root>/<uid>/` for the connecting client's own user id.
+    /// The helper runs as root for every account on the Mac, so a code-signing
+    /// check alone would let any account's copy of the app remove any other
+    /// account's document history. The `<uid>` folder itself stays.
+    private func isAllowedDocumentRevision(_ url: URL, callerUID: uid_t?) -> Bool {
+        guard let documentRevisionsRoot, let callerUID,
+              Self.isDescendant(url, of: documentRevisionsRoot) else { return false }
+        let relative = Self.relativeComponents(of: url, under: documentRevisionsRoot)
+        return relative.count >= 2 && relative[0] == String(callerUID)
     }
 
     private func isAllowedVolumeTrashDescendant(_ url: URL) -> Bool {

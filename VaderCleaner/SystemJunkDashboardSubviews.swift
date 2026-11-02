@@ -48,18 +48,23 @@ enum CleanupDashboardTile: Identifiable {
         return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
     }
 
+    /// Bytes the headline counts that no card shows, because the grid holds fewer
+    /// cards than a scan can find groups. They stay reachable through Review All,
+    /// and the caption this feeds says so.
+    static func unshownBytes(totalBytes: Int64, tiles: [CleanupDashboardTile]) -> Int64 {
+        let shown = tiles.reduce(Int64(0)) { sum, tile in
+            if case .group(let group) = tile { return sum + group.totalBytes }
+            return sum
+        }
+        return max(0, totalBytes - shown)
+    }
+
     /// Ordered pool of "all good" cards, drawn from in order when a scan finds
-    /// fewer than two junk groups so backfilling never repeats a card.
+    /// fewer than two junk groups so backfilling never repeats a card. Any card
+    /// beside a real finding comes from the front of the pool, whatever that
+    /// finding's size, so the front must not claim there's little junk: "almost
+    /// no junk" read as nonsense next to a 200 GB Trash.
     static let reassurancePool: [ReassuranceContent] = [
-        ReassuranceContent(
-            id: "cleanup.tidy",
-            title: String(localized: "Your Mac Is Tidy", comment: "Cleanup reassurance card title."),
-            detail: String(
-                localized: "There's almost no junk to clear right now. Nicely kept.",
-                comment: "Cleanup reassurance card detail."
-            ),
-            icon: "sparkles"
-        ),
         ReassuranceContent(
             id: "cleanup.checkBack",
             title: String(localized: "Check Back Later", comment: "Cleanup reassurance card title."),
@@ -68,6 +73,15 @@ enum CleanupDashboardTile: Identifiable {
                 comment: "Cleanup reassurance card detail."
             ),
             icon: "clock.arrow.circlepath"
+        ),
+        ReassuranceContent(
+            id: "cleanup.tidy",
+            title: String(localized: "Your Mac Is Tidy", comment: "Cleanup reassurance card title."),
+            detail: String(
+                localized: "There's almost no junk to clear right now. Nicely kept.",
+                comment: "Cleanup reassurance card detail."
+            ),
+            icon: "sparkles"
         ),
     ]
 }
@@ -169,6 +183,20 @@ struct SystemJunkDashboardView: View {
             .buttonStyle(.vaderTileGlass)
             .controlSize(.large)
             .accessibilityIdentifier("system-junk.viewAll")
+
+            let unshown = CleanupDashboardTile.unshownBytes(totalBytes: totalBytes, tiles: tiles)
+            if unshown > 0 {
+                Text(String.localizedStringWithFormat(
+                    String(
+                        localized: "Includes %@ not shown below. Review All Junk lists everything.",
+                        comment: "Cleanup dashboard caption when a junk group has no card; %@ is the size of what the cards leave out."
+                    ),
+                    SystemJunkFormatting.formattedBytes(unshown)
+                ))
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.75))
+                .accessibilityIdentifier("system-junk.unshown")
+            }
         }
     }
 

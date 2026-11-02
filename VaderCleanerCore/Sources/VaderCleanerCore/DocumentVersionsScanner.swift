@@ -65,7 +65,7 @@ struct DocumentVersionsScanner {
         guard let (paths, sizes) = payload else { return [] }
         // Defend against a malformed reply where the parallel arrays disagree.
         let count = min(paths.count, sizes.count)
-        return (0..<count).map { index in
+        return (0..<count).filter { Self.isRemovableRevision(path: paths[$0]) }.map { index in
             ScannedFile(
                 url: URL(fileURLWithPath: paths[index]),
                 size: sizes[index].int64Value,
@@ -74,6 +74,13 @@ struct DocumentVersionsScanner {
                 category: .documentVersions
             )
         }
+    }
+
+    /// Whether a path the helper listed is one of this user's saved revisions. The
+    /// walk runs as root, so it also sees the store's database and every other
+    /// account's revisions, and neither is this user's to clean.
+    static func isRemovableRevision(path: String) -> Bool {
+        path.hasPrefix("\(kDocumentVersionsRevisionsPath)/\(getuid())/")
     }
 
     /// Default provider — the shared connection's proxy bound to the per-call

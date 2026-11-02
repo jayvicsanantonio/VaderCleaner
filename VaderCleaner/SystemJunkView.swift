@@ -9,8 +9,8 @@ import VaderCleanerCore
 ///   - `.idle` — not rendered here; ContentView shows the unified intro.
 ///   - `.scanning` — progress spinner.
 ///   - `.preview` — list of categories with checkboxes plus Clean/Re-scan.
-///   - `.cleaning` — progress spinner.
-///   - `.complete` — "X.X freed" summary plus Scan Again.
+///   - `.cleaning` — progress spinner with a running count and Stop.
+///   - `.complete` — what was freed, trashed, or left behind, plus Scan Again.
 ///   - `.failed` — message plus Try Again.
 ///
 /// Accessibility identifiers are namespaced under `system-junk.*` so UI tests
@@ -39,6 +39,17 @@ struct SystemJunkView: View {
     /// handed back to the dashboard as top padding so only the manager
     /// extends under the title bar.
     @State private var paneTopInset: CGFloat = 0
+    /// The removal waiting on the confirmation dialog: `nil` categories means the
+    /// manager's selection, otherwise a card's one-click Clean.
+    @State private var pendingClean: PendingClean?
+    /// Counts one-click Clean taps, so only the latest may raise the dialog: each
+    /// works out its numbers off the main actor, and an earlier tap can finish last.
+    @State private var directCleanRequest = 0
+
+    private struct PendingClean {
+        let categories: Set<ScanCategory>?
+        let confirmation: CleanupConfirmation
+    }
 
     init(viewModel: SystemJunkViewModel) {
         self.viewModel = viewModel
@@ -63,9 +74,9 @@ struct SystemJunkView: View {
             case .preview(let result):
                 previewState(result: result)
             case .cleaning:
-                progressState(label: "Cleaning…", identifier: "system-junk.cleaning")
-            case .complete(let bytes):
-                completeState(bytesFreed: bytes)
+                cleaningState
+            case .complete(let report):
+                completeState(report: report)
             case .failed(let stage, let message):
                 failedState(stage: stage, message: message)
             }
@@ -132,6 +143,64 @@ struct SystemJunkView: View {
         }
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { paneFrame = $0 })
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }, action: { paneTopInset = $0 })
+        .confirmationDialog(
+            pendingClean?.confirmation.title ?? "",
+            isPresented: Binding(
+                get: { pendingClean != nil },
+                set: { if !$0 { pendingClean = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingClean
+        ) { pending in
+            Button(
+                String(localized: "Remove", comment: "Confirms a Cleanup removal."),
+                role: .destructive
+            ) {
+                viewModel.beginClean(categories: pending.categories)
+            }
+            .accessibilityIdentifier("system-junk.confirm.remove")
+            Button(String(localized: "Cancel", comment: "Dismisses the Cleanup removal confirmation."), role: .cancel) {}
+                .accessibilityIdentifier("system-junk.confirm.cancel")
+        } message: { pending in
+            Text(pending.confirmation.message)
+        }
+    }
+
+    /// Deep links the manager to a card's section and sub-category, pre-selects
+    /// the card's group, then raises the manager once that selection has landed,
+    /// so it never opens on a half-applied selection.
+    private func reviewGroup(_ group: CleanupGroup) {
+        // The zoom anchor and deep-link state resolve synchronously in the click
+        // (the anchor reads the press/click event), before the selection walk
+        // hops off the main actor.
+        managerAnchor = TriggerAnchor.resolve(in: paneFrame)
+        let category = group.managerCategory
+        managerInitialSection = category.flatMap(CleanupManagerModel.sectionID(containing:))
+            ?? CleanupManagerModel.groups.first?.id
+        managerInitialCategory = category?.rawValue
+        Task {
+            await viewModel.selectOnly(categories: Set(group.categories))
+            showingManager = true
+        }
+    }
+
+    /// Asks before a card's one-click Clean, with the numbers for what it would
+    /// really remove. A card holding only opt-in data has nothing to remove in one
+    /// click, so it opens the manager to choose from instead.
+    private func confirmDirectClean(of group: CleanupGroup) {
+        let categories = Set(group.categories)
+        directCleanRequest += 1
+        let request = directCleanRequest
+        Task {
+            let confirmation = await viewModel.directCleanConfirmation(categories: categories)
+            // Superseded by a later tap, or the results left the screen meanwhile.
+            guard request == directCleanRequest, case .preview = viewModel.phase else { return }
+            if let confirmation {
+                pendingClean = PendingClean(categories: categories, confirmation: confirmation)
+            } else {
+                reviewGroup(group)
+            }
+        }
     }
 
     /// Anchors the zoom to the button (or failing that, the click) being
@@ -150,34 +219,14 @@ struct SystemJunkView: View {
             totalBytes: result.totalSize,
             tiles: CleanupDashboardTile.recommended(from: result),
             accent: NavigationSection.systemJunk.theme.accent,
-            onReview: { group in
-                // The zoom anchor and deep-link state resolve synchronously in
-                // the click (the anchor reads the press/click event), before
-                // the selection walk hops off the main actor.
-                managerAnchor = TriggerAnchor.resolve(in: paneFrame)
-                // Deep link: open the manager at this card's section and the
-                // sub-category the card maps to.
-                let category = group.managerCategory
-                managerInitialSection = category.flatMap(CleanupManagerModel.sectionID(containing:))
-                    ?? CleanupManagerModel.groups.first?.id
-                managerInitialCategory = category?.rawValue
-                Task {
-                    // Pre-select this card's whole group so the right pane opens
-                    // all-checked and the selected total matches the card's size.
-                    // The manager raises only once the selection has landed, so
-                    // it never opens on a half-applied selection.
-                    await viewModel.selectOnly(categories: Set(group.categories))
-                    showingManager = true
-                }
-            },
-            onClean: { group in
-                Task { await viewModel.clean(categories: Set(group.categories)) }
-            },
+            onReview: { group in reviewGroup(group) },
+            onClean: { group in confirmDirectClean(of: group) },
             onReviewAll: {
                 // The full manager, default first section/category. Opens with
                 // nothing checked — selection is a card's Review, not this
-                // browse-everything entry point.
-                viewModel.clearSelection()
+                // browse-everything entry point — unless the user has already
+                // made picks of their own.
+                viewModel.prepareReviewAll()
                 managerInitialSection = nil
                 managerInitialCategory = nil
                 openManager()
@@ -207,6 +256,13 @@ struct SystemJunkView: View {
                 // array. (The manager's per-category fast path answers the
                 // common all/none states before this runs at all.)
                 store.allFilesSelected(
+                    forRowID: id,
+                    selectionRevision: viewModel.selectionRevision
+                ) { viewModel.isSelected($0) }
+            },
+            isPartiallySelected: { id in
+                // Same walk and memo as the checked state above.
+                store.someFilesSelected(
                     forRowID: id,
                     selectionRevision: viewModel.selectionRevision
                 ) { viewModel.isSelected($0) }
@@ -275,7 +331,9 @@ struct SystemJunkView: View {
                 localized: "Clean Up",
                 comment: "Footer button on the Cleanup Manager that removes the selected junk."
             ),
-            onPrimaryAction: { Task { await viewModel.clean() } },
+            onPrimaryAction: {
+                pendingClean = PendingClean(categories: nil, confirmation: viewModel.selectionConfirmation)
+            },
             primaryActionEnabled: !viewModel.selectedURLs.isEmpty,
             selectionSummary: {
                 ManagerSelectionSummary(
@@ -296,14 +354,43 @@ struct SystemJunkView: View {
     /// standalone Manager cards.
     private static let managerAccent = ManagerChrome.accent
 
-    private func completeState(bytesFreed: Int64) -> some View {
+    /// The progress screen for a clean: how far it has got, and a way to stop it.
+    private var cleaningState: some View {
+        VStack(spacing: 20) {
+            progressState(
+                label: "Cleaning…",
+                identifier: "system-junk.cleaning",
+                detail: viewModel.cleanTotalCount > 0
+                    ? String.localizedStringWithFormat(
+                        String(localized: "%1$@ of %2$@ items", comment: "Cleanup progress; %1$@ items done of %2$@ total."),
+                        viewModel.cleanedItemCount.formatted(.number),
+                        viewModel.cleanTotalCount.formatted(.number)
+                    )
+                    : nil
+            )
+            Button(String(localized: "Stop", comment: "Stops a running Cleanup; what has already been removed stays removed.")) {
+                viewModel.cancelClean()
+            }
+            .controlSize(.large)
+            .accessibilityIdentifier("system-junk.cleaning.stop")
+        }
+    }
+
+    private func completeState(report: JunkRemovalReport) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: "checkmark.seal.fill")
+            Image(systemName: report.finishedCleanly ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.green)
-            Text(formattedFileBytes(bytesFreed) + " freed")
+                .foregroundStyle(report.finishedCleanly ? .green : .orange)
+            Text(report.headline)
                 .font(.title2.weight(.semibold))
                 .accessibilityIdentifier("system-junk.bytesFreed")
+            ForEach(report.details, id: \.self) { detail in
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
             Button("Scan Again") {
                 viewModel.scanAgain()
             }
@@ -398,7 +485,7 @@ struct SystemJunkEmptyPreviewState: View {
 #Preview("Idle") {
     SystemJunkView(viewModel: SystemJunkViewModel(
         scanner: { _ in ScanResult(items: []) },
-        deleter: { _ in 0 }
+        deleter: { _, _ in JunkRemovalReport() }
     ))
     .frame(width: 700, height: 480)
     .environment(AppState(checker: { true }))
