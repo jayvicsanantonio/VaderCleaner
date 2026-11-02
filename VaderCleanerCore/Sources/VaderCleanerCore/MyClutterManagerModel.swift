@@ -26,7 +26,7 @@ public enum MyClutterCategory: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .largeOld:
             return String(
-                localized: "These files are large and likely unneeded — you haven't opened them in a while.",
+                localized: "These files are large or show no sign of use in over six months. Check before removing them.",
                 bundle: .module,
                 comment: "My Clutter Manager Large & Old description."
             )
@@ -155,6 +155,18 @@ public enum MyClutterManagerModel {
             result = result.sorted { $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedAscending }
         }
         return Array(result.prefix(limit))
+    }
+
+    /// The group a manager pane shows: the selected one, or the first when
+    /// nothing is selected or the selection is stale. A selection goes stale when
+    /// its group is removed, when the group's kept file changes, or when the ID
+    /// belongs to the other image category, and none of those means there is
+    /// nothing left to review.
+    public static func resolvedGroup<Group: Identifiable>(
+        selectedID: String?,
+        in groups: [Group]
+    ) -> Group? where Group.ID == String {
+        groups.first { $0.id == selectedID } ?? groups.first
     }
 
     /// Downloads grouped by their source app, ordered by total bytes (largest

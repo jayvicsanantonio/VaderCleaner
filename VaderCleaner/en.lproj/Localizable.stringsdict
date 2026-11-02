@@ -210,6 +210,22 @@
             <string>%lld Items</string>
         </dict>
     </dict>
+    <key>%lld items couldn't be moved to the Trash.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@items@ moved to the Trash.</string>
+        <key>items</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>%lld item couldn't be</string>
+            <key>other</key>
+            <string>%lld items couldn't be</string>
+        </dict>
+    </dict>
     <key>%lld login items will stop opening at login:</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>

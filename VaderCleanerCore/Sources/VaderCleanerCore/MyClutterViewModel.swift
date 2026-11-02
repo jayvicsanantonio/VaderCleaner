@@ -74,6 +74,15 @@ public final class MyClutterViewModel {
     /// actually changes, not on every checkbox click.
     public private(set) var resultsVersion = 0
 
+    /// True while a removal is on its way to the Trash, so the manager can hold
+    /// Remove rather than start a second one over the same files.
+    public private(set) var isRemoving = false
+
+    /// How many files the last removal could not move to the Trash. They stay
+    /// listed and checked, so without this a failure looks like nothing happened.
+    /// Cleared by the next selection change or removal.
+    public private(set) var removalFailureCount = 0
+
     /// Size of every reviewable file, so selection totals never re-walk the
     /// result arrays. Rebuilt when a scan completes.
     @ObservationIgnored private var sizeByURL: [URL: Int64] = [:]
@@ -86,19 +95,23 @@ public final class MyClutterViewModel {
     @ObservationIgnored private let onLargeOldFilesFound: LargeOldFilesFoundHandler?
     @ObservationIgnored private var scanGeneration = 0
 
+    /// Whether a review has opened since the scan, which replaces the scan-time
+    /// seed: the seed is what a card offers, not what "Review All" opens with.
+    @ObservationIgnored private var hasBegunReview = false
+
+    /// Whether the duplicate copies' checkmarks are the user's now, either from
+    /// the Duplicates card's one seeding or from their own edits. Reopening a
+    /// review must never re-check a copy they chose to keep.
+    @ObservationIgnored private var duplicateSelectionIsSettled = false
+
     /// How many of this scan's sub-scans failed outright, and the last reason —
-    /// the evidence behind "nothing could be checked" as opposed to "nothing
-    /// was found". Reset at the start of every scan.
+    /// the evidence behind "part of this couldn't be checked" as opposed to
+    /// "nothing was found". Reset at the start of every scan.
     @ObservationIgnored private var failedSubScanCount = 0
     @ObservationIgnored private var subScanFailureMessage: String?
 
     @ObservationIgnored private let log = Logger(subsystem: "com.personal.VaderCleaner",
                                                  category: "MyClutterViewModel")
-
-    /// The sub-scans one `scan()` runs. All of them failing is the only case
-    /// that reports a failure, since any success means the dashboard has
-    /// something honest to show.
-    private static let subScanCount = 4
 
     init(
         duplicateScan: @escaping DuplicateScan,
@@ -202,6 +215,7 @@ public final class MyClutterViewModel {
 
     public func toggleSelection(url: URL) {
         guard isReviewable(url) else { return }
+        noteSelectionEdit(of: url)
         if selectedURLs.contains(url) {
             selectedURLs.remove(url)
             totalSelectedSize -= sizeByURL[url] ?? 0
@@ -213,38 +227,86 @@ public final class MyClutterViewModel {
         }
     }
 
-    /// Clear the whole selection — backs opening the manager from "Review All
-    /// Files", which opens with nothing checked so deleting is an explicit
-    /// opt-in. The size/category read-model built at scan time is left intact;
-    /// only the live selection is emptied, and a card's Review re-seeds its own
-    /// category via `selectOnly(category:)`.
-    public func clearSelection() {
+    /// Prepare the selection for opening the manager: `category` is the card whose
+    /// Review was pressed, `nil` is "Review All Files".
+    ///
+    /// The first review of a scan drops the scan-time seed, so deleting is an
+    /// explicit opt-in. The Duplicates card then checks its copies once, because
+    /// a copy always leaves the same bytes behind. Everything else opens as the
+    /// user left it: reopening must not undo their choices, and other categories'
+    /// checkmarks can't leak into a removal because Remove is scoped to the
+    /// category on screen. Similar images look alike but are different files, and
+    /// Large & Old and Downloads are real user data, so those cards check nothing.
+    public func beginReview(of category: MyClutterCategory?) {
+        if !hasBegunReview {
+            hasBegunReview = true
+            clearSelection()
+        }
+        guard category == .duplicates, !duplicateSelectionIsSettled else { return }
+        duplicateSelectionIsSettled = true
+        applySelection(duplicateCopies.map(\.url), selected: true)
+    }
+
+    private func clearSelection() {
         selectedURLs = []
         totalSelectedSize = 0
         selectedBytesByCategory = [:]
         selectedCountByCategory = [:]
     }
 
-    /// Replace the selection with just one category's safe-by-default files —
-    /// backs a dashboard card's Review, which opens the manager with that card's
-    /// group pre-checked. Duplicates and Similar seed their redundant copies (a
-    /// copy always leaves an original); Large & Old and Downloads are real user
-    /// data, so their cards open unchecked (opt-in), mirroring the scan-time
-    /// safe-default seed.
-    public func selectOnly(category: MyClutterCategory) {
-        let urls: Set<URL>
+    /// Make `url` the copy a group keeps, with the current original becoming a
+    /// removable copy in its place. The checkmark moves too: if `url` was going to
+    /// be removed, the old original now is, so the count stays what the user saw.
+    /// `url` ends up unchecked everywhere, even if it is also listed in another
+    /// category, since they just said they want it. A no-op unless `url` is a
+    /// removable copy in that category.
+    public func keep(_ url: URL, in category: MyClutterCategory) {
+        let previous: ScannedFile
         switch category {
-        case .duplicates: urls = Set(duplicateCopies.map(\.url))
-        case .similar:    urls = Set(similarCopies.map(\.url))
-        case .largeOld, .downloads: urls = []
+        case .duplicates:
+            guard let index = duplicateGroups.firstIndex(where: { Self.isCopy(url, in: $0.files) }) else { return }
+            previous = duplicateGroups[index].original
+            duplicateGroups[index] = DuplicateGroup(files: Self.moved(url, toFrontOf: duplicateGroups[index].files))
+            duplicateSelectionIsSettled = true
+        case .similar:
+            guard let index = similarGroups.firstIndex(where: { Self.isCopy(url, in: $0.files) }) else { return }
+            previous = similarGroups[index].original
+            similarGroups[index] = SimilarImageGroup(files: Self.moved(url, toFrontOf: similarGroups[index].files))
+        case .largeOld, .downloads:
+            return
         }
-        selectedURLs = urls
-        totalSelectedSize = urls.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
+        recomputeDerived()
+
+        categoriesByURL[url]?.removeAll { $0 == category }
+        if categoriesByURL[url]?.isEmpty == true {
+            categoriesByURL[url] = nil
+            sizeByURL[url] = nil
+        }
+        sizeByURL[previous.url] = previous.size
+        categoriesByURL[previous.url, default: []].append(category)
+
+        if selectedURLs.remove(url) != nil {
+            selectedURLs.insert(previous.url)
+        }
+        totalSelectedSize = selectedURLs.reduce(Int64(0)) { $0 + (sizeByURL[$1] ?? 0) }
         recomputeSelectedCategoryTotals()
+    }
+
+    private static func isCopy(_ url: URL, in files: [ScannedFile]) -> Bool {
+        files.dropFirst().contains { $0.url == url }
+    }
+
+    private static func moved(_ url: URL, toFrontOf files: [ScannedFile]) -> [ScannedFile] {
+        files.filter { $0.url == url } + files.filter { $0.url != url }
     }
 
     /// Bulk select/clear a set of URLs (the review manager's "Select" menu).
     public func setSelection(_ urls: [URL], selected: Bool) {
+        for url in urls where isReviewable(url) { noteSelectionEdit(of: url) }
+        applySelection(urls, selected: selected)
+    }
+
+    private func applySelection(_ urls: [URL], selected: Bool) {
         for url in urls where isReviewable(url) {
             let already = selectedURLs.contains(url)
             if selected, !already {
@@ -259,11 +321,22 @@ public final class MyClutterViewModel {
         }
     }
 
+    /// Records a change the user made, which ends any shown removal failure and,
+    /// for a duplicate copy, makes those checkmarks theirs.
+    private func noteSelectionEdit(of url: URL) {
+        removalFailureCount = 0
+        if categoriesByURL[url]?.contains(.duplicates) == true {
+            duplicateSelectionIsSettled = true
+        }
+    }
+
     // MARK: - Scan
 
     /// Run all four scans concurrently and land in `.results`, `.empty`, or
     /// `.failed`. A single scanner throwing doesn't sink the others — its
     /// category is simply empty — so the dashboard always shows what succeeded.
+    /// With nothing to show, though, a failure is the answer: part of the Mac went
+    /// unchecked, so it can't be reported as tidy.
     public func scan() async {
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -294,11 +367,11 @@ public final class MyClutterViewModel {
 
         let (d, s, l, w) = await (dups, sims, larges, dls)
         guard scanGeneration == generation else { return }
-        // Nothing could be looked at. Falling through would land `.empty`, whose
-        // screen tells the user "Nothing to clean up" — an all-clear stated as
-        // fact about a scan that examined nothing.
-        if failedSubScanCount == Self.subScanCount, let message = subScanFailureMessage {
-            log.error("My Clutter scan failed: every sub-scan errored")
+        // Falling through would land `.empty`, whose screen tells the user
+        // "Nothing to clean up" — an all-clear stated as fact about a scan that
+        // couldn't look everywhere it should have.
+        if d.isEmpty, s.isEmpty, l.isEmpty, w.isEmpty, let message = subScanFailureMessage {
+            log.error("My Clutter scan failed: \(self.failedSubScanCount, privacy: .public) sub-scans errored and nothing was found")
             phase = .failed(message: message)
             return
         }
@@ -315,8 +388,10 @@ public final class MyClutterViewModel {
     }
 
     /// Reset to `.idle`, dropping cached results and selection. Wired to "Start
-    /// Over" / the empty state's rescan.
+    /// Over" / the empty state's rescan. Bumps the generation so a scan or
+    /// removal still running can't write its late results over the reset.
     public func scanAgain() {
+        scanGeneration &+= 1
         resetResults()
         scannedItemCount = 0
         phase = .idle
@@ -325,10 +400,7 @@ public final class MyClutterViewModel {
     /// Move the current selection to the Trash and prune the survivors back into
     /// every category. A no-op when nothing is selected.
     func deleteSelected() async {
-        guard !selectedURLs.isEmpty else { return }
-        let actuallyDeleted = await deleter(Array(selectedURLs))
-        guard !actuallyDeleted.isEmpty else { return }
-        prune(deleted: actuallyDeleted)
+        await remove(Array(selectedURLs))
     }
 
     /// Trash only the selected files that fall within `scope` — the category
@@ -336,9 +408,21 @@ public final class MyClutterViewModel {
     /// intact. Keeps the manager's footer total and its Remove action scoped to
     /// the category the user is reviewing.
     public func deleteSelected(in scope: Set<URL>) async {
-        let urls = Array(selectedURLs.intersection(scope))
-        guard !urls.isEmpty else { return }
+        await remove(Array(selectedURLs.intersection(scope)))
+    }
+
+    /// Sends `urls` to the Trash and prunes what moved. If the scan was restarted
+    /// while this ran, its results are gone and the outcome has nothing to apply
+    /// to, so it is dropped rather than written over the new state.
+    private func remove(_ urls: [URL]) async {
+        guard !urls.isEmpty, !isRemoving else { return }
+        isRemoving = true
+        defer { isRemoving = false }
+        removalFailureCount = 0
+        let generation = scanGeneration
         let actuallyDeleted = await deleter(urls)
+        guard scanGeneration == generation else { return }
+        removalFailureCount = Set(urls).subtracting(actuallyDeleted).count
         guard !actuallyDeleted.isEmpty else { return }
         prune(deleted: actuallyDeleted)
     }
@@ -356,6 +440,9 @@ public final class MyClutterViewModel {
         selectedCountByCategory = [:]
         sizeByURL = [:]
         categoriesByURL = [:]
+        hasBegunReview = false
+        duplicateSelectionIsSettled = false
+        removalFailureCount = 0
         recomputeDerived()
     }
 
@@ -525,15 +612,17 @@ extension MyClutterViewModel {
             // isolation) before starting its walk, still once per scan — so the
             // "picked up on the next run" behaviour above is unchanged.
             duplicateScan: { [weak exclusions, weak scanScope] onProgress in
-                let (ex, roots) = await MainActor.run {
-                    (Self.clutterExclusions(exclusions), Self.clutterContentRoots(scope: scanScope))
+                let (ex, roots, picked) = await MainActor.run {
+                    (Self.clutterExclusions(exclusions), Self.clutterContentRoots(scope: scanScope), scanScope?.scanRoots)
                 }
+                try Self.requireAvailable(picked)
                 return try await DuplicateScanner(roots: roots).scan(excluding: ex, onProgress: onProgress)
             },
             similarScan: { [weak exclusions, weak scanScope] onProgress in
-                let (ex, roots) = await MainActor.run {
-                    (Self.clutterExclusions(exclusions), Self.clutterContentRoots(scope: scanScope))
+                let (ex, roots, picked) = await MainActor.run {
+                    (Self.clutterExclusions(exclusions), Self.clutterContentRoots(scope: scanScope), scanScope?.scanRoots)
                 }
+                try Self.requireAvailable(picked)
                 return try await SimilarImageScanner(roots: roots).scan(excluding: ex, onProgress: onProgress)
             },
             largeOldScan: { [weak exclusions, weak scanScope] onProgress in
@@ -543,18 +632,59 @@ extension MyClutterViewModel {
                         scanScope?.scanRoots ?? nil
                     )
                 }
+                try Self.requireAvailable(roots)
                 let provider = DefaultUserFilesPathProvider(roots: roots)
                 return try await LargeOldFilesScanner(pathProvider: provider).scan(excluding: ex, onProgress: onProgress)
             },
-            downloadsScan: { [weak exclusions] onProgress in
-                let ex = await MainActor.run {
-                    (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
+            downloadsScan: { [weak exclusions, weak scanScope] onProgress in
+                let (ex, picked) = await MainActor.run {
+                    (
+                        (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) },
+                        scanScope?.scanRoots
+                    )
                 }
-                return try await DownloadsScanner().scan(excluding: ex, onProgress: onProgress)
+                try Self.requireAvailable(picked)
+                let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                let root = Self.downloadsRoot(scanRoots: picked, downloads: downloads)
+                return try await DownloadsScanner(downloadsURL: root).scan(excluding: ex, onProgress: onProgress)
             },
             deleter: { urls in await UserFileRecycler.recycle(urls, context: "My Clutter") },
             onLargeOldFilesFound: onLargeOldFilesFound
         )
+    }
+
+    /// Throws when a folder the user picked can no longer be read. The walker
+    /// tolerates unreadable paths, so without this a renamed folder or unplugged
+    /// drive scans as nothing and reads as a tidy Mac. `nil` is the home scope,
+    /// whose standard folders may legitimately not all exist.
+    private nonisolated static func requireAvailable(_ picked: [URL]?) throws {
+        for root in picked ?? [] {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  FileManager.default.isReadableFile(atPath: root.path)
+            else {
+                throw MyClutterScanError.folderUnavailable(name: root.lastPathComponent)
+            }
+        }
+    }
+
+    /// Where the Downloads scan should walk: all of Downloads for the home scope,
+    /// and otherwise only the part of it inside the folder the user picked — all
+    /// of it if they picked Downloads or a parent, just the subfolder if they
+    /// picked inside it, and `nil` (no walk) if they picked somewhere else.
+    nonisolated static func downloadsRoot(scanRoots: [URL]?, downloads: URL?) -> URL? {
+        guard let scanRoots else { return downloads }
+        guard let downloads else { return nil }
+        let downloadsPath = ClutterCandidateFilter.comparablePath(downloads)
+        for root in scanRoots {
+            let rootPath = ClutterCandidateFilter.comparablePath(root)
+            if rootPath == downloadsPath { return downloads }
+            let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+            if downloadsPath.hasPrefix(rootPrefix) { return downloads }
+            if rootPath.hasPrefix(downloadsPath + "/") { return root }
+        }
+        return nil
     }
 
     /// The user-content folders the duplicate and similar-image scans walk.
@@ -575,5 +705,22 @@ extension MyClutterViewModel {
     private static func clutterExclusions(_ exclusions: ExclusionsStore?) -> [URL] {
         let user = (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
         return user + DefaultUserFilesPathProvider().protectedMediaStores()
+    }
+}
+
+/// Why a sub-scan couldn't look at what it was asked to.
+enum MyClutterScanError: LocalizedError {
+    case folderUnavailable(name: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .folderUnavailable(let name):
+            let format = String(
+                localized: "“%@” isn’t available. It may have been moved or renamed, or its drive may be disconnected. Choose another folder and scan again.",
+                bundle: .module,
+                comment: "My Clutter scan failure when the chosen folder can't be read; %@ is the folder name."
+            )
+            return String.localizedStringWithFormat(format, name)
+        }
     }
 }

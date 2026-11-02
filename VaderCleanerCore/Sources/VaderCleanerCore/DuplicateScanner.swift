@@ -23,8 +23,14 @@ struct DuplicateScanner {
     /// holding more cooperative-pool threads than the work needs.
     private static let maxConcurrentHashes = 4
 
+    /// A file name ending the way Finder, browsers, and Safari mark a copy:
+    /// `report copy`, `report copy 2`, `report 2`, `report (1)`, `report-1`.
+    private static let copyNamePattern = #"( copy( \d+)?| \d+| \(\d+\)|-\d+)$"#
+
     private let fileScanner: FileScanning
     private let roots: [URL]
+    /// Where the user's Downloads live, so a filed copy can outrank one there.
+    private let downloadsPath: String?
 
     /// `downloadsURL` is injectable so tests can point at a temp directory.
     /// Production resolves the user's real Downloads folder by default.
@@ -34,13 +40,19 @@ struct DuplicateScanner {
     ) {
         self.fileScanner = fileScanner
         self.roots = downloadsURL.map { [$0] } ?? []
+        self.downloadsPath = downloadsURL.map(ClutterCandidateFilter.comparablePath)
     }
 
     /// Walk an explicit set of roots (e.g. the curated user-content folders the
     /// My Clutter section scans) rather than the user's Downloads folder.
-    init(fileScanner: FileScanning = FileScanner(), roots: [URL]) {
+    init(
+        fileScanner: FileScanning = FileScanner(),
+        roots: [URL],
+        downloadsDirectory: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+    ) {
         self.fileScanner = fileScanner
         self.roots = roots
+        self.downloadsPath = downloadsDirectory.map(ClutterCandidateFilter.comparablePath)
     }
 
     /// Walks Downloads and returns the duplicate groups, ordered by reclaimable
@@ -75,9 +87,12 @@ struct DuplicateScanner {
         // full read), then a full-content hash over the surviving prefix
         // collisions.
         var groups: [DuplicateGroup] = []
+        var candidateFilter = ClutterCandidateFilter(roots: roots)
         for (size, candidates) in bySize where candidates.count > 1 {
             try Task.checkCancellation()
-            let local = candidates.filter { CloudFileAvailability.isLocallyAvailable($0.url) }
+            let local = candidates.filter {
+                candidateFilter.isOffered($0.url) && CloudFileAvailability.isLocallyAvailable($0.url)
+            }
             guard local.count > 1 else { continue }
 
             let byPrefix = try await Self.groupedByContentHash(local, readingUpTo: Self.prefixHashByteLimit)
@@ -86,12 +101,12 @@ struct DuplicateScanner {
                 // it — the prefix hash *is* the content hash, so these files
                 // are already confirmed identical without a second read.
                 if size <= Int64(Self.prefixHashByteLimit) {
-                    if let group = Self.group(from: prefixMatches) { groups.append(group) }
+                    if let group = group(from: prefixMatches) { groups.append(group) }
                     continue
                 }
                 let byHash = try await Self.groupedByContentHash(prefixMatches, readingUpTo: nil)
                 for (_, identical) in byHash where identical.count > 1 {
-                    if let group = Self.group(from: identical) { groups.append(group) }
+                    if let group = group(from: identical) { groups.append(group) }
                 }
             }
         }
@@ -112,8 +127,8 @@ struct DuplicateScanner {
     /// This does not catch APFS *clones*, which share storage without sharing an
     /// inode; there is no public API that reports shared extents, so a clone is
     /// still reported as a full-sized copy.
-    private static func group(from files: [ScannedFile]) -> DuplicateGroup? {
-        let distinct = deduplicatedByInode(files)
+    private func group(from files: [ScannedFile]) -> DuplicateGroup? {
+        let distinct = Self.deduplicatedByInode(files)
         guard distinct.count > 1 else { return nil }
         return DuplicateGroup(files: sortedKeepingOriginalFirst(distinct))
     }
@@ -132,15 +147,37 @@ struct DuplicateScanner {
         }
     }
 
-    /// Orders identical files so the most canonical one (shortest path, then
-    /// lexical) is first and is kept; the rest become the redundant copies.
-    private static func sortedKeepingOriginalFirst(_ files: [ScannedFile]) -> [ScannedFile] {
+    /// Orders identical files so the one worth keeping is first; the rest become
+    /// the redundant copies. A filed copy beats one in Downloads, since Downloads
+    /// is the folder this section invites the user to clear out next. Then an
+    /// original name beats a copy name, whose ` ` or `-` otherwise sorts it ahead
+    /// of the original. Then the shortest path, then lexical. The bytes match, so
+    /// these only choose which location survives.
+    private func sortedKeepingOriginalFirst(_ files: [ScannedFile]) -> [ScannedFile] {
         files.sorted { lhs, rhs in
+            let ld = isInDownloads(lhs.url)
+            let rd = isInDownloads(rhs.url)
+            if ld != rd { return rd }
+            let lcn = Self.hasCopyName(lhs.url)
+            let rcn = Self.hasCopyName(rhs.url)
+            if lcn != rcn { return rcn }
             let lc = lhs.url.pathComponents.count
             let rc = rhs.url.pathComponents.count
             if lc != rc { return lc < rc }
             return lhs.url.path.localizedCaseInsensitiveCompare(rhs.url.path) == .orderedAscending
         }
+    }
+
+    private func isInDownloads(_ url: URL) -> Bool {
+        guard let downloadsPath else { return false }
+        return ClutterCandidateFilter.comparablePath(url).hasPrefix(downloadsPath + "/")
+    }
+
+    private static func hasCopyName(_ url: URL) -> Bool {
+        url.deletingPathExtension().lastPathComponent.range(
+            of: copyNamePattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     /// Buckets `files` by their content hash, reading at most `byteLimit`
