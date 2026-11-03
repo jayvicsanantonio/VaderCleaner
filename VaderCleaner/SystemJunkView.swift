@@ -218,7 +218,6 @@ struct SystemJunkView: View {
         SystemJunkDashboardView(
             totalBytes: result.totalSize,
             tiles: CleanupDashboardTile.recommended(from: result),
-            accent: NavigationSection.systemJunk.theme.accent,
             onReview: { group in reviewGroup(group) },
             onClean: { group in confirmDirectClean(of: group) },
             onReviewAll: {

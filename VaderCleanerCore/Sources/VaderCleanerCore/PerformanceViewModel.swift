@@ -217,6 +217,14 @@ public final class PerformanceViewModel {
         } while reloadIsPending && canReloadInBackground
     }
 
+    /// Returns to the intro, the way the other sections' Start Over does, so the
+    /// next Scan loads the lists afresh. Refused while a batch is running, which
+    /// would otherwise go on reporting into a section that has moved on.
+    public func startOver() {
+        guard phase == .ready, !isRunningBatch else { return }
+        phase = .idle
+    }
+
     private var canReloadInBackground: Bool {
         phase == .ready && !isRunningBatch && agentTogglesInFlight == 0
     }

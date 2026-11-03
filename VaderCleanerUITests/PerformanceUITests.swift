@@ -66,5 +66,28 @@ final class PerformanceUITests: XCTestCase {
                       "Expected the Flush DNS task row in the catalog")
     }
 
+    /// Start Over on the dashboard returns to the Performance intro, the same
+    /// way it does on the other section dashboards.
+    func test_performanceStartOver_returnsToIntro() throws {
+        let sidebarRow = app.buttons["sidebar.performance"].firstMatch
+        XCTAssertTrue(sidebarRow.waitForExistence(timeout: 5),
+                      "Expected Performance row in sidebar")
+        sidebarRow.click()
+
+        let floatingScan = app.buttons["section.performance.scan"]
+        XCTAssertTrue(floatingScan.waitForExistence(timeout: 5),
+                      "Expected the floating Scan button on the Performance intro")
+        floatingScan.click()
+
+        let startOver = app.buttons["performance.startOver"]
+        XCTAssertTrue(startOver.waitForExistence(timeout: 30),
+                      "Expected the Performance dashboard's Start Over control")
+        startOver.click()
+
+        let performanceIntro = app.descendants(matching: .any)["section.intro.performance"]
+        XCTAssertTrue(performanceIntro.waitForExistence(timeout: 5),
+                      "Expected Start Over to return to the Performance intro")
+    }
+
     // MARK: - Helpers
 }

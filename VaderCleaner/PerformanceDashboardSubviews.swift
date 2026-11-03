@@ -1,5 +1,5 @@
 // PerformanceDashboardSubviews.swift
-// Performance dashboard (hero + Login Items / Background Items summary cards) and the Performance Manager opened from "View All Tasks" — checkbox lists with Select / search and a destructive Remove, plus the maintenance-task list.
+// Performance dashboard (the shared section header + Login Items / Background Items / Maintenance cards) and the Performance Manager opened from "View All Tasks" — checkbox lists with Select / search and a destructive Remove, plus the maintenance-task list.
 
 import AppKit
 import SwiftUI
@@ -7,10 +7,11 @@ import VaderCleanerCore
 
 // MARK: - Dashboard
 
-/// The Performance landing surface (the ready state): the section hero, the
-/// tagline, a "View All Tasks" button that opens the Performance Manager, and
-/// two summary cards — Login Items and Background Items — each deep-linking
-/// into the manager at its pane via "Review".
+/// The Performance landing surface (the ready state): the shared
+/// `SectionDashboard` with a headline counting what there is to review, a
+/// "View All Tasks" button that opens the Performance Manager, and summary
+/// cards — Login Items, Background Items, Maintenance — each deep-linking into
+/// the manager at its pane via "Review".
 struct PerformanceDashboardView: View {
     let loginItemCount: Int
     /// Bundle ids of the login items, used to draw their real app icons on the
@@ -19,12 +20,12 @@ struct PerformanceDashboardView: View {
     let backgroundItemCount: Int
     /// Number of due maintenance-cocktail tasks — drives the Maintenance card.
     let maintenanceTasksDue: Int
-    /// Section accent, used to tint any reassurance backfill cards.
-    let accent: Color
     let onViewAllTasks: () -> Void
     let onReviewLoginItems: () -> Void
     let onReviewBackgroundItems: () -> Void
     let onReviewMaintenance: () -> Void
+    /// Returns to the section intro.
+    let onStartOver: () -> Void
 
     /// One card on the Performance dashboard: a summary of a category with
     /// findings, or an "all good" reassurance card used to backfill the row to
@@ -66,100 +67,109 @@ struct PerformanceDashboardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer(minLength: 0)
-            hero
-            Spacer(minLength: 0)
-            summaryCards
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("performance.dashboard")
-    }
-
-    private var hero: some View {
-        VStack(spacing: 14) {
-            Image("performance")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(maxWidth: 140, maxHeight: 140)
-                .accessibilityHidden(true)
-
-            Text(String(
-                localized: "Apply curated recommendations\nor run performance tasks manually.",
-                comment: "Performance dashboard tagline."
-            ))
-            .font(.title.weight(.semibold))
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.white)
-
-            Button(action: onViewAllTasks) {
-                Text(String(
+        SectionDashboard(
+            section: .performance,
+            headline: Self.headline(
+                findingCount: loginItemCount + backgroundItemCount + maintenanceTasksDue
+            ),
+            subheadline: String(
+                localized: "Apply curated recommendations or run performance tasks manually.",
+                comment: "Performance dashboard subheadline."
+            ),
+            headlineIdentifier: "performance.summary",
+            headerAction: DashboardHeaderAction(
+                title: String(
                     localized: "View All Tasks",
                     comment: "Button that opens the full Performance Manager."
-                ))
-                .padding(.horizontal, 8)
-            }
-            .buttonStyle(.vaderTileGlass)
-            .controlSize(.large)
-            .accessibilityIdentifier("performance.viewAllTasks")
-        }
-    }
-
-    /// The ranked summary cards along the bottom, refracting together in one
-    /// glass container so they read as a set.
-    private var summaryCards: some View {
-        // Spacing below the 16pt grid gap so adjacent tiles never blend.
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 16) {
-                ForEach(tiles) { tile in
-                    card(tile)
-                }
+                ),
+                identifier: "performance.viewAllTasks",
+                action: onViewAllTasks
+            ),
+            startOver: DashboardStartOver(identifier: "performance.startOver", action: onStartOver),
+            identifier: "performance.dashboard"
+        ) {
+            DashboardGrid(tiles: tiles) { tile, role in
+                card(tile, role: role)
             }
         }
-        .frame(height: 200)
     }
 
     /// Renders one ranked summary card, or a reassurance backfill.
     @ViewBuilder
-    private func card(_ tile: Tile) -> some View {
+    private func card(_ tile: Tile, role: DashboardTileRole) -> some View {
         switch tile {
         case .loginItems:
-            PerformanceSummaryCard(
+            summaryCard(
                 title: loginItemsTitle,
-                description: String(
+                detail: String(
                     localized: "Review the list of applications that open automatically when you start up your Mac. You may want to disable some of them.",
                     comment: "Login Items summary card description."
                 ),
-                accessory: .appIcons(loginItemBundleIDs),
+                role: role,
                 reviewIdentifier: "performance.reviewLoginItems",
                 onReview: onReviewLoginItems
-            )
+            ) {
+                AppIconCluster(bundleIDs: loginItemBundleIDs, iconSize: 40)
+            } illustration: {
+                AppIconCluster(bundleIDs: loginItemBundleIDs, iconSize: 64)
+            }
         case .backgroundItems:
-            PerformanceSummaryCard(
+            summaryCard(
                 title: backgroundItemsTitle,
-                description: String(
+                detail: String(
                     localized: "Review the processes and apps that run in the background. You may not need or want part of them.",
                     comment: "Background Items summary card description."
                 ),
-                accessory: .badge(symbol: "gearshape.2.fill", tint: Color(red: 0.96, green: 0.55, blue: 0.30)),
+                role: role,
                 reviewIdentifier: "performance.reviewBackgroundItems",
                 onReview: onReviewBackgroundItems
-            )
+            ) {
+                DashboardOrb(symbol: "gearshape.2.fill")
+            } illustration: {
+                DashboardOrb(symbol: "gearshape.2.fill", size: DashboardOrb.illustrationSize)
+            }
         case .maintenance:
-            PerformanceSummaryCard(
+            summaryCard(
                 title: maintenanceTitle,
-                description: String(
+                detail: String(
                     localized: "Run the due maintenance tasks to keep your Mac in shape — rebuilding caches and tidying system housekeeping.",
                     comment: "Maintenance summary card description."
                 ),
-                accessory: .badge(symbol: "wrench.and.screwdriver.fill", tint: accent),
+                role: role,
                 reviewIdentifier: "performance.reviewMaintenance",
                 onReview: onReviewMaintenance
-            )
+            ) {
+                DashboardOrb(symbol: "wrench.and.screwdriver.fill")
+            } illustration: {
+                DashboardOrb(symbol: "wrench.and.screwdriver.fill", size: DashboardOrb.illustrationSize)
+            }
         case .reassurance(let content):
-            ReassuranceCard(content: content, accent: accent)
+            DashboardReassuranceCard(content: content, role: role)
         }
+    }
+
+    private func summaryCard<Accessory: View, Illustration: View>(
+        title: String,
+        detail: String,
+        role: DashboardTileRole,
+        reviewIdentifier: String,
+        onReview: @escaping () -> Void,
+        @ViewBuilder accessory: () -> Accessory,
+        @ViewBuilder illustration: () -> Illustration
+    ) -> some View {
+        DashboardCard(
+            title: title,
+            detail: detail,
+            role: role,
+            actions: [DashboardCardAction(
+                title: String(localized: "Review", comment: "Summary card button that opens the manager at this card's items."),
+                prominence: .secondary,
+                identifier: reviewIdentifier,
+                action: onReview
+            )],
+            accessory: accessory,
+            illustration: illustration
+        )
     }
 
     /// The "all good" cards available for backfilling. "Running Smoothly" says
@@ -196,9 +206,25 @@ struct PerformanceDashboardView: View {
     private var backgroundItemsTitle: String { Self.backgroundItemsTitle(count: backgroundItemCount) }
     private var maintenanceTitle: String { Self.maintenanceTitle(count: maintenanceTasksDue) }
 
+    /// Counts everything the cards offer to review, the way the other
+    /// dashboards' headlines count what their scans found.
+    static func headline(findingCount: Int) -> String {
+        guard findingCount > 0 else {
+            return String(
+                localized: "Nothing needs your attention right now.",
+                comment: "Performance dashboard headline when there are no login items, background items, or due tasks."
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "We've found %lld items to review on your Mac.",
+                   comment: "Performance dashboard headline; %lld is the login items, background items, and due tasks together."),
+            findingCount
+        )
+    }
+
     static func loginItemsTitle(count: Int) -> String {
         String.localizedStringWithFormat(
-            String(localized: "You Have %lld Login Items", comment: "Login Items summary card title; %lld is the count."),
+            String(localized: "%lld Login Items Found", comment: "Login Items summary card title; %lld is the count."),
             count
         )
     }
@@ -218,68 +244,11 @@ struct PerformanceDashboardView: View {
     }
 }
 
-/// A Performance dashboard summary card: a title, a one-line description, a
-/// top-right accessory (a cluster of app icons or a tinted badge), and a
-/// bottom-right "Review" button. Uses the same glass surface and corner radius
-/// as the app's other dashboard cards so the surfaces stay consistent.
-struct PerformanceSummaryCard: View {
-    /// The card's top-right accessory.
-    enum Accessory {
-        /// Up to a few real app icons, drawn from the given bundle ids.
-        case appIcons([String])
-        /// A single tinted SF Symbol badge.
-        case badge(symbol: String, tint: Color)
-    }
-
-    let title: String
-    let description: String
-    let accessory: Accessory
-    let reviewIdentifier: String
-    let onReview: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                Text(title)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                accessoryView
-            }
-            Text(description)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.75))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            HStack {
-                Spacer()
-                Button(action: onReview) {
-                    Text(String(localized: "Review", comment: "Summary card button that opens the manager at this card's items."))
-                }
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier(reviewIdentifier)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .vaderTileGlass()
-    }
-
-    @ViewBuilder
-    private var accessoryView: some View {
-        switch accessory {
-        case .appIcons(let bundleIDs):
-            AppIconCluster(bundleIDs: bundleIDs)
-        case .badge(let symbol, let tint):
-            TaskIconBadge(symbol: symbol, tint: tint)
-        }
-    }
-}
-
 /// A small cluster of overlapping real app icons, resolved from bundle ids. Caps
 /// the count so a long list still reads as a tidy stack.
 struct AppIconCluster: View {
     let bundleIDs: [String]
+    let iconSize: CGFloat
 
     // Resolved once per `bundleIDs` rather than on every render: the lookup does
     // a synchronous LaunchServices query per id, and this cluster sits on the
@@ -289,14 +258,17 @@ struct AppIconCluster: View {
     var body: some View {
         Group {
             if icons.isEmpty {
-                TaskIconBadge(symbol: "person.crop.circle.badge.checkmark", tint: Color(red: 0.55, green: 0.45, blue: 0.95))
+                DashboardOrb(
+                    symbol: "person.crop.circle.badge.checkmark",
+                    size: iconSize > 40 ? DashboardOrb.illustrationSize : DashboardOrb.accessorySize
+                )
             } else {
-                HStack(spacing: -12) {
+                HStack(spacing: -iconSize * 0.3) {
                     ForEach(Array(icons.enumerated()), id: \.offset) { _, icon in
                         Image(nsImage: icon)
                             .resizable()
                             .interpolation(.high)
-                            .frame(width: 40, height: 40)
+                            .frame(width: iconSize, height: iconSize)
                     }
                 }
             }

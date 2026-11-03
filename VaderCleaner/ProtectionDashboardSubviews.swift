@@ -1,63 +1,39 @@
 // ProtectionDashboardSubviews.swift
-// Tiles for the Protection dashboard — the live malware-scan tile and the privacy result cards, sharing the Applications dashboard's glass-card styling.
+// Tiles for the Protection dashboard — the live malware-scan tile and the privacy result cards, both drawn as the shared `DashboardCard`.
 
+import AppKit
 import SwiftUI
 import VaderCleanerCore
 
 // MARK: - Malware tile
 
 /// The lead dashboard card, driven by the malware flow's phase. While scanning
-/// it reproduces the reference: a "Looking for Threats…" heading, a biohazard
-/// hero, the current file being scanned, and a Stop button. When the scan
-/// finishes it updates in place — "No threats", a threats card with
-/// Review/Remove, or the removing/done/failed states. Shares the app-wide
-/// dashboard tile chrome (`vaderTileGlass`).
+/// it shows a "Looking for Threats…" heading, a pulsing malware orb, the file
+/// being scanned, and a Stop button. When the scan finishes it updates in
+/// place — "No threats", a threats card with Review/Remove, or the
+/// removing/done/failed states.
 struct ProtectionMalwareTile: View {
 
     let malware: MalwareViewModel
-    let accent: Color
+    let role: DashboardTileRole
     let onStop: () -> Void
     let onScanAgain: () -> Void
     let onReview: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .accessibilityIdentifier("protection.malwareTile.title")
-                Text(subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-            hero
-                .frame(maxWidth: .infinity, alignment: .center)
-            currentFileLabel
-            Spacer(minLength: 12)
-
-            HStack(spacing: 10) {
-                Spacer()
-                controls
+        DashboardCard(title: title, detail: subtitle, role: role, actions: actions) {
+            DashboardOrb(symbol: "allergens", isPulsing: malware.isScanningPhase)
+        } illustration: {
+            VStack(spacing: 10) {
+                DashboardOrb(
+                    symbol: "allergens",
+                    size: DashboardOrb.illustrationSize,
+                    isPulsing: malware.isScanningPhase
+                )
+                currentFileLabel
             }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .vaderTileGlass()
-    }
-
-    private var hero: some View {
-        Image(systemName: "allergens")
-            .font(.system(size: 84, weight: .regular))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(accent)
-            .shadow(color: accent.opacity(0.55), radius: 26)
-            .symbolEffect(.pulse, options: .repeating, isActive: malware.isScanningPhase)
-            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -80,30 +56,39 @@ struct ProtectionMalwareTile: View {
         return name.isEmpty ? pathPart : name
     }
 
-    @ViewBuilder
-    private var controls: some View {
+    private var actions: [DashboardCardAction] {
         switch malware.phase {
         case .checkingClamAV, .updatingDatabase, .scanning:
-            Button(String(localized: "Stop", comment: "Stops the in-progress malware scan."),
-                   action: onStop)
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier("protection.malwareTile.stop")
+            return [DashboardCardAction(
+                title: String(localized: "Stop", comment: "Stops the in-progress malware scan."),
+                prominence: .secondary,
+                identifier: "protection.malwareTile.stop",
+                action: onStop
+            )]
         case .results:
-            Button(String(localized: "Review", comment: "Opens the detected-threats list."),
-                   action: onReview)
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier("protection.malwareTile.review")
-            Button(String(localized: "Remove", comment: "Removes all detected threats."),
-                   action: onRemove)
-                .buttonStyle(.vaderWhite)
-                .accessibilityIdentifier("protection.malwareTile.remove")
+            return [
+                DashboardCardAction(
+                    title: String(localized: "Review", comment: "Opens the detected-threats list."),
+                    prominence: .secondary,
+                    identifier: "protection.malwareTile.review",
+                    action: onReview
+                ),
+                DashboardCardAction(
+                    title: String(localized: "Remove", comment: "Removes all detected threats."),
+                    prominence: .primary,
+                    identifier: "protection.malwareTile.remove",
+                    action: onRemove
+                ),
+            ]
         case .idle, .failed, .clean, .done:
-            Button(String(localized: "Scan Again", comment: "Restarts the malware scan."),
-                   action: onScanAgain)
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier("protection.malwareTile.scanAgain")
+            return [DashboardCardAction(
+                title: String(localized: "Scan Again", comment: "Restarts the malware scan."),
+                prominence: .secondary,
+                identifier: "protection.malwareTile.scanAgain",
+                action: onScanAgain
+            )]
         case .removing, .needsInstall:
-            EmptyView()
+            return []
         }
     }
 
@@ -158,63 +143,58 @@ struct ProtectionMalwareTile: View {
 
 // MARK: - Privacy card
 
-/// A right-column dashboard card for a privacy result group (a browser's data
-/// or recent items), built to match the Applications dashboard card: title +
-/// optional metric + detail top-left, an emblem top-right, and Review/Remove
-/// buttons pinned to the bottom-right.
+/// A dashboard card for a privacy result group (a browser's data or recent
+/// items). A browser's card wears that browser's real icon, which says more
+/// than a category badge; Recent Items gets an orb.
 struct ProtectionPrivacyTile: View {
 
     let title: String
-    let metric: String?
     let caption: String
     let systemImage: String
+    /// The browser's app icon, once its bundle has been located.
+    let appIcon: NSImage?
+    let role: DashboardTileRole
+    let identifier: String
     let onReview: (() -> Void)?
-    let onRemove: (() -> Void)?
+    let onRemove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let metric {
-                        Text(metric)
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    Text(caption)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.65))
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: systemImage)
-                    .font(.system(size: 26, weight: .regular))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 44, height: 44)
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 10) {
-                Spacer()
-                if let onReview {
-                    Button(String(localized: "Review", comment: "Opens the privacy manager for this group."),
-                           action: onReview)
-                        .buttonStyle(.vaderGlass)
-                }
-                if let onRemove {
-                    Button(String(localized: "Remove", comment: "Clears this privacy group."),
-                           action: onRemove)
-                        .buttonStyle(.vaderWhite)
-                }
-            }
+        DashboardCard(title: title, detail: caption, role: role, actions: actions) {
+            icon(size: DashboardOrb.accessorySize)
+        } illustration: {
+            icon(size: DashboardOrb.illustrationSize)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .vaderTileGlass()
+    }
+
+    @ViewBuilder
+    private func icon(size: CGFloat) -> some View {
+        if let appIcon {
+            Image(nsImage: appIcon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            DashboardOrb(symbol: systemImage, size: size)
+        }
+    }
+
+    private var actions: [DashboardCardAction] {
+        var actions: [DashboardCardAction] = []
+        if let onReview {
+            actions.append(DashboardCardAction(
+                title: String(localized: "Review", comment: "Opens the privacy manager for this group."),
+                prominence: .secondary,
+                identifier: "\(identifier).review",
+                action: onReview
+            ))
+        }
+        actions.append(DashboardCardAction(
+            title: String(localized: "Remove", comment: "Clears this privacy group."),
+            prominence: .primary,
+            identifier: "\(identifier).remove",
+            action: onRemove
+        ))
+        return actions
     }
 }

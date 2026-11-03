@@ -111,7 +111,6 @@ struct MyClutterView: View {
     private var dashboard: some View {
         MyClutterDashboardView(
             viewModel: viewModel,
-            accent: accent,
             // Reviewing starts from nothing checked, except that the Duplicates
             // card checks its copies once. Reopening keeps the user's choices.
             onReviewAll: { viewModel.beginReview(of: nil); openReview(.all) },

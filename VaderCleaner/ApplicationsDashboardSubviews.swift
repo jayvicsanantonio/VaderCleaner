@@ -1,19 +1,20 @@
 // ApplicationsDashboardSubviews.swift
-// Post-scan dashboard for the Applications section — the "N apps found" header, the summary card grid, and the progress / failed states.
+// Post-scan dashboard for the Applications section — the "N apps found" header and recommendation cards on the shared section dashboard, and the progress / failed states.
 
 import SwiftUI
 import VaderCleanerCore
 
 // MARK: - Dashboard
 
-/// The Applications landing surface after a scan: a headline count, a "Manage
-/// My Applications" affordance, and the summary cards in an adaptive grid —
-/// mirroring the Performance dashboard's card layout.
+/// The Applications landing surface after a scan: the shared
+/// `SectionDashboard` with the installed-app count, a "Manage My Applications"
+/// action, and the ranked recommendation cards.
 struct ApplicationsDashboardView: View {
     let result: ApplicationsScanResult
     var iconCache: AppIconCache
-    /// Section accent, used to tint any reassurance backfill cards.
-    let accent: Color
+    /// Whether a removal is still moving files to the Trash, which holds off
+    /// Start Over.
+    let isRemoving: Bool
     let onOpenManage: () -> Void
     let onOpenInstallationFiles: () -> Void
     let onOpenUnsupported: () -> Void
@@ -23,19 +24,37 @@ struct ApplicationsDashboardView: View {
     /// One-click removal for the App Leftovers card's Remove button — selects
     /// every leftover group and moves it to the Trash.
     let onRemoveLeftovers: () -> Void
-    /// Re-runs the scan and refreshes the manager's lists.
-    let onRescan: () -> Void
+    /// Discards the results and returns to the section intro.
+    let onStartOver: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            header
-            // The grid stays flexible (it absorbs any height squeeze) so the
-            // hero keeps its standard size instead of being compressed.
-            cardLayout
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        SectionDashboard(
+            section: .applications,
+            headline: installedCountText,
+            subheadline: String(
+                localized: "Use quick recommendations or manage them by hand.",
+                comment: "Applications dashboard subheadline beneath the installed-app count."
+            ),
+            headlineIdentifier: "applications.installedCount",
+            headerAction: DashboardHeaderAction(
+                title: String(
+                    localized: "Manage My Applications",
+                    comment: "Button that opens the full installed-apps management (uninstaller) list."
+                ),
+                identifier: "applications.manageMyApplications",
+                action: onOpenManage
+            ),
+            startOver: DashboardStartOver(
+                identifier: "applications.startOver",
+                isDisabled: isRemoving,
+                action: onStartOver
+            ),
+            identifier: "applications.dashboard"
+        ) {
+            DashboardGrid(tiles: tiles) { tile, role in
+                card(tile, role: role)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("applications.dashboard")
         .task(id: result.unusedApps.map(\.id)) {
             // Preload the unused apps' icons for the Unused card's icon cluster.
             // Their on-disk sizes are already summed by the scan, so the detail
@@ -45,66 +64,13 @@ struct ApplicationsDashboardView: View {
         }
     }
 
-    private var header: some View {
-        VStack(spacing: 14) {
-            Image("applications")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(maxWidth: 140, maxHeight: 140)
-                .accessibilityHidden(true)
-
-            VStack(spacing: 4) {
-                Text(installedCountText)
-                    .font(.title.weight(.semibold))
-                    .accessibilityIdentifier("applications.installedCount")
-                Text(String(
-                    localized: "Use quick recommendations or manage them by hand.",
-                    comment: "Applications dashboard subheadline beneath the installed-app count."
-                ))
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            }
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.white)
-
-            HStack(spacing: 10) {
-                Button(action: onOpenManage) {
-                    Text(String(
-                        localized: "Manage My Applications",
-                        comment: "Button that opens the full installed-apps management (uninstaller) list."
-                    ))
-                    .padding(.horizontal, 8)
-                }
-                .accessibilityIdentifier("applications.manageMyApplications")
-                Button(action: onRescan) {
-                    Text(String(
-                        localized: "Scan Again",
-                        comment: "Button that re-runs the Applications scan from the dashboard."
-                    ))
-                    .padding(.horizontal, 8)
-                }
-                .accessibilityIdentifier("applications.scanAgain")
-            }
-            .buttonStyle(.vaderTileGlass)
-            .controlSize(.large)
-        }
-    }
-
-    /// One dashboard card's content, built as data so the layout can render the
-    /// lead recommendation as a tall left card and stack the rest in a right
-    /// column — matching the reference dashboard.
-    private struct CardSpec: Identifiable {
-        let id: String
+    /// One dashboard card's content, built as data so `card(_:role:)` renders
+    /// every recommendation the same way.
+    private struct CardSpec {
         let title: String
         let detail: String
         let icon: ApplicationsCardIcon
-        let primaryLabel: String
-        let primaryAction: () -> Void
-        /// Optional second action, rendered as a bordered button to the left of
-        /// the prominent primary (the App Leftovers card's Review).
-        var secondaryLabel: String? = nil
-        var secondaryAction: (() -> Void)? = nil
+        let actions: [DashboardCardAction]
     }
 
     private var reviewLabel: String {
@@ -115,31 +81,39 @@ struct ApplicationsDashboardView: View {
         String(localized: "Remove", comment: "Applications card action that removes the finding directly.")
     }
 
+    /// A lone Review on a card; its identifier is the card's, which the UI
+    /// tests target.
+    private func review(_ identifier: String, _ action: @escaping () -> Void) -> DashboardCardAction {
+        DashboardCardAction(title: reviewLabel, prominence: .secondary, identifier: identifier, action: action)
+    }
+
     private func spec(for recommendation: ApplicationsScanResult.Recommendation) -> CardSpec {
         switch recommendation {
         case .unsupported:
-            return CardSpec(id: "applications.card.unsupported", title: unsupportedTitle,
-                            detail: unsupportedDetail, icon: .symbol("exclamationmark.triangle.fill"),
-                            primaryLabel: reviewLabel, primaryAction: onOpenUnsupported)
+            return CardSpec(title: unsupportedTitle, detail: unsupportedDetail,
+                            icon: .symbol("exclamationmark.triangle.fill"),
+                            actions: [review("applications.card.unsupported", onOpenUnsupported)])
         case .unused:
-            return CardSpec(id: "applications.card.unused", title: unusedTitle,
-                            detail: unusedDetail,
+            return CardSpec(title: unusedTitle, detail: unusedDetail,
                             icon: .appIcons(Array(result.unusedApps.prefix(3).map { $0.app.bundleURL })),
-                            primaryLabel: reviewLabel, primaryAction: onOpenUnused)
+                            actions: [review("applications.card.unused", onOpenUnused)])
         case .updates:
-            return CardSpec(id: "applications.card.updates", title: updatesTitle,
-                            detail: updatesDetail, icon: .symbol("arrow.down.circle.fill"),
-                            primaryLabel: updateLabel, primaryAction: onOpenUpdates)
+            return CardSpec(title: updatesTitle, detail: updatesDetail,
+                            icon: .symbol("arrow.down"),
+                            actions: [review("applications.card.updates", onOpenUpdates)])
         case .leftovers:
-            // Review (bordered) + Remove (prominent), matching the reference card.
-            return CardSpec(id: "applications.card.leftovers", title: leftoversTitle,
-                            detail: leftoversDetail, icon: .asset("appLeftovers"),
-                            primaryLabel: removeLabel, primaryAction: onRemoveLeftovers,
-                            secondaryLabel: reviewLabel, secondaryAction: onOpenLeftovers)
+            return CardSpec(title: leftoversTitle, detail: leftoversDetail,
+                            icon: .symbol("puzzlepiece.fill"),
+                            actions: [
+                                review("applications.card.leftovers.secondary", onOpenLeftovers),
+                                DashboardCardAction(title: removeLabel, prominence: .primary,
+                                                    identifier: "applications.card.leftovers",
+                                                    action: onRemoveLeftovers),
+                            ])
         case .installationFiles:
-            return CardSpec(id: "applications.card.installationFiles", title: installationFilesTitle,
-                            detail: installationFilesDetail, icon: .asset("installerDmg"),
-                            primaryLabel: reviewLabel, primaryAction: onOpenInstallationFiles)
+            return CardSpec(title: installationFilesTitle, detail: installationFilesDetail,
+                            icon: .symbol("externaldrive.fill"),
+                            actions: [review("applications.card.installationFiles", onOpenInstallationFiles)])
         }
     }
 
@@ -148,113 +122,45 @@ struct ApplicationsDashboardView: View {
         result.recommendedTiles()
     }
 
-    /// The reference layout: the lead card is a tall card on the left, and the
-    /// remaining cards sit in a right-hand column packed into rows of two (an odd
-    /// count leads with a single full-width row), mirroring the My Clutter
-    /// dashboard. Capping the right column at rows of two keeps the grid bounded
-    /// so it fills the pane without overflowing, however many cards there are.
-    /// Gap between adjacent tiles, shared by the column split and the row split
-    /// so the deterministic sizing math matches the visual spacing.
-    private let cardGap: CGFloat = 16
-
-    @ViewBuilder
-    private var cardLayout: some View {
-        let tiles = self.tiles
-        if tiles.count <= 1 {
-            if let only = tiles.first {
-                card(only).frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            // Size each card concretely from the pane geometry rather than
-            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
-            // several levels deep. A flexible grid this deep makes the SwiftUI
-            // layout engine re-probe every card for many candidate sizes on the
-            // first build — the dominant cost when the section is rebuilt after a
-            // switch. Concrete frames resolve the whole grid in a single pass.
-            // Spacing below the 16pt grid gap so adjacent tiles never blend.
-            GlassEffectContainer(spacing: 8) {
-                GeometryReader { geo in
-                    let columnWidth = (geo.size.width - cardGap) / 2
-                    HStack(alignment: .top, spacing: cardGap) {
-                        card(tiles[0])
-                            .frame(width: columnWidth, height: geo.size.height)
-                        rightColumn(
-                            Array(tiles.dropFirst()),
-                            width: columnWidth,
-                            height: geo.size.height
-                        )
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// The right-hand cards, packed into rows of at most two so the column never
-    /// grows taller than the pane. Sized concretely from the column geometry so
-    /// the grid stays a single-pass layout (see `cardLayout`).
-    private func rightColumn(
-        _ tiles: [ApplicationsDashboardTile],
-        width: CGFloat,
-        height: CGFloat
-    ) -> some View {
-        let cardRows = rows(of: tiles)
-        let rowHeight = (height - cardGap * CGFloat(cardRows.count - 1)) / CGFloat(max(cardRows.count, 1))
-        return VStack(spacing: cardGap) {
-            ForEach(cardRows) { row in
-                let cardWidth = (width - cardGap * CGFloat(row.tiles.count - 1)) / CGFloat(row.tiles.count)
-                HStack(spacing: cardGap) {
-                    ForEach(row.tiles) { tile in
-                        card(tile).frame(width: cardWidth, height: rowHeight)
-                    }
-                }
-            }
-        }
-        .frame(width: width, height: height)
-    }
-
-    /// One row of right-column cards.
-    private struct CardRow: Identifiable {
-        let id: Int
-        let tiles: [ApplicationsDashboardTile]
-    }
-
-    /// Chunks the right-column cards into rows of two. An odd count leads with a
-    /// single full-width row (matching My Clutter's "one then a pair" shape).
-    private func rows(of tiles: [ApplicationsDashboardTile]) -> [CardRow] {
-        var rows: [CardRow] = []
-        var remaining = tiles
-        if remaining.count % 2 == 1 {
-            rows.append(CardRow(id: 0, tiles: [remaining.removeFirst()]))
-        }
-        while !remaining.isEmpty {
-            let chunk = Array(remaining.prefix(2))
-            remaining.removeFirst(chunk.count)
-            rows.append(CardRow(id: rows.count, tiles: chunk))
-        }
-        return rows
-    }
-
     /// Renders one ranked tile with its recommendation card, or a reassurance
     /// backfill.
     @ViewBuilder
-    private func card(_ tile: ApplicationsDashboardTile) -> some View {
+    private func card(_ tile: ApplicationsDashboardTile, role: DashboardTileRole) -> some View {
         switch tile {
         case .recommendation(let recommendation):
             let spec = spec(for: recommendation)
-            ApplicationsDashboardCard(
-                title: spec.title,
-                detail: spec.detail,
-                icon: spec.icon,
-                primaryLabel: spec.primaryLabel,
-                primaryAction: spec.primaryAction,
-                secondaryLabel: spec.secondaryLabel,
-                secondaryAction: spec.secondaryAction,
-                identifier: spec.id,
-                iconCache: iconCache
-            )
+            DashboardCard(title: spec.title, detail: spec.detail, role: role, actions: spec.actions) {
+                icon(spec.icon, isIllustration: false)
+            } illustration: {
+                icon(spec.icon, isIllustration: true)
+            }
         case .reassurance(let content):
-            ReassuranceCard(content: content, accent: accent)
+            DashboardReassuranceCard(content: content, role: role)
+        }
+    }
+
+    @ViewBuilder
+    private func icon(_ icon: ApplicationsCardIcon, isIllustration: Bool) -> some View {
+        switch icon {
+        case .symbol(let name):
+            DashboardOrb(
+                symbol: name,
+                size: isIllustration ? DashboardOrb.illustrationSize : DashboardOrb.accessorySize
+            )
+        case .appIcons(let urls):
+            appIconCluster(urls, iconSize: isIllustration ? 64 : 40)
+        }
+    }
+
+    /// Overlapping real app icons for the Unused card.
+    private func appIconCluster(_ urls: [URL], iconSize: CGFloat) -> some View {
+        HStack(spacing: -iconSize / 4) {
+            ForEach(urls, id: \.self) { url in
+                Image(nsImage: iconCache.icon(for: url))
+                    .resizable()
+                    .frame(width: iconSize, height: iconSize)
+                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+            }
         }
     }
 
@@ -266,10 +172,6 @@ struct ApplicationsDashboardView: View {
             comment: "Applications dashboard headline; %lld is the installed-app count."
         )
         return String.localizedStringWithFormat(format, Int64(result.installedCount))
-    }
-
-    private var updateLabel: String {
-        String(localized: "Update", comment: "Applications Updates card action that opens the Updater pane.")
     }
 
     private var installationFilesTitle: String {
@@ -416,102 +318,13 @@ struct ApplicationsDashboardView: View {
     }
 }
 
-// MARK: - Dashboard card (Applications)
+// MARK: - Card icon (Applications)
 
-/// How an Applications dashboard card illustrates its finding: a generated
-/// raster tile (App Leftovers / installer DMG), a tinted SF Symbol, or a
-/// cluster of the real app icons (the Unused card).
+/// How an Applications dashboard card illustrates its finding: an orb with the
+/// category's symbol, or a cluster of the real app icons (the Unused card).
 enum ApplicationsCardIcon {
-    case asset(String)
     case symbol(String)
     case appIcons([URL])
-}
-
-/// A single Applications dashboard card in the reference layout: a title and
-/// detail at the top with a top-right illustration, and a bottom action row.
-/// The Unused card additionally shows a cluster of real app icons at the
-/// bottom-left; the App Leftovers card shows a glass Review capsule plus a
-/// white Remove capsule.
-struct ApplicationsDashboardCard: View {
-    let title: String
-    let detail: String
-    let icon: ApplicationsCardIcon
-    let primaryLabel: String
-    let primaryAction: () -> Void
-    let secondaryLabel: String?
-    let secondaryAction: (() -> Void)?
-    let identifier: String
-    var iconCache: AppIconCache
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(title)
-                        .font(.title3.weight(.semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(detail)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.75))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                topRightIcon.frame(width: 52, height: 52)
-            }
-            // The Unused card fills its body with a centred cluster of the real
-            // app icons; the others just push the action row to the bottom.
-            if case .appIcons(let urls) = icon, !urls.isEmpty {
-                Spacer(minLength: 12)
-                appIconCluster(urls).frame(maxWidth: .infinity)
-                Spacer(minLength: 12)
-            } else {
-                Spacer(minLength: 8)
-            }
-            HStack(spacing: 10) {
-                Spacer()
-                if let secondaryLabel, let secondaryAction {
-                    Button(secondaryLabel, action: secondaryAction)
-                        .buttonStyle(.vaderGlass)
-                        .accessibilityIdentifier(identifier + ".secondary")
-                }
-                Button(primaryLabel, action: primaryAction)
-                    .buttonStyle(.vaderWhite)
-                    .accessibilityIdentifier(identifier)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .vaderTileGlass()
-    }
-
-    @ViewBuilder
-    private var topRightIcon: some View {
-        switch icon {
-        case .asset(let name):
-            Image(name).resizable().aspectRatio(contentMode: .fit)
-        case .symbol(let name):
-            Image(systemName: name)
-                .resizable().aspectRatio(contentMode: .fit)
-                .foregroundStyle(.tint)
-                .padding(4)
-        case .appIcons:
-            // The Unused card illustrates with the icon cluster at the bottom.
-            EmptyView()
-        }
-    }
-
-    /// Overlapping real app icons for the Unused card, centred to fill the tall
-    /// card body.
-    private func appIconCluster(_ urls: [URL]) -> some View {
-        HStack(spacing: -16) {
-            ForEach(urls, id: \.self) { url in
-                Image(nsImage: iconCache.icon(for: url))
-                    .resizable()
-                    .frame(width: 64, height: 64)
-                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-            }
-        }
-    }
 }
 
 // MARK: - Progress

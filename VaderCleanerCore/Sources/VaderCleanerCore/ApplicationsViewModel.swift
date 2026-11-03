@@ -228,6 +228,12 @@ public final class ApplicationsViewModel {
     private(set) var leftoverSelection: Set<String> = []
     /// True while a leftover recycle batch is in flight.
     private(set) var isRemovingLeftovers = false
+    /// True while any removal is moving files to the Trash. The dashboard's
+    /// Start Over waits on it: a scan started now could list a file the removal
+    /// is about to move.
+    public var isRemoving: Bool {
+        isRemovingInstallationFiles || isRemovingUnsupportedApps || isRemovingLeftovers
+    }
     /// How many items the last removal couldn't move to the Trash. Their rows
     /// stay put, which on its own reads as the button having done nothing.
     private(set) var removalFailureCount = 0
@@ -348,7 +354,7 @@ public final class ApplicationsViewModel {
 
     /// Returns to idle from a terminal phase so the user can start over from
     /// the intro screen.
-    func reset() {
+    public func reset() {
         scanGeneration &+= 1
         phase = .idle
         installationFileSelection = []
