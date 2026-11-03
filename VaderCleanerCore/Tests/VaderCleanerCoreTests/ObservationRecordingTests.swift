@@ -43,4 +43,17 @@ struct ObservationRecordingTests {
         }
         #expect(result)
     }
+
+    /// The budget is `timeout / pollInterval` polls plus one last look, whatever
+    /// the sleeps cost.
+    @Test
+    func pollUntil_checksTimeoutDividedByIntervalTimesPlusOnce() async {
+        var checks = 0
+        let result = await pollUntil(timeout: .milliseconds(50), pollInterval: .milliseconds(10)) {
+            checks += 1
+            return false
+        }
+        #expect(!result)
+        #expect(checks == 6)
+    }
 }

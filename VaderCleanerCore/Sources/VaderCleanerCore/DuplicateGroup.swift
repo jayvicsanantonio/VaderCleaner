@@ -28,14 +28,17 @@ public struct DuplicateGroup: Identifiable, Equatable, Hashable, Sendable {
     /// screen for days, and trashing a "redundant" copy of a file that has since
     /// gone or changed could take the only one. A copy that has gone is fine, since
     /// the original still stands. Compares modification dates rather than re-hashing,
-    /// so a Fix doesn't re-read every byte the scan already read.
+    /// so a Fix doesn't re-read every byte the scan already read. A date missing on
+    /// either side fails closed: with nothing to compare, the group can't be shown
+    /// to be unchanged.
     func isUnchangedOnDisk() -> Bool {
-        let originalIsThere = FileManager.default.fileExists(atPath: original.url.path)
-        return originalIsThere && files.allSatisfy { file in
+        guard FileManager.default.fileExists(atPath: original.url.path) else { return false }
+        return files.allSatisfy { file in
+            guard FileManager.default.fileExists(atPath: file.url.path) else { return true }
             guard let scanned = file.lastModifiedDate,
                   let current = (try? URL(fileURLWithPath: file.url.path)
                       .resourceValues(forKeys: [.contentModificationDateKey]))?
-                      .contentModificationDate else { return true }
+                      .contentModificationDate else { return false }
             return current == scanned
         }
     }

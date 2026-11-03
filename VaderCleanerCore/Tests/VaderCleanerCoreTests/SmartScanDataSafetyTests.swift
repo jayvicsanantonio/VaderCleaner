@@ -299,11 +299,20 @@ import Testing
         }
     }
 
-    @Test func aFileOnTwoCardsIsCostedOnce() async {
-        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.overlappingPlan })
+    /// The disc says "Frees" and the hero "can be freed", and the Trash frees
+    /// nothing until it's emptied, so neither counts what is only going there.
+    @Test func whatOnlyGoesToTheTrashIsNotCountedAsFreed() async {
+        let userCache = Self.file("/Users/me/Library/Caches/a", size: 700, category: .userCache)
+        let systemCache = Self.file("/Library/Caches/b", size: 300, category: .systemCache)
+        let vm = SmartScanViewModel(scanEngine: { _, _ in
+            Self.plan(Self.overlappingPlan.findings + [CareFinding(payload: .junk(ScanResult(items: [userCache, systemCache])))])
+        })
         await vm.scan()
         vm.setDownloads([Self.sharedCopy.url], selected: true)
-        #expect(vm.freeableBytes == 5_000)
+
+        #expect(vm.freeableBytes == 300)
+        #expect(vm.preApprovedFreeableBytes == 300)
+        #expect(vm.freeableBytes(for: .duplicates) == 5_000, "the card still shows what is selected")
     }
 
     @Test func aFileOnTwoCardsIsNotReportedAsAFailure() async {
@@ -728,6 +737,117 @@ import Testing
         // No original, so its "redundant" copy could be the only one left.
         try FileManager.default.removeItem(at: original.url)
         #expect(!group.isUnchangedOnDisk())
+    }
+
+    // MARK: - Review follow-ups
+
+    /// The scan honoured the Ignore List as it stood; an entry added while the
+    /// results sat on screen still has to stop the Run.
+    @Test func aRunLeavesWhatTheIgnoreListNowCovers() async {
+        let ignoredApp = Self.app("Old", at: "/Users/me/Archive")
+        let trashed = TestBox<Set<URL>>([])
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in
+                Self.plan([
+                    CareFinding(payload: .downloads([DownloadItem(file: Self.sharedCopy, sourceApp: nil)])),
+                    CareFinding(payload: .unsupportedApps([UnsupportedApp(app: ignoredApp, reason: .incompatibleArchitecture)])),
+                    CareFinding(payload: .unusedApps([UnusedApp(app: ignoredApp, lastUsedDate: .distantPast, sizeBytes: 1)])),
+                ])
+            },
+            recycleFiles: Self.trashRecycler(trashed),
+            currentExclusions: { [URL(fileURLWithPath: "/Downloads"), URL(fileURLWithPath: "/Users/me/Archive")] }
+        )
+        await vm.scan()
+        vm.setDownloads([Self.sharedCopy.url], selected: true)
+        vm.setUnsupportedApps([ignoredApp.id], selected: true)
+        vm.setUnusedApps([ignoredApp.id], selected: true)
+        await vm.run()
+
+        #expect(trashed.value.isEmpty)
+    }
+
+    /// No scan-time date means nothing to compare against, so the group can't be
+    /// shown to be unchanged.
+    @Test func aGroupMemberWithNoScanDateFailsClosed() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = try ["original", "copy"].map { name -> ScannedFile in
+            let url = root.appendingPathComponent(name)
+            try Data([1]).write(to: url)
+            return ScannedFile(url: url, size: 1, lastAccessDate: nil, lastModifiedDate: nil, category: .largeFile)
+        }
+        #expect(!DuplicateGroup(files: files).isUnchangedOnDisk())
+    }
+
+    /// A project folder the deleter can only remove from for good can't feed a
+    /// category the confirmation promises goes to the Trash.
+    @Test(arguments: ["/Library/Caches/proj", "/private/var/folders/xy/proj", "/Applications/Tool.app/proj"])
+    func aProjectFolderOnlyTheHelperCanEmptyIsRefused(path: String) throws {
+        let suite = "SmartScanDataSafety.webDev.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = WebDevScanScopeStore(defaults: defaults)
+
+        store.selectFolder(URL(fileURLWithPath: path))
+        #expect(store.isDefault)
+
+        // A pick saved before the rule existed is dropped too.
+        defaults.set(path, forKey: "webDevJunk.scanFolderPath")
+        #expect(WebDevScanScopeStore(defaults: defaults).scanRoots.isEmpty)
+    }
+
+    @Test func aHelperThatStoppedAnsweringIsNotCalledAFailure() async {
+        let vm = await junkViewModel([Self.userCache, Self.systemCache]) { _ in
+            JunkRemovalReport(bytesMovedToTrash: 700, removedCount: 1, unconfirmedCount: 1)
+        }
+        await vm.run()
+
+        let line = receipt(of: vm)?.lines.first
+        #expect(line?.outcome == .success)
+        #expect(line?.unconfirmedCount == 1)
+        #expect(line?.itemsProcessed == 1)
+    }
+
+    /// A changed group still has to say so when every other copy was taken by an
+    /// earlier card and nothing is left for this one to move.
+    @Test func aChangedGroupIsReportedEvenWhenNothingElseIsLeftToMove() async {
+        let changedCopy = Self.file("/Downloads/changed-copy.bin")
+        let changed = DuplicateGroup(files: [Self.file("/Downloads/changed.bin"), changedCopy])
+        let bigDownload = Self.file("/Downloads/big.iso", size: 9_000_000, category: .largeFile)
+        let vm = SmartScanViewModel(
+            scanEngine: { _, _ in
+                Self.plan([
+                    CareFinding(payload: .duplicates([changed, DuplicateGroup(files: [Self.keptOriginal, Self.sharedCopy])])),
+                    CareFinding(payload: .downloads([
+                        DownloadItem(file: bigDownload, sourceApp: nil),
+                        DownloadItem(file: Self.sharedCopy, sourceApp: nil),
+                    ])),
+                ])
+            },
+            recycleFiles: { Set($0) },
+            duplicateGroupIsIntact: { $0 != changed }
+        )
+        await vm.scan()
+        vm.setDownloads([bigDownload.url, Self.sharedCopy.url], selected: true)
+        await vm.run()
+
+        let line = receipt(of: vm)?.lines.first { $0.kind == .duplicates }
+        if case .failed = line?.outcome {} else {
+            Issue.record("the changed group has to reach the receipt, got \(String(describing: line?.outcome))")
+        }
+    }
+
+    @Test func updatesThatAllFailTheCheckAreAFailure() async {
+        let unsafe = Self.update(for: Self.app("Unsafe"), url: "http://example.com/a.dmg")
+        let vm = SmartScanViewModel(scanEngine: { _, _ in Self.plan([CareFinding(payload: .appUpdates([unsafe]))]) })
+        await vm.scan()
+        await vm.run()
+
+        if case .failed = receipt(of: vm)?.lines.first?.outcome {} else {
+            Issue.record("nothing opened, so nothing happened")
+        }
     }
 
     // MARK: - The Ignore List

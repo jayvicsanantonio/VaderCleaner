@@ -163,6 +163,9 @@ private struct CareReceiptLineRow: View {
     @ViewBuilder
     private var glyph: some View {
         switch line.outcome {
+        case .success where line.unconfirmedCount > 0:
+            Image(systemName: "checkmark.circle.badge.questionmark")
+                .foregroundStyle(.yellow)
         case .success:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.white, .green)
@@ -175,7 +178,20 @@ private struct CareReceiptLineRow: View {
         }
     }
 
+    /// The outcome's sentence, plus what the helper was still working on when it
+    /// stopped answering, so that isn't read as either done or failed.
     private var text: String {
+        guard line.unconfirmedCount > 0 else { return outcomeText }
+        return outcomeText + " " + String.localizedStringWithFormat(
+            String(
+                localized: "%d more may still be removed.",
+                comment: "Receipt suffix: items the privileged helper may still be removing after it stopped answering."
+            ),
+            line.unconfirmedCount
+        )
+    }
+
+    private var outcomeText: String {
         switch line.outcome {
         case .failed(let message):
             let title = CareFindingCopy.title(for: line.kind)

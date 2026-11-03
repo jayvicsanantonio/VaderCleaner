@@ -22,6 +22,10 @@ public struct CareReceiptLine: Equatable, Sendable, Codable {
     public let bytesFreed: Int64
     /// Bytes now in the Trash, which still occupy the disk and can be restored.
     public let bytesMovedToTrash: Int64
+    /// Items whose removal is unconfirmed rather than failed: the privileged
+    /// helper stopped answering and may still be working through them. Counted
+    /// in neither `itemsProcessed` nor the outcome's failures.
+    public let unconfirmedCount: Int
     public let outcome: Outcome
 
     /// The memberwise initializer, written out because Swift only synthesizes
@@ -31,23 +35,27 @@ public struct CareReceiptLine: Equatable, Sendable, Codable {
         itemsProcessed: Int,
         bytesFreed: Int64,
         bytesMovedToTrash: Int64 = 0,
+        unconfirmedCount: Int = 0,
         outcome: Outcome
     ) {
         self.kind = kind
         self.itemsProcessed = itemsProcessed
         self.bytesFreed = bytesFreed
         self.bytesMovedToTrash = bytesMovedToTrash
+        self.unconfirmedCount = unconfirmedCount
         self.outcome = outcome
     }
 
-    /// Written out so a receipt persisted before `bytesMovedToTrash` existed
-    /// still decodes; `CareHistoryStore` drops the whole log on a decode failure.
+    /// Written out so a receipt persisted before `bytesMovedToTrash` and
+    /// `unconfirmedCount` existed still decodes; `CareHistoryStore` drops the
+    /// whole log on a decode failure.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(CareFinding.Kind.self, forKey: .kind)
         itemsProcessed = try container.decode(Int.self, forKey: .itemsProcessed)
         bytesFreed = try container.decode(Int64.self, forKey: .bytesFreed)
         bytesMovedToTrash = try container.decodeIfPresent(Int64.self, forKey: .bytesMovedToTrash) ?? 0
+        unconfirmedCount = try container.decodeIfPresent(Int.self, forKey: .unconfirmedCount) ?? 0
         outcome = try container.decode(Outcome.self, forKey: .outcome)
     }
 }
