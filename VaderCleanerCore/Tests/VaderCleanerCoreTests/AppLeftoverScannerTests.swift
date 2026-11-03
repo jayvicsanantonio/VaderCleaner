@@ -196,4 +196,23 @@ struct AppLeftoverScannerPerInstanceIDTests {
 
         #expect(groups.map(\.bundleID) == ["com.orphan.App"])
     }
+
+    @Test
+    func scanSkipsUUIDNamedEntriesOutsidePreferences() async throws {
+        let root = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("com.acme.E621E1F8-C36C-495A-93FC-0C247A3E6E5F", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("com.orphan.App", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let scanner = DefaultAppLeftoverScanner(roots: [(root, .bundleNamedEntry)], isRegisteredApp: { _ in false })
+        let groups = await scanner.scan(installedBundleIDs: [])
+
+        #expect(groups.map(\.bundleID) == ["com.orphan.App"])
+    }
 }

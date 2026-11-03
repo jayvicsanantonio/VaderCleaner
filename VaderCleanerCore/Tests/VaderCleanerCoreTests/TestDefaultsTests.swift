@@ -17,9 +17,11 @@ struct TestDefaultsTests {
         defaults.set(42, forKey: "answer")
         defaults.synchronize()
 
+        let temporaryDirectory = FileManager.default.temporaryDirectory.standardizedFileURL.path
         let preferences = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Preferences")
             .appendingPathComponent("\((suiteName as NSString).lastPathComponent).plist")
+        #expect(URL(fileURLWithPath: suiteName).standardizedFileURL.path.hasPrefix(temporaryDirectory + "/"))
         #expect(FileManager.default.fileExists(atPath: suiteName + ".plist"))
         #expect(!FileManager.default.fileExists(atPath: preferences.path))
         #expect(UserDefaults(suiteName: suiteName)?.integer(forKey: "answer") == 42)
