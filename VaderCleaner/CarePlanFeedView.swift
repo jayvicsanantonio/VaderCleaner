@@ -40,7 +40,11 @@ struct CarePlanFeedView: View {
             // One glass container for the hero and every tile: independent
             // glass surfaces each pay their own render pass, which made
             // scrolling the feed stutter; merged they resolve together.
-            GlassEffectContainer(spacing: 14) {
+            // Spacing 0 keeps them from blending: the container melts any
+            // two shapes nearer than `spacing` into one surface, and the
+            // tiles sit 14pt apart, so a matching spacing re-blended their
+            // edges on every scroll frame as the clip moved across them.
+            GlassEffectContainer(spacing: 0) {
                 feedContent
             }
         }
