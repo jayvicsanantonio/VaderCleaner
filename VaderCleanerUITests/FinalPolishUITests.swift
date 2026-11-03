@@ -133,9 +133,9 @@ final class FinalPolishUITests: XCTestCase {
         }
     }
 
-    /// Health Monitor must lead with the Mac Health hero card: the overall
-    /// verdict and the boot-volume fill bar. Asserts the hero, its status
-    /// title, and its disk bar render above the per-metric grid.
+    /// Health Monitor must lead with the verdict banner and show the boot
+    /// volume's fill. Asserts the banner, its headline, and the storage
+    /// check's disk bar render.
     func test_navigateToHealthMonitor_showsMacHealthHero() throws {
 
         let row = app.buttons["sidebar.healthMonitor"].firstMatch

@@ -81,6 +81,23 @@ public final class HealthMonitorViewModel {
         Self.macHealthStatus(disk: service.diskSpace, smart: smartStatus, battery: batteryAvailability)
     }
 
+    // MARK: - Checks and verdict
+
+    /// The long-lived health checks, in display order.
+    public var checks: [HealthCheck] {
+        HealthChecks.checks(disk: service.diskSpace, battery: batteryAvailability, smart: smartStatus, fileVault: fileVaultState)
+    }
+
+    /// The verdict banner: headline from the displayed tier (capped before a
+    /// first scan, like the menu bar), reason and action from the checks.
+    public func summary(hasScanned: Bool) -> HealthSummary {
+        HealthChecks.summary(verdict: Self.displayedHealth(macHealth, hasScanned: hasScanned), checks: checks)
+    }
+
+    public var memoryLoadLabel: String { HealthChecks.memoryLoadLabel(ramPressureLevel) }
+    public var cpuLoadLabel: String { HealthChecks.cpuLoadLabel(service.cpuUsage) }
+    public var systemLine: String { HealthChecks.systemLine(chip: chipName, os: osVersion, uptime: uptime) }
+
     /// "121 GB of 494 GB used" line shown beneath the volume name in the hero.
     public var diskUsageDetail: String { Self.diskUsageDetailString(service.diskSpace) }
 
@@ -235,7 +252,7 @@ public final class HealthMonitorViewModel {
     }
 
     /// Returns `usage` clamped to `[0, 1]`. Drives the CPU progress bar.
-    static func cpuRatio(_ usage: Double) -> Double {
+    nonisolated static func cpuRatio(_ usage: Double) -> Double {
         SystemStatsFormatters.unitRatio(usage)
     }
 
@@ -272,7 +289,7 @@ public final class HealthMonitorViewModel {
     /// Disk fullness color. Below 80% green, 80–95% yellow, above red.
     /// Boundaries are inclusive at the lower bound (a disk exactly at 80%
     /// flips to yellow), matching `MemoryPressureLevel`'s convention.
-    public static func diskColor(for stats: DiskStats) -> StatusColor {
+    nonisolated public static func diskColor(for stats: DiskStats) -> StatusColor {
         let ratio = diskUsageRatio(stats)
         if ratio < diskWarningThreshold { return .green }
         if ratio < diskCriticalThreshold { return .yellow }
@@ -292,10 +309,10 @@ public final class HealthMonitorViewModel {
     /// match) because CPU and disk thresholds tune independently — a
     /// compile-host machine pegging CPU at 95% is normal, while a disk at
     /// 95% full is not.
-    static let cpuWarningThreshold = 0.80
+    nonisolated static let cpuWarningThreshold = 0.80
 
     /// Threshold at which the CPU card flips from yellow to red.
-    static let cpuCriticalThreshold = 0.95
+    nonisolated static let cpuCriticalThreshold = 0.95
 
     /// CPU load color from a unit-interval ratio. Same shape as
     /// `diskColor(for:)`; thresholds are independent so the two metrics can

@@ -507,7 +507,8 @@ struct ContentView: View {
             // here keeps the section re-rendering when the first scan lands.
             HealthMonitorView(
                 service: systemStats,
-                hasScanned: protectionDashboardViewModel.malware.lastScanDate != nil
+                hasScanned: protectionDashboardViewModel.malware.lastScanDate != nil,
+                onFreeUpSpace: { selectSection(.systemJunk) }
             )
         case .systemJunk:
             ScannableSectionContent(coordinator: systemJunkViewModel, section: section) {
