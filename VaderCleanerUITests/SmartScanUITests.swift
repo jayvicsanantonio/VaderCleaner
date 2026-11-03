@@ -74,14 +74,19 @@ final class SmartScanUITests: XCTestCase {
             checklist.waitForExistence(timeout: 10),
             "Expected the scanning checklist after tapping Scan"
         )
-        // The checklist renders one grid tile per care domain, keyed by the
-        // stable domain raw values — the honest-concurrency contract.
-        for domain in ["systemJunk", "myClutter", "malware", "browserPrivacy", "applications", "performance"] {
+        // The checklist renders one grid tile per checklist domain, keyed by
+        // the stable domain raw values — the honest-concurrency contract.
+        for domain in ["systemJunk", "myClutter", "malware", "applications", "performance"] {
             XCTAssertTrue(
                 app.descendants(matching: .any)["smartScan.scanning.tile.\(domain)"].waitForExistence(timeout: 5),
                 "Expected a checklist tile for the \(domain) domain"
             )
         }
+        // Browser Privacy reports on Protection's tile, never one of its own.
+        XCTAssertFalse(
+            app.descendants(matching: .any)["smartScan.scanning.tile.browserPrivacy"].exists,
+            "Browser Privacy should share Protection's tile"
+        )
     }
 
     /// Regression: leaving a Review open and switching sections used to strand

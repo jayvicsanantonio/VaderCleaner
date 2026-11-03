@@ -576,14 +576,25 @@ public final class SmartScanViewModel {
 
     // MARK: - Checklist derivation
 
-    /// The domains this scan shows as checklist rows, in display order.
-    public var checklistDomains: [CareDomain] { CareDomain.allCases }
+    /// The domains this scan shows as checklist tiles, in the order the shared
+    /// dashboard bento fills its slots — lead, wide, pair, wide — so the two
+    /// longest result lines, Applications' and Performance's, get wide tiles.
+    /// Browser Privacy has no tile of its own: Protection's covers it, the way
+    /// Settings nests it under Protection.
+    public var checklistDomains: [CareDomain] { [.systemJunk, .applications, .myClutter, .malware, .performance] }
 
-    /// One checklist row's rolled-up state. A domain is running while any of
-    /// its units run, finished (with its plain result line) once all landed,
-    /// skipped when every unit was skipped, and failed when any unit failed.
+    /// The domains one checklist tile reports on.
+    private func tileDomains(_ domain: CareDomain) -> [CareDomain] {
+        domain == .malware ? [.malware, .browserPrivacy] : [domain]
+    }
+
+    /// One checklist tile's rolled-up state, over the units of every domain
+    /// the tile covers. A tile is running while any of those units run,
+    /// finished (with its plain result line) once all landed, skipped when
+    /// every unit was skipped, and failed when any unit failed.
     public func domainStatus(_ domain: CareDomain) -> DomainStatus {
-        let statuses = domain.units.map { unitStatuses[$0] ?? .pending }
+        let units = tileDomains(domain).flatMap(\.units)
+        let statuses = units.map { unitStatuses[$0] ?? .pending }
         var outcomes: [CareUnitOutcome] = []
         for status in statuses {
             if case .finished(let outcome) = status { outcomes.append(outcome) }
@@ -601,11 +612,9 @@ public final class SmartScanViewModel {
             }) {
                 return .failed
             }
-            return .finished(
-                line: CareFindingCopy.domainResultLine(domain, findings: Array(liveFindings.values))
-            )
+            return .finished(line: tileResultLine(domain))
         }
-        let running = domain.units.reduce(into: 0) { total, unit in
+        let running = units.reduce(into: 0) { total, unit in
             if case .running(let items) = unitStatuses[unit] { total += items } else if let count = unitProgressCounts[unit] { total += count }
         }
         let anyRunning = statuses.contains { status in
@@ -616,6 +625,25 @@ public final class SmartScanViewModel {
         // between units in its lane — still "running" from the user's seat.
         let anyFinished = !outcomes.isEmpty
         return (anyRunning || anyFinished) ? .running(itemsScanned: running) : .pending
+    }
+
+    /// A finished tile's line: each covered domain that ran says its result,
+    /// joined. One that found nothing stays quiet once another has spoken, so
+    /// a clean browser history doesn't crowd Protection's "No threats found",
+    /// and a check skipped in Settings never claims an all-clear.
+    private func tileResultLine(_ domain: CareDomain) -> String {
+        let findings = Array(liveFindings.values)
+        var lines: [String] = []
+        for covered in tileDomains(domain) {
+            let ran = covered.units.contains { unit in
+                if case .finished(.skipped) = unitStatuses[unit] { return false }
+                return true
+            }
+            let foundSomething = findings.contains { $0.kind.unit.domain == covered }
+            guard ran, lines.isEmpty || foundSomething else { continue }
+            lines.append(CareFindingCopy.domainResultLine(covered, findings: findings))
+        }
+        return lines.joined(separator: " · ")
     }
 
     // MARK: - Results derivation
