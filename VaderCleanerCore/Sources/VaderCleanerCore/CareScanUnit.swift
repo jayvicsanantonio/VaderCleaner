@@ -53,20 +53,23 @@ public enum CareScanUnit: String, CaseIterable, Hashable, Sendable {
 }
 
 /// The user-facing grouping of scan units shown in the "Customize Smart Care"
-/// settings tree and as the rows of the scanning checklist. Declaration order
-/// is display order.
+/// settings tree and as the tiles of the scanning checklist, where Browser
+/// Privacy shares Protection's tile. Declaration order is display order
+/// everywhere but the checklist, which follows its bento's slots.
 ///
 /// Raw values reuse the module keys earlier builds persisted in
 /// `SmartScanSettingsStore` (`systemJunk`, `myClutter`, `malware`,
 /// `applications`, `performance`), so stored preferences keep decoding;
 /// `browserPrivacy` is the one addition.
-public enum CareDomain: String, CaseIterable, Hashable, Sendable {
+public enum CareDomain: String, CaseIterable, Hashable, Identifiable, Sendable {
     case systemJunk
     case myClutter
     case malware
     case browserPrivacy
     case applications
     case performance
+
+    public var id: Self { self }
 
     /// The scan units this domain owns, in `CareScanUnit` declaration order.
     public var units: [CareScanUnit] {

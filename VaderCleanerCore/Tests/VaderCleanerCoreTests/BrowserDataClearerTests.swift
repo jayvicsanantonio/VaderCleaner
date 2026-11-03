@@ -127,7 +127,7 @@ final class BrowserDataClearerTests: XCTestCase {
         // Put the very path we're about to clear on the exclusions list.
         // Isolated suite so the test never touches the user's real
         // UserDefaults.
-        let suiteName = "BrowserDataClearerTests.\(UUID().uuidString)"
+        let suiteName = UserDefaults.testSuiteName("BrowserDataClearerTests")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let exclusions = ExclusionsStore(defaults: defaults)

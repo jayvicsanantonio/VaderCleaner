@@ -63,7 +63,7 @@ final class MyClutterScanScopeStoreTests: XCTestCase {
     }
 
     private func makeDefaults() -> UserDefaults {
-        let suite = "MyClutterScanScopeStoreTests.\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("MyClutterScanScopeStoreTests")
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults

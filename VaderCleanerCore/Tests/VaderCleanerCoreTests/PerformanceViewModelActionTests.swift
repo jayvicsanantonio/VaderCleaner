@@ -11,7 +11,7 @@ final class PerformanceViewModelActionTests {
 
     private struct Boom: Error {}
 
-    private let suiteName = "PerformanceViewModelActionTests.\(UUID().uuidString)"
+    private let suiteName = UserDefaults.testSuiteName("PerformanceViewModelActionTests")
     private let runLog: MaintenanceRunLog
     private let defaults: UserDefaults
 

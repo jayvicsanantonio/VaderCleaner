@@ -54,7 +54,7 @@ private func makeViewModel(
     }
 
     @Test func aPickedFolderThatIsGoneFailsTheScanNamingIt() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "MyClutterScanFailureTests-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(suiteName: UserDefaults.testSuiteName("MyClutterScanFailureTests")))
         let scope = MyClutterScanScopeStore(defaults: defaults)
         scope.selectFolder(url("/Volumes/NoSuchDrive-\(UUID().uuidString)/Photos"))
         let vm = MyClutterViewModel.live(exclusions: ExclusionsStore(defaults: defaults), scanScope: scope)
@@ -80,7 +80,7 @@ private func makeViewModel(
         try Data("installer".utf8).write(to: downloads.appendingPathComponent("tool.dmg"))
         let listed = try await DownloadsScanner(downloadsURL: downloads).scan(excluding: [])
         #expect(listed.count == 1, "The file is one a scan of Downloads would list")
-        let defaults = try #require(UserDefaults(suiteName: "MyClutterScanFailureTests-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(suiteName: UserDefaults.testSuiteName("MyClutterScanFailureTests")))
         let scope = MyClutterScanScopeStore(defaults: defaults)
         scope.selectFolder(root)
         let vm = MyClutterViewModel.live(exclusions: ExclusionsStore(defaults: defaults), scanScope: scope, downloadsDirectory: downloads)

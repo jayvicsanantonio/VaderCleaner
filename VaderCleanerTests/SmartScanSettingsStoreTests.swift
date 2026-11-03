@@ -14,7 +14,7 @@ final class SmartScanSettingsStoreTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         // Per-test suite so persistence assertions never cross-contaminate.
-        suiteName = "VaderCleanerTests.SmartScanSettings.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.SmartScanSettings")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

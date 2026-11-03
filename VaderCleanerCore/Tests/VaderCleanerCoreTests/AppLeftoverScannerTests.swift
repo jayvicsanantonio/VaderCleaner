@@ -1,6 +1,7 @@
 // AppLeftoverScannerTests.swift
 // Pins DefaultAppLeftoverScanner's pure matching helpers and drives the full scan against temp ~/Library fixtures — covering per-root bundle-ID derivation, the reverse-DNS / Apple / installed-sub-ID guards, grouping across roots, and sizing. Hermetic.
 
+import Testing
 import XCTest
 @testable import VaderCleanerCore
 
@@ -155,5 +156,63 @@ final class AppLeftoverScannerTests: XCTestCase {
         let scanner = DefaultAppLeftoverScanner(roots: [(missing, .bundleNamedEntry)])
         let groups = await scanner.scan(installedBundleIDs: [])
         XCTAssertTrue(groups.isEmpty)
+    }
+}
+
+/// UUID-named entries are per-instance data, never an app. Test runs'
+/// throwaway `UserDefaults` suites are the case that matters: a plainly named
+/// one leaves a `<prefix>.<UUID>.plist` in Preferences, and a developer's Mac
+/// can collect tens of thousands, each of which would read as an uninstalled
+/// app.
+@Suite
+struct AppLeftoverScannerPerInstanceIDTests {
+
+    @Test(arguments: [
+        "VaderCleanerTests.PreferencesStore.E621E1F8-C36C-495A-93FC-0C247A3E6E5F",
+        "com.acme.e621e1f8-c36c-495a-93fc-0c247a3e6e5f.cache",
+    ])
+    func anIDCarryingAUUIDIsPerInstance(_ id: String) {
+        #expect(DefaultAppLeftoverScanner.hasUUIDComponent(id))
+    }
+
+    @Test(arguments: ["com.acme.App", "com.acme.App-Beta", "org.e621e1f8.App"])
+    func anOrdinaryBundleIDIsNot(_ id: String) {
+        #expect(!DefaultAppLeftoverScanner.hasUUIDComponent(id))
+    }
+
+    @Test
+    func scanSkipsUUIDNamedPreferences() async throws {
+        let root = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        try TestHelpers.createDummyFile(
+            named: "VaderCleanerTests.PreferencesStore.E621E1F8-C36C-495A-93FC-0C247A3E6E5F.plist",
+            size: 42,
+            in: root
+        )
+        try TestHelpers.createDummyFile(named: "com.orphan.App.plist", size: 100, in: root)
+
+        let scanner = DefaultAppLeftoverScanner(roots: [(root, .preferences)], isRegisteredApp: { _ in false })
+        let groups = await scanner.scan(installedBundleIDs: [])
+
+        #expect(groups.map(\.bundleID) == ["com.orphan.App"])
+    }
+
+    @Test
+    func scanSkipsUUIDNamedEntriesOutsidePreferences() async throws {
+        let root = try TestHelpers.createTempDirectory()
+        defer { TestHelpers.tearDownTempDirectory(root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("com.acme.E621E1F8-C36C-495A-93FC-0C247A3E6E5F", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("com.orphan.App", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let scanner = DefaultAppLeftoverScanner(roots: [(root, .bundleNamedEntry)], isRegisteredApp: { _ in false })
+        let groups = await scanner.scan(installedBundleIDs: [])
+
+        #expect(groups.map(\.bundleID) == ["com.orphan.App"])
     }
 }

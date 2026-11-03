@@ -20,7 +20,7 @@ final class AppUpdatesMonitorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        suiteName = "VaderCleanerTests.AppUpdates.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.AppUpdates")
         defaults = UserDefaults(suiteName: suiteName)
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()
@@ -180,7 +180,7 @@ struct AppUpdatesMonitorOverlapTests {
     /// exceeds 1.
     @Test
     func start_neverRunsOverlappingChecks() async throws {
-        let suiteName = "VaderCleanerTests.AppUpdatesOverlap.\(UUID().uuidString)"
+        let suiteName = UserDefaults.testSuiteName("VaderCleanerTests.AppUpdatesOverlap")
         let defaults = UserDefaults(suiteName: suiteName)!
         let preferences = PreferencesStore(defaults: defaults)
         let dispatcher = StubNotificationDispatcher()

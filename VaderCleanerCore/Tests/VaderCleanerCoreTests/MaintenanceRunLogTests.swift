@@ -13,7 +13,7 @@ final class MaintenanceRunLogTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "MaintenanceRunLogTests.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("MaintenanceRunLogTests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 
@@ -69,7 +69,7 @@ struct MaintenanceRunLogClockTests {
 
     @Test
     func aRunStampedInTheFutureCountsAsStale() throws {
-        let suiteName = "MaintenanceRunLogClockTests.\(UUID().uuidString)"
+        let suiteName = UserDefaults.testSuiteName("MaintenanceRunLogClockTests")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let log = MaintenanceRunLog(defaults: defaults)

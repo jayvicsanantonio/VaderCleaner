@@ -338,7 +338,7 @@ struct ApplicationsManagerRegressionTests {
 
     @Test("a skipped Homebrew row can be found again in the Skipped list")
     func skippedBrewRowIsReversible() async throws {
-        let suite = "audit.\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("audit")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let docker = app("Docker", id: "com.docker.docker")

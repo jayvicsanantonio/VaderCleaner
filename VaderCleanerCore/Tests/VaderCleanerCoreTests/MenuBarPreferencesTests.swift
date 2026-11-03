@@ -12,7 +12,7 @@ final class MenuBarPreferencesTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        suiteName = "VaderCleanerTests.MenuBarPrefs.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.MenuBarPrefs")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

@@ -13,7 +13,7 @@ final class WelcomeStoreTests {
     private let defaults: UserDefaults
 
     init() {
-        suiteName = "VaderCleanerTests.Welcome.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.Welcome")
         defaults = UserDefaults(suiteName: suiteName)!
         // An isolated suite is not isolated from NSArgumentDomain: that domain
         // is in every UserDefaults instance's search list and outranks the

@@ -135,7 +135,7 @@ final class PerformanceViewModelTests: XCTestCase {
     }
 
     func test_runTask_recordsLastRunSoTaskIsNoLongerStale() async {
-        let suiteName = "OptVMRunLog.\(UUID().uuidString)"
+        let suiteName = UserDefaults.testSuiteName("OptVMRunLog")
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let log = MaintenanceRunLog(defaults: defaults)
@@ -298,7 +298,7 @@ final class PerformanceViewModelTests: XCTestCase {
     /// Also pins the willSet/didSet ordering: the row is reloaded *after*
     /// the handler has applied the new state.
     func test_integration_performanceAndPreferencesStayInSync() async {
-        let suiteName = "VaderCleanerTests.Issue65.\(UUID().uuidString)"
+        let suiteName = UserDefaults.testSuiteName("VaderCleanerTests.Issue65")
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(false, forKey: "preferences.launchAtLogin")
@@ -513,7 +513,7 @@ final class PerformanceViewModelTests: XCTestCase {
         // Default to an isolated, empty UserDefaults suite so the run log never
         // touches `.standard` or leaks state between tests.
         let isolatedLog = runLog ?? MaintenanceRunLog(
-            defaults: UserDefaults(suiteName: "PerformanceViewModelTests.\(UUID().uuidString)")!
+            defaults: UserDefaults(suiteName: UserDefaults.testSuiteName("PerformanceViewModelTests"))!
         )
         return PerformanceViewModel(
             loadLoginItems: loadLoginItems,
@@ -568,7 +568,7 @@ final class PerformanceViewModelTests: XCTestCase {
 @Suite
 final class PerformanceViewModelLaunchAtLoginBridgeTests {
 
-    private let suiteName = "VaderCleanerTests.LaunchAtLoginBridge.\(UUID().uuidString)"
+    private let suiteName = UserDefaults.testSuiteName("VaderCleanerTests.LaunchAtLoginBridge")
     private let defaults: UserDefaults
 
     init() {

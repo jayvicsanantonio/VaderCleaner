@@ -140,7 +140,7 @@ struct ScanDiscWindowControllerTests {
 
         let controller = makeController()
         controller.section = .healthMonitor
-        let defaults = UserDefaults(suiteName: "VaderCleanerTests.ScanDisc.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.ScanDisc"))!
         controller.attach(
             to: window,
             railWidth: 72,

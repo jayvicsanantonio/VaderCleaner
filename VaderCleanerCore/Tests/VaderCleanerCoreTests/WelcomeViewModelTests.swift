@@ -12,7 +12,7 @@ final class WelcomeViewModelTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        suiteName = "VaderCleanerTests.WelcomeViewModel.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.WelcomeViewModel")
         defaults = UserDefaults(suiteName: suiteName)
         // See WelcomeStoreTests: NSArgumentDomain outranks an isolated suite,
         // so a scheme passing `-welcome.hasCompleted` would shadow the store

@@ -11,7 +11,7 @@ final class CareScanEngineLiveTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "VaderCleanerTests.CareScanEngineLive.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.CareScanEngineLive")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

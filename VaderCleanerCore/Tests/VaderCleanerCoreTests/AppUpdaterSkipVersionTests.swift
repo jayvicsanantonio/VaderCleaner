@@ -12,7 +12,7 @@ final class AppUpdaterSkipVersionTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        suiteName = "AppUpdaterSkipVersionTests.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("AppUpdaterSkipVersionTests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

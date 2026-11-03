@@ -1,38 +1,30 @@
 // CareScanChecklistView.swift
-// The scanning experience: a grid of six care-domain tiles — corner art over an accent bloom, a traveling border while a domain scans — each filling in with a plain-language result the moment its sub-scans genuinely finish.
+// The scanning experience: five care-domain tiles on the dashboards' shared bento — art over an accent bloom, a traveling border while a domain scans — each filling in with a plain-language result the moment its sub-scans genuinely finish.
 
 import SwiftUI
 import VaderCleanerCore
 
-/// The `.scanning` surface: one tile per care domain in a fixed grid, styled
-/// like the results dashboard's cards (the domain's 3D art in the top-right
-/// corner over a soft bloom of its accent). Tiles never reorder; a domain
-/// being scanned runs a light around its edge in its accent colour, and its
-/// result lands as it truly completes — including grey "Skipped" and amber
-/// "Couldn't check" so a problem never hides behind an all-clear.
+/// The `.scanning` surface: one tile per checklist domain, placed on the same
+/// bento the section dashboards use (`DashboardGrid`) and styled like their
+/// cards (the domain's 3D art over a soft bloom of its accent). Tiles never
+/// reorder; a domain being scanned runs a light around its edge in its accent
+/// colour, and its result lands as it truly completes — with a check beside
+/// the title, or grey "Skipped" and amber "Couldn't check" so a problem never
+/// hides behind an all-clear.
 struct CareScanChecklistView: View {
 
     var viewModel: SmartScanViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let gridColumns = Array(
-        repeating: GridItem(.flexible(), spacing: 14),
-        count: 3
-    )
-
     var body: some View {
         VStack(spacing: 28) {
             header
-            // One container so the six glass tiles resolve in a single pass.
-            GlassEffectContainer(spacing: 14) {
-                LazyVGrid(columns: Self.gridColumns, spacing: 14) {
-                    ForEach(viewModel.checklistDomains, id: \.self) { domain in
-                        CareScanTile(domain: domain, status: viewModel.domainStatus(domain))
-                            .frame(height: 168)
-                    }
-                }
+            DashboardGrid(tiles: viewModel.checklistDomains) { domain, role in
+                CareScanTile(domain: domain, role: role, status: viewModel.domainStatus(domain))
             }
-            .frame(maxWidth: 960)
+            // Capped so a large window centres a compact bento instead of
+            // stretching the tiles to fill it.
+            .frame(maxWidth: 960, maxHeight: 480)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -78,24 +70,30 @@ struct CareScanChecklistView: View {
 /// One domain's tile: title top-left, the domain's art over its accent bloom
 /// top-right, and the live status bottom-left — waiting → checking (with a
 /// traveling edge light) → plain-language result / Skipped / Couldn't check.
+/// The bento's tall lead tile shows its art large and centred instead, as the
+/// dashboards' lead cards do.
 private struct CareScanTile: View {
 
     let domain: CareDomain
+    let role: DashboardTileRole
     let status: SmartScanViewModel.DomainStatus
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(domain.title)
-                .font(.headline)
-                .foregroundStyle(.white.opacity(0.9))
+            title
             Spacer(minLength: 0)
+            if role == .lead {
+                art(size: 168)
+                    .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
             statusContent
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        // Corner bloom + art beneath the text, matching the results cards:
-        // a radial wash of the domain's accent with its 3D art on top.
-        .background(artCorner)
+        // Bloom + art beneath the text, matching the results cards: a radial
+        // wash of the domain's accent with its 3D art on top.
+        .background(artBackdrop)
         .vaderTileGlass()
         // A light travels the tile's edge for as long as this domain is being
         // scanned, so it reads as actively working even between count ticks.
@@ -111,31 +109,66 @@ private struct CareScanTile: View {
 
     // MARK: - Pieces
 
-    /// Soft accent bloom in the top-right corner with the domain's art over
-    /// it — the glow takes the art's own colour so each tile reads as its
-    /// section. Waiting/skipped tiles desaturate so activity draws the eye.
-    private var artCorner: some View {
+    /// The domain's name, with a check once its result has landed so a
+    /// finished tile reads as done at a glance, not only by its border going
+    /// still. The check wears the domain's accent rather than a "good" green,
+    /// because a finished tile may well have found threats.
+    private var title: some View {
+        HStack(spacing: 6) {
+            Text(domain.title)
+                .font(.headline)
+                .foregroundStyle(.white.opacity(0.9))
+            if isFinished {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.headline)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, domain.artTint)
+                    .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel(Text(String(
+                        localized: "Done",
+                        comment: "Accessibility label for the check on a scanning tile whose domain has finished."
+                    )))
+            }
+        }
+    }
+
+    /// Soft accent bloom with the domain's art over it — in the top-right
+    /// corner, or for the lead just the bloom, centred behind its large art.
+    /// The glow takes the art's own colour so each tile reads as its section.
+    private var artBackdrop: some View {
         RadialGradient(
             colors: [domain.artTint.opacity(isDimmed ? 0.0 : 0.55), domain.artTint.opacity(0.0)],
-            center: .topTrailing,
+            center: role == .lead ? .center : .topTrailing,
             startRadius: 0,
             endRadius: 200
         )
         .overlay(alignment: .topTrailing) {
-            Image(domain.artAsset)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 88, height: 88)
-                .padding(6)
-                .saturation(isDimmed ? 0.0 : 1.0)
-                .opacity(isDimmed ? 0.55 : 1.0)
+            if role != .lead {
+                art(size: 88)
+                    .padding(6)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .allowsHitTesting(false)
     }
 
+    /// The domain's 3D art. Waiting/skipped tiles desaturate so activity draws
+    /// the eye.
+    private func art(size: CGFloat) -> some View {
+        Image(domain.artAsset)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .saturation(isDimmed ? 0.0 : 1.0)
+            .opacity(isDimmed ? 0.55 : 1.0)
+            .accessibilityHidden(true)
+    }
+
+    /// Every state fills two lines — the second held empty when there is
+    /// nothing to put in it — so, pinned to the tile's bottom, the first line
+    /// sits level across tiles in different states.
     @ViewBuilder
     private var statusContent: some View {
         switch status {
@@ -143,25 +176,30 @@ private struct CareScanTile: View {
             Text(String(localized: "Waiting…", comment: "Checklist tile line before its domain starts."))
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.55))
+            Text(verbatim: " ")
+                .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                .accessibilityHidden(true)
         case .running(let items):
             Text(String(localized: "Checking…", comment: "Checklist tile line while its domain scans."))
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-            if items > 0 {
-                Text(String.localizedStringWithFormat(
-                    String(localized: "%d items", comment: "Checklist tile live item count."),
-                    items
-                ))
-                .font(.system(size: 12.5, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.7))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-            }
+            // Laid out even before the first count arrives, hidden, so the
+            // line above doesn't jump when it does.
+            Text(String.localizedStringWithFormat(
+                String(localized: "%d items", comment: "Checklist tile live item count."),
+                items
+            ))
+            .font(.system(size: 12.5, weight: .medium, design: .rounded))
+            .foregroundStyle(.white.opacity(0.7))
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .opacity(items > 0 ? 1 : 0)
+            .accessibilityHidden(items == 0)
         case .finished(let line):
             Text(line)
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .fixedSize(horizontal: false, vertical: true)
         case .skipped:
             Text(String(localized: "Skipped", comment: "Checklist tile label for a domain excluded from this run."))
@@ -188,6 +226,11 @@ private struct CareScanTile: View {
 
     private var isRunning: Bool {
         if case .running = status { return true }
+        return false
+    }
+
+    private var isFinished: Bool {
+        if case .finished = status { return true }
         return false
     }
 

@@ -17,7 +17,7 @@ final class SettingsRestoreTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        suiteName = "VaderCleanerTests.SettingsRestore.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.SettingsRestore")
         defaults = UserDefaults(suiteName: suiteName)
         home = URL(fileURLWithPath: "/tmp/SettingsRestoreTests-\(UUID().uuidString)")
     }

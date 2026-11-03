@@ -15,7 +15,7 @@ final class HungAppMonitorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let defaults = UserDefaults(suiteName: "VaderCleanerTests.HungApp.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.HungApp"))!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()
         apps = []
