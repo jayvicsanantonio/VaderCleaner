@@ -160,6 +160,8 @@ struct ApplicationsDashboardView: View {
                     .resizable()
                     .frame(width: iconSize, height: iconSize)
                     .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                    // Decoration: the card's text already says what they are.
+                    .accessibilityHidden(true)
             }
         }
     }

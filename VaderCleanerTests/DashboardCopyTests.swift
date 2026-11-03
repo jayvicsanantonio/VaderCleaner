@@ -76,6 +76,20 @@ struct ProtectionDefinitionsStatusTests {
     }
 
     @Test
+    func whileScanning_namesTheCurrentFileOnOneLine() throws {
+        // On the status line rather than under the illustration, so it stays
+        // when a short card drops the illustration.
+        let status = try #require(
+            ProtectionMalwareTile.currentFileStatus(progressLine: "/Users/me/Downloads/Installer.dmg: OK")
+        )
+
+        #expect(status.text == "Installer.dmg")
+        #expect(status.isOneLine)
+        #expect(status.identifier == "protection.malwareTile.currentFile")
+        #expect(ProtectionMalwareTile.currentFileStatus(progressLine: "") == nil)
+    }
+
+    @Test
     func afterAFailedUpdate_showsWhyInPlaceOfTheAge() throws {
         let status = try #require(
             ProtectionMalwareTile.definitionsStatus(ageInDays: 3, isUpdating: false, failure: "No connection.", isScanning: false)

@@ -76,13 +76,17 @@ struct DashboardGridLayoutTests {
     }
 
     @Test
-    func aPaneSmallerThanTheGaps_neverProducesNegativeSizes() {
+    func aPaneSmallerThanTheGaps_keepsEveryTileInsideItWithoutNegativeSizes() {
         let slots = DashboardGridLayout.slots(count: 4, in: CGSize(width: 10, height: 10))
 
         #expect(slots.count == 4)
         for slot in slots {
             #expect(slot.frame.width >= 0)
             #expect(slot.frame.height >= 0)
+            // Checked edge by edge: `CGRect.contains` says nothing useful about
+            // the zero-size rects a pane this small produces.
+            #expect(slot.frame.minX >= 0 && slot.frame.maxX <= 10)
+            #expect(slot.frame.minY >= 0 && slot.frame.maxY <= 10)
         }
     }
 }

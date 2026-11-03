@@ -25,13 +25,17 @@ struct DashboardCardAction: Identifiable {
     var id: String { identifier }
 }
 
-/// A one-line status a card shows just above its actions, such as how old
+/// A short status a card shows just above its actions, such as how old
 /// Protection's malware definitions are. Set apart from the detail by its
 /// smaller type and leading symbol; `isBusy` swaps the symbol for a spinner.
+/// Every layout the card falls back to keeps it.
 struct DashboardCardStatus: Equatable {
     let text: String
     var symbol: String?
     var isBusy = false
+    /// Clips the text to one line, truncated in the middle, for status that
+    /// changes too fast for the card's height to follow it.
+    var isOneLine = false
     let identifier: String
 }
 
@@ -144,9 +148,16 @@ struct DashboardCard<Accessory: View, Illustration: View>: View {
                 Image(systemName: symbol)
                     .accessibilityHidden(true)
             }
-            Text(status.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier(status.identifier)
+            if status.isOneLine {
+                Text(status.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier(status.identifier)
+            } else {
+                Text(status.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(status.identifier)
+            }
         }
         .font(.footnote)
         .foregroundStyle(.white.opacity(0.65))

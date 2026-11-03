@@ -47,14 +47,17 @@ public enum DashboardGridLayout {
         let column = max((width - gap * 2) / 3, 0)
         var slots = [DashboardGridSlot(frame: CGRect(x: 0, y: 0, width: column, height: height), role: .lead)]
 
-        let rightX = column + gap
+        // Origins are clamped to the pane, so one too narrow or short for the
+        // gaps collapses its tiles to zero size at the edge instead of placing
+        // them outside it.
+        let rightX = min(column + gap, width)
         let rightWidth = max(width - rightX, 0)
         let rows = rowSizes(forTilesBesideLead: count - 1)
         let rowHeight = max((height - gap * CGFloat(rows.count - 1)) / CGFloat(rows.count), 0)
         let pairWidth = max((rightWidth - gap) / 2, 0)
 
         for (index, tilesInRow) in rows.enumerated() {
-            let y = CGFloat(index) * (rowHeight + gap)
+            let y = min(CGFloat(index) * (rowHeight + gap), height)
             if tilesInRow == 1 {
                 slots.append(DashboardGridSlot(
                     frame: CGRect(x: rightX, y: y, width: rightWidth, height: rowHeight),
@@ -66,7 +69,7 @@ public enum DashboardGridLayout {
                     role: .compact
                 ))
                 slots.append(DashboardGridSlot(
-                    frame: CGRect(x: rightX + pairWidth + gap, y: y, width: pairWidth, height: rowHeight),
+                    frame: CGRect(x: min(rightX + pairWidth + gap, width), y: y, width: pairWidth, height: rowHeight),
                     role: .compact
                 ))
             }

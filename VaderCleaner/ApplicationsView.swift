@@ -208,7 +208,9 @@ struct ApplicationsView: View {
             ApplicationsDashboardView(
                 result: result,
                 iconCache: iconCache,
-                isRemoving: viewModel.isRemoving,
+                // A batch uninstall is a removal too, and the refresh Start
+                // Over runs would replace the uninstaller's phase mid-batch.
+                isRemoving: viewModel.isRemoving || uninstallerViewModel.isUninstalling,
                 onOpenManage: { openManager(.uninstaller) },
                 onOpenInstallationFiles: { openManager(.installationFiles) },
                 onOpenUnsupported: { openManager(.unsupported) },

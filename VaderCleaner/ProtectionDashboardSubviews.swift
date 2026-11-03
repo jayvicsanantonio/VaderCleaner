@@ -9,7 +9,7 @@ import VaderCleanerCore
 
 /// The lead dashboard card, driven by the malware flow's phase. While scanning
 /// it shows a "Looking for Threats…" heading, a pulsing malware orb, the file
-/// being scanned, and a Stop button. When the scan finishes it updates in
+/// being scanned on its status line, and a Stop button. When the scan finishes it updates in
 /// place — "No threats", a threats card with Review/Remove, or the
 /// removing/done/failed states — and says how old the malware definitions are,
 /// with the only way in the app to refresh them without starting a scan.
@@ -28,44 +28,45 @@ struct ProtectionMalwareTile: View {
             detail: subtitle,
             role: role,
             actions: actions,
-            status: Self.definitionsStatus(
-                ageInDays: malware.definitionsAgeInDays,
-                isUpdating: malware.isUpdatingDefinitions,
-                failure: malware.definitionsUpdateFailure,
-                isScanning: malware.isScanningPhase
-            )
+            status: status
         ) {
             DashboardOrb(symbol: "allergens", isPulsing: malware.isScanningPhase)
         } illustration: {
-            VStack(spacing: 10) {
-                DashboardOrb(
-                    symbol: "allergens",
-                    size: DashboardOrb.illustrationSize,
-                    isPulsing: malware.isScanningPhase
-                )
-                currentFileLabel
-            }
+            DashboardOrb(
+                symbol: "allergens",
+                size: DashboardOrb.illustrationSize,
+                isPulsing: malware.isScanningPhase
+            )
         }
     }
 
-    @ViewBuilder
-    private var currentFileLabel: some View {
-        if case .scanning(let progress) = malware.phase, !progress.isEmpty {
-            Text(currentFileName(progress))
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.6))
-                .lineLimit(1)
-                .truncationMode(.head)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityIdentifier("protection.malwareTile.currentFile")
+    /// The file being scanned while the scan runs, otherwise the definitions.
+    /// Both sit on the status line, which a short card keeps when it drops its
+    /// illustration.
+    private var status: DashboardCardStatus? {
+        if case .scanning(let progress) = malware.phase {
+            return Self.currentFileStatus(progressLine: progress)
         }
+        return Self.definitionsStatus(
+            ageInDays: malware.definitionsAgeInDays,
+            isUpdating: malware.isUpdatingDefinitions,
+            failure: malware.definitionsUpdateFailure,
+            isScanning: malware.isScanningPhase
+        )
     }
 
-    /// clamscan prints "<path>: <status>"; show just the file name.
-    private func currentFileName(_ line: String) -> String {
-        let pathPart = line.components(separatedBy: ": ").first ?? line
+    /// Names the file in clamscan's latest "<path>: <status>" line. Kept to one
+    /// line, since it changes faster than the card's height should.
+    static func currentFileStatus(progressLine: String) -> DashboardCardStatus? {
+        guard !progressLine.isEmpty else { return nil }
+        let pathPart = progressLine.components(separatedBy: ": ").first ?? progressLine
         let name = URL(fileURLWithPath: pathPart).lastPathComponent
-        return name.isEmpty ? pathPart : name
+        return DashboardCardStatus(
+            text: name.isEmpty ? pathPart : name,
+            symbol: "doc.text.magnifyingglass",
+            isOneLine: true,
+            identifier: "protection.malwareTile.currentFile"
+        )
     }
 
     /// What the card says about the signature database. Nothing while a scan

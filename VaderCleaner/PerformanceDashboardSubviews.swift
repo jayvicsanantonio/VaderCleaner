@@ -269,6 +269,7 @@ struct AppIconCluster: View {
                             .resizable()
                             .interpolation(.high)
                             .frame(width: iconSize, height: iconSize)
+                            .accessibilityHidden(true)
                     }
                 }
             }

@@ -254,6 +254,7 @@ struct MyClutterDashboardView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
+                .accessibilityHidden(true)
         } else {
             ClutterThumbnailStack(
                 urls: Array(viewModel.downloads.prefix(1).map(\.file.url)),
@@ -351,6 +352,8 @@ struct ClutterThumbnailStack: View {
                     thumbnail(url)
                 }
             }
+            // Decoration: the card's text already says what the files are.
+            .accessibilityHidden(true)
         }
     }
 

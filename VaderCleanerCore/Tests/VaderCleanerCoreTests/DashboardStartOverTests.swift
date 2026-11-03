@@ -1,5 +1,5 @@
 // DashboardStartOverTests.swift
-// Pins the Start Over contract the Performance and Applications dashboards share with the other sections: it returns to the intro, and it waits for anything still running.
+// Pins the Start Over contract the Performance and Applications dashboards share with the other sections: it returns to the intro, it waits for anything still running, and the reload it starts can't undo a batch uninstall.
 
 import Foundation
 import Testing
@@ -31,10 +31,11 @@ struct PerformanceStartOverTests {
         await vm.refresh()
 
         vm.startOver()
-        await vm.refresh()
+        // The intro's Scan disc calls `beginScan()`, not `refresh()` directly.
+        vm.beginScan()
 
-        #expect(loads.value == 2)
-        #expect(vm.phase == .ready)
+        // A load counts when it starts and reaches `.ready` only when it ends.
+        #expect(await pollUntil { loads.value == 2 && vm.phase == .ready })
     }
 
     @Test
@@ -57,17 +58,46 @@ struct PerformanceStartOverTests {
         await batch.value
     }
 
+    @Test
+    func startOver_waitsForAnAgentToggle() async throws {
+        // A toggle leaves the phase at `.ready` while it runs, and a failure it
+        // then reports would pull the section back out of its intro.
+        let gate = SuspendingCallGate()
+        let agent = LaunchAgent(
+            label: "com.user.agent",
+            path: URL(fileURLWithPath: "/tmp/com.user.agent.plist"),
+            programPath: "/bin/true",
+            isEnabled: true,
+            domain: .user
+        )
+        let vm = makeViewModel(
+            loadUserAgents: { [agent] },
+            disableAgent: { _ in await gate.hold() }
+        )
+        await vm.refresh()
+
+        let toggle = Task { await vm.disable(agent) }
+        #expect(await pollUntil { gate.isHolding })
+        vm.startOver()
+
+        #expect(vm.scanPresentation == .results)
+        gate.open()
+        await toggle.value
+    }
+
     private func makeViewModel(
         loadLoginItems: @escaping PerformanceViewModel.LoadLoginItems = { [] },
+        loadUserAgents: @escaping PerformanceViewModel.LoadAgents = { [] },
+        disableAgent: @escaping PerformanceViewModel.DisableAgent = { _ in },
         flushDNS: @escaping PerformanceViewModel.RunTask = { "" }
     ) -> PerformanceViewModel {
         PerformanceViewModel(
             loadLoginItems: loadLoginItems,
-            loadUserAgents: { [] },
+            loadUserAgents: loadUserAgents,
             loadSystemAgents: { [] },
             readMemory: { .empty },
             setLoginItemEnabled: { _, _ in },
-            disableAgent: { _ in },
+            disableAgent: disableAgent,
             enableAgent: { _ in },
             removeAgent: { _ in },
             flushRAM: {},
@@ -117,5 +147,59 @@ struct ApplicationsStartOverTests {
         gate.open()
         await removal.value
         #expect(!vm.isRemoving)
+    }
+}
+
+@MainActor
+@Suite
+struct UninstallerBatchReloadTests {
+
+    private func app(_ name: String) -> AppInfo {
+        AppInfo(
+            name: name,
+            bundleID: "com.test.\(name.lowercased())",
+            version: "1.0",
+            bundleURL: URL(fileURLWithPath: "/Applications/\(name).app"),
+            isAppStore: false
+        )
+    }
+
+    @Test
+    func aReloadThatReadTheDiskBeforeTheBatch_doesNotBringBackWhatItRemoved() async {
+        let doomed = app("Doomed")
+        let kept = app("Kept")
+        let discoverCalls = TestBox(0)
+        let discoverGate = SuspendingCallGate()
+        let recycleGate = SuspendingCallGate()
+        let vm = AppUninstallerViewModel(
+            discover: { _ in
+                discoverCalls.value += 1
+                if discoverCalls.value > 1 { await discoverGate.hold() }
+                return [doomed, kept]
+            },
+            findFiles: { _ in [] },
+            recycle: { _, _ in
+                await recycleGate.hold()
+                return AppUninstallerViewModel.RecycleOutcome(bytesFreed: 1, bundlePermanentlyRemoved: false)
+            }
+        )
+        await vm.loadApps()
+        vm.selectAllForUninstall([doomed.id])
+
+        let batch = Task { await vm.uninstallSelected() }
+        #expect(await pollUntil { recycleGate.isHolding })
+        #expect(vm.isUninstalling)
+        // Start Over's refresh, reading the disk before the app is trashed.
+        let reload = Task { await vm.refresh() }
+        #expect(await pollUntil { discoverGate.isHolding })
+
+        recycleGate.open()
+        await batch.value
+        discoverGate.open()
+        await reload.value
+
+        #expect(vm.apps.map(\.id) == [kept.id])
+        #expect(vm.phase == .complete(bytesFreed: 1, permanentRemoval: false))
+        #expect(!vm.isUninstalling)
     }
 }
