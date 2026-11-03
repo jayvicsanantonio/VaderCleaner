@@ -350,10 +350,6 @@ public final class SystemStatsService {
         self.interval = interval
         if autostart {
             start()
-            // Kick off the slow path immediately so SMART + FileVault are
-            // populated by the time the Health Monitor first renders. The
-            // timer below schedules subsequent refreshes.
-            refreshDeviceHealth()
         }
     }
 
@@ -405,6 +401,14 @@ public final class SystemStatsService {
         }
         RunLoop.main.add(healthTimer, forMode: .common)
         deviceHealthTimer = healthTimer
+
+        // Kick off the slow path immediately so SMART, FileVault, and the
+        // battery report are populated by the time the Health Monitor first
+        // renders; the timer above schedules the ones after. This lives in
+        // `start()` rather than `init` because the app starts polling through
+        // `beginUpdates()` — run only from `init`, the first read waited the
+        // full five minutes after every launch.
+        refreshDeviceHealth()
     }
 
     /// Stops all polling. Safe to call repeatedly. Used by tests to verify the
