@@ -15,7 +15,7 @@ final class ProtectionSettingsStoreTests: XCTestCase {
         // Each test gets an isolated UserDefaults suite so reads/writes never
         // touch the host's real .standard defaults and tests can't observe
         // each other's state.
-        suiteName = "VaderCleanerTests.ProtectionSettings.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.ProtectionSettings")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

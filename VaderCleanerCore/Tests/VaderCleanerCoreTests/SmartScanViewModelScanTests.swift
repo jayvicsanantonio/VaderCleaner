@@ -186,7 +186,7 @@ final class SmartScanViewModelScanTests: XCTestCase {
     /// `live()` does, then unchecks each option in turn and asserts the built
     /// engine configuration drops it — so no checkbox can ever be decorative.
     func test_uncheckingAnyScanningOption_excludesItFromTheScan() async {
-        let suiteName = "VaderCleanerTests.ScanGating.\(UUID().uuidString)"
+        let suiteName = UserDefaults.testSuiteName("VaderCleanerTests.ScanGating")
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let settings = SmartScanSettingsStore(defaults: defaults)

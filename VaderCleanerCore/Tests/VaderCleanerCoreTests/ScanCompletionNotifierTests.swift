@@ -31,7 +31,7 @@ final class ScanCompletionNotifierTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let defaults = UserDefaults(suiteName: "VaderCleanerTests.ScanCompletion.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.ScanCompletion"))!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()
     }

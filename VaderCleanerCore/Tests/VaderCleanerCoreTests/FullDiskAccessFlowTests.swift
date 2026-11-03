@@ -61,7 +61,7 @@ struct AppStateFullDiskAccessFlowTests {
 struct WelcomeFullDiskAccessFlowTests {
 
     private func makeSUT(relaunch: @escaping () -> Void = {}) throws -> WelcomeViewModel {
-        let defaults = try #require(UserDefaults(suiteName: "VaderCleanerTests.WelcomeFlow.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.WelcomeFlow")))
         // See WelcomeStoreTests: NSArgumentDomain outranks an isolated suite.
         defaults.setVolatileDomain([:], forName: UserDefaults.argumentDomain)
         return WelcomeViewModel(

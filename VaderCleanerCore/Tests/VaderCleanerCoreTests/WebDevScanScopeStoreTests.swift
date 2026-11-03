@@ -22,7 +22,7 @@ final class WebDevScanScopeStoreTests: XCTestCase {
     }
 
     private func makeDefaults() -> UserDefaults {
-        let suite = "WebDevScanScopeStoreTests.\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("WebDevScanScopeStoreTests")
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults

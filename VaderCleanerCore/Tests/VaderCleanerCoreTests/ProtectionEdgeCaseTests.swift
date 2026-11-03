@@ -319,7 +319,7 @@ struct MalwareFlowEdgeCaseTests {
 
     @Test
     func aReminderDatedInTheFutureDoesNotSilenceTheNextOne() throws {
-        let suite = "MalwareFlowEdgeCaseTests-\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("MalwareFlowEdgeCaseTests")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let dispatcher = StubNotificationDispatcher()

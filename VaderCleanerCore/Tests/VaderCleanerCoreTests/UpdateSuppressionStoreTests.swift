@@ -12,7 +12,7 @@ final class UpdateSuppressionStoreTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        suiteName = "UpdateSuppressionStoreTests.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("UpdateSuppressionStoreTests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

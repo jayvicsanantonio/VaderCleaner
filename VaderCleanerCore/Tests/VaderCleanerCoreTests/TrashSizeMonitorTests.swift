@@ -15,7 +15,7 @@ final class TrashSizeMonitorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let defaults = UserDefaults(suiteName: "VaderCleanerTests.TrashSize.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.TrashSize"))!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()
     }
@@ -88,7 +88,7 @@ struct TrashSizeMonitorOverlapTests {
     /// exceeds 1.
     @Test
     func start_neverRunsOverlappingPolls() async throws {
-        let defaults = UserDefaults(suiteName: "VaderCleanerTests.TrashSizeOverlap.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.TrashSizeOverlap"))!
         let preferences = PreferencesStore(defaults: defaults)
         preferences.notifyTrashSize = true
         preferences.trashSizeThresholdGB = 1_000_000 // never actually fires a notification

@@ -785,7 +785,7 @@ import Testing
     /// category the confirmation promises goes to the Trash.
     @Test(arguments: ["/Library/Caches/proj", "/private/var/folders/xy/proj", "/Applications/Tool.app/proj"])
     func aProjectFolderOnlyTheHelperCanEmptyIsRefused(path: String) throws {
-        let suite = "SmartScanDataSafety.webDev.\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("SmartScanDataSafety.webDev")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = WebDevScanScopeStore(defaults: defaults)
@@ -865,7 +865,7 @@ import Testing
         try Data([0xFE, 0xED, 0xFA, 0xCE, 0, 0, 0, 18]).write(to: macOS.appendingPathComponent("Old"))
         let old = AppInfo(name: "Old", bundleID: "com.example.old", version: "1", bundleURL: bundle, isAppStore: false)
 
-        let suite = "SmartScanDataSafety.\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("SmartScanDataSafety")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let exclusions = ExclusionsStore(defaults: defaults)

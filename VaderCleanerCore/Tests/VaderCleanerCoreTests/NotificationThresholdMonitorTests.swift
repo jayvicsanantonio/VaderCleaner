@@ -88,7 +88,7 @@ final class NotificationThresholdMonitorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let suite = "VaderCleanerTests.NotificationThresholdMonitor.\(UUID().uuidString)"
+        let suite = UserDefaults.testSuiteName("VaderCleanerTests.NotificationThresholdMonitor")
         let defaults = UserDefaults(suiteName: suite)!
         preferences = PreferencesStore(defaults: defaults)
         // autostart: false so no real timer fires during the test — every

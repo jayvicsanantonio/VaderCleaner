@@ -104,7 +104,7 @@ struct PerformanceStartOverTests {
             runMaintenance: { "" },
             flushDNS: flushDNS,
             runLog: MaintenanceRunLog(
-                defaults: UserDefaults(suiteName: "PerformanceStartOverTests.\(UUID().uuidString)")!
+                defaults: UserDefaults(suiteName: UserDefaults.testSuiteName("PerformanceStartOverTests"))!
             )
         )
     }

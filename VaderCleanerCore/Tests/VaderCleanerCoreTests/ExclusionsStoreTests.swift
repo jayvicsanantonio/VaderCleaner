@@ -13,7 +13,7 @@ final class ExclusionsStoreTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         // Per-test suite so persistence assertions never cross-contaminate.
-        suiteName = "VaderCleanerTests.ExclusionsStore.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.ExclusionsStore")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

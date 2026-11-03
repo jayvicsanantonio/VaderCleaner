@@ -13,7 +13,7 @@ final class TrashedAppMonitorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let defaults = UserDefaults(suiteName: "VaderCleanerTests.TrashedApp.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.TrashedApp"))!
         preferences = PreferencesStore(defaults: defaults)
         dispatcher = StubNotificationDispatcher()
     }
@@ -81,7 +81,7 @@ struct TrashedAppMonitorListingTests {
     private let dispatcher = StubNotificationDispatcher()
 
     init() throws {
-        let defaults = try #require(UserDefaults(suiteName: "VaderCleanerTests.TrashedAppListing.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(suiteName: UserDefaults.testSuiteName("VaderCleanerTests.TrashedAppListing")))
         preferences = PreferencesStore(defaults: defaults)
         preferences.offerUninstallOnTrash = true
     }

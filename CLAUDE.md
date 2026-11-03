@@ -240,6 +240,14 @@ lint suggestions in this repo were unsound and would not have compiled.
     framework-agnostic polling helper — use it from Swift Testing with
     `#expect(await pollUntil { ... })`. `waitUntil` is its XCTest-only
     `XCTFail`-reporting wrapper; keep using it from XCTest suites.
+  - A test that needs its own `UserDefaults` takes the suite name from
+    `UserDefaults.testSuiteName(_:)` (`VaderCleanerCore/Tests/VaderCleanerCoreTests/Helpers/TestDefaults.swift`),
+    never a plain `"Label.\(UUID())"`. A plain name puts a plist in the
+    developer's `~/Library/Preferences` that `cfprefsd` writes back even after
+    the test removes the domain and deletes the file — enough runs pile up
+    tens of thousands, and the app-leftover scan would list each as an
+    uninstalled app. The helper's names are temp-directory paths, which
+    CFPreferences accepts as domains.
   - UI tests (`VaderCleanerUITests/`) stay on XCTest/XCUIAutomation — Swift
     Testing has no XCUITest equivalent.
 

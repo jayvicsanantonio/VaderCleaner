@@ -17,7 +17,7 @@ final class PreferencesStoreTests: XCTestCase {
         // Each test gets its own UserDefaults suite so reads/writes never
         // touch the host machine's real .standard defaults and tests cannot
         // observe each other's state.
-        suiteName = "VaderCleanerTests.PreferencesStore.\(UUID().uuidString)"
+        suiteName = UserDefaults.testSuiteName("VaderCleanerTests.PreferencesStore")
         defaults = UserDefaults(suiteName: suiteName)
     }
 
@@ -496,7 +496,7 @@ final class PreferencesStoreLaunchAtLoginWriteTests {
 
     private struct StubError: Error {}
 
-    private let suiteName = "VaderCleanerTests.PreferencesStore.LaunchAtLoginWrites.\(UUID().uuidString)"
+    private let suiteName = UserDefaults.testSuiteName("VaderCleanerTests.PreferencesStore.LaunchAtLoginWrites")
     private let defaults: UserDefaults
 
     init() {

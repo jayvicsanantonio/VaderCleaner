@@ -15,6 +15,8 @@ import os.log
 ///     (≥3 dot-separated alphanumeric/hyphen components) are ever considered —
 ///     human-named folders like "Google" are ignored;
 ///   - Apple (`com.apple.*`) and app-group (`group.*`) IDs are never flagged;
+///   - nor is an ID with a UUID component, which names per-instance data
+///     (a test run's throwaway `UserDefaults` suite), not an app;
 ///   - an entry is treated as belonging to an installed app if its ID matches
 ///     an installed bundle ID, is a sub-ID of one (e.g. a helper/XPC service
 ///     `com.acme.App.Helper` under installed `com.acme.App`), or is the base ID
@@ -111,6 +113,7 @@ struct DefaultAppLeftoverScanner: Sendable {
                     ) else { continue }
                     guard Self.looksLikeBundleID(bundleID),
                           !Self.isSystemBundleID(bundleID),
+                          !Self.hasUUIDComponent(bundleID),
                           !Self.isSharedInfrastructure(bundleID),
                           !Self.isCoveredByInstalled(bundleID, installed: installedBundleIDs),
                           !isRegisteredApp(bundleID) else {
@@ -178,6 +181,14 @@ struct DefaultAppLeftoverScanner: Sendable {
     /// support files are managed by macOS, not us.
     static func isSystemBundleID(_ string: String) -> Bool {
         string.hasPrefix("com.apple.") || string.hasPrefix("group.")
+    }
+
+    /// Whether any component is a UUID. Real bundle IDs never carry one, but
+    /// per-instance data often does — a test suite's throwaway
+    /// `UserDefaults(suiteName:)` domain leaves a `<prefix>.<UUID>.plist` in
+    /// Preferences — and a developer's Mac can hold tens of thousands of them.
+    static func hasUUIDComponent(_ string: String) -> Bool {
+        string.split(separator: ".").contains { UUID(uuidString: String($0)) != nil }
     }
 
     /// Updaters, crash reporters, and frameworks that write under an ID of their
