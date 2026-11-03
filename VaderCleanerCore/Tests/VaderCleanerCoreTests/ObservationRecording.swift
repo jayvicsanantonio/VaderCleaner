@@ -99,19 +99,24 @@ private final class TransitionRecorder<Subject: AnyObject, Value>: @unchecked Se
 ///
 /// Framework-agnostic so both `waitUntil` (XCTest) and Swift Testing's
 /// `#expect(await pollUntil { … })` can share one polling loop.
+///
+/// `timeout` buys a number of polls rather than a stretch of wall clock. Waking
+/// from the sleep takes a pool thread and then the main actor, and on CI's few
+/// cores the burst of suites starting together can hold both for seconds. Against
+/// a wall-clock deadline that spent the whole budget before the second poll, so
+/// unrelated tests failed together with their conditions already true. Under load
+/// a failing poll takes longer to report; it can't report a false failure.
 @MainActor
 func pollUntil(
     timeout: Duration = .seconds(2),
     pollInterval: Duration = .milliseconds(20),
     _ condition: @MainActor () -> Bool
 ) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: timeout)
-    while clock.now < deadline {
+    for _ in 0..<max(1, Int(timeout / pollInterval)) {
         if condition() { return true }
         try? await Task.sleep(for: pollInterval)
     }
-    return false
+    return condition()
 }
 
 /// Polls `condition` every 20 ms until it returns `true` or `timeout` elapses.
