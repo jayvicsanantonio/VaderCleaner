@@ -22,4 +22,24 @@ public struct DuplicateGroup: Identifiable, Equatable, Hashable, Sendable {
 
     /// Bytes freed if every redundant copy is removed (the original stays).
     public var reclaimableBytes: Int64 { redundantCopies.reduce(0) { $0 + $1.size } }
+
+    /// Whether this group is still what the scan found: the kept original is on
+    /// disk, and nothing in the group has been modified since. A plan can sit on
+    /// screen for days, and trashing a "redundant" copy of a file that has since
+    /// gone or changed could take the only one. A copy that has gone is fine, since
+    /// the original still stands. Compares modification dates rather than re-hashing,
+    /// so a Fix doesn't re-read every byte the scan already read. A date missing on
+    /// either side fails closed: with nothing to compare, the group can't be shown
+    /// to be unchanged.
+    func isUnchangedOnDisk() -> Bool {
+        guard FileManager.default.fileExists(atPath: original.url.path) else { return false }
+        return files.allSatisfy { file in
+            guard FileManager.default.fileExists(atPath: file.url.path) else { return true }
+            guard let scanned = file.lastModifiedDate,
+                  let current = (try? URL(fileURLWithPath: file.url.path)
+                      .resourceValues(forKeys: [.contentModificationDateKey]))?
+                      .contentModificationDate else { return false }
+            return current == scanned
+        }
+    }
 }

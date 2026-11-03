@@ -94,7 +94,7 @@ public final class SmartScanViewModel {
         CareScanEngine.Configuration,
         @escaping @Sendable (CareScanEngine.Event) -> Void
     ) async -> CarePlan
-    public typealias JunkCleaner = ([ScannedFile]) async throws -> Int64
+    public typealias JunkCleaner = ([ScannedFile]) async throws -> JunkRemovalReport
     public typealias ThreatRemover = ([MalwareThreat]) async -> [MalwareThreat]
     public typealias UpdateOpener = (URL) async -> Void
     /// Moves the given files to the Trash and returns the URLs that made it —
@@ -107,6 +107,14 @@ public final class SmartScanViewModel {
     /// Uninstaller performs before it recycles a bundle, so uninstalling an
     /// unused app here takes its preferences, caches, and containers too.
     public typealias FindAssociatedFiles = @Sendable (String) async -> [AssociatedFile]
+    public typealias AppIsRunning = @Sendable (AppInfo) -> Bool
+    /// Every app installed right now. Support files are named for a bundle ID, so
+    /// they belong to every copy of an app and may go only with the last one.
+    public typealias InstalledApps = @Sendable () async throws -> [AppInfo]
+    /// Whether a duplicate group is still what the scan found.
+    public typealias DuplicateGroupCheck = @Sendable (DuplicateGroup) async -> Bool
+    /// The Ignore List as it stands now, read when a Run starts.
+    public typealias CurrentExclusions = @Sendable () async -> [URL]
     public typealias PrivacyRemover = ([PrivacyRemovalRequest]) async throws -> Void
 
     // MARK: - Observable state
@@ -215,12 +223,31 @@ public final class SmartScanViewModel {
     /// run didn't touch.
     @ObservationIgnored private var planUnderRun: CarePlan?
 
+    /// What the current Run pass has moved so far. Findings overlap, so a later
+    /// finding must not try a file an earlier one already took, and Done needs it
+    /// to drop those files from the cards it doesn't re-scan.
+    @ObservationIgnored private var urlsRemovedByRun: Set<URL> = []
+
+    /// The Ignore List, canonicalized, as it stood when the current Run started.
+    @ObservationIgnored private var exclusionsAtRun: [String] = []
+
+    /// Builds the junk selection a landing seeds, excluding what was declined. A
+    /// property rather than an init argument because `ScanSelectionSeed` is internal
+    /// to the package. `@Sendable` so it runs off the main actor.
+    @ObservationIgnored var seedJunkSelection: @Sendable (ScanResult, Set<URL>) async -> ScanSelectionSeed = { result, declined in
+        await ScanSelectionSeed.oneTapDefaults(from: result, excluding: declined)
+    }
+
     @ObservationIgnored private let scanEngine: ScanEngine
     @ObservationIgnored private let junkCleaner: JunkCleaner
     @ObservationIgnored private let threatRemover: ThreatRemover
     @ObservationIgnored private let updateOpener: UpdateOpener
     @ObservationIgnored private let recycleFiles: RecycleFiles
     @ObservationIgnored private let findAssociatedFiles: FindAssociatedFiles
+    @ObservationIgnored private let appIsRunning: AppIsRunning
+    @ObservationIgnored private let installedApps: InstalledApps
+    @ObservationIgnored private let duplicateGroupIsIntact: DuplicateGroupCheck
+    @ObservationIgnored private let currentExclusions: CurrentExclusions
     @ObservationIgnored private let maintenanceTaskRunner: MaintenanceTaskRunner
     @ObservationIgnored private let recordMaintenanceRun: (String) -> Void
     @ObservationIgnored private let privacyRemover: PrivacyRemover
@@ -252,7 +279,8 @@ public final class SmartScanViewModel {
 
     public init(
         scanEngine: @escaping ScanEngine,
-        junkCleaner: @escaping JunkCleaner = { _ in 0 },
+        // Optional rather than a closure default: see where it's assigned below.
+        junkCleaner: JunkCleaner? = nil,
         threatRemover: @escaping ThreatRemover = { _ in [] },
         updateOpener: @escaping UpdateOpener = { _ in },
         recycleFiles: @escaping RecycleFiles = { _ in [] },
@@ -260,6 +288,10 @@ public final class SmartScanViewModel {
         // recycles bundles alone, which is what every test that isn't about
         // uninstalling an app wants.
         findAssociatedFiles: @escaping FindAssociatedFiles = { _ in [] },
+        appIsRunning: @escaping AppIsRunning = { _ in false },
+        installedApps: @escaping InstalledApps = { [] },
+        duplicateGroupIsIntact: @escaping DuplicateGroupCheck = { _ in true },
+        currentExclusions: @escaping CurrentExclusions = { [] },
         maintenanceTaskRunner: @escaping MaintenanceTaskRunner = { _ in },
         recordMaintenanceRun: @escaping (String) -> Void = { _ in },
         privacyRemover: @escaping PrivacyRemover = { _ in },
@@ -279,11 +311,18 @@ public final class SmartScanViewModel {
         self.declineCounts = declineCounts
         self.recordRunChoices = recordRunChoices
         self.scanEngine = scanEngine
-        self.junkCleaner = junkCleaner
+        // Built here so it inherits the main actor. As a default argument it was a
+        // nonisolated async closure returning this struct, and under Swift 6.3.3
+        // calling one jumped to a null address and crashed the process.
+        self.junkCleaner = junkCleaner ?? { _ in JunkRemovalReport() }
         self.threatRemover = threatRemover
         self.updateOpener = updateOpener
         self.recycleFiles = recycleFiles
         self.findAssociatedFiles = findAssociatedFiles
+        self.appIsRunning = appIsRunning
+        self.installedApps = installedApps
+        self.duplicateGroupIsIntact = duplicateGroupIsIntact
+        self.currentExclusions = currentExclusions
         self.maintenanceTaskRunner = maintenanceTaskRunner
         self.recordMaintenanceRun = recordMaintenanceRun
         self.privacyRemover = privacyRemover
@@ -394,14 +433,16 @@ public final class SmartScanViewModel {
     /// their decisions away. Duplicates seed fully checked, so unchecking them
     /// all is the only way to decline them; landing a merged plan put every
     /// copy back and re-included the card, and the next Fix would have trashed
-    /// them.
+    /// them. `declined` carries the same decision for the units it does re-seed:
+    /// what the user left unchecked on a finding the pass acted on stays unchecked
+    /// when the re-check finds it again.
     private func land(
         _ plan: CarePlan,
         stampHistory: Bool = true,
-        seeding units: Set<CareScanUnit>? = nil
+        seeding units: Set<CareScanUnit>? = nil,
+        keeping declined: DeclinedSelections = DeclinedSelections()
     ) async {
-        // A new plan is arriving: drop anything memoized from the last one.
-        invalidateResultsCaches()
+        let generation = scanGeneration
         // A fresh scan re-seeds everything; a refresh only what it re-checked.
         let shouldSeed: (CareFinding.Kind) -> Bool = { kind in
             units?.contains(kind.unit) ?? true
@@ -436,7 +477,11 @@ public final class SmartScanViewModel {
             // categories so a one-tap Run never removes user data. Built off the
             // main actor — hashing a large result's URLs here froze the
             // scan-complete transition for seconds.
-            let seed = await ScanSelectionSeed.safeDefaults(from: junkResult)
+            let seed = await seedJunkSelection(junkResult, declined.junk)
+            // The feed stays usable through that wait, so a reset or a fresh scan
+            // can have started. Writing this plan over either would undo Start Over,
+            // or leave a running scan unable to land its own results.
+            guard generation == scanGeneration else { return }
             junkFileSelection = seed.urls
             selectedJunkBytes = seed.totalBytes
             selectedJunkBytesByCategory = seed.bytesByCategory
@@ -444,21 +489,21 @@ public final class SmartScanViewModel {
         }
 
         if shouldSeed(.threats), case .threats(let threats)? = plan.finding(.threats)?.payload {
-            threatSelection = Set(threats.map(\.filePath))
+            threatSelection = Set(threats.map(\.filePath)).subtracting(declined.threats)
         }
         if shouldSeed(.appUpdates), case .appUpdates(let updates)? = plan.finding(.appUpdates)?.payload {
-            updateSelection = Set(updates.map(\.id))
+            updateSelection = Set(updates.map(\.id)).subtracting(declined.updates)
         }
         // Every due maintenance task starts selected — the tune-up tile is
         // pre-approved, so Run does the whole cocktail unless the user opts a
         // task out in Review.
         if shouldSeed(.maintenanceDue), case .maintenanceDue(let taskIDs)? = plan.finding(.maintenanceDue)?.payload {
-            maintenanceSelection = Set(taskIDs)
+            maintenanceSelection = Set(taskIDs).subtracting(declined.maintenance)
         }
         // Every redundant copy (never the kept original) — a copy always
         // survives, so default-on is safe.
         if shouldSeed(.duplicates), case .duplicates(let groups)? = plan.finding(.duplicates)?.payload {
-            duplicateSelection = Set(groups.flatMap { $0.redundantCopies.map(\.url) })
+            duplicateSelection = Set(groups.flatMap { $0.redundantCopies.map(\.url) }).subtracting(declined.duplicates)
         }
         // Opt-in tiers (large/old files, unused apps, leftovers, installers,
         // browser privacy) stay empty: these are the user's own files and
@@ -466,6 +511,10 @@ public final class SmartScanViewModel {
 
         includedFindings = inclusion(for: plan, seeding: units)
 
+        // A new plan is arriving: drop anything memoized from the last one. Here
+        // rather than on the way in, because a render during the seed above caches
+        // against the plan still on screen, and that would outlive it.
+        invalidateResultsCaches()
         phase = .results(plan)
         if stampHistory {
             recordScan(plan.finishedAt)
@@ -498,6 +547,7 @@ public final class SmartScanViewModel {
         unitStatuses = [:]
         liveFindings = [:]
         planUnderRun = nil
+        urlsRemovedByRun = []
         isRefreshingFindings = false
         unitProgressCounts = [:]
         scannedItemCount = 0
@@ -1061,30 +1111,43 @@ public final class SmartScanViewModel {
     }
 
     /// Bytes a Run pass would free right now, summed from each runnable
-    /// finding's current selection — the size the disc's caption shows. Only
-    /// findings that carry a measured size contribute (junk dominates); the
-    /// rest (updates, maintenance, threats) free no disk space and count zero.
+    /// finding's current selection — the size the disc's caption shows as
+    /// "Frees". Only what a Run removes for good counts, which is the junk that
+    /// can't go to the Trash: everything else this pass moves goes to the Trash,
+    /// where it still takes up the disk until the Trash is emptied. The receipt
+    /// draws the same line between freed and moved to the Trash.
     public var freeableBytes: Int64 {
-        CareFinding.Kind.allCases.reduce(0) { total, kind in
-            willExecute(kind) ? total + selectedBytes(for: kind) : total
-        }
+        willExecute(.junkCleanup) ? selectedPermanentJunkBytes : 0
     }
 
-    /// The findings whose action always bypasses the Trash: junk cleanup
-    /// (macOS rebuilds it) and browser privacy (`BrowserPrivacyRemover`
-    /// deletes rows from the browsers' databases and removes their cache and
-    /// session files). The confirmation sheet flags these as irreversible
-    /// whatever is selected. Threats are not listed because they depend on
-    /// where each one lives; `permanentDeleteCount(for:)` counts them.
-    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.junkCleanup, .browserPrivacy]
+    /// The findings whose action always bypasses the Trash: browser privacy
+    /// (`BrowserPrivacyRemover` deletes rows from the browsers' databases and
+    /// removes their cache and session files). The confirmation sheet flags these
+    /// as irreversible whatever is selected. Threats and junk are not listed
+    /// because they depend on where each item lives; `permanentDeleteCount(for:)`
+    /// counts them.
+    private static let permanentDeleteKinds: Set<CareFinding.Kind> = [.browserPrivacy]
 
     /// How many of a finding's selected items its action would delete for
     /// good rather than move to the Trash. `MalwareThreatRemover` sends a
     /// threat in the user's own folders to the Trash, but one under a
-    /// protected path can only be deleted, by the helper.
+    /// protected path can only be deleted, by the helper. `SystemJunkDeleter`
+    /// draws the same line for junk, and adds what is already in a Trash.
     private func permanentDeleteCount(for kind: CareFinding.Kind) -> Int {
         if kind == .threats { return selectedThreats.count(where: \.removalIsPermanent) }
+        if kind == .junkCleanup {
+            return ScanCategory.allCases.reduce(0) { total, category in
+                category.removalIsPermanent ? total + selectedJunkCount(in: category) : total
+            }
+        }
         return Self.permanentDeleteKinds.contains(kind) ? selectionCount(for: kind) : 0
+    }
+
+    /// Selected junk bytes that a Run would delete for good.
+    private var selectedPermanentJunkBytes: Int64 {
+        ScanCategory.allCases.reduce(0) { total, category in
+            category.removalIsPermanent ? total + selectedJunkBytes(in: category) : total
+        }
     }
 
     /// The detected threats the user has left checked.
@@ -1121,10 +1184,11 @@ public final class SmartScanViewModel {
     }
 
     /// Selected freeable bytes across the pre-approved findings — what the
-    /// hero's "can be freed safely" line reflects, so it agrees with the tiles
-    /// and the disc caption instead of promising the gross total found.
+    /// hero's "can be freed safely" line reflects, so it agrees with the disc
+    /// caption instead of promising the gross total found. Junk is the only
+    /// pre-approved finding that frees space for good, so this is its share.
     public var preApprovedFreeableBytes: Int64 {
-        preApprovedRunnableFindings.reduce(0) { $0 + selectedBytes(for: $1.kind) }
+        freeableBytes
     }
 
     /// How many pre-approved findings Fix will handle — the count the hero
@@ -1148,51 +1212,66 @@ public final class SmartScanViewModel {
     /// Selected bytes for one finding, mirroring the size sources `execute`
     /// uses so the caption's total matches what the receipt will report.
     private func selectedBytes(for kind: CareFinding.Kind) -> Int64 {
+        if let files = selectedFiles(for: kind) {
+            return files.reduce(0) { $0 + $1.size }
+        }
         guard let payload = currentPlan?.finding(kind)?.payload else { return 0 }
         switch payload {
         case .junk:
             return selectedJunkBytes
-        case .duplicates(let groups):
-            return selectedBytes(in: duplicateSelection, kind: kind, sizes: {
-                groups.flatMap { $0.files.map { ($0.url, $0.size) } }
-            })
-        case .largeOldFiles(let files):
-            return selectedBytes(in: largeOldFileSelection, kind: kind, sizes: {
-                files.map { ($0.url, $0.size) }
-            })
-        case .similarImages(let groups):
-            return selectedBytes(in: similarImageSelection, kind: kind, sizes: {
-                groups.flatMap { $0.files.map { ($0.url, $0.size) } }
-            })
-        case .downloads(let items):
-            return selectedBytes(in: downloadSelection, kind: kind, sizes: {
-                items.map { ($0.file.url, $0.file.size) }
-            })
-        case .installers(let files):
-            return files.filter { installerSelection.contains($0.id) }.reduce(0) { $0 + $1.sizeBytes }
         case .unusedApps(let apps):
             return apps.filter { unusedAppSelection.contains($0.id) }.reduce(0) { $0 + $1.sizeBytes }
         case .appLeftovers(let groups):
             return groups.filter { leftoverSelection.contains($0.bundleID) }.reduce(0) { $0 + $1.totalBytes }
         case .threats, .appUpdates, .maintenanceDue, .unsupportedApps, .browserPrivacy,
-             .loginItems, .lowDiskSpace, .extensions, .backgroundItems:
+             .loginItems, .lowDiskSpace, .extensions, .backgroundItems,
+             .duplicates, .largeOldFiles, .similarImages, .downloads, .installers:
             return 0
         }
     }
 
-    /// Sums the sizes of the selected URLs for one finding. An empty selection
-    /// answers without touching the file list at all, and the (url, size)
+    /// The selected files of a finding made of user files, or `nil` for any other
+    /// finding: the kinds that can list the same file as each other.
+    private func selectedFiles(for kind: CareFinding.Kind) -> [(url: URL, size: Int64)]? {
+        guard let payload = currentPlan?.finding(kind)?.payload else { return nil }
+        switch payload {
+        case .duplicates(let groups):
+            return sizedFiles(in: duplicateSelection, kind: kind, sizes: {
+                groups.flatMap { $0.files.map { ($0.url, $0.size) } }
+            })
+        case .largeOldFiles(let files):
+            return sizedFiles(in: largeOldFileSelection, kind: kind, sizes: {
+                files.map { ($0.url, $0.size) }
+            })
+        case .similarImages(let groups):
+            return sizedFiles(in: similarImageSelection, kind: kind, sizes: {
+                groups.flatMap { $0.files.map { ($0.url, $0.size) } }
+            })
+        case .downloads(let items):
+            return sizedFiles(in: downloadSelection, kind: kind, sizes: {
+                items.map { ($0.file.url, $0.file.size) }
+            })
+        case .installers(let files):
+            return files.filter { installerSelection.contains($0.id) }.map { ($0.url, $0.sizeBytes) }
+        case .junk, .threats, .appUpdates, .maintenanceDue, .unsupportedApps, .browserPrivacy,
+             .loginItems, .lowDiskSpace, .extensions, .backgroundItems, .unusedApps, .appLeftovers:
+            return nil
+        }
+    }
+
+    /// Pairs the selected URLs for one finding with their sizes. An empty
+    /// selection answers without touching the file list at all, and the (url, size)
     /// lookup is built once per plan rather than rebuilt on every read — the
     /// two together keep a feed render off the finding's whole file list, which
     /// the cards, the hero, and the disc caption each used to walk.
-    private func selectedBytes(
+    private func sizedFiles(
         in selection: Set<URL>,
         kind: CareFinding.Kind,
         sizes: () -> [(URL, Int64)]
-    ) -> Int64 {
-        guard !selection.isEmpty else { return 0 }
+    ) -> [(url: URL, size: Int64)] {
+        guard !selection.isEmpty else { return [] }
         let table = sizeTable(for: kind, sizes: sizes)
-        return selection.reduce(0) { $0 + (table[$1] ?? 0) }
+        return selection.map { ($0, table[$0] ?? 0) }
     }
 
     /// The memoized url→size lookup for one finding, built on first use and
@@ -1262,7 +1341,8 @@ public final class SmartScanViewModel {
                         for: finding.kind,
                         bytes: selectedBytes(for: finding.kind),
                         count: confirmationCount(for: finding.kind),
-                        permanentCount: permanentCount
+                        permanentCount: permanentCount,
+                        permanentBytes: finding.kind == .junkCleanup ? selectedPermanentJunkBytes : 0
                     ),
                     isPermanent: permanentCount > 0
                 )
@@ -1280,6 +1360,7 @@ public final class SmartScanViewModel {
         // The phase stops carrying the plan from here on; Done re-checks only
         // what this pass changed and hands the rest of it straight back.
         planUnderRun = plan
+        urlsRemovedByRun = []
         // Resolve the queue up front so the running screen can show honest
         // "step N of M" progress and the current action's label.
         let queue = CarePlanRanker.ranked(plan.findings, context: severityContext)
@@ -1291,6 +1372,9 @@ public final class SmartScanViewModel {
             bytesFreed: 0
         )
         phase = .running
+        // Read after the phase moves, so a second tap can't start another pass
+        // while this waits on the main actor.
+        exclusionsAtRun = await currentExclusions().map(PathExclusionMatcher.canonicalize)
 
         var lines: [CareReceiptLine] = []
         var bytesFreed: Int64 = 0
@@ -1350,14 +1434,7 @@ public final class SmartScanViewModel {
             return await executeThreatRemoval(threats)
 
         case .duplicates(let groups):
-            return await recycleLine(
-                kind: .duplicates,
-                urls: Array(duplicateSelection),
-                sizeOf: Dictionary(
-                    groups.flatMap { $0.files.map { ($0.url, $0.size) } },
-                    uniquingKeysWith: { size, _ in size }
-                )
-            )
+            return await executeDuplicateRemoval(groups)
 
         case .similarImages(let groups):
             return await recycleLine(
@@ -1434,21 +1511,47 @@ public final class SmartScanViewModel {
         let selectedJunk = await ScanFileFilter.selected(from: result.items) { selected.contains($0.url) }
         guard !selectedJunk.isEmpty else { return nil }
         do {
-            let bytes = try await junkCleaner(selectedJunk)
+            let report = try await junkCleaner(selectedJunk)
+            guard !report.removedNothing else {
+                let error = JunkRemovalError.nothingRemoved(failedCount: report.failedCount)
+                return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
+            }
             onJunkCleaned?()
-            return CareReceiptLine(kind: .junkCleanup, itemsProcessed: selectedJunk.count, bytesFreed: bytes, outcome: .success)
+            // Counted from what's left rather than `removedCount`, so a file that
+            // had already gone reads as handled. Otherwise a stale list would
+            // process nothing, never be re-checked, and stay on the feed.
+            // What a helper that stopped answering left is unconfirmed, not failed:
+            // it may still be working through it.
+            return CareReceiptLine(
+                kind: .junkCleanup,
+                itemsProcessed: selectedJunk.count - report.failedCount - report.unconfirmedCount,
+                bytesFreed: report.bytesFreed,
+                bytesMovedToTrash: report.bytesMovedToTrash,
+                unconfirmedCount: report.unconfirmedCount,
+                outcome: report.failedCount == 0 ? .success : .partial(failedCount: report.failedCount)
+            )
         } catch {
             log.error("Smart Scan junk clean failed: \(String(describing: error), privacy: .private)")
             return CareReceiptLine(kind: .junkCleanup, itemsProcessed: 0, bytesFreed: 0, outcome: .failed(message: error.localizedDescription))
         }
     }
 
+    /// Whether the Ignore List covers `url` now. The scan honoured the list as it
+    /// was then, and an entry added while the results sat on screen has to stop
+    /// the Run too. Junk isn't checked here: it can run to a million files.
+    private func isIgnored(_ url: URL) -> Bool {
+        !exclusionsAtRun.isEmpty
+            && PathExclusionMatcher.isExcluded(path: PathExclusionMatcher.canonicalize(url), by: exclusionsAtRun)
+    }
+
     private func executeThreatRemoval(_ threats: [MalwareThreat]) async -> CareReceiptLine? {
-        let selected = threats.filter { threatSelection.contains($0.filePath) }
+        let selected = threats.filter { threatSelection.contains($0.filePath) && !isIgnored($0.filePath) }
         guard !selected.isEmpty else { return nil }
         let failures = await threatRemover(selected)
         let removed = selected.count - failures.count
-        onThreatsRemoved?(selected.filter { !failures.contains($0) })
+        let gone = selected.filter { !failures.contains($0) }
+        urlsRemovedByRun.formUnion(gone.map(\.filePath))
+        onThreatsRemoved?(gone)
         return CareReceiptLine(
             kind: .threats,
             itemsProcessed: removed,
@@ -1457,46 +1560,150 @@ public final class SmartScanViewModel {
         )
     }
 
+    /// Removes the chosen duplicate copies, with two checks a plain recycle can't
+    /// make. A group that has changed since the scan is left alone, since its
+    /// "redundant" copy may now be the only one. And when the kept original is going
+    /// through another card, one copy stays, because the card's promise is that the
+    /// bytes survive. Choosing every copy by hand on other cards overrides that.
+    private func executeDuplicateRemoval(_ groups: [DuplicateGroup]) async -> CareReceiptLine? {
+        let chosenElsewhere = urlsChosenOutsideDuplicates
+        var urls: [URL] = []
+        var sizeOf: [URL: Int64] = [:]
+        var changedCount = 0
+        for group in groups {
+            let copies = group.redundantCopies.map(\.url).filter(duplicateSelection.contains)
+            guard !copies.isEmpty else { continue }
+            guard await duplicateGroupIsIntact(group) else {
+                changedCount += copies.count
+                continue
+            }
+            for file in group.files { sizeOf[file.url] = file.size }
+            urls += Self.copiesToRemove(from: group, selected: copies, chosenElsewhere: chosenElsewhere)
+        }
+        // Every copy left may already be gone through another card, which leaves
+        // `recycleLine` nothing to report, so the changed groups are said here.
+        if changedCount > 0, urls.allSatisfy(urlsRemovedByRun.contains) {
+            return CareReceiptLine(
+                kind: .duplicates,
+                itemsProcessed: 0,
+                bytesFreed: 0,
+                outcome: .failed(message: String(
+                    localized: "These files changed since the scan, so they were left alone. Scan again to check them.",
+                    bundle: .module,
+                    comment: "Receipt failure line when every selected duplicate's group changed on disk after the scan."
+                ))
+            )
+        }
+        return await recycleLine(kind: .duplicates, urls: urls, sizeOf: sizeOf, alreadyFailed: changedCount)
+    }
+
+    /// `selected`, minus a copy to keep if nothing else in the group would survive.
+    private static func copiesToRemove(
+        from group: DuplicateGroup,
+        selected: [URL],
+        chosenElsewhere: Set<URL>
+    ) -> [URL] {
+        guard chosenElsewhere.contains(group.original.url) else { return selected }
+        let going = chosenElsewhere.union(selected)
+        guard group.files.allSatisfy({ going.contains($0.url) }) else { return selected }
+        guard let keeper = selected.first(where: { !chosenElsewhere.contains($0) }) else { return selected }
+        return selected.filter { $0 != keeper }
+    }
+
+    /// What the other file cards in this pass will take. Only cards in the pass
+    /// count: a selection on a card left out of Fix isn't going anywhere.
+    private var urlsChosenOutsideDuplicates: Set<URL> {
+        var urls = Set<URL>()
+        if includedFindings.contains(.largeOldFiles) { urls.formUnion(largeOldFileSelection) }
+        if includedFindings.contains(.similarImages) { urls.formUnion(similarImageSelection) }
+        if includedFindings.contains(.downloads) { urls.formUnion(downloadSelection) }
+        if includedFindings.contains(.installers),
+           case .installers(let files)? = planUnderRun?.finding(.installers)?.payload {
+            urls.formUnion(files.filter { installerSelection.contains($0.id) }.map(\.url))
+        }
+        return urls
+    }
+
     /// Uninstalls each chosen unused app the way the Applications Manager
     /// does: the bundle **and** the support files that belong to it.
     /// Recycling the bundle alone leaves preferences, caches, and containers
     /// on disk, which the next scan then reports back as leftovers — the
     /// same app cleaned twice, and less space freed than the card promised.
+    ///
+    /// Bundles move first, and support files only follow one that went: an app
+    /// still installed needs them. A running app isn't attempted, and support files
+    /// stay while another copy of the app remains, since they're named for the
+    /// bundle ID and belong to every copy. Unlike the Manager this never escalates a
+    /// root-owned bundle to the helper, because that deletes it for good and this
+    /// pass promised the Trash; the receipt reports it as not removed instead.
     private func executeUnusedAppRemoval(_ apps: [UnusedApp]) async -> CareReceiptLine? {
-        let selected = apps.filter { unusedAppSelection.contains($0.id) }
+        let selected = apps.filter { unusedAppSelection.contains($0.id) && !isIgnored($0.app.bundleURL) }
         guard !selected.isEmpty else { return nil }
 
-        var urls: [URL] = []
-        var sizeOf: [URL: Int64] = [:]
-        for app in selected {
-            urls.append(app.app.bundleURL)
-            sizeOf[app.app.bundleURL] = app.sizeBytes
-            for file in await findAssociatedFiles(app.app.bundleID) {
-                urls.append(file.url)
-                sizeOf[file.url] = file.sizeBytes
-            }
-        }
+        let alreadyGone = urlsRemovedByRun
+        let stopped = selected.filter { !appIsRunning($0.app) }
+        let bundles = stopped.map(\.app.bundleURL).filter { !alreadyGone.contains($0) }
+        let movedBundles = bundles.isEmpty ? [] : await recycleFiles(bundles)
+        urlsRemovedByRun.formUnion(movedBundles)
 
-        let recycled = await recycleFiles(urls)
         // An app counts as uninstalled when its *bundle* reached the Trash.
         // A support file left behind is a stray, not a failed uninstall —
         // and a bundle that wouldn't move is a failure however many of its
         // caches did.
-        let removed = selected.filter { recycled.contains($0.app.bundleURL) }
+        let removed = stopped.filter { urlsRemovedByRun.contains($0.app.bundleURL) }
+        var bytes = removed
+            .filter { movedBundles.contains($0.app.bundleURL) }
+            .reduce(Int64(0)) { $0 + $1.sizeBytes }
+
+        var sizeOf: [URL: Int64] = [:]
+        for app in await appsSafeToClearSupportFilesFor(removed.map(\.app)) {
+            for file in await findAssociatedFiles(app.bundleID) {
+                sizeOf[file.url] = file.sizeBytes
+            }
+        }
+        if !sizeOf.isEmpty {
+            let movedSupport = await recycleFiles(Array(sizeOf.keys))
+            urlsRemovedByRun.formUnion(movedSupport)
+            bytes += movedSupport.reduce(Int64(0)) { $0 + (sizeOf[$1] ?? 0) }
+        }
+
         return CareReceiptLine(
             kind: .unusedApps,
             itemsProcessed: removed.count,
-            bytesFreed: recycled.reduce(Int64(0)) { $0 + (sizeOf[$1] ?? 0) },
+            bytesFreed: 0,
+            bytesMovedToTrash: bytes,
             outcome: removed.count == selected.count
                 ? .success
                 : .partial(failedCount: selected.count - removed.count)
         )
     }
 
+    /// The just-removed apps no other installed copy depends on. If the installed
+    /// apps can't be read, that's none of them: a stray support file costs a little
+    /// space, and a wrong guess costs a working copy its settings.
+    private func appsSafeToClearSupportFilesFor(_ removed: [AppInfo]) async -> [AppInfo] {
+        guard !removed.isEmpty else { return [] }
+        do {
+            let installed = try await installedApps()
+            let removedIDs = Set(removed.map(\.id))
+            return removed.filter { app in
+                !installed.contains {
+                    $0.bundleID == app.bundleID && !removedIDs.contains($0.id)
+                }
+            }
+        } catch {
+            log.error("Smart Scan couldn't list installed apps: \(String(describing: error), privacy: .private)")
+            return []
+        }
+    }
+
     private func executeLeftoverRemoval(_ groups: [LeftoverGroup]) async -> CareReceiptLine? {
-        let selected = groups.filter { leftoverSelection.contains($0.bundleID) }
+        let selected = groups.filter { group in
+            leftoverSelection.contains(group.bundleID) && !group.urls.contains(where: isIgnored)
+        }
         guard !selected.isEmpty else { return nil }
         let recycled = await recycleFiles(selected.flatMap(\.urls))
+        urlsRemovedByRun.formUnion(recycled)
         // Byte credit per fully-recycled group — LeftoverGroup only
         // carries a group total, so a partial group credits nothing.
         let fullyRemoved = selected.filter { group in group.urls.allSatisfy(recycled.contains) }
@@ -1506,7 +1713,8 @@ public final class SmartScanViewModel {
         return CareReceiptLine(
             kind: .appLeftovers,
             itemsProcessed: fullyRemoved.count,
-            bytesFreed: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
+            bytesFreed: 0,
+            bytesMovedToTrash: fullyRemoved.reduce(0) { $0 + $1.totalBytes },
             outcome: outcome
         )
     }
@@ -1514,14 +1722,43 @@ public final class SmartScanViewModel {
     private func executeAppUpdates(_ updates: [UpdateInfo]) async -> CareReceiptLine? {
         let selected = updates.filter { updateSelection.contains($0.id) }
         guard !selected.isEmpty else { return nil }
+        var opened = 0
+        var refused = 0
         for update in selected {
             // Homebrew-managed updates carry no URL — they are applied by
             // `brew`, not opened. Smart Scan's probe never yields them,
             // but the model allows it, so skip rather than assume.
             guard let url = update.updateURL else { continue }
+            // The link comes from the app's own feed and this card is pre-checked,
+            // so the feed mustn't get to choose what one tap launches: a `file:`
+            // or custom-scheme URL would open whatever handles it. Only https goes
+            // through, the rule `UpdateInstaller` holds its own downloads to.
+            guard url.scheme?.lowercased() == "https" else {
+                log.error("Smart Scan refused an update link that isn't https")
+                refused += 1
+                continue
+            }
             await updateOpener(url)
+            opened += 1
         }
-        return CareReceiptLine(kind: .appUpdates, itemsProcessed: selected.count, bytesFreed: 0, outcome: .success)
+        if opened == 0, refused > 0 {
+            return CareReceiptLine(
+                kind: .appUpdates,
+                itemsProcessed: 0,
+                bytesFreed: 0,
+                outcome: .failed(message: String(
+                    localized: "These update links weren't secure, so they weren't opened.",
+                    bundle: .module,
+                    comment: "Receipt failure line when every selected app update had a link other than https."
+                ))
+            )
+        }
+        return CareReceiptLine(
+            kind: .appUpdates,
+            itemsProcessed: opened,
+            bytesFreed: 0,
+            outcome: refused == 0 ? .success : .partial(failedCount: refused)
+        )
     }
 
     private func executeMaintenance(_ taskIDs: [String]) async -> CareReceiptLine? {
@@ -1581,18 +1818,24 @@ public final class SmartScanViewModel {
     }
 
     /// Shared Trash-based removal: recycle the URLs, credit the bytes that
-    /// actually moved, report partial success honestly.
+    /// actually moved, report partial success honestly. A file an earlier finding
+    /// in this pass already moved is neither tried again nor credited twice.
+    /// `alreadyFailed` counts items the caller gave up on before getting here.
     private func recycleLine(
         kind: CareFinding.Kind,
         urls: [URL],
-        sizeOf: [URL: Int64]
+        sizeOf: [URL: Int64],
+        alreadyFailed: Int = 0
     ) async -> CareReceiptLine? {
-        guard !urls.isEmpty else { return nil }
-        let recycled = await recycleFiles(urls)
+        let pending = urls.filter { !urlsRemovedByRun.contains($0) && !isIgnored($0) }
+        guard !pending.isEmpty else { return nil }
+        let recycled = await recycleFiles(pending)
+        urlsRemovedByRun.formUnion(recycled)
         let bytes = recycled.reduce(Int64(0)) { $0 + (sizeOf[$1] ?? 0) }
-        let outcome: CareReceiptLine.Outcome = recycled.count == urls.count
+        let failedCount = pending.count - recycled.count + alreadyFailed
+        let outcome: CareReceiptLine.Outcome = failedCount == 0
             ? .success
-            : .partial(failedCount: urls.count - recycled.count)
+            : .partial(failedCount: failedCount)
         if recycled.isEmpty {
             return CareReceiptLine(
                 kind: kind,
@@ -1605,7 +1848,7 @@ public final class SmartScanViewModel {
                 ))
             )
         }
-        return CareReceiptLine(kind: kind, itemsProcessed: recycled.count, bytesFreed: bytes, outcome: outcome)
+        return CareReceiptLine(kind: kind, itemsProcessed: recycled.count, bytesFreed: 0, bytesMovedToTrash: bytes, outcome: outcome)
     }
 
     // MARK: - Finishing a run
@@ -1622,12 +1865,12 @@ public final class SmartScanViewModel {
     ///
     /// The feed comes back immediately, minus the findings the pass actually
     /// consumed; those are re-scanned in the background and drop back in when
-    /// they land. Everything else carries forward untouched: the run never went
-    /// near it, so it is still true, and re-walking the filesystem to rediscover
-    /// it is what made Done cost a whole second scan.
+    /// they land. Everything else carries forward, minus any file or app the pass
+    /// removed through another card: re-walking the filesystem to rediscover it is
+    /// what made Done cost a whole second scan.
     func rescanHandledFindings() async {
         guard case .done(let receipt) = phase else { return }
-        guard let plan = planUnderRun else {
+        guard let planRunAgainst = planUnderRun else {
             // No plan to hand back — the intro is the only honest place to land.
             reset()
             return
@@ -1638,7 +1881,7 @@ public final class SmartScanViewModel {
         // still true, so it stays on the feed without being re-scanned.
         let changed = Set(receipt.lines.filter { $0.itemsProcessed > 0 }.map(\.kind.unit))
         guard !changed.isEmpty else {
-            phase = .results(plan)
+            phase = .results(planRunAgainst)
             planUnderRun = nil
             return
         }
@@ -1649,12 +1892,18 @@ public final class SmartScanViewModel {
 
         scanGeneration += 1
         let generation = scanGeneration
+        // Read before the selections clear: what the user left unchecked is a
+        // decision, and the re-check is about to find those items again.
+        var declined = declinedSelections(in: planRunAgainst)
+        let junkSelectionAtRun = junkFileSelection
         // Back to the feed at once, without the cards the pass consumed — their
         // counts describe deleted files. Their selections go too, or the footer
         // and hero totals would keep counting what is gone.
-        for kind in plan.findings.map(\.kind) where units.contains(kind.unit) {
+        for kind in planRunAgainst.findings.map(\.kind) where units.contains(kind.unit) {
             clearSelection(for: kind)
         }
+        let plan = planRunAgainst.removingItems(at: urlsRemovedByRun)
+        pruneSelections(to: plan)
         invalidateResultsCaches()
         planUnderRun = nil
         isRefreshingFindings = true
@@ -1674,14 +1923,79 @@ public final class SmartScanViewModel {
         // No event handling: the feed shows no per-unit progress, and the
         // checklist isn't on screen to fill in.
         let refreshed = await scanEngine(configuration) { _ in }
-        isRefreshingFindings = false
+        if units.contains(.systemJunk), case .junk(let result)? = planRunAgainst.finding(.junkCleanup)?.payload {
+            declined.junk = await ScanSelectionSeed.unselected(in: result, selection: junkSelectionAtRun)
+        }
         // Merge only into the feed the user is still on — a fresh scan, Start
-        // Over, or a reset supersedes this re-check.
+        // Over, or a reset supersedes this re-check, and already cleared the flag
+        // below or set it for a re-check of its own.
         guard generation == scanGeneration, case .results = phase else { return }
         // Only the re-checked units may re-seed: everything else on the merged
         // plan is the finding the user was already looking at, with whatever
         // they decided about it still standing.
-        await land(plan.merging(refreshed, for: units), stampHistory: false, seeding: units)
+        await land(plan.merging(refreshed, for: units), stampHistory: false, seeding: units, keeping: declined)
+        // Held until the landing is over, not just the scan: the plan isn't whole
+        // until then, and Fix mustn't run against it in between.
+        guard generation == scanGeneration else { return }
+        isRefreshingFindings = false
+    }
+
+    /// What the user left unchecked on the pre-approved findings of `plan`. Junk is
+    /// absent: it can run to a million files, so its caller works it out off main.
+    private func declinedSelections(in plan: CarePlan) -> DeclinedSelections {
+        var declined = DeclinedSelections()
+        for finding in plan.findings {
+            switch finding.payload {
+            case .threats(let threats):
+                declined.threats = Set(threats.map(\.filePath)).subtracting(threatSelection)
+            case .appUpdates(let updates):
+                declined.updates = Set(updates.map(\.id)).subtracting(updateSelection)
+            case .maintenanceDue(let taskIDs):
+                declined.maintenance = Set(taskIDs).subtracting(maintenanceSelection)
+            case .duplicates(let groups):
+                declined.duplicates = Set(groups.flatMap { $0.redundantCopies.map(\.url) }).subtracting(duplicateSelection)
+            default:
+                break
+            }
+        }
+        return declined
+    }
+
+    /// Narrows the selections to what is still on `plan`, after
+    /// `CarePlan.removingItems(at:)` took some of it away. Group kinds intersect with
+    /// their current copies because a group that lost its original has a new one,
+    /// which is never selectable. An opt-in card left with nothing checked leaves
+    /// the Run pass, as it would had the user cleared it.
+    private func pruneSelections(to plan: CarePlan) {
+        var threats = Set<URL>(), duplicates = Set<URL>(), similarImages = Set<URL>()
+        var downloads = Set<URL>(), largeOldFiles = Set<URL>()
+        var updates = Set<String>(), unused = Set<String>(), unsupported = Set<String>(), installers = Set<String>()
+        for finding in plan.findings {
+            switch finding.payload {
+            case .threats(let items): threats = Set(items.map(\.filePath))
+            case .duplicates(let groups): duplicates = Set(groups.flatMap { $0.redundantCopies.map(\.url) })
+            case .similarImages(let groups): similarImages = Set(groups.flatMap { $0.redundantCopies.map(\.url) })
+            case .downloads(let items): downloads = Set(items.map(\.file.url))
+            case .largeOldFiles(let files): largeOldFiles = Set(files.map(\.url))
+            case .appUpdates(let items): updates = Set(items.map(\.id))
+            case .unusedApps(let apps): unused = Set(apps.map(\.id))
+            case .unsupportedApps(let apps): unsupported = Set(apps.map(\.id))
+            case .installers(let files): installers = Set(files.map(\.id))
+            default: break
+            }
+        }
+        threatSelection.formIntersection(threats)
+        duplicateSelection.formIntersection(duplicates)
+        similarImageSelection.formIntersection(similarImages)
+        downloadSelection.formIntersection(downloads)
+        largeOldFileSelection.formIntersection(largeOldFiles)
+        updateSelection.formIntersection(updates)
+        unusedAppSelection.formIntersection(unused)
+        unsupportedAppSelection.formIntersection(unsupported)
+        installerSelection.formIntersection(installers)
+        for kind in includedFindings where plan.finding(kind)?.actionability == .optIn && selectionCount(for: kind) == 0 {
+            includedFindings.remove(kind)
+        }
     }
 
     /// Where each finding keyed by file URL keeps its selection, so clearing one
@@ -1742,6 +2056,16 @@ public final class SmartScanViewModel {
     }
 }
 
+/// What the user left unchecked on the pre-approved findings a Run pass acted on,
+/// held across the re-check so re-seeding those findings doesn't check them again.
+private struct DeclinedSelections {
+    var junk: Set<URL> = []
+    var threats: Set<URL> = []
+    var updates: Set<UpdateInfo.ID> = []
+    var maintenance: Set<String> = []
+    var duplicates: Set<URL> = []
+}
+
 // MARK: - Production wiring
 
 extension SmartScanViewModel {
@@ -1780,7 +2104,7 @@ extension SmartScanViewModel {
             scanEngine: { configuration, onEvent in
                 await engine.scan(configuration: configuration, onEvent: onEvent)
             },
-            junkCleaner: { try await SystemJunkDeleter().delete($0) },
+            junkCleaner: { await SystemJunkDeleter().remove($0) },
             threatRemover: { await threatRemover.remove($0) },
             updateOpener: { url in
                 await MainActor.run { _ = NSWorkspace.shared.open(url) }
@@ -1793,6 +2117,13 @@ extension SmartScanViewModel {
                     (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) }
                 }
                 return await DefaultAssociatedFileFinder(excluding: excluded).find(forBundleID: bundleID)
+            },
+            appIsRunning: { AppUninstallerViewModel.bundleIsRunning($0) },
+            // System apps included: a copy anywhere still needs the support files.
+            installedApps: { try await DefaultAppDiscovery().installedApps(includingSystemApps: true) },
+            duplicateGroupIsIntact: { $0.isUnchangedOnDisk() },
+            currentExclusions: { [weak exclusions] in
+                await MainActor.run { (exclusions?.exclusions ?? []).map { URL(fileURLWithPath: $0) } }
             },
             maintenanceTaskRunner: { taskID in
                 switch MaintenanceTask.Kind(rawValue: taskID) {

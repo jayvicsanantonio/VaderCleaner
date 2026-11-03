@@ -72,4 +72,22 @@ public enum ScanCategory: String, CaseIterable, Codable, Hashable, Sendable {
             return false
         }
     }
+
+    /// Whether `SystemJunkDeleter` removes this category's files for good rather
+    /// than moving them to the Trash: what is already in a Trash, and what lives
+    /// under a root-owned path, which only the privileged helper can delete.
+    /// Decided per category so the confirmation sheet can read it from the O(1)
+    /// selection tallies instead of walking a million selected paths. Language
+    /// files count as permanent even though `~/Applications` could reach the
+    /// Trash, because the wrong answer has to be the one that asks first.
+    /// `SmartScanDataSafetyTests` holds this against the real scan roots.
+    var removalIsPermanent: Bool {
+        switch self {
+        case .trash, .systemCache, .systemLogs, .languageFiles, .documentVersions:
+            return true
+        case .userCache, .userLogs, .mailAttachments, .iosBackups,
+             .xcodeJunk, .webDevJunk, .largeFile, .oldFile:
+            return false
+        }
+    }
 }

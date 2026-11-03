@@ -71,7 +71,8 @@ public final class WebDevScanScopeStore {
     /// directories under home for the default scope, otherwise the chosen folder.
     var scanRoots: [URL] {
         if let selectedFolderPath {
-            return [URL(fileURLWithPath: selectedFolderPath)]
+            let folder = URL(fileURLWithPath: selectedFolderPath)
+            return Self.canHoldProjects(folder) ? [folder] : []
         }
         return Self.defaultProjectDirectoryNames
             .map { homeDirectory.appendingPathComponent($0, isDirectory: true) }
@@ -96,9 +97,23 @@ public final class WebDevScanScopeStore {
     }
 
     /// Scan the chosen folder directly.
+    /// Picks `url` as the scan folder, unless it can't hold projects (see
+    /// `canHoldProjects`), in which case the current choice stands.
     public func selectFolder(_ url: URL) {
+        guard Self.canHoldProjects(url) else { return }
         selectedFolderPath = url.path
         defaults.set(url.path, forKey: Key.folderPath)
+    }
+
+    /// Whether files found under `url` would reach the Trash when cleaned. Web
+    /// Development Junk is a category whose removal is a restorable move, which is
+    /// what the Clean and Fix confirmations promise; under a root-owned path or a
+    /// Trash, `SystemJunkDeleter` deletes for good instead. Checked on the
+    /// resolved path because `/var` and `/tmp` are symlinks into `/private`.
+    static func canHoldProjects(_ url: URL) -> Bool {
+        let inside = url.resolvingSymlinksInPath().appendingPathComponent("item").path
+        return !SystemJunkDeleter.requiresHelper(path: inside)
+            && !SystemJunkDeleter.isInUserTrash(path: inside)
     }
 
     private func isDirectory(_ url: URL) -> Bool {

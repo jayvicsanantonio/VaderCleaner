@@ -71,9 +71,9 @@ import Testing
         )
     }
 
-    /// One safe junk file and nothing else.
+    /// One safe junk file the Trash can't take, and nothing else.
     private nonisolated static var junkOnlyPlan: CarePlan {
-        let junk = ScanResult(items: [Self.file("/cache/safe", size: 1_000, category: .userCache)])
+        let junk = ScanResult(items: [Self.file("/Library/Caches/safe", size: 1_000, category: .systemCache)])
         return plan([CareFinding(payload: .junk(junk))], units: [.systemJunk])
     }
 
@@ -87,7 +87,7 @@ import Testing
             scanEngine: { _, _ in plan },
             junkCleaner: { files in
                 cleanedJunk.withLock { $0 += files.map(\.url) }
-                return files.reduce(0) { $0 + $1.size }
+                return .removing(files)
             },
             threatRemover: { threats in
                 removedThreats.withLock { $0 += threats.map(\.filePath) }

@@ -98,14 +98,30 @@ struct CareReceiptView: View {
         .accessibilityIdentifier("smartScan.receipt")
     }
 
+    /// Keeps the two apart because only one of them is disk space back: what is in
+    /// the Trash still occupies the disk until the Trash is emptied.
     private var headline: String {
-        guard receipt.totalBytesFreed > 0 else {
+        let freed = CareFindingCopy.formattedBytes(receipt.totalBytesFreed)
+        let moved = CareFindingCopy.formattedBytes(receipt.totalBytesMovedToTrash)
+        switch (receipt.totalBytesFreed > 0, receipt.totalBytesMovedToTrash > 0) {
+        case (true, true):
+            return String.localizedStringWithFormat(
+                String(localized: "All done — %@ freed, %@ moved to the Trash", comment: "Receipt headline: bytes removed for good, then bytes moved to the Trash."),
+                freed, moved
+            )
+        case (true, false):
+            return String.localizedStringWithFormat(
+                String(localized: "All done — %@ freed", comment: "Receipt headline with the total bytes freed."),
+                freed
+            )
+        case (false, true):
+            return String.localizedStringWithFormat(
+                String(localized: "All done — %@ moved to the Trash", comment: "Receipt headline when everything went to the Trash."),
+                moved
+            )
+        case (false, false):
             return String(localized: "All done", comment: "Receipt headline when no bytes were freed.")
         }
-        return String.localizedStringWithFormat(
-            String(localized: "All done — %@ freed", comment: "Receipt headline with the total bytes freed."),
-            CareFindingCopy.formattedBytes(receipt.totalBytesFreed)
-        )
     }
 }
 
@@ -124,8 +140,8 @@ private struct CareReceiptLineRow: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            if line.bytesFreed > 0 {
-                Text(CareFindingCopy.formattedBytes(line.bytesFreed))
+            if line.bytesFreed + line.bytesMovedToTrash > 0 {
+                Text(CareFindingCopy.formattedBytes(line.bytesFreed + line.bytesMovedToTrash))
                     .font(.system(size: 13.5, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()
@@ -147,6 +163,9 @@ private struct CareReceiptLineRow: View {
     @ViewBuilder
     private var glyph: some View {
         switch line.outcome {
+        case .success where line.unconfirmedCount > 0:
+            Image(systemName: "checkmark.circle.badge.questionmark")
+                .foregroundStyle(.yellow)
         case .success:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.white, .green)
@@ -159,7 +178,20 @@ private struct CareReceiptLineRow: View {
         }
     }
 
+    /// The outcome's sentence, plus what the helper was still working on when it
+    /// stopped answering, so that isn't read as either done or failed.
     private var text: String {
+        guard line.unconfirmedCount > 0 else { return outcomeText }
+        return outcomeText + " " + String.localizedStringWithFormat(
+            String(
+                localized: "%d more may still be removed.",
+                comment: "Receipt suffix: items the privileged helper may still be removing after it stopped answering."
+            ),
+            line.unconfirmedCount
+        )
+    }
+
+    private var outcomeText: String {
         switch line.outcome {
         case .failed(let message):
             let title = CareFindingCopy.title(for: line.kind)
@@ -191,7 +223,7 @@ private struct CareReceiptLineRow: View {
 
 /// The receipt's restore path: a quiet reminder that recycled items are still
 /// recoverable, with a button that opens the Trash. Shown only when the run
-/// actually moved something there — never for the permanent junk delete.
+/// actually moved something there.
 private struct CareReceiptRecoveryNote: View {
     let onShowTrash: () -> Void
 

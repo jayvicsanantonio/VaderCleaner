@@ -97,11 +97,11 @@ public struct CareFinding: Identifiable, Equatable, Sendable {
             }
         }
 
-        /// Whether this finding's Run action moves items to the Trash — where
-        /// they can be restored — rather than removing them for good. Junk is
-        /// deleted outright (macOS rebuilds it); updates, maintenance, and
-        /// privacy clears remove nothing to restore. The receipt offers a
-        /// "restore from Trash" path only for the kinds that return `true`.
+        /// Whether this finding's Run action always moves items to the Trash —
+        /// where they can be restored — rather than removing them for good. Junk
+        /// is decided per file (`ScanCategory.removalIsPermanent`), so its receipt
+        /// line reports what reached the Trash instead; updates, maintenance, and
+        /// privacy clears remove nothing to restore.
         var movesToTrash: Bool {
             switch self {
             case .duplicates, .similarImages, .downloads, .largeOldFiles,

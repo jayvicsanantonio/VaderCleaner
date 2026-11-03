@@ -77,7 +77,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
                 }
                 return scanCount.value == 1 ? Self.scanned : Self.rescanned
             },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in .removing(files) },
             recordScan: recordScan
         )
         box.value = vm
@@ -341,7 +341,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
                     ? Self.scanned
                     : Self.plan(findings: [remainingJunk], outcomes: [.systemJunk: .completed])
             },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } }
+            junkCleaner: { files in .removing(files) }
         )
 
         await vm.scan()
@@ -374,7 +374,7 @@ final class SmartScanViewModelFinishRunTests: XCTestCase {
                 scanCount.value += 1
                 return scanCount.value == 1 ? first : Self.rescanned
             },
-            junkCleaner: { files in files.reduce(0) { $0 + $1.size } }
+            junkCleaner: { files in .removing(files) }
         )
     }
 

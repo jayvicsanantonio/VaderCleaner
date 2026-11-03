@@ -425,18 +425,39 @@ public enum CareFindingCopy {
     }
 
     /// One plain-language line for the run-confirmation sheet, describing what
-    /// this finding's action will do to the chosen items. Junk names its size
-    /// and says "permanently", since the Trash can't undo it. Threats split on
+    /// this finding's action will do to the chosen items. Junk and threats split on
     /// `permanentCount`, how many of the `count` chosen can't go to the Trash:
     /// those in the user's folders are moved there, those under protected
-    /// paths are deleted. Everything else is phrased as a restorable move to
-    /// the Trash.
-    static func runConfirmationLine(for kind: CareFinding.Kind, bytes: Int64, count: Int, permanentCount: Int = 0) -> String {
+    /// paths (and, for junk, in a Trash already) are deleted. `permanentBytes` is
+    /// junk's share of `bytes` on that second path. Everything else is phrased as a
+    /// restorable move to the Trash.
+    static func runConfirmationLine(
+        for kind: CareFinding.Kind,
+        bytes: Int64,
+        count: Int,
+        permanentCount: Int = 0,
+        permanentBytes: Int64 = 0
+    ) -> String {
         switch kind {
+        case .junkCleanup where permanentCount == 0:
+            return String.localizedStringWithFormat(
+                String(localized: "Moves %@ of junk to the Trash", bundle: .module, comment: "Run confirmation line for junk that all goes to the Trash."),
+                formattedBytes(bytes)
+            )
+        case .junkCleanup where permanentCount == count:
+            return String.localizedStringWithFormat(
+                String(localized: "Permanently removes %@ of junk", bundle: .module, comment: "Run confirmation line for junk that is all removed for good (irreversible)."),
+                formattedBytes(bytes)
+            )
         case .junkCleanup:
             return String.localizedStringWithFormat(
-                String(localized: "Permanently removes %@ of junk", bundle: .module, comment: "Run confirmation line for junk cleanup (irreversible)."),
-                formattedBytes(bytes)
+                String(
+                    localized: "Moves %@ of junk to the Trash and permanently removes %@",
+                    bundle: .module,
+                    comment: "Run confirmation line for junk: bytes going to the Trash, then bytes removed for good."
+                ),
+                formattedBytes(bytes - permanentBytes),
+                formattedBytes(permanentBytes)
             )
         case .duplicates:
             return String.localizedStringWithFormat(

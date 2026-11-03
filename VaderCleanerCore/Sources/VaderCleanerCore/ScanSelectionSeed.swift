@@ -30,6 +30,30 @@ struct ScanSelectionSeed: Equatable, Sendable {
         build(from: result, cacheRoots: cacheRoots) { $0.isSafeToAutoRemove }
     }
 
+    /// Smart Scan's seed: the safe defaults minus the Trash, and minus whatever
+    /// the user has already declined. Fix is one tap, and its receipt tells the
+    /// user that what it moved to the Trash can be restored, so a later Fix must
+    /// not be the thing that empties it; that stays an explicit choice in Review.
+    static func oneTapDefaults(
+        from result: ScanResult,
+        excluding declined: Set<URL> = [],
+        cacheRoots: [String] = WebDevArtifact.packageCacheRoots
+    ) async -> ScanSelectionSeed {
+        build(from: result, excluding: declined, cacheRoots: cacheRoots) {
+            $0.isSafeToAutoRemove && $0 != .trash
+        }
+    }
+
+    /// The files in `result` that `selection` leaves out, gathered off the main
+    /// actor for the same reason the seeds are built there.
+    static func unselected(in result: ScanResult, selection: Set<URL>) async -> Set<URL> {
+        var unselected = Set<URL>()
+        for file in result.items where !selection.contains(file.url) {
+            unselected.insert(file.url)
+        }
+        return unselected
+    }
+
     /// Seed covering exactly `categories` — backs a dashboard card's Review,
     /// which opens the manager with that card's group pre-selected so the
     /// selected total matches the card's displayed size. Project build
@@ -103,6 +127,7 @@ struct ScanSelectionSeed: Equatable, Sendable {
     /// insertion; the categories that filter per file sum their own totals.
     private static func build(
         from result: ScanResult,
+        excluding declined: Set<URL> = [],
         cacheRoots: [String],
         including: (ScanCategory) -> Bool
     ) -> ScanSelectionSeed {
@@ -110,7 +135,9 @@ struct ScanSelectionSeed: Equatable, Sendable {
         let included = result.itemsByCategory.filter { including($0.key) }
         seed.urls.reserveCapacity(included.values.reduce(0) { $0 + $1.count })
         for (category, files) in included {
-            let selectable = files.filter { isPreselectable($0, cacheRoots: cacheRoots) }
+            let selectable = files.filter {
+                isPreselectable($0, cacheRoots: cacheRoots) && !declined.contains($0.url)
+            }
             guard !selectable.isEmpty else { continue }
             seed.urls.formUnion(selectable.lazy.map(\.url))
             let bytes = selectable.count == files.count

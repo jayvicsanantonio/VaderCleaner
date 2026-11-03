@@ -744,14 +744,16 @@ extension AppUninstallerViewModel {
                 await HelperRegistration.reregister()
                 await HelperRegistration.openLoginItemsSettings()
             },
-            // By bundle URL, not just ID: quitting one copy shouldn't be a
-            // condition of removing another.
-            appIsRunning: { app in
-                NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).contains {
-                    $0.bundleURL?.standardizedFileURL == app.bundleURL.standardizedFileURL
-                }
-            }
+            appIsRunning: { app in bundleIsRunning(app) }
         )
+    }
+
+    /// By bundle URL, not just ID: quitting one copy shouldn't be a condition of
+    /// removing another.
+    nonisolated static func bundleIsRunning(_ app: AppInfo) -> Bool {
+        NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).contains {
+            $0.bundleURL?.standardizedFileURL == app.bundleURL.standardizedFileURL
+        }
     }
 
     /// Production recycle: move to Trash via `NSWorkspace`, then escalate

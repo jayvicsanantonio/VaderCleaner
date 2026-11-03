@@ -86,7 +86,7 @@ final class SmartScanViewModelUnusedAppsRunTests: XCTestCase {
         }
         let line = receipt.lines.first { $0.kind == .unusedApps }
         XCTAssertEqual(line?.itemsProcessed, 1, "the receipt counts apps removed, not files touched")
-        XCTAssertEqual(line?.bytesFreed, 1_000 + 20 + 300, "support files count toward the space reclaimed")
+        XCTAssertEqual(line?.bytesMovedToTrash, 1_000 + 20 + 300, "support files count toward the space reclaimed")
         XCTAssertEqual(line?.outcome, .success)
     }
 

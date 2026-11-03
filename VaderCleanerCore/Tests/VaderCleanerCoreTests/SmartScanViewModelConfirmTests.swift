@@ -19,10 +19,10 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         )
     }
 
-    /// Junk (pre-approved, one safe file), duplicates (pre-approved, seeds its
+    /// Junk (pre-approved, one safe file the Trash can't take), duplicates (pre-approved, seeds its
     /// redundant copy), and one opt-in large file that stays out until chosen.
     private nonisolated static var plan: CarePlan {
-        let junk = ScanResult(items: [Self.file("/cache/safe", size: 1_000, category: .userCache)])
+        let junk = ScanResult(items: [Self.file("/Library/Caches/safe", size: 1_000, category: .systemCache)])
         let dupGroup = DuplicateGroup(files: [
             Self.file("/Downloads/original", size: 40),
             Self.file("/Downloads/copy", size: 40)
@@ -44,7 +44,7 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
     private func scannedViewModel(runRecorder: (@Sendable () -> Void)? = nil) async -> SmartScanViewModel {
         let vm = SmartScanViewModel(
             scanEngine: { _, _ in Self.plan },
-            junkCleaner: { files in runRecorder?(); return files.reduce(0) { $0 + $1.size } },
+            junkCleaner: { files in runRecorder?(); return .removing(files) },
             recycleFiles: { runRecorder?(); return Set($0) }
         )
         await vm.scan()
@@ -57,21 +57,21 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         let vm = await scannedViewModel()
         // Junk + duplicates seed on; the opt-in large file stays out.
         XCTAssertEqual(vm.runnableFindingCount, 2)
-        XCTAssertEqual(vm.freeableBytes, 1_000 + 40, "one safe junk file plus the redundant duplicate copy")
+        XCTAssertEqual(vm.freeableBytes, 1_000, "the junk file is freed for good; the duplicate copy only goes to the Trash")
     }
 
     func test_optInSelection_growsCountAndBytesLive() async {
         let vm = await scannedViewModel()
         vm.setLargeOldFiles([URL(fileURLWithPath: "/Movies/huge.mov")], selected: true)
         XCTAssertEqual(vm.runnableFindingCount, 3, "choosing the opt-in file joins it to the run")
-        XCTAssertEqual(vm.freeableBytes, 1_000 + 40 + 9_000)
+        XCTAssertEqual(vm.freeableBytes, 1_000, "the chosen file goes to the Trash, which frees nothing yet")
     }
 
     func test_excludingJunk_dropsItsBytesFromTheCaption() async {
         let vm = await scannedViewModel()
         vm.setFindingIncluded(.junkCleanup, false)
         XCTAssertEqual(vm.runnableFindingCount, 1)
-        XCTAssertEqual(vm.freeableBytes, 40, "only the duplicate copy remains")
+        XCTAssertEqual(vm.freeableBytes, 0, "only the duplicate copy remains, bound for the Trash")
     }
 
     // MARK: - Freeable bytes reflect the safe selection
@@ -81,7 +81,7 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         // so what Fix frees — and the tile metric — is the safe subset only,
         // not the gross total the scanner found.
         let junk = ScanResult(items: [
-            Self.file("/cache/safe", size: 1_000, category: .userCache),
+            Self.file("/Library/Caches/safe", size: 1_000, category: .systemCache),
             Self.file("/mail/attachment", size: 5_000, category: .mailAttachments),
         ])
         let plan = CarePlan(
@@ -99,10 +99,10 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         XCTAssertEqual(vm.preApprovedFreeableBytes, 1_000, "the hero reflects the same safe subset")
     }
 
-    func test_preApprovedFreeableBytes_sumsJunkAndDuplicates() async {
+    func test_preApprovedFreeableBytes_countsOnlyWhatIsFreedForGood() async {
         let vm = await scannedViewModel()
-        // Junk safe file (1,000) + the seeded redundant duplicate copy (40).
-        XCTAssertEqual(vm.preApprovedFreeableBytes, 1_040)
+        // The junk file (1,000); the seeded duplicate copy goes to the Trash.
+        XCTAssertEqual(vm.preApprovedFreeableBytes, 1_000)
     }
 
     func test_preApprovedCount_countsFixHandledFindingsNotOptIn() async {
@@ -120,7 +120,7 @@ final class SmartScanViewModelConfirmTests: XCTestCase {
         let vm = await scannedViewModel()
         vm.setFindingIncluded(.junkCleanup, false)
         XCTAssertEqual(vm.preApprovedCount, 1, "only duplicates are still handled by Fix")
-        XCTAssertEqual(vm.preApprovedFreeableBytes, 40, "only the duplicate copy remains")
+        XCTAssertEqual(vm.preApprovedFreeableBytes, 0, "only the duplicate copy remains, bound for the Trash")
     }
 
     /// The same holds for a card left included with nothing checked: clearing a

@@ -1,5 +1,5 @@
 // CareReceipt.swift
-// The readable record of one Run pass: per-finding outcome lines with items processed and bytes freed. Codable so scan history can persist receipts.
+// The readable record of one Run pass: per-finding outcome lines with items processed, bytes freed, and bytes moved to the Trash. Codable so scan history can persist receipts.
 
 import Foundation
 
@@ -18,16 +18,45 @@ public struct CareReceiptLine: Equatable, Sendable, Codable {
 
     public let kind: CareFinding.Kind
     public let itemsProcessed: Int
+    /// Bytes returned to the disk: gone for good, with nothing to restore.
     public let bytesFreed: Int64
+    /// Bytes now in the Trash, which still occupy the disk and can be restored.
+    public let bytesMovedToTrash: Int64
+    /// Items whose removal is unconfirmed rather than failed: the privileged
+    /// helper stopped answering and may still be working through them. Counted
+    /// in neither `itemsProcessed` nor the outcome's failures.
+    public let unconfirmedCount: Int
     public let outcome: Outcome
 
     /// The memberwise initializer, written out because Swift only synthesizes
     /// an internal one and the app builds these across the module boundary.
-    public init(kind: CareFinding.Kind, itemsProcessed: Int, bytesFreed: Int64, outcome: Outcome) {
+    public init(
+        kind: CareFinding.Kind,
+        itemsProcessed: Int,
+        bytesFreed: Int64,
+        bytesMovedToTrash: Int64 = 0,
+        unconfirmedCount: Int = 0,
+        outcome: Outcome
+    ) {
         self.kind = kind
         self.itemsProcessed = itemsProcessed
         self.bytesFreed = bytesFreed
+        self.bytesMovedToTrash = bytesMovedToTrash
+        self.unconfirmedCount = unconfirmedCount
         self.outcome = outcome
+    }
+
+    /// Written out so a receipt persisted before `bytesMovedToTrash` and
+    /// `unconfirmedCount` existed still decodes; `CareHistoryStore` drops the
+    /// whole log on a decode failure.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(CareFinding.Kind.self, forKey: .kind)
+        itemsProcessed = try container.decode(Int.self, forKey: .itemsProcessed)
+        bytesFreed = try container.decode(Int64.self, forKey: .bytesFreed)
+        bytesMovedToTrash = try container.decodeIfPresent(Int64.self, forKey: .bytesMovedToTrash) ?? 0
+        unconfirmedCount = try container.decodeIfPresent(Int.self, forKey: .unconfirmedCount) ?? 0
+        outcome = try container.decode(Outcome.self, forKey: .outcome)
     }
 }
 
@@ -47,10 +76,15 @@ public struct CareReceipt: Equatable, Sendable, Codable {
         lines.reduce(0) { $0 + $1.bytesFreed }
     }
 
+    public var totalBytesMovedToTrash: Int64 {
+        lines.reduce(0) { $0 + $1.bytesMovedToTrash }
+    }
+
     /// Whether this run moved anything to the Trash, so the receipt can offer a
-    /// restore path. Junk (a permanent delete) and count-only actions never
-    /// qualify — the note must not imply those are recoverable.
+    /// restore path. Junk qualifies only for the part of it that went there, and
+    /// count-only actions never do — the note must not imply those are
+    /// recoverable. The kind check covers recycled items with no measured size.
     public var hasTrashRecoverableItems: Bool {
-        lines.contains { $0.kind.movesToTrash && $0.itemsProcessed > 0 }
+        lines.contains { $0.bytesMovedToTrash > 0 || ($0.kind.movesToTrash && $0.itemsProcessed > 0) }
     }
 }

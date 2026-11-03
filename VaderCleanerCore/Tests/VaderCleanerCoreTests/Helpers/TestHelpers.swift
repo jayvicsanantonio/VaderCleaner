@@ -2,6 +2,7 @@
 // Shared test utilities for creating and tearing down temporary directories and dummy files.
 
 import Foundation
+@testable import VaderCleanerCore
 
 /// Utilities used across all VaderCleaner test targets to set up and tear down
 /// isolated temporary file system environments.
@@ -163,5 +164,12 @@ enum TestHelpers {
             defer { lock.unlock() }
             return values
         }
+    }
+}
+
+extension JunkRemovalReport {
+    /// A clean where every file went for good, the common shape a test wants.
+    static func removing(_ files: [ScannedFile]) -> JunkRemovalReport {
+        JunkRemovalReport(bytesFreed: files.reduce(0) { $0 + $1.size }, removedCount: files.count)
     }
 }

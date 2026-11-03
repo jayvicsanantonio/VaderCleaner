@@ -174,7 +174,7 @@ struct ScanDiscWindowControllerTests {
                         finishedAt: Date(timeIntervalSinceReferenceDate: 1)
                     )
                 },
-                junkCleaner: { _ in 0 }
+                junkCleaner: { _ in JunkRemovalReport() }
             ),
             systemJunkViewModel: SystemJunkViewModel(
                 scanner: { _ in ScanResult(items: []) },
