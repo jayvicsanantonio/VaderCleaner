@@ -1139,8 +1139,8 @@ public final class SmartScanViewModel {
     }
 
     /// Bytes a Run pass would free right now, summed from each runnable
-    /// finding's current selection — the size the disc's caption shows as
-    /// "Frees". Only what a Run removes for good counts, which is the junk that
+    /// finding's current selection — the "deleted now" share of `runSummary`.
+    /// Only what a Run removes for good counts, which is the junk that
     /// can't go to the Trash: everything else this pass moves goes to the Trash,
     /// where it still takes up the disk until the Trash is emptied. The receipt
     /// draws the same line between freed and moved to the Trash.
@@ -1212,8 +1212,8 @@ public final class SmartScanViewModel {
     }
 
     /// Selected freeable bytes across the pre-approved findings — what the
-    /// hero's "can be freed safely" line reflects, so it agrees with the disc
-    /// caption instead of promising the gross total found. Junk is the only
+    /// verdict's "can be freed safely" line reflects, so it states the safe
+    /// selection instead of promising the gross total found. Junk is the only
     /// pre-approved finding that frees space for good, so this is its share.
     public var preApprovedFreeableBytes: Int64 {
         freeableBytes
@@ -1225,6 +1225,24 @@ public final class SmartScanViewModel {
     /// findings have their own "Worth a look" zone.
     public var preApprovedCount: Int {
         preApprovedRunnableFindings.count
+    }
+
+    /// The pending Fix pass as the results hero and the Fix disc's caption
+    /// state it: the whole selection a Run acts on, the share of it deleted
+    /// for good, and how many opt-in cards still wait on the user. Every
+    /// executing finding counts toward the total — the same per-finding sizes
+    /// the cards show — so the hero's number is the cards' numbers added up.
+    public var runSummary: CareRunSummary {
+        let executing = CareFinding.Kind.allCases.filter { willExecute($0) }
+        let undecided = (currentPlan?.findings ?? []).count { finding in
+            finding.actionability == .optIn && !willExecute(finding.kind)
+        }
+        return CareRunSummary(
+            totalBytes: executing.reduce(0) { $0 + selectedBytes(for: $1) },
+            deletedBytes: freeableBytes,
+            fixCount: executing.count,
+            decideCount: undecided
+        )
     }
 
     /// The pre-approved findings a Run pass would actually act on. Both hero
