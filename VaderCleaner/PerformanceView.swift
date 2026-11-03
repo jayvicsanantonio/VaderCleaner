@@ -159,7 +159,6 @@ struct PerformanceView: View {
                 loginItemBundleIDs: viewModel.loginItems.map(\.id),
                 backgroundItemCount: viewModel.userAgents.count + viewModel.systemAgents.count,
                 maintenanceTasksDue: viewModel.maintenanceTasksDue,
-                accent: NavigationSection.performance.theme.accent,
                 onViewAllTasks: { openCatalog(pane: .maintenanceTasks) },
                 onReviewLoginItems: { openCatalog(pane: .loginItems) },
                 onReviewBackgroundItems: { openCatalog(pane: .backgroundItems) },
@@ -167,9 +166,9 @@ struct PerformanceView: View {
                     // The card's count leads somewhere: what is due is what's ticked.
                     selectedTaskIDs = viewModel.dueMaintenanceTaskIDs
                     openCatalog(pane: .maintenanceTasks)
-                }
+                },
+                onStartOver: { viewModel.startOver() }
             )
-            .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } manager: {
             // The manager owns its full-height card layout (header + nav + pane +

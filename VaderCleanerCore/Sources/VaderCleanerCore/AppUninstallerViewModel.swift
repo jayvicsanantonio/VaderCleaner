@@ -599,6 +599,14 @@ public final class AppUninstallerViewModel {
         uninstallSelection = []
     }
 
+    /// True while a batch uninstall is moving apps to the Trash. The
+    /// Applications dashboard's Start Over waits on it, because the reload it
+    /// starts would replace this phase while the batch is still running.
+    public var isUninstalling: Bool {
+        if case .uninstalling = phase { return true }
+        return false
+    }
+
     /// Whether the footer's Uninstall action should be enabled: something is
     /// checked and no batch is already running.
     public var canUninstallSelection: Bool {
@@ -649,6 +657,11 @@ public final class AppUninstallerViewModel {
             }
         }
 
+        // A load still running may have read the disk before these apps were
+        // trashed. Dropped here, or its list would bring them back after
+        // `forgetApps` took them out, and its `.ready` would replace this
+        // batch's outcome.
+        _ = beginLoad()
         forgetApps(removedIDs)
         removedAppIDs.formUnion(removedIDs)
         batchFailedAppNames = failedNames

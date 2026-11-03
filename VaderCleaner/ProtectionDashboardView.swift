@@ -48,7 +48,6 @@ struct ProtectionDashboardView: View {
 
     private var malware: MalwareViewModel { viewModel.malware }
     private var privacy: PrivacyViewModel { viewModel.privacy }
-    private let accent = NavigationSection.malwareRemoval.theme.accent
 
     var body: some View {
         // The dashboard and the Protection Manager exchange inside
@@ -222,173 +221,71 @@ struct ProtectionDashboardView: View {
     // MARK: - Dashboard
 
     private var dashboard: some View {
-        VStack(spacing: 0) {
-            startOverBar
-            VStack(spacing: 18) {
-                header
-                grid
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .padding(.horizontal, 36)
-            .padding(.bottom, 48)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var startOverBar: some View {
-        HStack {
-            Button(action: viewModel.startOver) {
-                Label(
-                    String(localized: "Start Over",
-                           comment: "Button on the Protection dashboard that resets to the welcome screen."),
-                    systemImage: "arrow.counterclockwise"
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("protection.startOver")
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 16)
-    }
-
-    private var header: some View {
-        VStack(spacing: 14) {
-            // Section hero, mirroring the Protection intro and the other
-            // section dashboards (Applications / My Clutter / Performance) which
-            // all crown the header with their section art at the same size.
-            Image("malwareRemoval")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(maxWidth: 140, maxHeight: 140)
-                .accessibilityHidden(true)
-            VStack(spacing: 4) {
-                Text(headerTitle)
-                    .font(.title.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .contentTransition(.opacity)
-                Text(String(
-                    localized: "Feel free to adjust privacy items anytime.",
-                    comment: "Protection dashboard subtitle."
-                ))
-                    .font(.title3)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-            Button(action: openManager) {
-                Text(String(
+        SectionDashboard(
+            section: .malwareRemoval,
+            headline: Self.headline(for: malware.phase),
+            subheadline: String(
+                localized: "Feel free to adjust privacy items anytime.",
+                comment: "Protection dashboard subtitle."
+            ),
+            headlineIdentifier: "protection.summary",
+            headerAction: DashboardHeaderAction(
+                title: String(
                     localized: "Manage Privacy Items",
                     comment: "Protection dashboard button that opens the Privacy manager."
-                ))
-                .padding(.horizontal, 8)
-            }
-            .buttonStyle(.vaderTileGlass)
-            .controlSize(.large)
-            .accessibilityIdentifier("protection.managePrivacy")
-
-            definitionsLine
-        }
-        .padding(.top, 4)
-    }
-
-    /// How old the signature database is, plus the only way in the app to
-    /// refresh it without starting a full scan.
-    ///
-    /// A scan refreshes signatures on its own, but the stale-definitions
-    /// notification asks the user to act and previously left them nowhere to
-    /// do it — `updateDatabaseManually()` existed with no caller. Hidden while
-    /// a scan is in flight, since a scan does its own refresh.
-    @ViewBuilder
-    private var definitionsLine: some View {
-        if !malware.isScanningPhase {
-            VStack(spacing: 4) {
-                HStack(spacing: 8) {
-                    if malware.isUpdatingDefinitions {
-                        ProgressView().controlSize(.small)
-                        Text(String(
-                            localized: "Updating malware definitions…",
-                            comment: "Protection dashboard definitions status while an update runs."
-                        ))
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.7))
-                    } else {
-                        Text(definitionsSummary)
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.7))
-                        Button {
-                            Task { await malware.updateDatabaseManually() }
-                        } label: {
-                            Text(String(
-                                localized: "Update",
-                                comment: "Protection dashboard button that refreshes the malware signature database."
-                            ))
-                            .padding(.horizontal, 4)
-                        }
-                        .buttonStyle(.vaderTileGlass)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("protection.updateDefinitions")
-                    }
-                }
-                if let failure = malware.definitionsUpdateFailure {
-                    Text(failure)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("protection.updateDefinitions.failure")
-                }
+                ),
+                identifier: "protection.managePrivacy",
+                action: { openManager() }
+            ),
+            startOver: DashboardStartOver(identifier: "protection.startOver", action: viewModel.startOver),
+            identifier: "protection.dashboard"
+        ) {
+            DashboardGrid(tiles: selectedTiles) { tile, role in
+                tileView(tile, role: role)
             }
         }
     }
 
-    private var definitionsSummary: String {
-        guard let days = malware.definitionsAgeInDays else {
-            return String(
-                localized: "Malware definitions have never been updated",
-                comment: "Protection dashboard definitions status when no signatures are present."
-            )
-        }
-        switch days {
-        case 0:
-            return String(
-                localized: "Malware definitions updated today",
-                comment: "Protection dashboard definitions status, refreshed today."
-            )
-        case 1:
-            return String(
-                localized: "Malware definitions updated yesterday",
-                comment: "Protection dashboard definitions status, refreshed yesterday."
-            )
-        default:
-            return String(
-                localized: "Malware definitions updated \(days) days ago",
-                comment: "Protection dashboard definitions status with the number of days since the last refresh."
-            )
-        }
-    }
-
-    /// "Looking for threats…" while the malware scan is in flight, otherwise a
-    /// settled title.
-    private var headerTitle: String {
-        if malware.isScanningPhase {
+    /// Says what the malware scan found, the way the other dashboards'
+    /// headlines say what their scans found. Worded for this scan only: a clean
+    /// result covers the areas it checked, not the whole Mac.
+    static func headline(for phase: MalwareViewModel.Phase) -> String {
+        switch phase {
+        case .checkingClamAV, .updatingDatabase, .scanning:
             return String(localized: "Looking for threats…",
                           comment: "Protection dashboard heading while the malware scan runs.")
+        case .results(let threats):
+            return String.localizedStringWithFormat(
+                String(localized: "%lld threats found on your Mac.",
+                       comment: "Protection dashboard heading when the scan finds threats; %lld is the count."),
+                threats.count
+            )
+        case .clean:
+            return String(localized: "No threats found in this scan.",
+                          comment: "Protection dashboard heading when the malware scan comes back clean.")
+        case .removing:
+            return String(localized: "Removing threats…",
+                          comment: "Protection dashboard heading while detected threats are removed.")
+        case .done(let removedCount):
+            return String.localizedStringWithFormat(
+                String(localized: "%lld threats removed from your Mac.",
+                       comment: "Protection dashboard heading after removal; %lld is how many threats were removed."),
+                removedCount
+            )
+        case .failed:
+            return String(localized: "The malware scan didn't finish.",
+                          comment: "Protection dashboard heading when the malware scan fails.")
+        case .idle:
+            return String(localized: "The malware scan was stopped.",
+                          comment: "Protection dashboard heading after the user stops the malware scan.")
+        case .needsInstall:
+            // The dashboard shows ClamAV onboarding instead in this phase.
+            return NavigationSection.malwareRemoval.title
         }
-        return String(localized: "Protection",
-                      comment: "Protection dashboard heading once the scan is done.")
     }
 
     // MARK: - Grid
 
-    /// Verbatim the Applications dashboard layout: the live malware tile is the
-    /// tall lead card on the left (half the width), and the privacy findings sit
-    /// in a right-hand column packed into rows of at most two (an odd count leads
-    /// with a single full-width row). Every card fills its share with
-    /// `maxHeight: .infinity` — no GeometryReader, no explicit heights — so the
-    /// rows divide the height evenly and the two columns stay aligned, exactly
-    /// like `ApplicationsDashboardView.cardLayout`. With no privacy findings the
-    /// malware tile fills the whole pane.
     /// The ranked 2–4 tiles the dashboard shows: the live malware scan always
     /// leads (safety first — `.critical` once threats are found), then the
     /// privacy findings by reclaimable size (capped so the grid never exceeds
@@ -412,54 +309,14 @@ struct ProtectionDashboardView: View {
         return SectionRecommendationSelector.select(real: real, reassurance: reassurance)
     }
 
-    /// Gap between adjacent tiles, shared by the column and row splits so the
-    /// concrete sizing matches the visual spacing.
-    private let cardGap: CGFloat = 16
-
-    @ViewBuilder
-    private var grid: some View {
-        let tiles = selectedTiles
-        if tiles.count <= 1 {
-            if let only = tiles.first {
-                tileView(only)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            // Size each tile concretely from the pane geometry rather than
-            // nesting `.frame(maxWidth:.infinity, maxHeight:.infinity)` cards
-            // several levels deep. A flexible grid this deep makes the SwiftUI
-            // layout engine re-probe every card for many candidate sizes on the
-            // first build — the dominant cost when the section is rebuilt after a
-            // switch. Concrete frames resolve the grid in a single pass.
-            // Spacing below the 16pt grid gap: glass shapes closer than the
-            // container's spacing melt into one blob, and the tiles must stay
-            // discrete.
-            GlassEffectContainer(spacing: 8) {
-                GeometryReader { geo in
-                    let columnWidth = (geo.size.width - cardGap) / 2
-                    HStack(alignment: .top, spacing: cardGap) {
-                        tileView(tiles[0])
-                            .frame(width: columnWidth, height: geo.size.height)
-                        rightColumn(
-                            Array(tiles.dropFirst()),
-                            width: columnWidth,
-                            height: geo.size.height
-                        )
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
     /// Renders one selected tile: the live malware scan, a privacy finding, or a
     /// reassurance backfill.
     @ViewBuilder
-    private func tileView(_ tile: ProtectionDashboardTile) -> some View {
+    private func tileView(_ tile: ProtectionDashboardTile, role: DashboardTileRole) -> some View {
         switch tile {
-        case .malware:                  malwareTile
-        case .privacy(let privacyTile): privacyCard(privacyTile)
-        case .reassurance(let content): ReassuranceCard(content: content, accent: accent)
+        case .malware:                  malwareTile(role: role)
+        case .privacy(let privacyTile): privacyCard(privacyTile, role: role)
+        case .reassurance(let content): DashboardReassuranceCard(content: content, role: role)
         }
     }
 
@@ -486,10 +343,10 @@ struct ProtectionDashboardView: View {
         ),
     ]
 
-    private var malwareTile: some View {
+    private func malwareTile(role: DashboardTileRole) -> some View {
         ProtectionMalwareTile(
             malware: malware,
-            accent: accent,
+            role: role,
             onStop: { malware.cancel() },
             onScanAgain: { malware.beginScan() },
             onReview: { reviewingThreats = true },
@@ -497,39 +354,24 @@ struct ProtectionDashboardView: View {
         )
     }
 
-    /// The non-hero cards, packed into rows of at most two so the column never
-    /// grows taller than the pane — exactly the Applications dashboard shape.
-    private func rightColumn(
-        _ tiles: [ProtectionDashboardTile],
-        width: CGFloat,
-        height: CGFloat
-    ) -> some View {
-        let cardRows = rows(of: tiles)
-        let rowHeight = (height - cardGap * CGFloat(cardRows.count - 1)) / CGFloat(max(cardRows.count, 1))
-        return VStack(spacing: cardGap) {
-            ForEach(cardRows) { row in
-                let cardWidth = (width - cardGap * CGFloat(row.tiles.count - 1)) / CGFloat(row.tiles.count)
-                HStack(spacing: cardGap) {
-                    ForEach(row.tiles) { tile in
-                        tileView(tile)
-                            .frame(width: cardWidth, height: rowHeight)
-                    }
-                }
-            }
-        }
-        .frame(width: width, height: height)
-    }
-
-    private func privacyCard(_ tile: PrivacyTile) -> some View {
+    private func privacyCard(_ tile: PrivacyTile, role: DashboardTileRole) -> some View {
         ProtectionPrivacyTile(
             title: tile.title,
-            metric: tile.metric,
             caption: tile.caption,
             systemImage: tile.systemImage,
+            appIcon: browserIcon(for: tile.removal),
+            role: role,
+            identifier: "protection.privacyTile.\(tile.id)",
             onReview: reviewAction(for: tile.removal),
             onRemove: { pendingPrivacyRemoval = tile.removal }
         )
         .accessibilityIdentifier("protection.privacyTile.\(tile.id)")
+    }
+
+    /// A browser tile's real app icon, once its bundle has been located.
+    private func browserIcon(for removal: PrivacyRemoval) -> NSImage? {
+        guard case .browser(let browser) = removal, let url = browserBundleURLs[browser] else { return nil }
+        return iconCache.icon(for: url)
     }
 
     /// A browser's tile opens the manager on that browser. Recent Items has no
@@ -539,28 +381,6 @@ struct ProtectionDashboardView: View {
         case .browser(let browser): return { openManager(focusing: .browser(browser)) }
         case .recents: return nil
         }
-    }
-
-    /// One row of right-column cards.
-    private struct TileRow: Identifiable {
-        let id: Int
-        let tiles: [ProtectionDashboardTile]
-    }
-
-    /// Chunks the right-column tiles into rows of two. An odd count leads with a
-    /// single full-width row (matching the Applications / My Clutter shape).
-    private func rows(of tiles: [ProtectionDashboardTile]) -> [TileRow] {
-        var rows: [TileRow] = []
-        var remaining = tiles
-        if remaining.count % 2 == 1 {
-            rows.append(TileRow(id: 0, tiles: [remaining.removeFirst()]))
-        }
-        while !remaining.isEmpty {
-            let chunk = Array(remaining.prefix(2))
-            remaining.removeFirst(chunk.count)
-            rows.append(TileRow(id: rows.count, tiles: chunk))
-        }
-        return rows
     }
 
     // MARK: - Privacy tiles model
@@ -582,12 +402,12 @@ struct ProtectionDashboardView: View {
         }
     }
 
-    /// One privacy tile derived from the privacy preview. Browser tiles carry a
-    /// size metric; the recent-items tile is a single fixed entry.
+    /// One privacy tile derived from the privacy preview. Browser tiles lead
+    /// their title with the size to clear; the recent-items tile is a single
+    /// fixed entry.
     private struct PrivacyTile: Identifiable {
         let id: String
         let title: String
-        let metric: String?
         let caption: String
         let systemImage: String
         let removal: PrivacyRemoval
@@ -607,11 +427,7 @@ struct ProtectionDashboardView: View {
             let size = privacy.removableSize(for: browser)
             tiles.append(PrivacyTile(
                 id: "browser.\(browser.rawValue)",
-                title: String(
-                    localized: "\(browser.displayName) Browsing Data Found",
-                    comment: "Protection privacy tile title for a browser's data."
-                ),
-                metric: size > 0 ? formattedFileBytes(size) : nil,
+                title: Self.browserTileTitle(browserName: browser.displayName, bytes: size),
                 caption: String(localized: "Remove your browser data to free up space and improve your privacy.",
                                 comment: "Protection browser-data tile caption."),
                 systemImage: "globe",
@@ -624,7 +440,6 @@ struct ProtectionDashboardView: View {
                 id: "recents",
                 title: String(localized: "Recent Items Found",
                               comment: "Protection privacy tile title for recent items."),
-                metric: nil,
                 caption: String(localized: "Remove the traces of your recent activities by cleaning up these lists.",
                                 comment: "Protection recent-items tile caption."),
                 systemImage: "list.bullet.rectangle",
@@ -633,6 +448,23 @@ struct ProtectionDashboardView: View {
             ))
         }
         return tiles
+    }
+
+    /// "4.78 GB of Google Chrome Browsing Data Found" — size-led like every
+    /// other dashboard card, or just the browser when its size is unknown.
+    static func browserTileTitle(browserName: String, bytes: Int64) -> String {
+        guard bytes > 0 else {
+            return String(
+                localized: "\(browserName) Browsing Data Found",
+                comment: "Protection privacy tile title for a browser's data."
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "%1$@ of %2$@ Browsing Data Found",
+                   comment: "Protection privacy tile title; %1$@ is the size to clear, %2$@ the browser, e.g. \"4.78 GB of Google Chrome Browsing Data Found\"."),
+            formattedFileBytes(bytes),
+            browserName
+        )
     }
 
     // MARK: - Removal

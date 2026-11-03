@@ -1,109 +1,188 @@
 // ProtectionDashboardSubviews.swift
-// Tiles for the Protection dashboard — the live malware-scan tile and the privacy result cards, sharing the Applications dashboard's glass-card styling.
+// Tiles for the Protection dashboard — the live malware-scan tile and the privacy result cards, both drawn as the shared `DashboardCard`.
 
+import AppKit
 import SwiftUI
 import VaderCleanerCore
 
 // MARK: - Malware tile
 
 /// The lead dashboard card, driven by the malware flow's phase. While scanning
-/// it reproduces the reference: a "Looking for Threats…" heading, a biohazard
-/// hero, the current file being scanned, and a Stop button. When the scan
-/// finishes it updates in place — "No threats", a threats card with
-/// Review/Remove, or the removing/done/failed states. Shares the app-wide
-/// dashboard tile chrome (`vaderTileGlass`).
+/// it shows a "Looking for Threats…" heading, a pulsing malware orb, the file
+/// being scanned on its status line, and a Stop button. When the scan finishes it updates in
+/// place — "No threats", a threats card with Review/Remove, or the
+/// removing/done/failed states — and says how old the malware definitions are,
+/// with the only way in the app to refresh them without starting a scan.
 struct ProtectionMalwareTile: View {
 
     let malware: MalwareViewModel
-    let accent: Color
+    let role: DashboardTileRole
     let onStop: () -> Void
     let onScanAgain: () -> Void
     let onReview: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .accessibilityIdentifier("protection.malwareTile.title")
-                Text(subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-            hero
-                .frame(maxWidth: .infinity, alignment: .center)
-            currentFileLabel
-            Spacer(minLength: 12)
-
-            HStack(spacing: 10) {
-                Spacer()
-                controls
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .vaderTileGlass()
-    }
-
-    private var hero: some View {
-        Image(systemName: "allergens")
-            .font(.system(size: 84, weight: .regular))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(accent)
-            .shadow(color: accent.opacity(0.55), radius: 26)
-            .symbolEffect(.pulse, options: .repeating, isActive: malware.isScanningPhase)
-            .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private var currentFileLabel: some View {
-        if case .scanning(let progress) = malware.phase, !progress.isEmpty {
-            Text(currentFileName(progress))
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.6))
-                .lineLimit(1)
-                .truncationMode(.head)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityIdentifier("protection.malwareTile.currentFile")
+        DashboardCard(
+            title: title,
+            detail: subtitle,
+            role: role,
+            actions: actions,
+            status: status
+        ) {
+            DashboardOrb(symbol: "allergens", isPulsing: malware.isScanningPhase)
+        } illustration: {
+            DashboardOrb(
+                symbol: "allergens",
+                size: DashboardOrb.illustrationSize,
+                isPulsing: malware.isScanningPhase
+            )
         }
     }
 
-    /// clamscan prints "<path>: <status>"; show just the file name.
-    private func currentFileName(_ line: String) -> String {
-        let pathPart = line.components(separatedBy: ": ").first ?? line
+    /// The file being scanned while the scan runs, otherwise the definitions.
+    /// Both sit on the status line, which a short card keeps when it drops its
+    /// illustration.
+    private var status: DashboardCardStatus? {
+        if case .scanning(let progress) = malware.phase {
+            return Self.currentFileStatus(progressLine: progress)
+        }
+        return Self.definitionsStatus(
+            ageInDays: malware.definitionsAgeInDays,
+            isUpdating: malware.isUpdatingDefinitions,
+            failure: malware.definitionsUpdateFailure,
+            isScanning: malware.isScanningPhase
+        )
+    }
+
+    /// Names the file in clamscan's latest "<path>: <status>" line. Kept to one
+    /// line, since it changes faster than the card's height should.
+    static func currentFileStatus(progressLine: String) -> DashboardCardStatus? {
+        guard !progressLine.isEmpty else { return nil }
+        let pathPart = progressLine.components(separatedBy: ": ").first ?? progressLine
         let name = URL(fileURLWithPath: pathPart).lastPathComponent
-        return name.isEmpty ? pathPart : name
+        return DashboardCardStatus(
+            text: name.isEmpty ? pathPart : name,
+            symbol: "doc.text.magnifyingglass",
+            isOneLine: true,
+            identifier: "protection.malwareTile.currentFile"
+        )
     }
 
-    @ViewBuilder
-    private var controls: some View {
+    /// What the card says about the signature database. Nothing while a scan
+    /// runs, since a scan refreshes stale signatures itself; otherwise their
+    /// age, an update in progress, or why the last update the user asked for
+    /// failed.
+    static func definitionsStatus(
+        ageInDays: Int?,
+        isUpdating: Bool,
+        failure: String?,
+        isScanning: Bool
+    ) -> DashboardCardStatus? {
+        guard !isScanning else { return nil }
+        if isUpdating {
+            return DashboardCardStatus(
+                text: String(
+                    localized: "Updating malware definitions…",
+                    comment: "Protection dashboard definitions status while an update runs."
+                ),
+                isBusy: true,
+                identifier: "protection.definitions"
+            )
+        }
+        if let failure {
+            return DashboardCardStatus(
+                text: failure,
+                symbol: "exclamationmark.triangle.fill",
+                identifier: "protection.updateDefinitions.failure"
+            )
+        }
+        return DashboardCardStatus(
+            text: definitionsAgeSummary(ageInDays),
+            symbol: "clock.arrow.circlepath",
+            identifier: "protection.definitions"
+        )
+    }
+
+    private static func definitionsAgeSummary(_ days: Int?) -> String {
+        guard let days else {
+            return String(
+                localized: "Malware definitions have never been updated",
+                comment: "Protection dashboard definitions status when no signatures are present."
+            )
+        }
+        switch days {
+        case 0:
+            return String(
+                localized: "Malware definitions updated today",
+                comment: "Protection dashboard definitions status, refreshed today."
+            )
+        case 1:
+            return String(
+                localized: "Malware definitions updated yesterday",
+                comment: "Protection dashboard definitions status, refreshed yesterday."
+            )
+        default:
+            return String(
+                localized: "Malware definitions updated \(days) days ago",
+                comment: "Protection dashboard definitions status with the number of days since the last refresh."
+            )
+        }
+    }
+
+    /// Refreshes the signature database, offered whenever no scan or update is
+    /// already doing so. It sits before the phase's own actions so the scan's
+    /// control keeps the trailing edge.
+    private var updateDefinitionsAction: DashboardCardAction? {
+        guard !malware.isScanningPhase, !malware.isUpdatingDefinitions else { return nil }
+        return DashboardCardAction(
+            title: String(
+                localized: "Update",
+                comment: "Protection dashboard button that refreshes the malware signature database."
+            ),
+            prominence: .secondary,
+            identifier: "protection.updateDefinitions",
+            action: { Task { await malware.updateDatabaseManually() } }
+        )
+    }
+
+    private var actions: [DashboardCardAction] {
+        [updateDefinitionsAction].compactMap { $0 } + phaseActions
+    }
+
+    private var phaseActions: [DashboardCardAction] {
         switch malware.phase {
         case .checkingClamAV, .updatingDatabase, .scanning:
-            Button(String(localized: "Stop", comment: "Stops the in-progress malware scan."),
-                   action: onStop)
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier("protection.malwareTile.stop")
+            return [DashboardCardAction(
+                title: String(localized: "Stop", comment: "Stops the in-progress malware scan."),
+                prominence: .secondary,
+                identifier: "protection.malwareTile.stop",
+                action: onStop
+            )]
         case .results:
-            Button(String(localized: "Review", comment: "Opens the detected-threats list."),
-                   action: onReview)
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier("protection.malwareTile.review")
-            Button(String(localized: "Remove", comment: "Removes all detected threats."),
-                   action: onRemove)
-                .buttonStyle(.vaderWhite)
-                .accessibilityIdentifier("protection.malwareTile.remove")
+            return [
+                DashboardCardAction(
+                    title: String(localized: "Review", comment: "Opens the detected-threats list."),
+                    prominence: .secondary,
+                    identifier: "protection.malwareTile.review",
+                    action: onReview
+                ),
+                DashboardCardAction(
+                    title: String(localized: "Remove", comment: "Removes all detected threats."),
+                    prominence: .primary,
+                    identifier: "protection.malwareTile.remove",
+                    action: onRemove
+                ),
+            ]
         case .idle, .failed, .clean, .done:
-            Button(String(localized: "Scan Again", comment: "Restarts the malware scan."),
-                   action: onScanAgain)
-                .buttonStyle(.vaderGlass)
-                .accessibilityIdentifier("protection.malwareTile.scanAgain")
+            return [DashboardCardAction(
+                title: String(localized: "Scan Again", comment: "Restarts the malware scan."),
+                prominence: .secondary,
+                identifier: "protection.malwareTile.scanAgain",
+                action: onScanAgain
+            )]
         case .removing, .needsInstall:
-            EmptyView()
+            return []
         }
     }
 
@@ -158,63 +237,58 @@ struct ProtectionMalwareTile: View {
 
 // MARK: - Privacy card
 
-/// A right-column dashboard card for a privacy result group (a browser's data
-/// or recent items), built to match the Applications dashboard card: title +
-/// optional metric + detail top-left, an emblem top-right, and Review/Remove
-/// buttons pinned to the bottom-right.
+/// A dashboard card for a privacy result group (a browser's data or recent
+/// items). A browser's card wears that browser's real icon, which says more
+/// than a category badge; Recent Items gets an orb.
 struct ProtectionPrivacyTile: View {
 
     let title: String
-    let metric: String?
     let caption: String
     let systemImage: String
+    /// The browser's app icon, once its bundle has been located.
+    let appIcon: NSImage?
+    let role: DashboardTileRole
+    let identifier: String
     let onReview: (() -> Void)?
-    let onRemove: (() -> Void)?
+    let onRemove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let metric {
-                        Text(metric)
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    Text(caption)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.65))
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: systemImage)
-                    .font(.system(size: 26, weight: .regular))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 44, height: 44)
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 10) {
-                Spacer()
-                if let onReview {
-                    Button(String(localized: "Review", comment: "Opens the privacy manager for this group."),
-                           action: onReview)
-                        .buttonStyle(.vaderGlass)
-                }
-                if let onRemove {
-                    Button(String(localized: "Remove", comment: "Clears this privacy group."),
-                           action: onRemove)
-                        .buttonStyle(.vaderWhite)
-                }
-            }
+        DashboardCard(title: title, detail: caption, role: role, actions: actions) {
+            icon(size: DashboardOrb.accessorySize)
+        } illustration: {
+            icon(size: DashboardOrb.illustrationSize)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .vaderTileGlass()
+    }
+
+    @ViewBuilder
+    private func icon(size: CGFloat) -> some View {
+        if let appIcon {
+            Image(nsImage: appIcon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            DashboardOrb(symbol: systemImage, size: size)
+        }
+    }
+
+    private var actions: [DashboardCardAction] {
+        var actions: [DashboardCardAction] = []
+        if let onReview {
+            actions.append(DashboardCardAction(
+                title: String(localized: "Review", comment: "Opens the privacy manager for this group."),
+                prominence: .secondary,
+                identifier: "\(identifier).review",
+                action: onReview
+            ))
+        }
+        actions.append(DashboardCardAction(
+            title: String(localized: "Remove", comment: "Clears this privacy group."),
+            prominence: .primary,
+            identifier: "\(identifier).remove",
+            action: onRemove
+        ))
+        return actions
     }
 }

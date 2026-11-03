@@ -316,6 +316,27 @@ final class ApplicationsUITests: XCTestCase {
         XCTAssertFalse(remove.isEnabled, "Move to Trash must be disabled with nothing selected")
     }
 
+    /// Start Over on the dashboard returns to the Applications intro, the same
+    /// way it does on the other section dashboards; the header carries no
+    /// separate Scan Again.
+    func test_applications_startOverReturnsToIntro() throws {
+        openApplicationsAndScan()
+
+        let dashboard = app.descendants(matching: .any)["applications.dashboard"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 90),
+                      "Expected the Applications dashboard after the scan")
+        XCTAssertFalse(app.buttons["applications.scanAgain"].exists,
+                       "Start Over replaced the header's Scan Again")
+
+        let startOver = app.buttons["applications.startOver"]
+        XCTAssertTrue(startOver.waitForExistence(timeout: 5), "Expected a Start Over control")
+        startOver.click()
+
+        let intro = app.descendants(matching: .any)["section.intro.applications"]
+        XCTAssertTrue(intro.waitForExistence(timeout: 5),
+                      "Expected Start Over to return to the Applications intro")
+    }
+
     // MARK: - Helpers
 
     /// Navigate to Applications and trigger the scan via the floating button.

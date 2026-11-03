@@ -132,12 +132,12 @@ struct ApplicationsView: View {
         updaterViewModel.forgetApps(gone)
     }
 
-    /// Re-runs the scan and refreshes whichever lists have already loaded. Ones
-    /// that haven't load fresh when the manager first opens. The dashboard is
-    /// where a rescan lands, because the manager is rebuilt when results arrive.
-    private func rescan() {
-        detail = .dashboard
-        viewModel.beginScan()
+    /// Returns to the intro, and refreshes whichever manager lists have already
+    /// loaded so the next scan's manager doesn't open on stale ones. Lists that
+    /// haven't load fresh when the manager first opens. The Homebrew inventory
+    /// needs nothing: it belongs to this view, which the intro replaces.
+    private func startOver() {
+        viewModel.reset()
         if uninstallerViewModel.phase != .idle {
             Task { await uninstallerViewModel.refresh() }
         }
@@ -147,7 +147,6 @@ struct ApplicationsView: View {
         if extensionsManagerViewModel.phase != .idle {
             Task { await extensionsManagerViewModel.refresh() }
         }
-        Task { await homebrewViewModel.refresh() }
     }
 
     /// Coarse marker of the scan phase, so `onChange` fires on scan start and
@@ -209,7 +208,9 @@ struct ApplicationsView: View {
             ApplicationsDashboardView(
                 result: result,
                 iconCache: iconCache,
-                accent: NavigationSection.applications.theme.accent,
+                // A batch uninstall is a removal too, and the refresh Start
+                // Over runs would replace the uninstaller's phase mid-batch.
+                isRemoving: viewModel.isRemoving || uninstallerViewModel.isUninstalling,
                 onOpenManage: { openManager(.uninstaller) },
                 onOpenInstallationFiles: { openManager(.installationFiles) },
                 onOpenUnsupported: { openManager(.unsupported) },
@@ -217,13 +218,8 @@ struct ApplicationsView: View {
                 onOpenUpdates: { openManager(.updater) },
                 onOpenLeftovers: { openManager(.leftovers) },
                 onRemoveLeftovers: { showLeftoverRemovalConfirmation = true },
-                onRescan: rescan
+                onStartOver: startOver
             )
-            // Generous top and bottom insets so the section breathes above the
-            // hero and below the cards rather than running into the window edges.
-            .padding(.horizontal, 24)
-            .padding(.top, 44)
-            .padding(.bottom, 48)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } manager: {
             // Full multi-pane manager (Uninstaller / Updater / Extensions /
