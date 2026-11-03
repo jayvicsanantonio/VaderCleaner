@@ -11,7 +11,8 @@ import VaderCleanerCore
 /// it shows a "Looking for Threats…" heading, a pulsing malware orb, the file
 /// being scanned, and a Stop button. When the scan finishes it updates in
 /// place — "No threats", a threats card with Review/Remove, or the
-/// removing/done/failed states.
+/// removing/done/failed states — and says how old the malware definitions are,
+/// with the only way in the app to refresh them without starting a scan.
 struct ProtectionMalwareTile: View {
 
     let malware: MalwareViewModel
@@ -22,7 +23,18 @@ struct ProtectionMalwareTile: View {
     let onRemove: () -> Void
 
     var body: some View {
-        DashboardCard(title: title, detail: subtitle, role: role, actions: actions) {
+        DashboardCard(
+            title: title,
+            detail: subtitle,
+            role: role,
+            actions: actions,
+            status: Self.definitionsStatus(
+                ageInDays: malware.definitionsAgeInDays,
+                isUpdating: malware.isUpdatingDefinitions,
+                failure: malware.definitionsUpdateFailure,
+                isScanning: malware.isScanningPhase
+            )
+        ) {
             DashboardOrb(symbol: "allergens", isPulsing: malware.isScanningPhase)
         } illustration: {
             VStack(spacing: 10) {
@@ -56,7 +68,88 @@ struct ProtectionMalwareTile: View {
         return name.isEmpty ? pathPart : name
     }
 
+    /// What the card says about the signature database. Nothing while a scan
+    /// runs, since a scan refreshes stale signatures itself; otherwise their
+    /// age, an update in progress, or why the last update the user asked for
+    /// failed.
+    static func definitionsStatus(
+        ageInDays: Int?,
+        isUpdating: Bool,
+        failure: String?,
+        isScanning: Bool
+    ) -> DashboardCardStatus? {
+        guard !isScanning else { return nil }
+        if isUpdating {
+            return DashboardCardStatus(
+                text: String(
+                    localized: "Updating malware definitions…",
+                    comment: "Protection dashboard definitions status while an update runs."
+                ),
+                isBusy: true,
+                identifier: "protection.definitions"
+            )
+        }
+        if let failure {
+            return DashboardCardStatus(
+                text: failure,
+                symbol: "exclamationmark.triangle.fill",
+                identifier: "protection.updateDefinitions.failure"
+            )
+        }
+        return DashboardCardStatus(
+            text: definitionsAgeSummary(ageInDays),
+            symbol: "clock.arrow.circlepath",
+            identifier: "protection.definitions"
+        )
+    }
+
+    private static func definitionsAgeSummary(_ days: Int?) -> String {
+        guard let days else {
+            return String(
+                localized: "Malware definitions have never been updated",
+                comment: "Protection dashboard definitions status when no signatures are present."
+            )
+        }
+        switch days {
+        case 0:
+            return String(
+                localized: "Malware definitions updated today",
+                comment: "Protection dashboard definitions status, refreshed today."
+            )
+        case 1:
+            return String(
+                localized: "Malware definitions updated yesterday",
+                comment: "Protection dashboard definitions status, refreshed yesterday."
+            )
+        default:
+            return String(
+                localized: "Malware definitions updated \(days) days ago",
+                comment: "Protection dashboard definitions status with the number of days since the last refresh."
+            )
+        }
+    }
+
+    /// Refreshes the signature database, offered whenever no scan or update is
+    /// already doing so. It sits before the phase's own actions so the scan's
+    /// control keeps the trailing edge.
+    private var updateDefinitionsAction: DashboardCardAction? {
+        guard !malware.isScanningPhase, !malware.isUpdatingDefinitions else { return nil }
+        return DashboardCardAction(
+            title: String(
+                localized: "Update",
+                comment: "Protection dashboard button that refreshes the malware signature database."
+            ),
+            prominence: .secondary,
+            identifier: "protection.updateDefinitions",
+            action: { Task { await malware.updateDatabaseManually() } }
+        )
+    }
+
     private var actions: [DashboardCardAction] {
+        [updateDefinitionsAction].compactMap { $0 } + phaseActions
+    }
+
+    private var phaseActions: [DashboardCardAction] {
         switch malware.phase {
         case .checkingClamAV, .updatingDatabase, .scanning:
             return [DashboardCardAction(

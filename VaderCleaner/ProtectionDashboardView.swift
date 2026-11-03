@@ -240,86 +240,9 @@ struct ProtectionDashboardView: View {
             startOver: DashboardStartOver(identifier: "protection.startOver", action: viewModel.startOver),
             identifier: "protection.dashboard"
         ) {
-            definitionsLine
-        } grid: {
             DashboardGrid(tiles: selectedTiles) { tile, role in
                 tileView(tile, role: role)
             }
-        }
-    }
-
-    /// How old the signature database is, plus the only way in the app to
-    /// refresh it without starting a full scan.
-    ///
-    /// A scan refreshes signatures on its own, but the stale-definitions
-    /// notification asks the user to act and previously left them nowhere to
-    /// do it — `updateDatabaseManually()` existed with no caller. Hidden while
-    /// a scan is in flight, since a scan does its own refresh.
-    @ViewBuilder
-    private var definitionsLine: some View {
-        if !malware.isScanningPhase {
-            VStack(spacing: 4) {
-                HStack(spacing: 8) {
-                    if malware.isUpdatingDefinitions {
-                        ProgressView().controlSize(.small)
-                        Text(String(
-                            localized: "Updating malware definitions…",
-                            comment: "Protection dashboard definitions status while an update runs."
-                        ))
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.7))
-                    } else {
-                        Text(definitionsSummary)
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.7))
-                        Button {
-                            Task { await malware.updateDatabaseManually() }
-                        } label: {
-                            Text(String(
-                                localized: "Update",
-                                comment: "Protection dashboard button that refreshes the malware signature database."
-                            ))
-                            .padding(.horizontal, 4)
-                        }
-                        .buttonStyle(.vaderTileGlass)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("protection.updateDefinitions")
-                    }
-                }
-                if let failure = malware.definitionsUpdateFailure {
-                    Text(failure)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("protection.updateDefinitions.failure")
-                }
-            }
-        }
-    }
-
-    private var definitionsSummary: String {
-        guard let days = malware.definitionsAgeInDays else {
-            return String(
-                localized: "Malware definitions have never been updated",
-                comment: "Protection dashboard definitions status when no signatures are present."
-            )
-        }
-        switch days {
-        case 0:
-            return String(
-                localized: "Malware definitions updated today",
-                comment: "Protection dashboard definitions status, refreshed today."
-            )
-        case 1:
-            return String(
-                localized: "Malware definitions updated yesterday",
-                comment: "Protection dashboard definitions status, refreshed yesterday."
-            )
-        default:
-            return String(
-                localized: "Malware definitions updated \(days) days ago",
-                comment: "Protection dashboard definitions status with the number of days since the last refresh."
-            )
         }
     }
 

@@ -1,5 +1,5 @@
 // DashboardCard.swift
-// The one card every section dashboard draws — title, detail, a top-right badge, and Review / direct-action capsules — plus the glossy orb badge its category icons share.
+// The one card every section dashboard draws — title, detail, a top-right badge, an optional status line, and Review / direct-action capsules — plus the glossy orb badge its category icons share.
 
 import SwiftUI
 import VaderCleanerCore
@@ -25,9 +25,20 @@ struct DashboardCardAction: Identifiable {
     var id: String { identifier }
 }
 
+/// A one-line status a card shows just above its actions, such as how old
+/// Protection's malware definitions are. Set apart from the detail by its
+/// smaller type and leading symbol; `isBusy` swaps the symbol for a spinner.
+struct DashboardCardStatus: Equatable {
+    let text: String
+    var symbol: String?
+    var isBusy = false
+    let identifier: String
+}
+
 /// A dashboard tile: a size- or count-led title, an optional detail line, a
-/// badge in the top-right corner, and its actions pinned bottom-trailing. The
-/// lead tile trades the corner badge for a large centered illustration.
+/// badge in the top-right corner, and its actions pinned bottom-trailing, with
+/// an optional status line above them. The lead tile trades the corner badge
+/// for a large centered illustration.
 ///
 /// The card always keeps to the frame the grid gives it. When its content
 /// would be taller, it drops the illustration first and then the detail, so
@@ -38,6 +49,7 @@ struct DashboardCard<Accessory: View, Illustration: View>: View {
     let detail: String?
     let role: DashboardTileRole
     let actions: [DashboardCardAction]
+    let status: DashboardCardStatus?
     let accessory: Accessory
     let illustration: Illustration
 
@@ -46,6 +58,7 @@ struct DashboardCard<Accessory: View, Illustration: View>: View {
         detail: String?,
         role: DashboardTileRole,
         actions: [DashboardCardAction] = [],
+        status: DashboardCardStatus? = nil,
         @ViewBuilder accessory: () -> Accessory,
         @ViewBuilder illustration: () -> Illustration
     ) {
@@ -53,6 +66,7 @@ struct DashboardCard<Accessory: View, Illustration: View>: View {
         self.detail = detail
         self.role = role
         self.actions = actions
+        self.status = status
         self.accessory = accessory()
         self.illustration = illustration()
     }
@@ -113,8 +127,29 @@ struct DashboardCard<Accessory: View, Illustration: View>: View {
                     .frame(maxWidth: .infinity)
                 Spacer(minLength: 12)
             }
+            if let status {
+                statusLine(status)
+                    .padding(.bottom, 10)
+            }
             actionRow
         }
+    }
+
+    private func statusLine(_ status: DashboardCardStatus) -> some View {
+        HStack(spacing: 6) {
+            if status.isBusy {
+                ProgressView()
+                    .controlSize(.mini)
+            } else if let symbol = status.symbol {
+                Image(systemName: symbol)
+                    .accessibilityHidden(true)
+            }
+            Text(status.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(status.identifier)
+        }
+        .font(.footnote)
+        .foregroundStyle(.white.opacity(0.65))
     }
 
     @ViewBuilder

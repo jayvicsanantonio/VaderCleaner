@@ -1,5 +1,5 @@
 // DashboardCopyTests.swift
-// Pins the finding-led headlines and size-led card copy the Protection and My Clutter dashboards share with the rest, including their singular forms.
+// Pins the finding-led headlines and size-led card copy the Protection and My Clutter dashboards share with the rest, including their singular forms, and the malware card's definitions status.
 
 import Foundation
 import Testing
@@ -40,6 +40,50 @@ struct ProtectionDashboardCopyTests {
                 == "\(size) of Google Chrome Browsing Data Found")
         #expect(ProtectionDashboardView.browserTileTitle(browserName: "Safari", bytes: 0)
                 == "Safari Browsing Data Found")
+    }
+}
+
+@MainActor
+@Suite
+struct ProtectionDefinitionsStatusTests {
+
+    @Test
+    func whileAScanRuns_saysNothing() {
+        // A scan refreshes stale signatures itself, so the card has nothing to offer.
+        #expect(ProtectionMalwareTile.definitionsStatus(ageInDays: 0, isUpdating: false, failure: nil, isScanning: true) == nil)
+    }
+
+    @Test
+    func reportsHowOldTheDefinitionsAre() {
+        #expect(ProtectionMalwareTile.definitionsStatus(ageInDays: 0, isUpdating: false, failure: nil, isScanning: false)?.text
+                == "Malware definitions updated today")
+        #expect(ProtectionMalwareTile.definitionsStatus(ageInDays: 1, isUpdating: false, failure: nil, isScanning: false)?.text
+                == "Malware definitions updated yesterday")
+        #expect(ProtectionMalwareTile.definitionsStatus(ageInDays: 5, isUpdating: false, failure: nil, isScanning: false)?.text
+                == "Malware definitions updated 5 days ago")
+        #expect(ProtectionMalwareTile.definitionsStatus(ageInDays: nil, isUpdating: false, failure: nil, isScanning: false)?.text
+                == "Malware definitions have never been updated")
+    }
+
+    @Test
+    func whileUpdating_showsProgress() throws {
+        let status = try #require(
+            ProtectionMalwareTile.definitionsStatus(ageInDays: 3, isUpdating: true, failure: nil, isScanning: false)
+        )
+
+        #expect(status.isBusy)
+        #expect(status.text == "Updating malware definitions…")
+    }
+
+    @Test
+    func afterAFailedUpdate_showsWhyInPlaceOfTheAge() throws {
+        let status = try #require(
+            ProtectionMalwareTile.definitionsStatus(ageInDays: 3, isUpdating: false, failure: "No connection.", isScanning: false)
+        )
+
+        #expect(status.text == "No connection.")
+        #expect(!status.isBusy)
+        #expect(status.identifier == "protection.updateDefinitions.failure")
     }
 }
 
