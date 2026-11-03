@@ -273,7 +273,8 @@ public final class SmartScanViewModel {
 
     public init(
         scanEngine: @escaping ScanEngine,
-        junkCleaner: @escaping JunkCleaner = { _ in JunkRemovalReport() },
+        // Optional rather than a closure default: see where it's assigned below.
+        junkCleaner: JunkCleaner? = nil,
         threatRemover: @escaping ThreatRemover = { _ in [] },
         updateOpener: @escaping UpdateOpener = { _ in },
         recycleFiles: @escaping RecycleFiles = { _ in [] },
@@ -303,7 +304,10 @@ public final class SmartScanViewModel {
         self.declineCounts = declineCounts
         self.recordRunChoices = recordRunChoices
         self.scanEngine = scanEngine
-        self.junkCleaner = junkCleaner
+        // Built here so it inherits the main actor. As a default argument it was a
+        // nonisolated async closure returning this struct, and under Swift 6.3.3
+        // calling one jumped to a null address and crashed the process.
+        self.junkCleaner = junkCleaner ?? { _ in JunkRemovalReport() }
         self.threatRemover = threatRemover
         self.updateOpener = updateOpener
         self.recycleFiles = recycleFiles

@@ -114,30 +114,6 @@ jobs:
       - name: Test VaderCleanerCore
         run: swift test --package-path VaderCleanerCore
 
-      - name: Print crash reports
-        if: failure()
-        env:
-          SWIFT_BACKTRACE: enable=yes,threads=crashed,color=no,interactive=no
-        run: |
-          cd VaderCleanerCore
-          bundle=".build/debug/VaderCleanerCorePackageTests.xctest"
-          ls -d "$bundle" || bundle="$(find .build -name '*PackageTests.xctest' -type d | head -1)"
-          test="VaderCleanerCoreTests.SmartScanViewModelRunTests/test_run_maintenance_recordsEachCompletedTask"
-          echo "::group::backtracer"
-          xcrun xctest -XCTest "$test" "$bundle" 2>&1 | tail -120 || true
-          echo "::endgroup::"
-          echo "::group::lldb"
-          lldb --batch -o run -k "thread backtrace" -k "frame variable" -k quit \
-            -- "$(xcrun -f xctest)" -XCTest "$test" "$bundle" 2>&1 | tail -120 || true
-          echo "::endgroup::"
-          sleep 20
-          shopt -s nullglob
-          for report in ~/Library/Logs/DiagnosticReports/*.ips /Library/Logs/DiagnosticReports/*.ips; do
-            echo "::group::$report"
-            head -c 30000 "$report"
-            echo "::endgroup::"
-          done
-
   lint:
     runs-on: macos-26
     steps:
