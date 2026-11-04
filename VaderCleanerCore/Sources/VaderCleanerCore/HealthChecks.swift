@@ -87,8 +87,8 @@ public enum HealthChecks {
         let free = disk.totalBytes > disk.usedBytes ? disk.totalBytes - disk.usedBytes : 0
         let detail = String.localizedStringWithFormat(
             String(localized: "%@ free of %@", bundle: .module, comment: "Storage check detail: free bytes of total bytes."),
-            SystemStatsFormatters.byteString(free),
-            SystemStatsFormatters.byteString(disk.totalBytes)
+            roundedSize(free),
+            roundedSize(disk.totalBytes)
         )
         let concern = status == .good ? nil : String.localizedStringWithFormat(
             String(localized: "your disk is %d%% full", bundle: .module, comment: "Health verdict concern: disk fullness percentage."),
@@ -113,7 +113,10 @@ public enum HealthChecks {
             case .watch: concern = String(localized: "your battery is wearing out", bundle: .module, comment: "Health verdict concern: battery capacity is fading.")
             case .good, .unknown: concern = nil
             }
-            return HealthCheck(kind: .battery, status: status, title: title, detail: batteryDetail(stats), ratio: nil, concern: concern)
+            // The bar shows the capacity left, so it is only drawn when a
+            // capacity could be read.
+            let ratio = stats.maxCapacityPercent > 0 ? min(1, stats.maxCapacityPercent) : nil
+            return HealthCheck(kind: .battery, status: status, title: title, detail: batteryDetail(stats), ratio: ratio, concern: concern)
         }
     }
 
@@ -242,6 +245,45 @@ public enum HealthChecks {
         case .critical:
             return String(localized: "Your Mac needs attention now", bundle: .module, comment: "Health verdict headline: critical.")
         }
+    }
+
+    // MARK: - Sizes
+
+    /// A disk size in a figure read at a glance: whole gigabytes below a
+    /// terabyte ("376 GB"), then terabytes to at most one decimal ("2 TB",
+    /// "1.5 TB"). Below a gigabyte it keeps the shared formatter's decimal,
+    /// so a nearly full disk never reads as "0 GB". Decimal units, matching
+    /// Finder and the rest of the app's disk figures.
+    static func roundedSize(_ bytes: UInt64) -> String {
+        let gigabytes = Double(bytes) / 1_000_000_000
+        guard gigabytes >= 1 else { return SystemStatsFormatters.byteString(bytes) }
+        if gigabytes.rounded() < 1_000 {
+            return wholeUnits(gigabytes, .gigabytes)
+        }
+        return Measurement(value: gigabytes / 1_000, unit: UnitInformationStorage.terabytes)
+            .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1))))
+    }
+
+    /// Memory as "used / total" in whole gigabytes, counted in powers of two
+    /// the way Apple sells and Activity Monitor reports RAM — so a 48 GB Mac
+    /// reads "48 GB", not the "52 GB" decimal units would make of it.
+    static func memoryValue(_ stats: MemoryStats) -> String {
+        let bytesPerGiB = Double(1 << 30)
+        let format = NSLocalizedString(
+            "%@ / %@",
+            bundle: .module,
+            comment: "Format for used / total bytes, for example 8 GB / 16 GB"
+        )
+        return String(
+            format: format,
+            wholeUnits(Double(stats.usedBytes) / bytesPerGiB, .gigabytes),
+            wholeUnits(Double(stats.totalBytes) / bytesPerGiB, .gigabytes)
+        )
+    }
+
+    private static func wholeUnits(_ value: Double, _ unit: UnitInformationStorage) -> String {
+        Measurement(value: value, unit: unit)
+            .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))))
     }
 
     // MARK: - Right now

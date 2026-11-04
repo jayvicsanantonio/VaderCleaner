@@ -37,10 +37,27 @@ import Testing
         #expect(try Self.check(.storage, in: Self.checks(disk: disk)).status == status)
     }
 
-    @Test func storageDetailSaysHowMuchIsFree() throws {
-        let storage = try Self.check(.storage, in: Self.checks(disk: Self.fullishDisk))
-        #expect(storage.detail == "\(SystemStatsFormatters.byteString(190 * Self.gb)) free of \(SystemStatsFormatters.byteString(1_000 * Self.gb))")
-        #expect(storage.ratio == 0.81)
+    @Test func storageDetailSaysHowMuchIsFreeInRoundNumbers() throws {
+        let disk = DiskStats(usedBytes: 1_619_190_000_000, totalBytes: 1_995_220_000_000)
+        let storage = try Self.check(.storage, in: Self.checks(disk: disk))
+        #expect(storage.detail == "376 GB free of 2 TB")
+        #expect(storage.ratio == Double(disk.usedBytes) / Double(disk.totalBytes))
+    }
+
+    @Test(arguments: [
+        (UInt64(376_030_000_000), "376 GB"),
+        (UInt64(999_600_000_000), "1 TB"),
+        (UInt64(1_995_220_000_000), "2 TB"),
+        (UInt64(1_500_000_000_000), "1.5 TB"),
+    ])
+    func sizesRoundToAGlanceableFigure(bytes: UInt64, text: String) {
+        #expect(HealthChecks.roundedSize(bytes) == text)
+    }
+
+    /// Under a gigabyte a whole-GB figure would read "0 GB" on a nearly full
+    /// disk, so it keeps the shared formatter's decimal.
+    @Test func sizesUnderAGigabyteKeepTheirDecimal() {
+        #expect(HealthChecks.roundedSize(500_000_000) == SystemStatsFormatters.byteString(500_000_000))
     }
 
     // MARK: - Battery
@@ -51,9 +68,15 @@ import Testing
         #expect(battery.detail == "89% of original capacity · 272 cycles")
     }
 
+    @Test func batteryBarShowsTheCapacityLeft() throws {
+        #expect(try Self.check(.battery, in: Self.checks()).ratio == 0.89)
+    }
+
     @Test func batteryWithoutAReadableCapacityShowsCyclesOnly() throws {
         let unreadable = BatteryAvailability.present(BatteryStats(cycleCount: 40, maxCapacityPercent: 0, condition: "Good"))
-        #expect(try Self.check(.battery, in: Self.checks(battery: unreadable)).detail == "40 cycles")
+        let battery = try Self.check(.battery, in: Self.checks(battery: unreadable))
+        #expect(battery.detail == "40 cycles")
+        #expect(battery.ratio == nil)
     }
 
     @Test(arguments: [
@@ -164,6 +187,14 @@ import Testing
     ])
     func memoryLabelReadsThePressure(level: MemoryPressureLevel, label: String) {
         #expect(HealthChecks.memoryLoadLabel(level) == label)
+    }
+
+    /// Memory is counted the way Apple sells and reports it: a 48 GB Mac holds
+    /// 48 × 2³⁰ bytes, which decimal units would call "52 GB".
+    @Test func memoryValueIsInWholeGigabytesTheWayAppleCountsRAM() {
+        let gib: UInt64 = 1 << 30
+        let stats = MemoryStats(usedBytes: 27 * gib + gib / 3, totalBytes: 48 * gib)
+        #expect(HealthChecks.memoryValue(stats) == "27 GB / 48 GB")
     }
 
     @Test(arguments: [

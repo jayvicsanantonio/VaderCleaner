@@ -94,6 +94,7 @@ public final class HealthMonitorViewModel {
         HealthChecks.summary(verdict: Self.displayedHealth(macHealth, hasScanned: hasScanned), checks: checks)
     }
 
+    public var memoryValue: String { HealthChecks.memoryValue(service.ramUsage) }
     public var memoryLoadLabel: String { HealthChecks.memoryLoadLabel(ramPressureLevel) }
     public var cpuLoadLabel: String { HealthChecks.cpuLoadLabel(service.cpuUsage) }
     public var systemLine: String { HealthChecks.systemLine(chip: chipName, os: osVersion, uptime: uptime) }

@@ -20,7 +20,8 @@ struct HealthMonitorView: View {
     /// panel so the two surfaces never disagree.
     private let hasScanned: Bool
 
-    /// Opens Cleanup when the verdict's "Free up space" is pressed.
+    /// Opens Smart Scan and starts a scan when the verdict's "Free up space"
+    /// is pressed.
     private let onFreeUpSpace: () -> Void
 
     /// Drives the one-shot staggered entrance of the screen's blocks.
@@ -97,7 +98,7 @@ struct HealthMonitorView: View {
         LoadTile(
             icon: "memorychip",
             title: String(localized: "Memory", comment: "Health Monitor live tile title."),
-            value: viewModel.ramUsage,
+            value: viewModel.memoryValue,
             label: viewModel.memoryLoadLabel,
             color: Self.color(for: HealthMonitorViewModel.pressureColor(for: viewModel.ramPressureLevel)),
             valueIdentifier: "health.ram.usage"
@@ -145,7 +146,9 @@ struct HealthMonitorView: View {
 
 /// The verdict in a sentence: the section's art, a headline, the reason that
 /// names what to watch, and — when the disk is what needs attention — the
-/// button that goes and fixes it.
+/// button that goes and fixes it. Laid out like every section dashboard's
+/// header (`SectionDashboard`): centered hero art, headline, subheadline, one
+/// glass action pill — so the Health Monitor reads as part of the same app.
 private struct HealthVerdictBanner: View {
 
     let summary: HealthSummary
@@ -154,44 +157,46 @@ private struct HealthVerdictBanner: View {
     let onFreeUpSpace: () -> Void
 
     var body: some View {
-        HStack(spacing: 18) {
+        VStack(spacing: 14) {
             Image("healthMonitor")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(width: 68, height: 68)
+                // A fixed size, not `SectionDashboard`'s max frame: inside a
+                // ScrollView nothing offers a height, so a max frame shrinks
+                // the art to its native size.
+                .frame(width: 120, height: 120)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(spacing: 4) {
                 HStack(spacing: 8) {
                     Image(systemName: statusSymbol)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.title2.weight(.semibold))
                         .foregroundStyle(status?.accentColor ?? Color(white: 0.55))
                         .accessibilityHidden(true)
                     Text(summary.headline)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.title.weight(.semibold))
                         .foregroundStyle(.white)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("health.hero.status")
                 }
                 Text(summary.reason)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("health.hero.reason")
             }
-            Spacer(minLength: 12)
+            .multilineTextAlignment(.center)
             if summary.action == .freeUpSpace {
                 Button(action: onFreeUpSpace) {
-                    Text(String(localized: "Free Up Space", comment: "Health verdict action opening Cleanup."))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Text(String(localized: "Free Up Space", comment: "Health verdict action opening Smart Scan and starting a scan."))
+                        .padding(.horizontal, 8)
                 }
-                .buttonStyle(.vaderWhite)
+                .buttonStyle(.vaderTileGlass)
+                .controlSize(.large)
                 .accessibilityIdentifier("health.hero.freeUpSpace")
             }
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vaderTileGlass()
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("health.hero")
     }
@@ -241,9 +246,9 @@ private struct HealthCheckRow: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white)
                 .frame(width: 34, height: 34)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(chipGradient, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(check.title)
@@ -254,14 +259,42 @@ private struct HealthCheckRow: View {
                     .foregroundStyle(.white.opacity(0.65))
                     .monospacedDigit()
                     .lineLimit(1)
+                // Under its own figure, so the bar reads as part of the
+                // reading rather than a separate gauge across the row.
+                if let ratio = check.ratio {
+                    FillBar(ratio: ratio, color: color)
+                        .frame(maxWidth: 220)
+                        .frame(height: 5)
+                        .padding(.top, 5)
+                        .accessibilityIdentifier(check.kind == .storage ? "health.hero.diskbar" : "health.battery.bar")
+                }
             }
             .layoutPriority(1)
             Spacer(minLength: 12)
-            if let ratio = check.ratio {
-                FillBar(ratio: ratio, color: color)
-                    .frame(width: 140, height: 6)
-                    .accessibilityIdentifier("health.hero.diskbar")
-            }
+            statusMark
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// Only a status that asks for something gets a pill, so the one row
+    /// that needs the eye stands out. A Good row gets a quiet checkmark and an
+    /// unknown one a muted word: neither competes with a Watch or Act now.
+    @ViewBuilder
+    private var statusMark: some View {
+        switch check.status {
+        case .good:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(color)
+                .accessibilityLabel(check.status.label)
+        case .unknown:
+            Text(check.status.label)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.5))
+        case .watch, .act:
             Text(check.status.label)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(color)
@@ -270,10 +303,20 @@ private struct HealthCheckRow: View {
                 .padding(.vertical, 4)
                 .background(color.opacity(0.16), in: Capsule())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(identifier)
+    }
+
+    /// A hue per kind, like System Settings' icon tiles. Kept to blues and
+    /// violets so no chip can be mistaken for a status: green, amber, and red
+    /// mean Good, Watch, and Act now everywhere on this screen.
+    private var chipGradient: LinearGradient {
+        let colors: [Color]
+        switch check.kind {
+        case .storage: colors = [Color(red: 0.29, green: 0.60, blue: 1.00), Color(red: 0.18, green: 0.40, blue: 0.92)]
+        case .battery: colors = [Color(red: 0.25, green: 0.80, blue: 0.86), Color(red: 0.10, green: 0.56, blue: 0.70)]
+        case .drive: colors = [Color(red: 0.72, green: 0.48, blue: 1.00), Color(red: 0.50, green: 0.28, blue: 0.90)]
+        case .encryption: colors = [Color(red: 0.56, green: 0.62, blue: 0.76), Color(red: 0.36, green: 0.40, blue: 0.54)]
+        }
+        return LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
     }
 
     private var icon: String {
@@ -296,7 +339,8 @@ private struct HealthCheckRow: View {
     }
 }
 
-/// A thin capsule bar for the storage row.
+/// A thin capsule bar for a check with a measurable share: the disk used, or
+/// the battery capacity left.
 private struct FillBar: View {
 
     let ratio: Double
@@ -329,7 +373,7 @@ private struct LoadTile: View {
     let valueIdentifier: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .semibold))
@@ -338,18 +382,25 @@ private struct LoadTile: View {
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(.white.opacity(0.7))
-            Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .lineLimit(1)
-                .accessibilityIdentifier(valueIdentifier)
-            Text(label)
-                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                .foregroundStyle(color)
+            // The value and what it means share a line, so the tile is as
+            // tall as its content rather than a mostly empty slab.
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(value)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .lineLimit(1)
+                    .accessibilityIdentifier(valueIdentifier)
+                Spacer(minLength: 8)
+                Text(label)
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+            }
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vaderTileGlass()
         .accessibilityElement(children: .contain)
