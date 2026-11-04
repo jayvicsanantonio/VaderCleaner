@@ -83,7 +83,21 @@ public final class MenuBarViewModel {
     public var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
 
     /// Used fraction of the boot volume for the storage tile's capacity bar.
-    var diskUsedFraction: Double { Self.diskUsedFraction(service.diskSpace) }
+    public var diskUsedFraction: Double { Self.diskUsedFraction(service.diskSpace) }
+
+    /// Used fraction of physical memory for the memory tile's bar.
+    public var memoryUsedFraction: Double { Self.memoryUsedFraction(service.ramUsage) }
+
+    /// Live CPU load as a unit fraction for the CPU tile's bar.
+    public var cpuFraction: Double { Self.cpuFraction(service.cpuUsage) }
+
+    /// Live network traffic for the network tile: idle, or both rates.
+    public var networkActivity: NetworkActivity {
+        Self.networkActivity(
+            bytesIn: service.networkThroughput.bytesInPerSec,
+            bytesOut: service.networkThroughput.bytesOutPerSec
+        )
+    }
 
     /// Raw disk snapshot, exposed so the view can feed the pure
     /// `nextStep` derivation alongside malware state it owns.
@@ -163,11 +177,19 @@ public final class MenuBarViewModel {
     /// State of the Memory tile's inline RAM purge. Mirrors `SpeedTestState`'s
     /// shape: the tile renders a link at rest, a spinner in flight, and a
     /// confirmation or retry afterwards.
-    public enum MemoryFlushState: Equatable {
+    public enum MemoryFlushState: Equatable, Sendable {
         case idle
         case running
         case flushed
         case failed
+    }
+
+    /// Whether the Memory tile offers its inline purge. Only under real
+    /// pressure — offering a fix for a healthy reading is noise — but once a
+    /// purge has started, its spinner, confirmation, or retry stays visible
+    /// even after the pressure it relieved has dropped.
+    public static func showsMemoryFlush(pressure: MemoryPressureLevel, state: MemoryFlushState) -> Bool {
+        state != .idle || pressure != .nominal
     }
 
     public private(set) var memoryFlushState: MemoryFlushState = .idle
@@ -316,6 +338,20 @@ public final class MenuBarViewModel {
         return max(0.0, min(1.0, ratio))
     }
 
+    /// Used portion of physical memory as a unit fraction, clamped to 0…1 —
+    /// drives the memory tile's bar. `0` for the zero-total
+    /// pre-first-refresh state rather than NaN.
+    static func memoryUsedFraction(_ stats: MemoryStats) -> Double {
+        guard stats.totalBytes > 0 else { return 0 }
+        let ratio = Double(stats.usedBytes) / Double(stats.totalBytes)
+        return max(0.0, min(1.0, ratio))
+    }
+
+    /// CPU load clamped to 0…1 for the CPU tile's bar.
+    static func cpuFraction(_ usage: Double) -> Double {
+        max(0.0, min(1.0, usage))
+    }
+
     /// Memory in use as a whole percentage, clamped to 0…100. `0%` for the
     /// zero-total pre-first-refresh state rather than NaN.
     static func memoryUsedPercentString(_ stats: MemoryStats) -> String {
@@ -405,6 +441,16 @@ public final class MenuBarViewModel {
         }
     }
 
+    /// The colour a tile should carry for a reading, or `nil` when the
+    /// reading is fine. Tiles stay neutral when healthy so that colour, when
+    /// it does appear, means something.
+    public static func highlightedStatus(_ status: StatusColor) -> StatusColor? {
+        switch status {
+        case .yellow, .red: return status
+        case .green, .gray: return nil
+        }
+    }
+
     /// Status dot for the CPU tile: comfortable under 70% load, busy under
     /// 90%, saturated above.
     static func cpuLoadColor(_ usage: Double) -> StatusColor {
@@ -424,6 +470,24 @@ public final class MenuBarViewModel {
         let formatted = formattedFileBytes(Int64(bytes))
         return "\(formatted)/s"
     }
+
+    /// What the network tile shows: a plain "Idle" while only background
+    /// chatter is flowing, or both rates once there is real traffic.
+    public enum NetworkActivity: Equatable, Sendable {
+        case idle
+        case active(down: String, up: String)
+    }
+
+    /// Below a kilobyte a second in both directions the Mac is effectively
+    /// idle; showing two sub-kilobyte byte counts reads as noise, or as a bug
+    /// when they happen to match.
+    static func networkActivity(bytesIn: Double, bytesOut: Double) -> NetworkActivity {
+        guard bytesIn >= idleNetworkThreshold || bytesOut >= idleNetworkThreshold else { return .idle }
+        return .active(down: speedString(bytesIn), up: speedString(bytesOut))
+    }
+
+    /// Bytes per second under which traffic counts as idle.
+    private static let idleNetworkThreshold = 1_000.0
 
     /// Download megabits-per-second from a payload size and elapsed seconds.
     static func megabitsPerSecond(bytes: Int, seconds: Double) -> Double {
@@ -538,13 +602,28 @@ public final class MenuBarViewModel {
     }()
 
     /// "Last scan 3 days ago" / "No scans yet" detail for the Protection card.
-    static func lastScanString(_ date: Date?) -> String {
+    static func lastScanString(_ date: Date?, now: Date = Date()) -> String {
         guard let date else {
             return String(localized: "No scans yet", bundle: .module, comment: "Protection card detail when no scan has run.")
         }
-        let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
+        let relative = relativeFormatter.localizedString(for: date, relativeTo: now)
         let format = String(localized: "Last scan %@", bundle: .module, comment: "Protection card detail; %@ is a relative date.")
         return String(format: format, relative)
+    }
+
+    /// The header's one line of supporting facts, e.g. "Protected · Last scan
+    /// 2 days ago". A never-scanned Mac reads "No scans yet" once rather than
+    /// pairing it with a redundant "Not scanned". `includesProtection` follows
+    /// the user's Protection setting for the panel.
+    public static func panelDetail(
+        protection: ProtectionStatus,
+        lastScanDate: Date?,
+        includesProtection: Bool,
+        now: Date = Date()
+    ) -> String {
+        let lastScan = lastScanString(lastScanDate, now: now)
+        guard includesProtection, protection != .notScanned else { return lastScan }
+        return "\(protectionStatusLabel(protection)) · \(lastScan)"
     }
 
     // MARK: - Hero headline
@@ -583,6 +662,59 @@ public final class MenuBarViewModel {
         }
     }
 
+    // MARK: - Panel verdict
+
+    /// The panel header's headline and how loudly to colour it.
+    public struct PanelVerdict: Equatable {
+        /// `.measuring` before the first reading, `.good` when nothing is
+        /// wrong, `.caution` for problems worth fixing soon, and `.alert` for
+        /// threats or a critical verdict.
+        public enum Tone: Equatable, Sendable {
+            case measuring
+            case good
+            case caution
+            case alert
+        }
+
+        public let headline: String
+        public let tone: Tone
+    }
+
+    /// Folds the disk-and-battery health verdict together with the attention
+    /// list, so the header can never praise a Mac directly above a threat.
+    /// One issue reads "Your Mac needs attention" (the card beneath names it,
+    /// so the header doesn't repeat it); several are counted. A Critical
+    /// verdict keeps its stronger wording either way.
+    public static func panelVerdict(health: MacHealthStatus?, attention: [NextStep]) -> PanelVerdict {
+        let healthTone = tone(for: health)
+        guard !attention.isEmpty else {
+            return PanelVerdict(headline: heroHeadline(for: health), tone: healthTone)
+        }
+        let hasThreats = attention.contains { $0.target == .threats }
+        let tone: PanelVerdict.Tone = (hasThreats || healthTone == .alert) ? .alert : .caution
+        if attention.count > 1 {
+            let format = String(
+                localized: "%d things need attention",
+                bundle: .module,
+                comment: "Panel headline when two or more problems are listed; %d is the count."
+            )
+            return PanelVerdict(headline: String(format: format, attention.count), tone: tone)
+        }
+        let headline = health == .critical
+            ? heroHeadline(for: .critical)
+            : heroHeadline(for: .requiresAttention)
+        return PanelVerdict(headline: headline, tone: tone)
+    }
+
+    private static func tone(for health: MacHealthStatus?) -> PanelVerdict.Tone {
+        switch health {
+        case nil:                       return .measuring
+        case .critical:                 return .alert
+        case .requiresAttention, .fair: return .caution
+        case .good, .excellent:         return .good
+        }
+    }
+
     // MARK: - Next step
 
     /// The panel's single primary action: what to say, what the button reads,
@@ -593,7 +725,7 @@ public final class MenuBarViewModel {
         /// Destination the action deep-links to. View-model-local (rather
         /// than `NavigationSection`) so the type stays framework-free and
         /// pinnable in unit tests; the view maps it to a section.
-        public enum Target: Equatable {
+        public enum Target: Equatable, Sendable {
             case smartScan
             case cleanup
             case performance
@@ -603,7 +735,7 @@ public final class MenuBarViewModel {
         /// How loudly the card should present the step: `.urgent` conditions
         /// tint the card in the alert hue, `.suggested` uses the accent, and
         /// `.allClear` renders calm.
-        public enum Urgency: Equatable {
+        public enum Urgency: Equatable, Sendable {
             case urgent
             case suggested
             case allClear
@@ -635,53 +767,8 @@ public final class MenuBarViewModel {
         now: Date = Date()
     ) -> NextStep? {
         if protection == .scanning { return nil }
-        if protection == .threatsFound {
-            return NextStep(
-                title: String(localized: "Threats found on this Mac",
-                              bundle: .module,
-                              comment: "Next-step title when the last scan surfaced threats."),
-                detail: String(localized: "Review what turned up and remove it to stay protected.",
-                               bundle: .module,
-                               comment: "Next-step detail when the last scan surfaced threats."),
-                actionLabel: String(localized: "Review Threats",
-                                    bundle: .module,
-                                    comment: "Next-step button that opens the threats list."),
-                target: .threats,
-                startsScan: false,
-                urgency: .urgent
-            )
-        }
-        if disk.totalBytes > 0, 1.0 - diskUsedFraction(disk) < lowDiskFreeThreshold {
-            return NextStep(
-                title: String(localized: "Storage is running low",
-                              bundle: .module,
-                              comment: "Next-step title when free disk space is under 10%."),
-                detail: String(localized: "Less than 10% of your disk is free. Clear out junk to reclaim space.",
-                               bundle: .module,
-                               comment: "Next-step detail when free disk space is under 10%."),
-                actionLabel: String(localized: "Clean Up",
-                                    bundle: .module,
-                                    comment: "Next-step button that opens the Cleanup section."),
-                target: .cleanup,
-                startsScan: false,
-                urgency: .urgent
-            )
-        }
-        if pressure == .critical {
-            return NextStep(
-                title: String(localized: "Memory pressure is critical",
-                              bundle: .module,
-                              comment: "Next-step title when memory pressure is critical."),
-                detail: String(localized: "Your Mac is low on memory. Free some up to keep apps responsive.",
-                               bundle: .module,
-                               comment: "Next-step detail when memory pressure is critical."),
-                actionLabel: String(localized: "Free Memory",
-                                    bundle: .module,
-                                    comment: "Next-step button that opens the Performance section."),
-                target: .performance,
-                startsScan: false,
-                urgency: .urgent
-            )
+        if let mostUrgent = attentionSteps(protection: protection, disk: disk, pressure: pressure).first {
+            return mostUrgent
         }
         if protection == .notScanned {
             return NextStep(
@@ -729,6 +816,68 @@ public final class MenuBarViewModel {
             startsScan: true,
             urgency: .allClear
         )
+    }
+
+    /// Every urgent problem on the Mac, worst first: live threats, then a
+    /// nearly-full disk, then critical memory pressure. The panel lists them
+    /// all so fixing one never reveals another that was hidden behind it.
+    /// A running scan can't report threats yet, but disk and memory are
+    /// still measured facts and stay listed beside its progress.
+    public static func attentionSteps(
+        protection: ProtectionStatus,
+        disk: DiskStats,
+        pressure: MemoryPressureLevel
+    ) -> [NextStep] {
+        var steps: [NextStep] = []
+        if protection == .threatsFound {
+            steps.append(NextStep(
+                title: String(localized: "Threats found on this Mac",
+                              bundle: .module,
+                              comment: "Next-step title when the last scan surfaced threats."),
+                detail: String(localized: "Review what turned up and remove it to stay protected.",
+                               bundle: .module,
+                               comment: "Next-step detail when the last scan surfaced threats."),
+                actionLabel: String(localized: "Review Threats",
+                                    bundle: .module,
+                                    comment: "Next-step button that opens the threats list."),
+                target: .threats,
+                startsScan: false,
+                urgency: .urgent
+            ))
+        }
+        if disk.totalBytes > 0, 1.0 - diskUsedFraction(disk) < lowDiskFreeThreshold {
+            steps.append(NextStep(
+                title: String(localized: "Storage is running low",
+                              bundle: .module,
+                              comment: "Next-step title when free disk space is under 10%."),
+                detail: String(localized: "Less than 10% of your disk is free. Clear out junk to reclaim space.",
+                               bundle: .module,
+                               comment: "Next-step detail when free disk space is under 10%."),
+                actionLabel: String(localized: "Clean Up",
+                                    bundle: .module,
+                                    comment: "Next-step button that opens the Cleanup section."),
+                target: .cleanup,
+                startsScan: false,
+                urgency: .urgent
+            ))
+        }
+        if pressure == .critical {
+            steps.append(NextStep(
+                title: String(localized: "Memory pressure is critical",
+                              bundle: .module,
+                              comment: "Next-step title when memory pressure is critical."),
+                detail: String(localized: "Your Mac is low on memory. Free some up to keep apps responsive.",
+                               bundle: .module,
+                               comment: "Next-step detail when memory pressure is critical."),
+                actionLabel: String(localized: "Free Memory",
+                                    bundle: .module,
+                                    comment: "Next-step button that opens the Performance section."),
+                target: .performance,
+                startsScan: false,
+                urgency: .urgent
+            ))
+        }
+        return steps
     }
 
     // MARK: - Shared thresholds
