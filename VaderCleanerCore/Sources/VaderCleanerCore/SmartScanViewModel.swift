@@ -2214,3 +2214,21 @@ extension SmartScanViewModel: ScanCoordinating {
         runScanActivity { await self.scan() }
     }
 }
+
+extension SmartScanViewModel.Phase {
+
+    /// Whether a request from elsewhere in the app — the Health Monitor's
+    /// Free Up Space — should start a fresh scan, or only reveal Smart Scan
+    /// as it stands. A scan under way, a plan waiting for review, or a run in
+    /// progress is left alone: scanning again would discard the plan and the
+    /// person's picks. With nothing to review, a past receipt, or a failure,
+    /// a fresh scan is what was asked for.
+    public var startsFreshScanOnRequest: Bool {
+        switch self {
+        case .idle, .done, .failed:
+            return true
+        case .scanning, .results, .running:
+            return false
+        }
+    }
+}
