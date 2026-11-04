@@ -53,7 +53,7 @@ struct FloatingRunOverlay: View {
                 // what one tap will do. It updates live as cards are toggled.
                 .overlay(alignment: .top) {
                     RunScopeCaption(
-                        freeableBytes: viewModel.freeableBytes,
+                        totalBytes: viewModel.runSummary.totalBytes,
                         itemCount: viewModel.runnableFindingCount
                     )
                     .alignmentGuide(.top) { dimensions in dimensions.height + 12 }
@@ -75,12 +75,13 @@ struct FloatingRunOverlay: View {
     }
 }
 
-/// The one-line scope caption above the Fix disc: how much space one tap frees
-/// and across how many findings. A solid dark capsule rather than a Liquid
-/// Glass material — like the disc, its host panel straddles the window edge, so
-/// a material would have no consistent backdrop to tint against.
+/// The one-line scope caption above the Fix disc: how much one tap cleans and
+/// across how many findings — the same total the results hero leads with, so
+/// the two never disagree. A solid dark capsule rather than a Liquid Glass
+/// material — like the disc, its host panel straddles the window edge, so a
+/// material would have no consistent backdrop to tint against.
 private struct RunScopeCaption: View {
-    let freeableBytes: Int64
+    let totalBytes: Int64
     let itemCount: Int
 
     private var text: String {
@@ -90,15 +91,15 @@ private struct RunScopeCaption: View {
                 String(localized: "%d items", comment: "Fix disc scope caption: number of included findings."),
                 itemCount
             )
-        guard freeableBytes > 0 else {
+        guard totalBytes > 0 else {
             return String.localizedStringWithFormat(
                 String(localized: "%@ ready", comment: "Fix disc scope caption when the run frees no measurable space, e.g. 'App updates ready'."),
                 items
             )
         }
         return String.localizedStringWithFormat(
-            String(localized: "Frees %@ · %@", comment: "Fix disc scope caption: freeable bytes and item count, e.g. 'Frees 110 GB · 4 items'."),
-            CareFindingCopy.formattedBytes(freeableBytes),
+            String(localized: "%@ · %@", comment: "Fix disc scope caption: total bytes Fix cleans and item count, e.g. '68.1 GB · 4 items'."),
+            CareFindingCopy.formattedBytes(totalBytes),
             items
         )
     }
