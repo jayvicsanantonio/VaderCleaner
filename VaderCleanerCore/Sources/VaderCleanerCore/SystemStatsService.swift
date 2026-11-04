@@ -1,5 +1,5 @@
 // SystemStatsService.swift
-// Polling data layer behind the Health Monitor — reads CPU, RAM, disk, battery, SMART, and FileVault state from mach/IOKit/diskutil.
+// Polling data layer behind the Health Monitor — reads CPU, RAM, disk, battery, SMART, and FileVault state from mach/IOKit/diskutil/system_profiler.
 
 import Foundation
 import Darwin
@@ -100,6 +100,14 @@ public struct BatteryStats: Equatable, Sendable {
     public let condition: String
 }
 
+/// Apple's own battery health figures, as `system_profiler` (and System
+/// Settings) report them. `maxCapacityPercent` is a fraction (0.89 for "89%"),
+/// or `nil` when the report carries no percentage.
+struct BatteryHealthReport: Equatable, Sendable {
+    let condition: String
+    let maxCapacityPercent: Double?
+}
+
 /// Explicit battery availability state.
 ///
 /// `.unknown` is the startup / not-yet-refreshed state, `.absent` means the
@@ -143,7 +151,7 @@ public enum SMARTStatus: Equatable, Sendable {
 ///
 /// `.unknown` is the startup / not-yet-refreshed state. `.off` and `.on` are
 /// definitive readings parsed from `fdesetup status`.
-public enum FileVaultState: Equatable {
+public enum FileVaultState: Equatable, Sendable {
     case unknown
     case off
     case on
@@ -234,6 +242,11 @@ public final class SystemStatsService {
     private static let deviceHealthInterval: TimeInterval = 300
 
     // MARK: State
+
+    /// Apple's battery health report, refreshed on the slow path and overlaid
+    /// on each registry read. `nil` until the first report lands, or on a Mac
+    /// without a battery.
+    @ObservationIgnored private var batteryHealthReport: BatteryHealthReport?
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var deviceHealthTimer: Timer?
@@ -337,10 +350,6 @@ public final class SystemStatsService {
         self.interval = interval
         if autostart {
             start()
-            // Kick off the slow path immediately so SMART + FileVault are
-            // populated by the time the Health Monitor first renders. The
-            // timer below schedules subsequent refreshes.
-            refreshDeviceHealth()
         }
     }
 
@@ -392,6 +401,14 @@ public final class SystemStatsService {
         }
         RunLoop.main.add(healthTimer, forMode: .common)
         deviceHealthTimer = healthTimer
+
+        // Kick off the slow path immediately so SMART, FileVault, and the
+        // battery report are populated by the time the Health Monitor first
+        // renders; the timer above schedules the ones after. This lives in
+        // `start()` rather than `init` because the app starts polling through
+        // `beginUpdates()` — run only from `init`, the first read waited the
+        // full five minutes after every launch.
+        refreshDeviceHealth()
     }
 
     /// Stops all polling. Safe to call repeatedly. Used by tests to verify the
@@ -585,40 +602,106 @@ public final class SystemStatsService {
 
     // MARK: Battery
 
-    /// Reads battery availability from the `AppleSmartBattery` IORegistry
-    /// entry. A missing service means this Mac has no internal battery. The
-    /// keys read here are stable across at least the last decade of macOS
-    /// releases — Apple uses the same registry for
-    /// `system_profiler SPPowerDataType`.
+    /// Reads battery availability: the registry for the cycle count and a
+    /// fallback capacity, overlaid with Apple's own health report when the
+    /// slow path has one. A missing `AppleSmartBattery` service means this Mac
+    /// has no internal battery.
     private func readBatteryAvailability() -> BatteryAvailability {
-        let matching = IOServiceMatching("AppleSmartBattery")
-        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
-        guard service != IO_OBJECT_NULL else { return .absent }
+        guard let registry = Self.readBatteryRegistry() else { return .absent }
+        return .present(Self.batteryStats(registry: registry, report: batteryHealthReport))
+    }
+
+    /// The registry keys the battery reading uses, gathered from the
+    /// `AppleSmartBattery` entry, or `nil` on a Mac without one. Only these
+    /// keys are copied — the entry also carries large telemetry dictionaries
+    /// that a two-second tick has no reason to pull.
+    nonisolated static func readBatteryRegistry() -> [String: Any]? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != IO_OBJECT_NULL else { return nil }
         defer { IOObjectRelease(service) }
 
-        let cycle = (copyProperty(service: service, key: "CycleCount") as? NSNumber)?.intValue ?? 0
-        let maxCap = (copyProperty(service: service, key: "AppleRawMaxCapacity") as? NSNumber)?.doubleValue
-            ?? (copyProperty(service: service, key: "MaxCapacity") as? NSNumber)?.doubleValue
-            ?? 0
-        let designCap = (copyProperty(service: service, key: "DesignCapacity") as? NSNumber)?.doubleValue
-            ?? 0
-        // Some hardware reports `BatteryHealth` ("Good"/"Fair"/"Poor") under a
-        // few different keys depending on macOS version. Try the modern key
-        // first, then fall back. An empty string would fail the test invariant
-        // (`condition.isEmpty == false`) so we substitute `"Unknown"` on
-        // outright misses.
-        let condition = (copyProperty(service: service, key: "BatteryHealthCondition") as? String)
-            ?? (copyProperty(service: service, key: "BatteryHealth") as? String)
-            ?? "Unknown"
+        var registry: [String: Any] = [:]
+        for key in ["CycleCount", "AppleRawMaxCapacity", "DesignCapacity", "BatteryHealthCondition", "BatteryHealth", "BatteryData"] {
+            if let unmanaged = IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0) {
+                registry[key] = unmanaged.takeRetainedValue()
+            }
+        }
+        return registry
+    }
 
-        let healthFraction = designCap > 0 ? min(1.0, maxCap / designCap) : 0.0
-        return .present(
-            BatteryStats(
-                cycleCount: cycle,
-                maxCapacityPercent: healthFraction,
-                condition: condition.isEmpty ? "Unknown" : condition
-            )
+    /// Battery health from the registry, overlaid with Apple's report.
+    ///
+    /// The registry moved under us: macOS 27 nests the capacities in
+    /// `BatteryData`, drops the condition key, and keeps a top-level
+    /// `MaxCapacity` that is a percentage (100) rather than a capacity — so
+    /// reading the old keys reported every battery as "0%, Unknown". Both
+    /// layouts are read here, and `MaxCapacity` never is. Apple's report
+    /// (`system_profiler`, the figure System Settings shows) wins wherever it
+    /// has a value; the registry ratio — nominal over design capacity — lands
+    /// within a point or two of it and covers the window before the report
+    /// arrives. A capacity of 0 means no capacity could be read.
+    nonisolated static func batteryStats(registry: [String: Any], report: BatteryHealthReport?) -> BatteryStats {
+        let nested = registry["BatteryData"] as? [String: Any] ?? [:]
+        func number(_ key: String) -> Double? {
+            ((registry[key] ?? nested[key]) as? NSNumber)?.doubleValue
+        }
+        let design = number("DesignCapacity") ?? 0
+        let maximum = (nested["NominalChargeCapacity"] as? NSNumber)?.doubleValue ?? number("AppleRawMaxCapacity") ?? 0
+        let registryFraction = design > 0 ? min(1.0, maximum / design) : 0.0
+        let registryCondition = (registry["BatteryHealthCondition"] as? String) ?? (registry["BatteryHealth"] as? String)
+
+        let condition = report?.condition ?? registryCondition ?? ""
+        return BatteryStats(
+            cycleCount: (registry["CycleCount"] as? NSNumber)?.intValue ?? 0,
+            maxCapacityPercent: report?.maxCapacityPercent ?? registryFraction,
+            // An empty condition would read as a missing value downstream.
+            condition: condition.isEmpty ? "Unknown" : condition
         )
+    }
+
+    /// Apple's battery health report from `system_profiler SPPowerDataType
+    /// -json`, or `nil` when it reports no battery or can't be read. Runs a
+    /// subprocess (about a fifth of a second), so only the slow path calls it.
+    nonisolated static func readBatteryHealthReport() -> BatteryHealthReport? {
+        let log = OSLog(subsystem: "com.personal.VaderCleaner", category: "SystemStatsService")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+        process.arguments = ["SPPowerDataType", "-json"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        // See `readSMARTStatus`: an undrained pipe deadlocks the serial
+        // queue this runs on.
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            let data = (try pipe.fileHandleForReading.readToEnd()) ?? Data()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                os_log("system_profiler exited %d", log: log, type: .error, process.terminationStatus)
+                return nil
+            }
+            return batteryHealthReport(fromSystemProfilerJSON: data)
+        } catch {
+            os_log("system_profiler invocation failed: %{private}@",
+                   log: log, type: .error, error.localizedDescription)
+            return nil
+        }
+    }
+
+    /// Parses the battery health entry out of `system_profiler`'s power JSON.
+    /// A percentage that doesn't parse leaves the capacity to the registry.
+    nonisolated static func batteryHealthReport(fromSystemProfilerJSON data: Data) -> BatteryHealthReport? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = root["SPPowerDataType"] as? [[String: Any]],
+              let info = items.lazy.compactMap({ $0["sppower_battery_health_info"] as? [String: Any] }).first,
+              let condition = info["sppower_battery_health"] as? String, !condition.isEmpty else {
+            return nil
+        }
+        let percentText = (info["sppower_battery_health_maximum_capacity"] as? String)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "% "))
+        let capacity = percentText.flatMap(Double.init).map { $0 / 100 }
+        return BatteryHealthReport(condition: condition, maxCapacityPercent: capacity)
     }
 
     /// IOPowerSources description keys (the `kIOPS…` string constants from
@@ -800,8 +883,9 @@ public final class SystemStatsService {
 
     // MARK: Device health (SMART, FileVault) — slow path
 
-    /// Refreshes SMART and FileVault state by shelling out to `diskutil` and
-    /// `fdesetup` on a background queue, then publishing back on the main
+    /// Refreshes SMART, FileVault, and Apple's battery health report by
+    /// shelling out to `diskutil`, `fdesetup`, and `system_profiler` on a
+    /// background queue, then publishing back on the main
     /// actor. Safe to call from any context. Read failures preserve the
     /// previously published value so a transient subprocess error doesn't
     /// flicker existing UI between stale and unknown/off values.
@@ -822,6 +906,7 @@ public final class SystemStatsService {
             // UI-flicker reasons.
             let smart = Self.readSMARTStatus()
             let fv = Self.readFileVaultEnabled()
+            let batteryReport = Self.readBatteryHealthReport()
             Task { @MainActor [weak self] in
                 guard let self = self, !self.isStopped else { return }
                 if let smart = smart {
@@ -829,6 +914,13 @@ public final class SystemStatsService {
                 }
                 if let fv = fv {
                     self.fileVaultState = fv ? .on : .off
+                }
+                // Republish straight away rather than waiting for the next
+                // tick, so the battery doesn't show the registry's figure for
+                // two seconds after Apple's has arrived.
+                if let batteryReport {
+                    self.batteryHealthReport = batteryReport
+                    self.batteryAvailability = self.readBatteryAvailability()
                 }
             }
         }

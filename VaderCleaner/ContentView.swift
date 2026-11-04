@@ -468,6 +468,18 @@ struct ContentView: View {
         }
     }
 
+    /// The Health Monitor's Free Up Space: opens Smart Scan, which reaches
+    /// every kind of reclaimable space Cleanup does and more, and starts a
+    /// scan unless one is under way or a plan is waiting for review. Starts it
+    /// through the same path as the menu bar's "Run Smart Scan", so the
+    /// completion banner is armed exactly once.
+    private func freeUpSpace() {
+        selectSection(.smartScan)
+        guard smartScanViewModel.phase.startsFreshScanOnRequest else { return }
+        scanCompletionNotifier.armScan(section: .smartScan, coordinator: smartScanViewModel)
+        smartScanViewModel.beginScan()
+    }
+
     /// Idempotent permission-request driver. Fires the system prompt at most
     /// once per session, and only once the first-run flow has closed.
     private func maybeRequestNotificationPermission() async {
@@ -507,7 +519,8 @@ struct ContentView: View {
             // here keeps the section re-rendering when the first scan lands.
             HealthMonitorView(
                 service: systemStats,
-                hasScanned: protectionDashboardViewModel.malware.lastScanDate != nil
+                hasScanned: protectionDashboardViewModel.malware.lastScanDate != nil,
+                onFreeUpSpace: { freeUpSpace() }
             )
         case .systemJunk:
             ScannableSectionContent(coordinator: systemJunkViewModel, section: section) {
