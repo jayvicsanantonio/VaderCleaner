@@ -297,9 +297,7 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
 - `ENABLE_HARDENED_RUNTIME` must stay `YES`. The helper pins its XPC client to
   the app's signing team (`HelperCodeSigningRequirements.peerRequirement`), and
   without the hardened runtime `DYLD_INSERT_LIBRARIES` runs injected code inside
-  the genuine app, which then passes that pin. CoreLocation needs the
-  `personal-information.location` entitlement under it, which
-  `VaderCleaner.entitlements` carries.
+  the genuine app, which then passes that pin.
 - `/usr/sbin/periodic` no longer exists on macOS 26; maintenance-script features
   are gated on its presence.
 - ClamAV is **bundled** (staged by `Scripts/stage-clamav.sh`), with Homebrew
@@ -319,8 +317,8 @@ xcodebuild clean build-for-testing -project VaderCleaner.xcodeproj -scheme Vader
   when nothing was printed, and an exit of 1 never reads as clean:
   `ClamAVScanner.scanReport` checks newline-named files one run at a time and
   throws if it still can't name one.
-- `SystemStatsService()` autostarts timers and can trigger a Location prompt;
-  use `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
+- `SystemStatsService()` autostarts its timers; use
+  `SystemStatsService(autostart: false)` plus `refresh()` for one-shot reads.
 
 ### Detecting Full Disk Access
 

@@ -1,5 +1,5 @@
 // MenuBarPanelTests.swift
-// Pins the menu bar panel's derivations: every issue that needs attention, the header verdict and detail line, the network idle state, and when inline actions and tile colour appear.
+// Pins the menu bar panel's derivations: every issue that needs attention, the verdict and its ring, the detail line, the one button's priority, and when a reading is coloured.
 
 import Foundation
 import Testing
@@ -145,68 +145,123 @@ import Testing
         #expect(!detail.contains("Protected"))
     }
 
-    // MARK: - Network
+    // MARK: - Primary action
 
-    /// Background chatter under a kilobyte a second reads as idle, not as a
-    /// pair of identical "511 bytes/s" readings that look like a bug.
-    @Test func backgroundTrafficReadsAsIdle() {
-        #expect(MenuBarViewModel.networkActivity(bytesIn: 511, bytesOut: 511) == .idle)
-        #expect(MenuBarViewModel.networkActivity(bytesIn: 0, bytesOut: 0) == .idle)
+    private func primary(
+        protection: MenuBarViewModel.ProtectionStatus = .protected,
+        scan: MenuBarViewModel.ScanActivity? = nil,
+        disk: DiskStats? = nil,
+        pressure: MemoryPressureLevel = .nominal,
+        lastScanDate: Date? = nil,
+        flush: MenuBarViewModel.MemoryFlushState = .idle
+    ) -> MenuBarViewModel.PrimaryAction {
+        MenuBarViewModel.primaryAction(
+            protection: protection,
+            scanActivity: scan,
+            disk: disk ?? healthyDisk,
+            pressure: pressure,
+            lastScanDate: lastScanDate ?? now.addingTimeInterval(-3_600),
+            flushState: flush,
+            now: now
+        )
     }
 
-    @Test func realTrafficShowsBothRates() {
-        let activity = MenuBarViewModel.networkActivity(bytesIn: 2_000_000, bytesOut: 0)
-        #expect(activity == .active(
-            down: MenuBarViewModel.speedString(2_000_000),
-            up: MenuBarViewModel.speedString(0)
-        ))
+    /// A healthy, recently scanned Mac still gets a button, but a quiet one:
+    /// the panel's one control never shouts when nothing is wrong.
+    @Test func aHealthyMacGetsAQuietScanButton() {
+        let action = primary()
+        #expect(action.label == "Run Smart Scan")
+        #expect(action.kind == .open(.smartScan, startsScan: true))
+        #expect(action.style == .quiet)
+        #expect(!action.isWorking)
     }
 
-    // MARK: - Memory purge visibility
-
-    /// Purging is offered only when memory is actually under pressure, and
-    /// stays visible through its own in-flight, done, and failed feedback.
-    @Test(arguments: [
-        (MemoryPressureLevel.nominal, MenuBarViewModel.MemoryFlushState.idle, false),
-        (.fair, .idle, true),
-        (.critical, .idle, true),
-        (.nominal, .running, true),
-        (.nominal, .flushed, true),
-        (.nominal, .failed, true),
-    ])
-    func memoryPurgeAppearsOnlyWhenItHelps(
-        pressure: MemoryPressureLevel,
-        state: MenuBarViewModel.MemoryFlushState,
-        shows: Bool
-    ) {
-        #expect(MenuBarViewModel.showsMemoryFlush(pressure: pressure, state: state) == shows)
+    @Test func aNeverScannedMacIsInvitedToScan() {
+        let action = primary(protection: .notScanned)
+        #expect(action.label == "Scan Now")
+        #expect(action.kind == .open(.smartScan, startsScan: true))
+        #expect(action.style == .suggested)
     }
 
-    // MARK: - Tile colour
-
-    /// Tiles carry colour only when a reading is off: a wall of green dots
-    /// says nothing.
-    @Test(arguments: [
-        (StatusColor.green, StatusColor?.none),
-        (.gray, nil),
-        (.yellow, .yellow),
-        (.red, .red),
-    ])
-    func onlyAbnormalReadingsAreHighlighted(status: StatusColor, highlighted: StatusColor?) {
-        #expect(MenuBarViewModel.highlightedStatus(status) == highlighted)
+    @Test func threatsTakeTheButton() {
+        let action = primary(protection: .threatsFound, disk: lowDisk, pressure: .critical)
+        #expect(action.label == "Review Threats")
+        #expect(action.kind == .open(.threats, startsScan: false))
+        #expect(action.style == .urgent)
     }
 
-    // MARK: - Tile bars
-
-    @Test func memoryUsedFractionIsClamped() {
-        #expect(MenuBarViewModel.memoryUsedFraction(MemoryStats(usedBytes: 4, totalBytes: 16)) == 0.25)
-        #expect(MenuBarViewModel.memoryUsedFraction(MemoryStats(usedBytes: 20, totalBytes: 16)) == 1)
-        #expect(MenuBarViewModel.memoryUsedFraction(.empty) == 0)
+    @Test func aFullDiskOpensCleanup() {
+        let action = primary(disk: lowDisk)
+        #expect(action.kind == .open(.cleanup, startsScan: false))
+        #expect(action.style == .urgent)
     }
 
-    @Test func cpuFractionIsClamped() {
-        #expect(MenuBarViewModel.cpuFraction(0.18) == 0.18)
-        #expect(MenuBarViewModel.cpuFraction(1.4) == 1)
-        #expect(MenuBarViewModel.cpuFraction(-0.2) == 0)
+    /// Critical memory is fixed right in the panel: the purge takes seconds,
+    /// so a trip to the main window isn't worth it.
+    @Test func criticalMemoryIsFreedInPlace() {
+        let action = primary(pressure: .critical)
+        #expect(action.kind == .flushMemory)
+        #expect(action.label == "Free Memory")
+        #expect(action.style == .urgent)
+        #expect(!action.isWorking)
+    }
+
+    @Test func aRunningPurgeShowsItsProgress() {
+        let action = primary(pressure: .critical, flush: .running)
+        #expect(action.kind == .flushMemory)
+        #expect(action.label == "Freeing Memory…")
+        #expect(action.isWorking)
+    }
+
+    @Test func aFailedPurgeOffersARetry() {
+        #expect(primary(pressure: .critical, flush: .failed).label == "Retry")
+    }
+
+    /// A running scan has no result to act on yet, so the button follows it.
+    @Test func aRunningScanIsFollowed() {
+        let action = primary(protection: .scanning, scan: .threatScan)
+        #expect(action.kind == .showScan(.threatScan))
+        #expect(action.label == "Show Scan")
+        #expect(action.style == .quiet)
+    }
+
+    /// A problem the scan can't change still outranks watching its progress.
+    @Test func aKnownProblemOutranksARunningScan() {
+        let action = primary(protection: .scanning, scan: .smartScan, disk: lowDisk)
+        #expect(action.kind == .open(.cleanup, startsScan: false))
+    }
+
+    // MARK: - Ring
+
+    /// With nothing wrong the ring fills to the health verdict.
+    @Test(arguments: MacHealthStatus.allCases)
+    func theRingFillsToTheHealthVerdict(health: MacHealthStatus) {
+        #expect(MenuBarViewModel.ringFraction(health: health, attention: []) == health.score)
+    }
+
+    @Test func theRingIsEmptyWhileMeasuring() {
+        #expect(MenuBarViewModel.ringFraction(health: nil, attention: []) == 0)
+    }
+
+    /// An issue drains the ring however well the disk and battery look, so
+    /// a full green ring can never sit above a threat.
+    @Test func issuesDrainTheRing() {
+        let disk = MenuBarViewModel.attentionSteps(protection: .protected, disk: lowDisk, pressure: .nominal)
+        let threats = MenuBarViewModel.attentionSteps(protection: .threatsFound, disk: healthyDisk, pressure: .nominal)
+        #expect(MenuBarViewModel.ringFraction(health: .excellent, attention: disk) == MacHealthStatus.requiresAttention.score)
+        #expect(MenuBarViewModel.ringFraction(health: .excellent, attention: threats) == MacHealthStatus.critical.score)
+        #expect(MenuBarViewModel.ringFraction(health: .critical, attention: disk) == MacHealthStatus.critical.score)
+    }
+
+    // MARK: - Readings
+
+    /// A reading is coloured only when it is the subject of a listed issue, so
+    /// the header and the numbers beneath it always agree.
+    @Test func onlyAReadingWithAnIssueIsColoured() {
+        let both = MenuBarViewModel.attentionSteps(protection: .protected, disk: lowDisk, pressure: .critical)
+        #expect(MenuBarViewModel.readingNeedsAttention(.storage, attention: both))
+        #expect(MenuBarViewModel.readingNeedsAttention(.memory, attention: both))
+        #expect(!MenuBarViewModel.readingNeedsAttention(.cpu, attention: both))
+        #expect(!MenuBarViewModel.readingNeedsAttention(.memory, attention: []))
     }
 }

@@ -53,12 +53,6 @@ struct VaderCleanerApp: App {
     // `@EnvironmentObject` — making it a per-view StateObject would
     // double-instantiate the timer.
     @State private var systemStats: SystemStatsService
-    // App-scope list of connected Bluetooth devices and ejectable volumes for
-    // the menu's Connected Devices tile. `autoRefresh: false` so it does NOT
-    // touch Bluetooth (a TCC-gated resource) during App.init — that runs before
-    // the app can present a permission prompt and would crash a menu-bar agent
-    // app at launch. The panel refreshes the list when the menu opens instead.
-    @State private var connectedDevices = ConnectedDevicesMonitor(autoRefresh: false)
     // App-scope router so the menu bar panel can deep-link into a main-window
     // section (and optionally start its scan). Shared by both scenes.
     @State private var menuRouter = MenuRouter()
@@ -405,7 +399,6 @@ struct VaderCleanerApp: App {
                 .environment(preferences)
                 .environment(exclusions)
                 .environment(systemStats)
-                .environment(connectedDevices)
                 .environment(malwareViewModel)
                 // The panel's Protection card narrates a running Smart Scan
                 // (whose results seed protection status).

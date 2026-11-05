@@ -62,19 +62,16 @@ public enum MenuBarPresence: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// A reading in the menu bar panel — Protection in its header, the rest as
-/// tiles and the devices card. Users can hide the ones they don't care
-/// about — Devices is dead weight with nothing connected, and Network needs
-/// Location access to name the Wi-Fi network. Hiding one never hides an
-/// issue that needs attention. The name stays `Row` because its raw values
-/// are the persisted settings keys.
+/// A reading in the menu bar panel — Protection in the line under the
+/// verdict, the rest in the row of readings beneath it. Users can hide the
+/// ones they don't care about. Hiding one never hides an issue that needs
+/// attention. The name stays `Row` because its raw values are the persisted
+/// settings keys.
 public enum MenuBarPanelRow: String, CaseIterable, Identifiable, Sendable {
     case protection
     case storage
     case memory
     case cpu
-    case network
-    case devices
 
     public var id: String { rawValue }
 
@@ -84,8 +81,6 @@ public enum MenuBarPanelRow: String, CaseIterable, Identifiable, Sendable {
         case .storage:    return String(localized: "Storage", bundle: .module, comment: "Menu bar panel row.")
         case .memory:     return String(localized: "Memory", bundle: .module, comment: "Menu bar panel row.")
         case .cpu:        return String(localized: "CPU", bundle: .module, comment: "Menu bar panel row.")
-        case .network:    return String(localized: "Wi-Fi & network", bundle: .module, comment: "Menu bar panel row.")
-        case .devices:    return String(localized: "Connected devices", bundle: .module, comment: "Menu bar panel row.")
         }
     }
 }

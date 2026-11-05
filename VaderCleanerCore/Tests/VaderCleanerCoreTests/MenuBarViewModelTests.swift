@@ -268,38 +268,6 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.batteryTemperatureString(30.6), "31°C")
     }
 
-    // MARK: - Network formatters
-
-    /// Zero traffic renders a clean "0 KB/s", not "Zero KB/s".
-    func test_speedString_zeroIsCleanedUp() {
-        XCTAssertEqual(MenuBarViewModel.speedString(0), "0 KB/s")
-    }
-
-    /// Non-zero rates carry a unit and a per-second suffix.
-    func test_speedString_formatsRateWithSuffix() {
-        let kilobytes = MenuBarViewModel.speedString(2_048)
-        XCTAssertTrue(kilobytes.contains("KB"), "Expected KB unit, got \(kilobytes)")
-        XCTAssertTrue(kilobytes.hasSuffix("/s"), "Expected /s suffix, got \(kilobytes)")
-
-        let megabytes = MenuBarViewModel.speedString(5_000_000)
-        XCTAssertTrue(megabytes.contains("MB"), "Expected MB unit, got \(megabytes)")
-    }
-
-    /// Mbps math: 10 MB downloaded in 8 s is 10 Mbps (10e6 bytes × 8 ÷ 1e6 ÷ 8).
-    func test_megabitsPerSecond_computesRate() {
-        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 10_000_000, seconds: 8), 10, accuracy: 0.001)
-    }
-
-    /// Guard against divide-by-zero and empty payloads.
-    func test_megabitsPerSecond_guardsZeroes() {
-        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 0, seconds: 5), 0)
-        XCTAssertEqual(MenuBarViewModel.megabitsPerSecond(bytes: 1_000, seconds: 0), 0)
-    }
-
-    func test_speedTestResultString_formatsMbps() {
-        XCTAssertEqual(MenuBarViewModel.speedTestResultString(82.4), "82 Mbps")
-    }
-
     // MARK: - CPU temperature + uptime formatters
 
     func test_cpuTemperatureString_roundsToWholeDegree() {
@@ -534,22 +502,6 @@ final class MenuBarViewModelTests: XCTestCase {
         XCTAssertEqual(MenuBarViewModel.statusAccessibilityLabel(for: .gray), "Not available")
     }
 
-    // MARK: - Connected devices overflow
-
-    /// The devices tile shows at most three devices; beyond that it must say
-    /// how many were hidden instead of truncating silently.
-    func test_hiddenDevicesLabel_countsTheOverflow() {
-        XCTAssertEqual(MenuBarViewModel.hiddenDevicesLabel(total: 5, shown: 3), "+2 more")
-        XCTAssertEqual(MenuBarViewModel.hiddenDevicesLabel(total: 4, shown: 3), "+1 more")
-    }
-
-    /// No overflow, no label — three or fewer devices all fit.
-    func test_hiddenDevicesLabel_isNilWhenEverythingFits() {
-        XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 3, shown: 3))
-        XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 0, shown: 0))
-        XCTAssertNil(MenuBarViewModel.hiddenDevicesLabel(total: 2, shown: 2))
-    }
-
     // MARK: - Live scan narration
 
     /// While Smart Scan walks the disk the card narrates the live item tally —
@@ -605,7 +557,7 @@ final class MenuBarViewModelTests: XCTestCase {
     }
 
     /// A second click while the purge is in flight must not start a second
-    /// helper call — mirrors `runSpeedTest`'s in-flight guard.
+    /// helper call.
     func test_flushMemory_ignoresReentrantCalls() async {
         let calls = TestBox(0)
         // Holds the first flush observably mid-flight (the action can't

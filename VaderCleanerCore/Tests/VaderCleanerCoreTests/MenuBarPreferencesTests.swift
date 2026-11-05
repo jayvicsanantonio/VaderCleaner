@@ -131,19 +131,19 @@ final class MenuBarPreferencesTests: XCTestCase {
 
     func test_panelRows_persistAcrossInstances() {
         let writer = PreferencesStore(defaults: defaults)
-        writer.setPanelRow(.network, enabled: false)
-        writer.setPanelRow(.devices, enabled: false)
+        writer.setPanelRow(.cpu, enabled: false)
+        writer.setPanelRow(.protection, enabled: false)
 
         let reader = PreferencesStore(defaults: defaults)
-        XCTAssertFalse(reader.isPanelRowEnabled(.network))
-        XCTAssertFalse(reader.isPanelRowEnabled(.devices))
+        XCTAssertFalse(reader.isPanelRowEnabled(.cpu))
+        XCTAssertFalse(reader.isPanelRowEnabled(.protection))
         XCTAssertTrue(reader.isPanelRowEnabled(.storage))
     }
 
     func test_panelRowRawValues_areStable() {
         XCTAssertEqual(
             Set(MenuBarPanelRow.allCases.map(\.rawValue)),
-            ["protection", "storage", "memory", "cpu", "network", "devices"]
+            ["protection", "storage", "memory", "cpu"]
         )
     }
 
@@ -167,13 +167,13 @@ final class MenuBarPreferencesTests: XCTestCase {
         sut.menuBarReading = .cpu
         sut.keepDockIcon = true
         sut.statsUpdateInterval = 10
-        sut.setPanelRow(.network, enabled: false)
+        sut.setPanelRow(.cpu, enabled: false)
 
         sut.restoreDefaults()
 
         XCTAssertEqual(sut.menuBarReading, PreferencesStore.defaultMenuBarReading)
         XCTAssertEqual(sut.keepDockIcon, PreferencesStore.defaultKeepDockIcon)
         XCTAssertEqual(sut.statsUpdateInterval, PreferencesStore.defaultStatsUpdateInterval)
-        XCTAssertTrue(sut.isPanelRowEnabled(.network), "hidden rows come back on a reset")
+        XCTAssertTrue(sut.isPanelRowEnabled(.cpu), "hidden rows come back on a reset")
     }
 }

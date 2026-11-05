@@ -83,21 +83,7 @@ public final class MenuBarViewModel {
     public var availableDiskSpace: String { Self.availableDiskString(service.diskSpace) }
 
     /// Used fraction of the boot volume for the storage tile's capacity bar.
-    public var diskUsedFraction: Double { Self.diskUsedFraction(service.diskSpace) }
-
-    /// Used fraction of physical memory for the memory tile's bar.
-    public var memoryUsedFraction: Double { Self.memoryUsedFraction(service.ramUsage) }
-
-    /// Live CPU load as a unit fraction for the CPU tile's bar.
-    public var cpuFraction: Double { Self.cpuFraction(service.cpuUsage) }
-
-    /// Live network traffic for the network tile: idle, or both rates.
-    public var networkActivity: NetworkActivity {
-        Self.networkActivity(
-            bytesIn: service.networkThroughput.bytesInPerSec,
-            bytesOut: service.networkThroughput.bytesOutPerSec
-        )
-    }
+    var diskUsedFraction: Double { Self.diskUsedFraction(service.diskSpace) }
 
     /// Raw disk snapshot, exposed so the view can feed the pure
     /// `nextStep` derivation alongside malware state it owns.
@@ -116,16 +102,6 @@ public final class MenuBarViewModel {
     /// CPU tile status dot for the live load.
     public var cpuLoadColor: StatusColor { Self.cpuLoadColor(service.cpuUsage) }
 
-    /// Download throughput for the network tile, e.g. "513 bytes/s".
-    public var networkDownString: String { Self.speedString(service.networkThroughput.bytesInPerSec) }
-
-    /// Upload throughput for the network tile.
-    public var networkUpString: String { Self.speedString(service.networkThroughput.bytesOutPerSec) }
-
-    /// Wi-Fi network name for the network tile title, or a generic "Wi-Fi" when
-    /// the SSID is unavailable (not on Wi-Fi, or Location not yet authorized).
-    public var wifiNetworkName: String { service.wifiSSID ?? String(localized: "Wi-Fi", bundle: .module) }
-
     /// CPU temperature for the CPU tile, or `nil` when the SMC reports none on
     /// this hardware (the tile hides the value rather than showing a guess).
     public var cpuTemperature: String? {
@@ -135,48 +111,10 @@ public final class MenuBarViewModel {
     /// System uptime for the CPU tile, e.g. "up 3d 4h".
     public var systemUptimeString: String { Self.uptimeString(service.systemUptime) }
 
-    // MARK: - Speed test
-
-    /// State of the on-demand connection speed test the network tile triggers.
-    public enum SpeedTestState: Equatable {
-        case idle
-        case running
-        case result(downloadMbps: Double)
-        case failed
-    }
-
-    public private(set) var speedTestState: SpeedTestState = .idle
-
-    /// Cloudflare's public download endpoint, used to measure real throughput.
-    private static let speedTestURL = URL(string: "https://speed.cloudflare.com/__down?bytes=10000000")!
-
-    /// Runs a real download speed test and publishes the result. Idempotent
-    /// while a test is in flight. Any failure (offline, non-2xx) resolves to
-    /// `.failed` so the tile can offer a retry rather than hang.
-    public func runSpeedTest() async {
-        guard speedTestState != .running else { return }
-        speedTestState = .running
-        let start = Date()
-        do {
-            var request = URLRequest(url: Self.speedTestURL)
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                speedTestState = .failed
-                return
-            }
-            let seconds = Date().timeIntervalSince(start)
-            speedTestState = .result(downloadMbps: Self.megabitsPerSecond(bytes: data.count, seconds: seconds))
-        } catch {
-            speedTestState = .failed
-        }
-    }
-
     // MARK: - Inline memory flush
 
-    /// State of the Memory tile's inline RAM purge. Mirrors `SpeedTestState`'s
-    /// shape: the tile renders a link at rest, a spinner in flight, and a
-    /// confirmation or retry afterwards.
+    /// State of the panel's inline RAM purge: the button offers it at rest,
+    /// shows a spinner in flight, and a confirmation or retry afterwards.
     public enum MemoryFlushState: Equatable, Sendable {
         case idle
         case running
@@ -184,19 +122,11 @@ public final class MenuBarViewModel {
         case failed
     }
 
-    /// Whether the Memory tile offers its inline purge. Only under real
-    /// pressure — offering a fix for a healthy reading is noise — but once a
-    /// purge has started, its spinner, confirmation, or retry stays visible
-    /// even after the pressure it relieved has dropped.
-    public static func showsMemoryFlush(pressure: MemoryPressureLevel, state: MemoryFlushState) -> Bool {
-        state != .idle || pressure != .nominal
-    }
-
     public private(set) var memoryFlushState: MemoryFlushState = .idle
 
     /// Runs the privileged purge from the panel. Idempotent while a flush is
     /// in flight. A failure (most likely an unreachable helper) resolves to
-    /// `.failed` so the tile can offer a retry rather than hang or lie.
+    /// `.failed` so the button can offer a retry rather than hang or lie.
     public func flushMemory() async {
         guard memoryFlushState != .running else { return }
         memoryFlushState = .running
@@ -208,9 +138,9 @@ public final class MenuBarViewModel {
         }
     }
 
-    /// Link copy for a flush state, or `nil` while running (the tile swaps
-    /// the link for a spinner). "Memory freed" stays clickable so the user
-    /// can purge again without hunting for a reset.
+    /// Button copy for a flush state, or `nil` while running (the button
+    /// shows progress copy instead). "Memory freed" stays clickable so the
+    /// user can purge again without hunting for a reset.
     public static func memoryFlushLabel(for state: MemoryFlushState) -> String? {
         switch state {
         case .idle:
@@ -338,20 +268,6 @@ public final class MenuBarViewModel {
         return max(0.0, min(1.0, ratio))
     }
 
-    /// Used portion of physical memory as a unit fraction, clamped to 0…1 —
-    /// drives the memory tile's bar. `0` for the zero-total
-    /// pre-first-refresh state rather than NaN.
-    static func memoryUsedFraction(_ stats: MemoryStats) -> Double {
-        guard stats.totalBytes > 0 else { return 0 }
-        let ratio = Double(stats.usedBytes) / Double(stats.totalBytes)
-        return max(0.0, min(1.0, ratio))
-    }
-
-    /// CPU load clamped to 0…1 for the CPU tile's bar.
-    static func cpuFraction(_ usage: Double) -> Double {
-        max(0.0, min(1.0, usage))
-    }
-
     /// Memory in use as a whole percentage, clamped to 0…100. `0%` for the
     /// zero-total pre-first-refresh state rather than NaN.
     static func memoryUsedPercentString(_ stats: MemoryStats) -> String {
@@ -441,16 +357,6 @@ public final class MenuBarViewModel {
         }
     }
 
-    /// The colour a tile should carry for a reading, or `nil` when the
-    /// reading is fine. Tiles stay neutral when healthy so that colour, when
-    /// it does appear, means something.
-    public static func highlightedStatus(_ status: StatusColor) -> StatusColor? {
-        switch status {
-        case .yellow, .red: return status
-        case .green, .gray: return nil
-        }
-    }
-
     /// Status dot for the CPU tile: comfortable under 70% load, busy under
     /// 90%, saturated above.
     static func cpuLoadColor(_ usage: Double) -> StatusColor {
@@ -459,45 +365,6 @@ public final class MenuBarViewModel {
         case ..<0.9: return .yellow
         default:     return .red
         }
-    }
-
-    /// Formats a bytes-per-second rate for the network tile, e.g. "2 KB/s".
-    /// Zero traffic renders "0 KB/s" rather than `ByteCountFormatter`'s
-    /// locale-specific "Zero KB".
-    static func speedString(_ bytesPerSec: Double) -> String {
-        let bytes = max(0, bytesPerSec)
-        guard bytes >= 1 else { return "0 KB/s" }
-        let formatted = formattedFileBytes(Int64(bytes))
-        return "\(formatted)/s"
-    }
-
-    /// What the network tile shows: a plain "Idle" while only background
-    /// chatter is flowing, or both rates once there is real traffic.
-    public enum NetworkActivity: Equatable, Sendable {
-        case idle
-        case active(down: String, up: String)
-    }
-
-    /// Below a kilobyte a second in both directions the Mac is effectively
-    /// idle; showing two sub-kilobyte byte counts reads as noise, or as a bug
-    /// when they happen to match.
-    static func networkActivity(bytesIn: Double, bytesOut: Double) -> NetworkActivity {
-        guard bytesIn >= idleNetworkThreshold || bytesOut >= idleNetworkThreshold else { return .idle }
-        return .active(down: speedString(bytesIn), up: speedString(bytesOut))
-    }
-
-    /// Bytes per second under which traffic counts as idle.
-    private static let idleNetworkThreshold = 1_000.0
-
-    /// Download megabits-per-second from a payload size and elapsed seconds.
-    static func megabitsPerSecond(bytes: Int, seconds: Double) -> Double {
-        guard seconds > 0, bytes > 0 else { return 0 }
-        return (Double(bytes) * 8.0 / 1_000_000.0) / seconds
-    }
-
-    /// Formats a speed-test result, e.g. "82 Mbps".
-    public static func speedTestResultString(_ mbps: Double) -> String {
-        String(format: "%.0f Mbps", mbps)
     }
 
     /// CPU temperature rounded to a whole degree, e.g. "50°C".
@@ -871,13 +738,133 @@ public final class MenuBarViewModel {
                                comment: "Next-step detail when memory pressure is critical."),
                 actionLabel: String(localized: "Free Memory",
                                     bundle: .module,
-                                    comment: "Next-step button that opens the Performance section."),
+                                    comment: "Panel button that purges inactive memory in place."),
                 target: .performance,
                 startsScan: false,
                 urgency: .urgent
             ))
         }
         return steps
+    }
+
+    // MARK: - Primary action
+
+    /// The panel's one button: what it says, what it does, and how loudly.
+    public struct PrimaryAction: Equatable {
+        public enum Kind: Equatable {
+            /// Deep-links into the section that owns a step.
+            case open(NextStep.Target, startsScan: Bool)
+            /// Purges inactive memory right in the panel.
+            case flushMemory
+            /// Opens the section whose scan is running.
+            case showScan(ScanActivity)
+        }
+
+        /// `.urgent` fills in the alert colour, `.suggested` in the accent,
+        /// and `.quiet` is glass, so a healthy Mac is never shouted at.
+        public enum Style: Equatable, Sendable {
+            case urgent
+            case suggested
+            case quiet
+        }
+
+        public let label: String
+        public let kind: Kind
+        public let style: Style
+        /// Whether the action is in flight, so the button shows a spinner.
+        public let isWorking: Bool
+    }
+
+    /// Picks the one button for the panel. A known problem comes first,
+    /// even mid-scan, because the scan can't fix a full disk; then a running
+    /// scan, which has nothing to act on yet; then the scan-hygiene step.
+    /// Critical memory is purged in place rather than deep-linked — the fix
+    /// takes seconds, so leaving the panel for it isn't worth it.
+    public static func primaryAction(
+        protection: ProtectionStatus,
+        scanActivity: ScanActivity?,
+        disk: DiskStats,
+        pressure: MemoryPressureLevel,
+        lastScanDate: Date?,
+        flushState: MemoryFlushState,
+        now: Date = Date()
+    ) -> PrimaryAction {
+        if let first = attentionSteps(protection: protection, disk: disk, pressure: pressure).first {
+            if first.target == .performance {
+                return PrimaryAction(
+                    label: memoryFlushLabel(for: flushState)
+                        ?? String(localized: "Freeing Memory…",
+                                  bundle: .module,
+                                  comment: "Panel button while the RAM purge runs."),
+                    kind: .flushMemory,
+                    style: .urgent,
+                    isWorking: flushState == .running
+                )
+            }
+            return PrimaryAction(
+                label: first.actionLabel,
+                kind: .open(first.target, startsScan: first.startsScan),
+                style: .urgent,
+                isWorking: false
+            )
+        }
+        let scanStep = nextStep(
+            protection: protection,
+            disk: disk,
+            pressure: pressure,
+            lastScanDate: lastScanDate,
+            now: now
+        )
+        guard scanActivity == nil, let scanStep else {
+            return PrimaryAction(
+                label: String(localized: "Show Scan",
+                              bundle: .module,
+                              comment: "Panel button that opens the running scan."),
+                kind: .showScan(scanActivity ?? .smartScan),
+                style: .quiet,
+                isWorking: false
+            )
+        }
+        return PrimaryAction(
+            label: scanStep.actionLabel,
+            kind: .open(scanStep.target, startsScan: scanStep.startsScan),
+            style: scanStep.urgency == .allClear ? .quiet : .suggested,
+            isWorking: false
+        )
+    }
+
+    // MARK: - Ring
+
+    /// How far the verdict ring fills (0–1). With nothing wrong it is the
+    /// Health Monitor's own score for the verdict; an issue caps it — a
+    /// threat at Critical's sliver, anything else at Requires Attention — so
+    /// a full ring can never sit above a problem. Empty while measuring.
+    public static func ringFraction(health: MacHealthStatus?, attention: [NextStep]) -> Double {
+        guard let health else { return 0 }
+        guard !attention.isEmpty else { return health.score }
+        let cap: MacHealthStatus = attention.contains { $0.target == .threats } ? .critical : .requiresAttention
+        return min(health.score, cap.score)
+    }
+
+    // MARK: - Readings
+
+    /// The three readings under the verdict.
+    public enum Reading: Equatable, Sendable {
+        case storage
+        case memory
+        case cpu
+    }
+
+    /// Whether a reading is the subject of a listed issue. Only then is it
+    /// coloured, so the numbers can't contradict the verdict above them.
+    public static func readingNeedsAttention(_ reading: Reading, attention: [NextStep]) -> Bool {
+        let target: NextStep.Target
+        switch reading {
+        case .storage: target = .cleanup
+        case .memory:  target = .performance
+        case .cpu:     return false
+        }
+        return attention.contains { $0.target == target }
     }
 
     // MARK: - Shared thresholds
@@ -887,20 +874,6 @@ public final class MenuBarViewModel {
 
     /// Last-scan age beyond which a protected Mac is nudged to scan again.
     private static let staleScanInterval: TimeInterval = 7 * 86_400
-
-    /// "+2 more" line for the Connected Devices tile when more devices exist
-    /// than the tile shows, or `nil` when everything fits — the tile must
-    /// never truncate the list silently.
-    public static func hiddenDevicesLabel(total: Int, shown: Int) -> String? {
-        let hidden = total - shown
-        guard hidden > 0 else { return nil }
-        let format = String(
-            localized: "+%d more",
-            bundle: .module,
-            comment: "Connected Devices tile overflow line; %d is how many devices are not shown."
-        )
-        return String(format: format, hidden)
-    }
 
     /// Compact uptime, e.g. "on for 3d 4h", "on for 4h 12m", or "on for 8m".
     /// Drops to the two most significant units so the header stays one short
