@@ -1,64 +1,59 @@
 // MenuBarContent.swift
-// The menu bar panel — a plain-language health hero with an animated verdict ring, one Next Step action card, a vitals checklist, section chips, and a footer, driven by MenuBarViewModel / SystemStatsService.
+// The menu bar panel, built as a glance — a verdict ring, three readings, and one button — driven by MenuBarViewModel / SystemStatsService.
 
 import SwiftUI
 import AppKit
 import VaderCleanerCore
 
-/// Panel presented when the user clicks the menu bar icon. Built around a
-/// three-beat hierarchy an ordinary person can read in two seconds:
+/// Panel presented when the user clicks the menu bar icon. It answers one
+/// question — "is my Mac OK?" — in a second, then offers exactly one thing to
+/// do about it:
 ///
-///   1. **Glance** — a hero with a large animated verdict ring and a
-///      plain-language headline ("Your Mac is in good shape").
-///   2. **Act** — a single Next Step card carrying the one action the panel
-///      recommends right now (review threats, clean up, free memory, or run
-///      a Smart Scan), replaced by a live progress strip while a scan runs.
-///   3. **Dive** — a vitals checklist (Protection, Storage, Memory, CPU,
-///      Wi-Fi + connected devices) whose rows deep-link into their
-///      sections, four quiet section chips, and a footer.
+///   1. **Verdict** — a ring that fills with the Mac's health and drains when
+///      something is wrong, a plain-language headline ("Your Mac is in good
+///      shape", "2 things need attention"), and one line of facts
+///      ("Protected · Last scan 2 days ago"), or the live tally while a scan
+///      runs.
+///   2. **Readings** — free storage, memory pressure, and CPU load as three
+///      numbers. A number is coloured only when it is the subject of an
+///      issue, so the readings can't contradict the verdict.
+///   3. **One button** — the fix for the worst issue (critical memory is
+///      purged right here), the running scan, or a scan. Quiet glass when
+///      nothing is wrong. Any further issues sit beneath it as small links.
 ///
-/// Values refresh on the same 2-second cadence as the Health Monitor.
+/// Values refresh on the same cadence as the Health Monitor.
 struct MenuBarContent: View {
 
     @Environment(MenuBarViewModel.self) private var menuBar
     @Environment(PreferencesStore.self) private var preferences
     @Environment(SystemStatsService.self) private var systemStats
-    @Environment(ConnectedDevicesMonitor.self) private var connectedDevices
     @Environment(MalwareViewModel.self) private var malware
     @Environment(SmartScanViewModel.self) private var smartScan
     @Environment(MenuRouter.self) private var menuRouter
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Hover state for the hero deep-link surface.
-    @State private var heroHovered = false
-
-    /// The verdict ring's animated fill. Starts empty and sweeps to the live
-    /// score on open — the panel's signature entrance — then glides between
-    /// readings on the telemetry cadence.
-    @State private var ringScore: Double = 0
+    /// Hover state for the verdict's deep-link surface.
+    @State private var verdictHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
-            hero
-            VStack(spacing: 10) {
-                actionCard
-                vitalsCard
-                sectionChips
+            verdictArea
+            VStack(spacing: 14) {
+                readings
+                primaryButton
+                otherIssues
             }
-            .padding(14)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
             Divider()
             footer
         }
-        .frame(width: 380)
+        .frame(width: 320)
         .background(panelBackground)
         // Shared Health Monitor blue for every tinted control; semantic status
-        // colors (verdict, pressure, protection) stay as-is so they keep
+        // colors (verdict, issues, readings) stay as-is so they keep
         // conveying meaning.
         .tint(healthAccent)
-        // Refresh the device list each time the panel opens — devices change
-        // infrequently, so an on-open read beats a dedicated poll timer.
-        .task { connectedDevices.refresh() }
         // The panel is the main consumer of live stats; holding a claim only
         // while it's open is what keeps polling from running all day.
         .onAppear { systemStats.beginUpdates() }
@@ -73,7 +68,7 @@ struct MenuBarContent: View {
     private var healthAccent: Color { healthTheme.accent }
 
     /// One continuous gradient behind the whole panel, with the accent
-    /// blooming down from behind the hero ring.
+    /// blooming down from behind the ring.
     private var panelBackground: some View {
         ZStack {
             LinearGradient(
@@ -82,110 +77,13 @@ struct MenuBarContent: View {
                 endPoint: .bottom
             )
             RadialGradient(
-                colors: [healthAccent.opacity(0.28), .clear],
-                center: UnitPoint(x: 0.5, y: 0.05),
+                colors: [toneColor(verdict.tone).opacity(0.18), .clear],
+                center: UnitPoint(x: 0.5, y: 0.0),
                 startRadius: 8,
-                endRadius: 260
+                endRadius: 220
             )
+            .animation(VaderMotion.telemetry, value: verdict.tone)
         }
-    }
-
-    // MARK: - Hero
-
-    /// The verdict the hero renders: the shared derivation capped at Good
-    /// until a first scan exists, so the headline never claims "at its best"
-    /// directly above a first-scan invitation.
-    private var displayedHealth: MacHealthStatus? {
-        MenuBarViewModel.displayedHealth(menuBar.macHealth, hasScanned: malware.lastScanDate != nil)
-    }
-
-    /// The verdict's signature colour (gray while still measuring).
-    private var verdictColor: Color { displayedHealth?.accentColor ?? Color(white: 0.6) }
-
-    /// Glance zone: a large animated verdict ring over a plain-language
-    /// headline and the device line. The whole hero deep-links into the
-    /// Health Monitor.
-    private var hero: some View {
-        Button {
-            openSection(.healthMonitor)
-        } label: {
-            VStack(spacing: 10) {
-                verdictRing
-                VStack(spacing: 3) {
-                    Text(MenuBarViewModel.heroHeadline(for: displayedHealth))
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-                    HStack(spacing: 5) {
-                        Text("\(menuBar.deviceName) · \(menuBar.systemUptimeString)")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.65))
-                        // Chevron affordance: the hero deep-links, and
-                        // brightens under the pointer.
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white.opacity(heroHovered ? 0.8 : 0.35))
-                    }
-                }
-            }
-            .padding(.top, 18)
-            .padding(.bottom, 4)
-            .frame(maxWidth: .infinity)
-            .overlay(Color.white.opacity(heroHovered ? 0.04 : 0).allowsHitTesting(false))
-            .contentShape(Rectangle())
-            .accessibilityElement(children: .combine)
-        }
-        .buttonStyle(.plain)
-        .onHover { heroHovered = $0 }
-        .animation(VaderMotion.hover, value: heroHovered)
-        .help("Open Health Monitor")
-    }
-
-    /// The hero ring: a soft glow, a faint track, and an arc that sweeps in
-    /// on open to `MacHealthStatus.score` in the verdict's colour — the
-    /// verdict as a shape as well as a sentence. A bare track while still
-    /// measuring. The app's health-pulse glyph sits at the centre, matching
-    /// the menu bar icon the user just clicked.
-    private var verdictRing: some View {
-        ZStack {
-            // Static soft glow in the verdict colour; not animated, so the
-            // blur renders once rather than per frame.
-            Circle()
-                .fill(verdictColor.opacity(0.3))
-                .frame(width: 58, height: 58)
-                .blur(radius: 18)
-            Circle()
-                .stroke(.white.opacity(0.13), lineWidth: 6)
-            Circle()
-                .trim(from: 0, to: ringScore)
-                .stroke(
-                    AngularGradient(
-                        colors: [verdictColor.opacity(0.55), verdictColor],
-                        center: .center,
-                        startAngle: .degrees(0),
-                        endAngle: .degrees(360 * ringScore)
-                    ),
-                    style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-            Image(systemName: "waveform.path.ecg")
-                .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
-        }
-        .frame(width: 76, height: 76)
-        .onAppear {
-            let target = displayedHealth?.score ?? 0
-            if reduceMotion {
-                ringScore = target
-            } else {
-                withAnimation(.smooth(duration: 0.9)) { ringScore = target }
-            }
-        }
-        .onChange(of: displayedHealth?.score) { _, newScore in
-            withAnimation(VaderMotion.telemetry) { ringScore = newScore ?? 0 }
-        }
-        // The ring is decorative alongside the headline; VoiceOver reads the
-        // hero's words instead of a second copy of the same fact.
-        .accessibilityHidden(true)
     }
 
     // MARK: - Scan state
@@ -215,409 +113,268 @@ struct MenuBarContent: View {
         )
     }
 
-    // MARK: - Next Step card
-
-    /// The panel's one recommended action, or `nil` while a scan runs (the
-    /// card narrates the scan instead).
-    private var nextStep: MenuBarViewModel.NextStep? {
-        MenuBarViewModel.nextStep(
+    /// Every urgent problem, worst first.
+    private var attention: [MenuBarViewModel.NextStep] {
+        MenuBarViewModel.attentionSteps(
             protection: protectionStatus,
             disk: menuBar.diskStats,
-            pressure: menuBar.ramPressureLevel,
-            lastScanDate: malware.lastScanDate
+            pressure: menuBar.ramPressureLevel
         )
     }
 
-    /// Act zone: exactly one card. While a scan runs it narrates the scan;
-    /// otherwise it carries the single next best step.
-    @ViewBuilder
-    private var actionCard: some View {
+    // MARK: - Verdict
+
+    /// The disk-and-battery verdict, capped at Good until a first scan exists.
+    private var health: MacHealthStatus? {
+        MenuBarViewModel.displayedHealth(menuBar.macHealth, hasScanned: malware.lastScanDate != nil)
+    }
+
+    /// The health verdict folded together with the attention list so the
+    /// panel never praises a Mac above a threat.
+    private var verdict: MenuBarViewModel.PanelVerdict {
+        MenuBarViewModel.panelVerdict(health: health, attention: attention)
+    }
+
+    /// The facts under the headline, or the scan's own narration while one
+    /// runs.
+    private var verdictDetail: String {
         if let scanActivity {
-            scanningStrip(scanActivity)
-        } else if let nextStep {
-            nextStepCard(nextStep)
+            return MenuBarViewModel.scanningDetail(for: scanActivity, itemsScanned: smartScan.scannedItemCount)
+        }
+        return MenuBarViewModel.panelDetail(
+            protection: protectionStatus,
+            lastScanDate: malware.lastScanDate,
+            includesProtection: preferences.isPanelRowEnabled(.protection)
+        )
+    }
+
+    private func toneColor(_ tone: MenuBarViewModel.PanelVerdict.Tone) -> Color {
+        switch tone {
+        case .measuring: return Color(white: 0.6)
+        case .good:      return .green
+        case .caution:   return .orange
+        case .alert:     return .red
         }
     }
 
-    /// Live progress strip while a scan runs: a breathing shield, the scan's
-    /// name, and the rolling item tally that proves the scan is advancing.
-    /// Clicking it opens the section doing the work.
-    private func scanningStrip(_ activity: MenuBarViewModel.ScanActivity) -> some View {
+    /// The ring, headline, and facts, centred. The whole area deep-links into
+    /// the Health Monitor; the Mac's name and uptime ride in its tooltip.
+    private var verdictArea: some View {
         Button {
-            openSection(activity == .threatScan ? .malwareRemoval : .smartScan)
+            openSection(.healthMonitor)
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "shield")
-                    .font(.title2)
-                    .foregroundStyle(healthAccent)
-                    // Motion as meaning: the shield breathes only while a
-                    // scan is actually running.
-                    .symbolEffect(.pulse, isActive: true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(MenuBarViewModel.protectionCardTitle(for: activity))
-                        .font(.subheadline.weight(.semibold))
-                    Text(MenuBarViewModel.scanningDetail(for: activity, itemsScanned: smartScan.scannedItemCount))
+            VStack(spacing: 10) {
+                VerdictRing(
+                    fraction: MenuBarViewModel.ringFraction(health: health, attention: attention),
+                    tone: verdict.tone,
+                    color: toneColor(verdict.tone),
+                    isScanning: scanActivity != nil
+                )
+                VStack(spacing: 3) {
+                    Text(verdict.headline)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                    Text(verdictDetail)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                        // The live item tally rolls instead of blinking as
-                        // the walks report progress.
+                        .foregroundStyle(.white.opacity(0.65))
+                        .multilineTextAlignment(.center)
+                        // The live item tally rolls instead of blinking as a
+                        // scan reports progress.
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                        .animation(VaderMotion.telemetry, value: smartScan.scannedItemCount)
+                        .animation(VaderMotion.telemetry, value: verdictDetail)
                 }
-                Spacer(minLength: 8)
-                ProgressView()
-                    .controlSize(.small)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.05), in: .rect(cornerRadius: 14))
+            .padding(.horizontal, 16)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity)
+            .background(Color.white.opacity(verdictHovered ? 0.04 : 0).allowsHitTesting(false))
             .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
         }
         .buttonStyle(.plain)
-        .help(activity == .threatScan ? "Open Protection" : "Open Smart Scan")
+        .onHover { verdictHovered = $0 }
+        .animation(VaderMotion.hover, value: verdictHovered)
+        .help("\(menuBar.deviceName) · \(menuBar.systemUptimeString) — Open Health Monitor")
+        .accessibilityIdentifier("menuBar.verdict")
     }
 
-    /// The step's signature colour: red for threats, orange for the other
-    /// urgent conditions, green for the all-clear, and the panel accent for
-    /// plain suggestions.
-    private func stepColor(_ step: MenuBarViewModel.NextStep) -> Color {
-        switch step.urgency {
-        case .urgent:    return step.target == .threats ? .red : .orange
-        case .suggested: return healthAccent
-        case .allClear:  return .green
-        }
-    }
+    // MARK: - Readings
 
-    private func stepIcon(_ step: MenuBarViewModel.NextStep) -> String {
-        switch step.target {
-        case .threats:     return "exclamationmark.shield.fill"
-        case .cleanup:     return "trash.fill"
-        case .performance: return "memorychip"
-        case .smartScan:   return step.urgency == .allClear ? "checkmark.seal.fill" : "sparkles"
-        }
-    }
-
-    /// The Next Step card: an icon badge in the step's colour, the title and
-    /// detail in plain language, and one full-width action button.
-    private func nextStepCard(_ step: MenuBarViewModel.NextStep) -> some View {
-        let color = stepColor(step)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: stepIcon(step))
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(color)
-                    .frame(width: 30, height: 30)
-                    .background(color.opacity(0.16), in: .circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(step.title)
-                        .font(.subheadline.weight(.semibold))
-                    Text(step.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+    /// The readings the user has left switched on, side by side.
+    @ViewBuilder
+    private var readings: some View {
+        let shown = visibleReadings
+        if !shown.isEmpty {
+            HStack(spacing: 0) {
+                ForEach(Array(shown.enumerated()), id: \.offset) { index, reading in
+                    if index > 0 {
+                        Divider()
+                            .frame(height: 30)
+                            .opacity(0.5)
+                    }
+                    readingCell(reading)
                 }
             }
-            Button {
-                open(step)
-            } label: {
-                Text(step.actionLabel)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.vaderProminent)
-            // The prominent style fills with the section accent from the
-            // environment; hand it the step's colour so urgency reads in the
-            // button itself.
-            .environment(\.sectionAccent, color)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.05), in: .rect(cornerRadius: 12))
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 14))
+    }
+
+    private var visibleReadings: [MenuBarViewModel.Reading] {
+        var shown: [MenuBarViewModel.Reading] = []
+        if preferences.isPanelRowEnabled(.storage) { shown.append(.storage) }
+        if preferences.isPanelRowEnabled(.memory) { shown.append(.memory) }
+        if preferences.isPanelRowEnabled(.cpu) { shown.append(.cpu) }
+        return shown
+    }
+
+    @ViewBuilder
+    private func readingCell(_ reading: MenuBarViewModel.Reading) -> some View {
+        let emphasis: Color? = MenuBarViewModel.readingNeedsAttention(reading, attention: attention) ? .orange : nil
+        switch reading {
+        case .storage:
+            ReadingCell(
+                value: menuBar.availableDiskSpace,
+                label: String(localized: "free", comment: "Caption under the free-storage reading."),
+                emphasis: emphasis,
+                helpText: String(localized: "Open Cleanup")
+            ) { openSection(.systemJunk) }
+            .accessibilityIdentifier("menuBar.reading.storage")
+        case .memory:
+            ReadingCell(
+                value: menuBar.ramPressureLabel,
+                label: String(localized: "memory", comment: "Caption under the memory-pressure reading."),
+                emphasis: emphasis,
+                helpText: String(localized: "Open Performance")
+            ) { openSection(.performance) }
+            .accessibilityIdentifier("menuBar.reading.memory")
+        case .cpu:
+            ReadingCell(
+                value: menuBar.formattedCPU,
+                label: String(localized: "CPU", comment: "Caption under the CPU-load reading."),
+                emphasis: emphasis,
+                helpText: cpuHelp
+            ) { openSection(.healthMonitor) }
+            .accessibilityIdentifier("menuBar.reading.cpu")
+        }
+    }
+
+    /// The CPU temperature, when the SMC reports one, rides in the tooltip
+    /// rather than crowding the number.
+    private var cpuHelp: String {
+        guard let temp = menuBar.cpuTemperature else { return String(localized: "Open Health Monitor") }
+        return "\(temp) — " + String(localized: "Open Health Monitor")
+    }
+
+    // MARK: - Primary button
+
+    private var primaryAction: MenuBarViewModel.PrimaryAction {
+        MenuBarViewModel.primaryAction(
+            protection: protectionStatus,
+            scanActivity: scanActivity,
+            disk: menuBar.diskStats,
+            pressure: menuBar.ramPressureLevel,
+            lastScanDate: malware.lastScanDate,
+            flushState: menuBar.memoryFlushState
+        )
+    }
+
+    /// The panel's one button. Urgent fixes fill in the alert colour, a
+    /// suggestion in the accent, and the all-clear and a running scan are
+    /// quiet glass.
+    @ViewBuilder
+    private var primaryButton: some View {
+        let action = primaryAction
+        let label = HStack(spacing: 8) {
+            if action.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            }
+            Text(action.label)
+        }
+        switch action.style {
+        case .urgent, .suggested:
+            Button { perform(action.kind) } label: { label }
+                .buttonStyle(.vaderProminent)
+                // The prominent style fills with the section accent from the
+                // environment; hand it the action's colour so urgency reads in
+                // the button itself.
+                .environment(\.sectionAccent, buttonColor(for: action))
+                .controlSize(.large)
+                .accessibilityIdentifier("menuBar.primaryAction")
+        case .quiet:
+            Button { perform(action.kind) } label: { label }
+                .buttonStyle(.vaderGlass)
+                .controlSize(.large)
+                .accessibilityIdentifier("menuBar.primaryAction")
+        }
+    }
+
+    private func buttonColor(for action: MenuBarViewModel.PrimaryAction) -> Color {
+        switch action.style {
+        case .urgent:
+            if case .open(.threats, _) = action.kind { return .red }
+            return .orange
+        case .suggested, .quiet:
+            return healthAccent
+        }
+    }
+
+    // MARK: - Other issues
+
+    /// Issues behind the worst one, as quiet links, so fixing one never
+    /// reveals another that was hidden.
+    @ViewBuilder
+    private var otherIssues: some View {
+        let rest = attention.dropFirst()
+        if !rest.isEmpty {
+            VStack(spacing: 6) {
+                ForEach(Array(rest), id: \.target) { step in
+                    IssueLink(step: step, color: step.target == .threats ? .red : .orange) {
+                        perform(step)
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("menuBar.otherIssues")
+        }
+    }
+
+    // MARK: - Actions
+
+    private func perform(_ kind: MenuBarViewModel.PrimaryAction.Kind) {
+        switch kind {
+        case .open(let target, let startsScan):
+            openSection(Self.section(for: target), startScan: startsScan)
+        case .flushMemory:
+            Task { await menuBar.flushMemory() }
+        case .showScan(let activity):
+            openSection(activity == .threatScan ? .malwareRemoval : .smartScan)
+        }
+    }
+
+    /// A step's fix: critical memory is purged in place, anything else opens
+    /// the section that owns it.
+    private func perform(_ step: MenuBarViewModel.NextStep) {
+        if step.target == .performance {
+            perform(.flushMemory)
+        } else {
+            perform(.open(step.target, startsScan: step.startsScan))
+        }
     }
 
     /// Maps the view-model's framework-free step target onto the app's
-    /// navigation sections and deep-links there.
-    private func open(_ step: MenuBarViewModel.NextStep) {
-        let section: NavigationSection
-        switch step.target {
-        case .smartScan:   section = .smartScan
-        case .cleanup:     section = .systemJunk
-        case .performance: section = .performance
-        case .threats:     section = .malwareRemoval
-        }
-        openSection(section, startScan: step.startsScan)
-    }
-
-    // MARK: - Vitals checklist
-
-    /// Status dot for the Protection row, or `nil` mid-scan (the action card
-    /// is already narrating the activity).
-    private var protectionDot: StatusColor? {
-        switch protectionStatus {
-        case .protected:    return .green
-        case .threatsFound: return .red
-        case .notScanned:   return .gray
-        case .scanning:     return nil
-        }
-    }
-
-    /// Dive zone: one card of scannable rows — icon chip in the destination
-    /// section's hue, plain value, status dot, chevron. Rows deep-link; the
-    /// inline links are reserved for actions that finish right in the panel
-    /// (memory purge, speed test, eject).
-    private var vitalsCard: some View {
-        // Dividers are emitted before each row after the first, so hiding any
-        // combination of rows can never leave a stray or doubled separator.
-        VStack(spacing: 0) {
-            ForEach(visibleRows) { row in
-                if row != visibleRows.first { rowDivider }
-                vitalRow(for: row)
-            }
-        }
-        .padding(.vertical, 2)
-        .background(.white.opacity(0.05), in: .rect(cornerRadius: 14))
-    }
-
-    /// The rows the user has left switched on, in their fixed display order.
-    private var visibleRows: [MenuBarPanelRow] {
-        MenuBarPanelRow.allCases.filter { preferences.isPanelRowEnabled($0) }
-    }
-
-    @ViewBuilder
-    private func vitalRow(for row: MenuBarPanelRow) -> some View {
-        switch row {
-        case .protection:
-            VitalRow(
-                icon: "shield.lefthalf.filled",
-                iconTint: NavigationSection.malwareRemoval.iconAccent,
-                title: String(localized: "Protection"),
-                value: MenuBarViewModel.protectionStatusLabel(protectionStatus),
-                status: protectionDot,
-                open: { openSection(.malwareRemoval) },
-                helpText: String(localized: "Open Protection")
-            )
-        case .storage:
-            VitalRow(
-                icon: "internaldrive",
-                iconTint: NavigationSection.systemJunk.iconAccent,
-                title: String(localized: "Storage"),
-                value: storageValue,
-                status: MenuBarViewModel.diskStatusColor(menuBar.diskStats),
-                open: { openSection(.systemJunk) },
-                helpText: String(localized: "Open Cleanup")
-            )
-        case .memory:
-            VitalRow(
-                icon: "memorychip",
-                iconTint: NavigationSection.performance.iconAccent,
-                title: String(localized: "Memory"),
-                value: menuBar.ramPressureLabel,
-                status: menuBar.ramPressureColor,
-                inlineControl: { AnyView(memoryFlushControl) },
-                open: { openSection(.performance) },
-                helpText: String(localized: "Open Performance")
-            )
-        case .cpu:
-            VitalRow(
-                icon: "cpu",
-                iconTint: healthAccent,
-                title: String(localized: "CPU"),
-                value: cpuValue,
-                status: menuBar.cpuLoadColor,
-                open: { openSection(.healthMonitor) },
-                helpText: String(localized: "Open Health Monitor")
-            )
-        case .network:
-            networkRow
-        case .devices:
-            devicesRows
-        }
-    }
-
-    private var rowDivider: some View {
-        Divider()
-            .overlay(.white.opacity(0.06))
-            .padding(.leading, 46)
-    }
-
-    /// "679 GB free" — free space is the number an ordinary person actually
-    /// wants; the volume name rides in the row's tooltip.
-    private var storageValue: String {
-        let format = String(
-            localized: "%@ free",
-            comment: "Storage row value; %@ is the free-space amount."
-        )
-        return String(format: format, menuBar.availableDiskSpace)
-    }
-
-    /// "23%" or "23% · 50°C" when the SMC reports a temperature.
-    private var cpuValue: String {
-        if let temp = menuBar.cpuTemperature {
-            return "\(menuBar.formattedCPU) · \(temp)"
-        }
-        return menuBar.formattedCPU
-    }
-
-    /// The Memory row's inline action: purges inactive RAM through the
-    /// privileged helper right from the panel — no main-window round trip —
-    /// with a spinner in flight, a confirmation once done (clickable to purge
-    /// again), and an orange retry after a failure.
-    @ViewBuilder
-    private var memoryFlushControl: some View {
-        switch menuBar.memoryFlushState {
-        case .running:
-            ProgressView().controlSize(.small)
-        case .idle, .flushed, .failed:
-            if let label = MenuBarViewModel.memoryFlushLabel(for: menuBar.memoryFlushState) {
-                MenuActionLink(
-                    label: label,
-                    color: menuBar.memoryFlushState == .failed ? .orange : nil
-                ) {
-                    Task { await menuBar.flushMemory() }
-                }
-                .help("Purge inactive memory")
-            }
-        }
-    }
-
-    // MARK: - Network + devices
-
-    /// The Wi-Fi row: two lines rather than one. The first carries the title,
-    /// the SSID, and the in-panel speed test; the throughput pair gets its own
-    /// line below, so the tick-updating readings can never squeeze the title
-    /// (only the SSID ever truncates). Not a deep link — there is no network
-    /// section to open.
-    private var networkRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                VitalRow.iconChip(icon: "wifi", tint: NavigationSection.spaceLens.iconAccent)
-                Text("Wi-Fi")
-                    .font(.subheadline.weight(.semibold))
-                    .layoutPriority(1)
-                Text(menuBar.wifiNetworkName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                speedTestControl
-                    .layoutPriority(1)
-            }
-            HStack(spacing: 12) {
-                throughputReading(symbol: "arrow.down", value: menuBar.networkDownString)
-                throughputReading(symbol: "arrow.up", value: menuBar.networkUpString)
-                Spacer(minLength: 0)
-            }
-            // Aligns the readings with the title text (chip width + spacing).
-            .padding(.leading, 36)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-    }
-
-    private func throughputReading(symbol: String, value: String) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .animation(VaderMotion.telemetry, value: value)
-                // Reserve room for a three-digit rate ("999 KB/s") so the
-                // row doesn't reflow every time the reading changes width
-                // on the 2-second refresh.
-                .frame(minWidth: 58, alignment: .leading)
-        }
-    }
-
-    @ViewBuilder
-    private var speedTestControl: some View {
-        switch menuBar.speedTestState {
-        case .idle:
-            MenuActionLink(label: String(localized: "Test Speed")) { Task { await menuBar.runSpeedTest() } }
-        case .running:
-            ProgressView().controlSize(.small)
-        case .result(let mbps):
-            MenuActionLink(label: MenuBarViewModel.speedTestResultString(mbps)) { Task { await menuBar.runSpeedTest() } }
-                .help("Measured download speed — click to test again")
-        case .failed:
-            MenuActionLink(label: String(localized: "Retry"), color: .orange) { Task { await menuBar.runSpeedTest() } }
-        }
-    }
-
-    /// Connected devices ride under the Wi-Fi row as compact sub-rows —
-    /// both are "what's attached to this Mac" facts. At most three, with an
-    /// explicit overflow line so the list never truncates silently.
-    @ViewBuilder
-    private var devicesRows: some View {
-        if !connectedDevices.devices.isEmpty {
-            let shown = connectedDevices.devices.prefix(3)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(shown) { device in
-                    deviceRow(device)
-                }
-                if let overflow = MenuBarViewModel.hiddenDevicesLabel(
-                    total: connectedDevices.devices.count,
-                    shown: shown.count
-                ) {
-                    Text(overflow)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.leading, 46)
-            .padding(.trailing, 12)
-            .padding(.bottom, 9)
-        }
-    }
-
-    private func deviceRow(_ device: ConnectedDevice) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: device.kind == .bluetooth ? "dot.radiowaves.left.and.right" : "externaldrive")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(device.name)
-                .font(.caption)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                // Long names middle-truncate; the tooltip carries the full name.
-                .help(device.name)
-            Spacer(minLength: 0)
-            if let battery = device.batteryPercent {
-                Text("\(battery)%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if device.kind == .volume {
-                Button {
-                    connectedDevices.eject(device)
-                } label: {
-                    Image(systemName: "eject.fill")
-                        .font(.caption2)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                .help("Eject \(device.name)")
-            }
-        }
-    }
-
-    // MARK: - Section chips
-
-    /// The sections the cards above don't already cover, as four quiet chips
-    /// — the rest of the app stays one click away without a wall of icons.
-    /// Order follows the rail.
-    private static let chipSections: [NavigationSection] = [
-        .smartScan, .largeOldFiles, .applications, .spaceLens
-    ]
-
-    private var sectionChips: some View {
-        HStack(spacing: 6) {
-            ForEach(Self.chipSections) { section in
-                SectionChip(section: section) { openSection(section) }
-            }
+    /// navigation sections.
+    static func section(for target: MenuBarViewModel.NextStep.Target) -> NavigationSection {
+        switch target {
+        case .smartScan:   return .smartScan
+        case .cleanup:     return .systemJunk
+        case .performance: return .performance
+        case .threats:     return .malwareRemoval
         }
     }
 
@@ -631,7 +388,6 @@ struct MenuBarContent: View {
                 HStack(spacing: 6) {
                     Text("Open VaderCleaner")
                     Text(verbatim: "⌘O")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -655,7 +411,6 @@ struct MenuBarContent: View {
                 HStack(spacing: 6) {
                     Text("Quit")
                     Text(verbatim: "⌘Q")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -663,6 +418,9 @@ struct MenuBarContent: View {
             .keyboardShortcut("q")
             .help("Quit VaderCleaner (⌘Q)")
         }
+        // Chrome, not content: a step smaller than the readings above.
+        .font(.caption)
+        .foregroundStyle(.white.opacity(0.8))
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
@@ -684,169 +442,145 @@ struct MenuBarContent: View {
     }
 }
 
-/// Maps the view-model's framework-free `StatusColor` to a SwiftUI `Color`.
-/// File-level so the panel and its private rows share one mapping.
-private func swiftUIColor(for status: StatusColor) -> Color {
-    switch status {
-    case .green: return .green
-    case .yellow: return .yellow
-    case .red: return .red
-    case .gray: return .gray
-    }
-}
-
-/// One vitals row: an icon chip in the destination section's hue, the vital's
-/// name, an optional inline control, a plain-language value with a status
-/// dot, and a chevron. The informational area is its own button (sibling of
-/// the inline control, never its ancestor) so each control resolves clicks
-/// cleanly.
-private struct VitalRow: View {
-    let icon: String
-    let iconTint: Color
-    let title: String
-    /// Plain-language reading, e.g. "679 GB free", "Normal", "23%".
-    let value: String
-    var status: StatusColor?
-    /// Optional trailing control that acts right in the panel (memory purge).
-    var inlineControl: (() -> AnyView)?
-    /// Whole-row deep link into the section that owns this reading.
-    let open: () -> Void
-    let helpText: String
-
-    @State private var hovered = false
+/// The verdict as a shape: a ring that fills with the Mac's health in the
+/// verdict's colour, with the verdict's symbol at its centre — a spinner
+/// while the first reading is measured, and a breathing shield while a scan
+/// runs.
+private struct VerdictRing: View {
+    let fraction: Double
+    let tone: MenuBarViewModel.PanelVerdict.Tone
+    let color: Color
+    let isScanning: Bool
 
     var body: some View {
-        // Two sibling deep-link buttons flank the optional inline control so
-        // the control can sit between the name and the reading (never past
-        // the chevron) while every control still resolves clicks cleanly.
-        HStack(spacing: 8) {
-            Button(action: open) {
-                HStack(spacing: 10) {
-                    Self.iconChip(icon: icon, tint: iconTint)
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(helpText)
-            if let inlineControl {
-                inlineControl()
-            }
-            Button(action: open) {
-                HStack(spacing: 8) {
-                    // No scale factor: a squeezed pass would shrink the text
-                    // and the smaller size tends to stick, so the reading
-                    // keeps its size and the row title truncates instead
-                    // (see the outer button's layout priority).
-                    Text(value)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
-                        // Live values roll to their next reading instead of
-                        // blinking on the 2-second refresh.
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .animation(VaderMotion.telemetry, value: value)
-                    if let status {
-                        Circle()
-                            .fill(swiftUIColor(for: status))
-                            .frame(width: 7, height: 7)
-                            // The dot is color-only; VoiceOver speaks its
-                            // meaning instead.
-                            .accessibilityLabel(MenuBarViewModel.statusAccessibilityLabel(for: status))
-                    }
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(hovered ? 0.7 : 0.3))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(helpText)
-            // The reading side wins the width contest so tick updates never
-            // compress (and rescale) the value text.
-            .layoutPriority(1)
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.1), lineWidth: 8)
+            Circle()
+                .trim(from: 0, to: max(0, min(1, fraction)))
+                .stroke(color, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            centre
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color.white.opacity(hovered ? 0.05 : 0))
-        .onHover { hovered = $0 }
-        .animation(VaderMotion.hover, value: hovered)
+        .frame(width: 84, height: 84)
+        .animation(VaderMotion.telemetry, value: fraction)
+        .animation(VaderMotion.telemetry, value: tone)
+        // Decorative beside the headline; VoiceOver reads the words.
+        .accessibilityHidden(true)
     }
 
-    /// The 26pt rounded icon chip shared by the vitals rows and the Wi-Fi
-    /// row: the section hue as a soft fill under its glyph, quietly teaching
-    /// the app's colour map.
-    static func iconChip(icon: String, tint: Color) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 26, height: 26)
-            .background(tint.opacity(0.16), in: .rect(cornerRadius: 7))
+    @ViewBuilder
+    private var centre: some View {
+        if isScanning {
+            Image(systemName: "shield")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(color)
+                // Motion as meaning: the shield breathes only while a scan
+                // is actually running.
+                .symbolEffect(.pulse, isActive: true)
+        } else {
+            switch tone {
+            case .measuring:
+                ProgressView().controlSize(.small)
+            case .good:
+                Image(systemName: "checkmark")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(color)
+            case .caution:
+                Image(systemName: "exclamationmark")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(color)
+            case .alert:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(color)
+            }
+        }
     }
 }
 
-/// One quiet section chip: the section's SF Symbol in its own hue over a
-/// short label, deep-linking into that section. Brightens under the pointer
-/// like the panel's other surfaces.
-private struct SectionChip: View {
-    let section: NavigationSection
+/// One reading: the number in large rounded type over a one-word caption,
+/// deep-linking into the section that owns it. Coloured only when it is the
+/// subject of an issue.
+private struct ReadingCell: View {
+    let value: String
+    let label: String
+    let emphasis: Color?
+    let helpText: String
     let open: () -> Void
 
     @State private var hovered = false
 
     var body: some View {
         Button(action: open) {
-            VStack(spacing: 4) {
-                Image(systemName: section.icon)
-                    .font(.callout)
-                    .foregroundStyle(section.iconAccent)
-                // Fixed size, no scale factor: scaled text tends to stick at
-                // the smaller size after any squeezed layout pass, making the
-                // chips' labels drift between renders.
-                Text(section.title)
+            VStack(spacing: 2) {
+                // No scale factor: a squeezed pass would shrink the text and
+                // the smaller size tends to stick, so the reading truncates
+                // instead.
+                Text(value)
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                    .foregroundStyle(emphasis ?? .white)
+                    .lineLimit(1)
+                    // Live values roll to their next reading instead of
+                    // blinking on the refresh.
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .animation(VaderMotion.telemetry, value: value)
+                Text(label)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
             }
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 2)
-            .background(.white.opacity(hovered ? 0.1 : 0.05), in: .rect(cornerRadius: 10))
+            .background(.white.opacity(hovered ? 0.06 : 0), in: .rect(cornerRadius: 8))
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+        .onHover { hovered = $0 }
+        .animation(VaderMotion.hover, value: hovered)
+        .help(helpText)
+    }
+}
+
+/// A further issue beneath the button: a coloured dot, its title, and a
+/// chevron, in caption weight so it never competes with the primary fix.
+private struct IssueLink: View {
+    let step: MenuBarViewModel.NextStep
+    let color: Color
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                Text(step.title)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(step.actionLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(hovered ? 0.8 : 0.4))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.white.opacity(hovered ? 0.08 : 0.04), in: .rect(cornerRadius: 8))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .animation(VaderMotion.hover, value: hovered)
-        .help(section.title)
-    }
-}
-
-/// Caption-weight link used for inline row actions ("Free Memory", "Test
-/// Speed"): underlines under the pointer and pads its hit target beyond the
-/// bare text.
-private struct MenuActionLink: View {
-    let label: String
-    var color: Color?
-    let action: () -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(color.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.tint))
-                .underline(hovered)
-                .padding(.vertical, 3)
-                .padding(.horizontal, 4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .animation(VaderMotion.hover, value: hovered)
+        .help(step.detail)
     }
 }
 
@@ -855,7 +589,8 @@ private struct MenuActionLink: View {
     let prefs = PreferencesStore(defaults: previewDefaults)
     return MenuBarContent()
         .environment(MenuBarViewModel(service: SystemStatsService(autostart: false)))
-        .environment(ConnectedDevicesMonitor(autoRefresh: false))
+        .environment(prefs)
+        .environment(SystemStatsService(autostart: false))
         .environment(MalwareViewModel.live(
             dispatcher: NotificationManager(),
             preferences: prefs,

@@ -8,7 +8,7 @@ import Foundation
 /// We deliberately don't use `SwiftUI.Color` here so view-models and their
 /// tests stay free of SwiftUI imports. The view layer maps `StatusColor` to
 /// `Color` once at the leaf.
-public enum StatusColor: Equatable {
+public enum StatusColor: Equatable, Sendable {
     case green
     case yellow
     case red

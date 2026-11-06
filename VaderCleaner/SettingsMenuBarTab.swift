@@ -74,7 +74,7 @@ struct MenuBarTab: View {
                 } header: {
                     Text("In the panel")
                 } footer: {
-                    Text("Clicking the icon opens a panel with these rows. Hide the ones you don't need — Wi-Fi & network needs Location access to name your network, so it's worth turning off if you'd rather not grant that.")
+                    Text("Clicking the icon opens a panel with your Mac's verdict, these readings beneath it, and Protection beside the last scan. Anything that needs your attention always shows, whatever you hide here.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

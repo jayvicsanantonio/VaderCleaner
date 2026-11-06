@@ -5,8 +5,6 @@ import Foundation
 import Darwin
 import IOKit
 import IOKit.ps
-import CoreWLAN
-import CoreLocation
 import Observation
 import os.log
 
@@ -157,22 +155,6 @@ public enum FileVaultState: Equatable, Sendable {
     case on
 }
 
-/// Cumulative interface byte counters (since boot), summed across all active
-/// non-loopback interfaces. Diffed between ticks to derive throughput.
-struct NetworkCounters: Equatable {
-    let bytesIn: UInt64
-    let bytesOut: UInt64
-    static let zero = NetworkCounters(bytesIn: 0, bytesOut: 0)
-}
-
-/// Instantaneous network throughput in bytes per second, for the menu's
-/// network tile.
-struct NetworkThroughput: Equatable {
-    let bytesInPerSec: Double
-    let bytesOutPerSec: Double
-    static let zero = NetworkThroughput(bytesInPerSec: 0, bytesOutPerSec: 0)
-}
-
 // MARK: - SystemStatsService
 
 /// Publishes live system-health readings on a polling timer.
@@ -219,12 +201,6 @@ public final class SystemStatsService {
     private(set) var batteryCharge: BatteryCharge?
     private(set) var diskSMARTStatus: SMARTStatus = .unknown
     private(set) var fileVaultState: FileVaultState = .unknown
-    /// Live network throughput (bytes/sec in and out). `.zero` until two
-    /// samples exist to diff.
-    private(set) var networkThroughput: NetworkThroughput = .zero
-    /// Current Wi-Fi network name, or `nil` when not on Wi-Fi or Location
-    /// Services has not authorized reading it (macOS 14+ gates the SSID).
-    private(set) var wifiSSID: String?
     /// Best-effort CPU temperature in °C from the SMC, or `nil` when no sensor
     /// is readable on this hardware (SMC keys are chip-specific — `nil` is the
     /// normal "unavailable" case, not an error).
@@ -286,23 +262,9 @@ public final class SystemStatsService {
     /// the first `refresh()` seeds it and publishes `cpuUsage = 0`.
     @ObservationIgnored private var previousCPUTotals: CPUTotals?
 
-    /// Previous network counters + sample time for throughput delta computation.
-    /// `nil` until the first sample, which seeds the baseline and reports zero.
-    @ObservationIgnored private var previousNetworkCounters: NetworkCounters?
-    @ObservationIgnored private var previousNetworkSampleTime: Date?
-
     /// Best-effort SMC temperature reader. `nil` on hardware where the SMC
     /// user client can't be opened; reads then simply report no temperature.
     @ObservationIgnored private lazy var smcReader = SMCReader()
-
-    /// Requests Location authorization (required to read the Wi-Fi SSID on
-    /// macOS 14+) and re-reads the SSID promptly once it is granted.
-    @ObservationIgnored private lazy var locationAuthorizer = LocationAuthorizer { [weak self] in
-        Task { @MainActor in
-            guard let self else { return }
-            self.wifiSSID = self.readWiFiSSID()
-        }
-    }
 
     // MARK: Init / lifecycle
 
@@ -317,7 +279,7 @@ public final class SystemStatsService {
     /// Registers interest in live stats, starting the timers if they weren't
     /// already running. Balance every call with `endUpdates()`.
     ///
-    /// Sampling RAM, disk, CPU and network every couple of seconds is not free
+    /// Sampling RAM, disk, and CPU every couple of seconds is not free
     /// on battery, and for most of the app's life nothing is displaying the
     /// result — the window is closed and the menu bar shows a static icon.
     /// Gating on real observers is what keeps that cost proportional.
@@ -371,9 +333,6 @@ public final class SystemStatsService {
     func start() {
         stop()
         isStopped = false
-        // Ask for Location once on start — the Wi-Fi SSID is gated behind it on
-        // macOS 14+. Reading throughput and everything else works regardless.
-        locationAuthorizer.requestIfNeeded()
         // Add to `.common` mode so the timer keeps firing while AppKit is in a
         // tracking mode (menu bar popover open, scrollbar drag, etc.). With
         // the default mode the cheap-stats publisher would freeze the moment
@@ -431,8 +390,6 @@ public final class SystemStatsService {
         diskSpace = readDiskStats()
         batteryAvailability = readBatteryAvailability()
         batteryCharge = readBatteryCharge()
-        networkThroughput = readNetworkThroughput()
-        wifiSSID = readWiFiSSID()
         cpuTemperatureCelsius = smcReader?.cpuTemperatureCelsius()
     }
 
@@ -796,76 +753,6 @@ public final class SystemStatsService {
         return celsius
     }
 
-    // MARK: Network
-
-    /// Samples the interface byte counters and returns the throughput against
-    /// the previous sample. The first call seeds the baseline and returns
-    /// `.zero` because there is nothing to diff against.
-    private func readNetworkThroughput() -> NetworkThroughput {
-        let current = readNetworkCounters()
-        let now = Date()
-        defer {
-            previousNetworkCounters = current
-            previousNetworkSampleTime = now
-        }
-        guard
-            let previous = previousNetworkCounters,
-            let previousTime = previousNetworkSampleTime
-        else { return .zero }
-        return Self.throughput(previous: previous, current: current, interval: now.timeIntervalSince(previousTime))
-    }
-
-    /// Current Wi-Fi SSID via CoreWLAN. Returns `nil` when not associated to a
-    /// network, or when Location authorization has not been granted — macOS 14+
-    /// returns `nil` from `ssid()` until the app holds Location access.
-    private func readWiFiSSID() -> String? {
-        CWWiFiClient.shared().interface()?.ssid()
-    }
-
-    /// Sums `ifi_ibytes` / `ifi_obytes` across all active non-loopback link-layer
-    /// interfaces via `getifaddrs`. Cumulative since boot; the caller diffs.
-    private func readNetworkCounters() -> NetworkCounters {
-        var addrs: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addrs) == 0, let first = addrs else { return .zero }
-        defer { freeifaddrs(addrs) }
-
-        var totalIn: UInt64 = 0
-        var totalOut: UInt64 = 0
-        var node: UnsafeMutablePointer<ifaddrs>? = first
-        while let current = node {
-            defer { node = current.pointee.ifa_next }
-            guard
-                let addr = current.pointee.ifa_addr,
-                addr.pointee.sa_family == UInt8(AF_LINK)
-            else { continue }
-            // Loopback traffic isn't real network activity — skip it.
-            if String(cString: current.pointee.ifa_name) == "lo0" { continue }
-            guard let data = current.pointee.ifa_data else { continue }
-            let stats = data.assumingMemoryBound(to: if_data.self)
-            totalIn += UInt64(stats.pointee.ifi_ibytes)
-            totalOut += UInt64(stats.pointee.ifi_obytes)
-        }
-        return NetworkCounters(bytesIn: totalIn, bytesOut: totalOut)
-    }
-
-    /// Bytes-per-second throughput from two cumulative counter samples. Guards
-    /// against a non-positive interval and against counter resets / wraps
-    /// (a smaller "current" than "previous" yields zero rather than a huge
-    /// spike).
-    static func throughput(
-        previous: NetworkCounters,
-        current: NetworkCounters,
-        interval: TimeInterval
-    ) -> NetworkThroughput {
-        guard interval > 0 else { return .zero }
-        let inDelta = current.bytesIn >= previous.bytesIn ? current.bytesIn - previous.bytesIn : 0
-        let outDelta = current.bytesOut >= previous.bytesOut ? current.bytesOut - previous.bytesOut : 0
-        return NetworkThroughput(
-            bytesInPerSec: Double(inDelta) / interval,
-            bytesOutPerSec: Double(outDelta) / interval
-        )
-    }
-
     /// Thin wrapper around `IORegistryEntryCreateCFProperty` that returns the
     /// CF object as `Any?`. Centralised so each property read above is one
     /// line and we don't repeat the bridging dance.
@@ -1027,36 +914,6 @@ public final class SystemStatsService {
             os_log("fdesetup invocation failed: %{private}@",
                    log: log, type: .error, error.localizedDescription)
             return nil
-        }
-    }
-}
-
-/// Minimal CoreLocation authorization shim. Reading the Wi-Fi SSID on macOS 14+
-/// requires the app to hold Location authorization; this requests it once and
-/// notifies when it's granted so the caller can re-read the SSID.
-private final class LocationAuthorizer: NSObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-    private let onAuthorized: () -> Void
-
-    init(onAuthorized: @escaping () -> Void) {
-        self.onAuthorized = onAuthorized
-        super.init()
-        manager.delegate = self
-    }
-
-    /// Prompts for authorization only when the user hasn't decided yet.
-    func requestIfNeeded() {
-        if manager.authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        }
-    }
-
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        switch manager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            onAuthorized()
-        default:
-            break
         }
     }
 }
