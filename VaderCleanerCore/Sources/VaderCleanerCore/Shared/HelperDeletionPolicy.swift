@@ -29,7 +29,6 @@ struct HelperDeletionPolicy {
         allowedDescendantRoots: [
             URL(fileURLWithPath: "/Library/Caches", isDirectory: true),
             URL(fileURLWithPath: "/Library/Logs", isDirectory: true),
-            URL(fileURLWithPath: "/private/var/folders", isDirectory: true),
             // System-wide Mail plugins and internet plug-ins removed by the
             // Extensions Manager. Narrowly scoped to these two product
             // directories — the helper still refuses anything else under
@@ -57,7 +56,10 @@ struct HelperDeletionPolicy {
         volumesRoot: URL(fileURLWithPath: "/Volumes", isDirectory: true),
         // Saved document revisions. Only the per-user folder: the store's
         // database beside it is what makes the rest of the store readable.
-        documentRevisionsRoot: URL(fileURLWithPath: kDocumentVersionsRevisionsPath, isDirectory: true)
+        documentRevisionsRoot: URL(fileURLWithPath: kDocumentVersionsRevisionsPath, isDirectory: true),
+        // Each account's caches and temporary files live in its own
+        // `<xx>/<id>` folder here, which that account owns.
+        perUserTemporaryRoot: URL(fileURLWithPath: "/private/var/folders", isDirectory: true)
     )
 
     private let allowedDescendantRoots: [URL]
@@ -67,6 +69,7 @@ struct HelperDeletionPolicy {
     private let allowedApplicationBundleRoots: [URL]
     private let volumesRoot: URL
     private let documentRevisionsRoot: URL?
+    private let perUserTemporaryRoot: URL?
 
     init(
         allowedDescendantRoots: [URL],
@@ -75,7 +78,8 @@ struct HelperDeletionPolicy {
         allowedLanguageResourceRoots: [URL],
         allowedApplicationBundleRoots: [URL] = [],
         volumesRoot: URL,
-        documentRevisionsRoot: URL? = nil
+        documentRevisionsRoot: URL? = nil,
+        perUserTemporaryRoot: URL? = nil
     ) {
         self.allowedDescendantRoots = allowedDescendantRoots.map(Self.canonicalRoot)
         self.allowedLaunchPlistRoots = allowedLaunchPlistRoots.map(Self.canonicalRoot)
@@ -84,11 +88,13 @@ struct HelperDeletionPolicy {
         self.allowedApplicationBundleRoots = allowedApplicationBundleRoots.map(Self.canonicalRoot)
         self.volumesRoot = Self.canonicalRoot(volumesRoot)
         self.documentRevisionsRoot = documentRevisionsRoot.map(Self.canonicalRoot)
+        self.perUserTemporaryRoot = perUserTemporaryRoot.map(Self.canonicalRoot)
     }
 
     /// Checks a path against the allowlist. `callerUID` is the connecting
-    /// client's user id, which only saved document revisions depend on: they
-    /// belong to one account, so an unknown caller is refused them.
+    /// client's user id. Saved document revisions, user LaunchAgents, per-volume
+    /// Trash and per-user temporary folders each belong to one account, so they
+    /// are only allowed for that account, and an unknown caller is refused them.
     func validateDeletionPath(_ path: String, callerUID: uid_t? = nil) throws -> URL {
         guard !path.isEmpty else { throw HelperDeletionValidationError.emptyPath }
         guard (path as NSString).isAbsolutePath else {
@@ -175,10 +181,13 @@ struct HelperDeletionPolicy {
         if allowedDescendantRoots.contains(where: { Self.isDescendant(url, of: $0) }) {
             return true
         }
-        if isAllowedLaunchPlist(url) {
+        if isAllowedPerUserTemporaryItem(url, callerUID: callerUID) {
             return true
         }
-        if isAllowedVolumeTrashDescendant(url) {
+        if isAllowedLaunchPlist(url, callerUID: callerUID) {
+            return true
+        }
+        if isAllowedVolumeTrashDescendant(url, callerUID: callerUID) {
             return true
         }
         if isAllowedLanguageResource(url) {
@@ -225,13 +234,27 @@ struct HelperDeletionPolicy {
         return relative.count >= 2 && relative[0] == String(callerUID)
     }
 
-    private func isAllowedVolumeTrashDescendant(_ url: URL) -> Bool {
-        guard Self.isDescendant(url, of: volumesRoot) else { return false }
+    /// Something inside `<root>/<xx>/<id>/` when the caller owns `<id>`. The
+    /// `<id>` folder itself stays, like the levels above it.
+    private func isAllowedPerUserTemporaryItem(_ url: URL, callerUID: uid_t?) -> Bool {
+        guard let perUserTemporaryRoot, let callerUID,
+              Self.isDescendant(url, of: perUserTemporaryRoot) else { return false }
+        let relative = Self.relativeComponents(of: url, under: perUserTemporaryRoot)
+        guard relative.count >= 3 else { return false }
+        let accountFolder = perUserTemporaryRoot
+            .appendingPathComponent(relative[0], isDirectory: true)
+            .appendingPathComponent(relative[1], isDirectory: true)
+        return Self.isDirectory(accountFolder, ownedBy: callerUID)
+    }
+
+    private func isAllowedVolumeTrashDescendant(_ url: URL, callerUID: uid_t?) -> Bool {
+        guard let callerUID, Self.isDescendant(url, of: volumesRoot) else { return false }
         let relative = Self.relativeComponents(of: url, under: volumesRoot)
-        // Require /Volumes/<volume>/.Trashes/<uid>/<item> so neither the
-        // .Trashes root nor a user's trash directory can be deleted.
+        // Require /Volumes/<volume>/.Trashes/<caller uid>/<item> so neither the
+        // .Trashes root, a user's trash directory, nor another account's trash
+        // can be deleted.
         guard relative.count >= 4 else { return false }
-        return relative[1] == ".Trashes" && !relative[2].isEmpty
+        return relative[1] == ".Trashes" && relative[2] == String(callerUID)
     }
 
     /// Anything under the machine-wide launch directories: a malware scan covers
@@ -239,14 +262,14 @@ struct HelperDeletionPolicy {
     /// subfolder, and refusing those left them impossible to remove. launchd only
     /// loads plists directly inside these folders, so nothing else here is a job
     /// another app's install depends on.
-    private func isAllowedLaunchPlist(_ url: URL) -> Bool {
+    private func isAllowedLaunchPlist(_ url: URL, callerUID: uid_t?) -> Bool {
         if allowedLaunchPlistRoots.contains(where: { Self.isDescendant(url, of: $0) }) {
             return true
         }
         guard Self.pathExtension(of: url.lastPathComponent).caseInsensitiveCompare("plist") == .orderedSame else {
             return false
         }
-        return isAllowedUserLaunchAgent(url)
+        return isAllowedUserLaunchAgent(url, callerUID: callerUID)
     }
 
     /// The paths in a deletion request that define a system launch daemon. Its
@@ -262,17 +285,23 @@ struct HelperDeletionPolicy {
         }
     }
 
-    private func isAllowedUserLaunchAgent(_ url: URL) -> Bool {
-        guard let allowedUserLaunchAgentsRoot,
+    /// A plist directly inside `<root>/<name>/Library/LaunchAgents` when the
+    /// caller owns the `<name>` home folder.
+    private func isAllowedUserLaunchAgent(_ url: URL, callerUID: uid_t?) -> Bool {
+        guard let allowedUserLaunchAgentsRoot, let callerUID,
               Self.isDescendant(url, of: allowedUserLaunchAgentsRoot) else {
             return false
         }
 
         let relative = Self.relativeComponents(of: url, under: allowedUserLaunchAgentsRoot)
-        return relative.count == 4
+        guard relative.count == 4
             && !relative[0].isEmpty
             && relative[1] == "Library"
-            && relative[2] == "LaunchAgents"
+            && relative[2] == "LaunchAgents" else {
+            return false
+        }
+        let home = allowedUserLaunchAgentsRoot.appendingPathComponent(relative[0], isDirectory: true)
+        return Self.isDirectory(home, ownedBy: callerUID)
     }
 
     private func isAllowedLanguageResource(_ url: URL) -> Bool {
@@ -392,6 +421,13 @@ struct HelperDeletionPolicy {
                 String(cString: $0)
             }
         }
+    }
+
+    /// Whether `url` is a real directory, not a symlink to one, owned by `uid`.
+    private static func isDirectory(_ url: URL, ownedBy uid: uid_t) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return isDirectoryMode(info.st_mode) && info.st_uid == uid
     }
 
     private static func isDirectoryMode(_ mode: mode_t) -> Bool {
