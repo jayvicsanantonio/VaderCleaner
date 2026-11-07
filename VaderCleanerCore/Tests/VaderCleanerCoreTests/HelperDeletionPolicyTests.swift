@@ -129,11 +129,12 @@ final class HelperDeletionPolicyTests: XCTestCase {
     }
 
     func test_productionPolicy_acceptsVarFoldersAlias() throws {
-        try XCTSkipUnless(FileManager.default.fileExists(atPath: "/var/folders"))
-        let path = "/var/folders/com.example/file.bin"
+        let temporaryPath = FileManager.default.temporaryDirectory.path
+        try XCTSkipUnless(temporaryPath.hasPrefix("/var/folders/"))
+        let path = temporaryPath + "/com.example/file.bin"
 
         XCTAssertEqual(
-            try HelperDeletionPolicy.production.validateDeletionPath(path).path,
+            try HelperDeletionPolicy.production.validateDeletionPath(path, callerUID: getuid()).path,
             URL(fileURLWithPath: path).standardizedFileURL.path
         )
     }
@@ -209,12 +210,13 @@ final class HelperDeletionPolicyTests: XCTestCase {
     }
 
     func test_validateDeletionPath_acceptsUserLaunchAgentPlist() throws {
-        let agent = usersRoot
-            .appendingPathComponent("alice", isDirectory: true)
+        let home = usersRoot.appendingPathComponent("alice", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let agent = home
             .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
             .appendingPathComponent("com.example.agent.plist")
 
-        XCTAssertEqual(try policy.validateDeletionPath(agent.path), agent.standardizedFileURL)
+        XCTAssertEqual(try policy.validateDeletionPath(agent.path, callerUID: getuid()), agent.standardizedFileURL)
     }
 
     /// A malware scan covers the system launch directories recursively, so a
@@ -273,7 +275,7 @@ final class HelperDeletionPolicyTests: XCTestCase {
             .appendingPathComponent("501", isDirectory: true)
             .appendingPathComponent("file.bin")
 
-        XCTAssertEqual(try policy.validateDeletionPath(url.path), url.standardizedFileURL)
+        XCTAssertEqual(try policy.validateDeletionPath(url.path, callerUID: 501), url.standardizedFileURL)
     }
 
     func test_validateDeletionPath_acceptsLanguageResourceFileInsideAppBundle() throws {
